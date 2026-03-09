@@ -19,37 +19,34 @@ def get_us_top_gainers(top_n=20):
         tables = pd.read_html(StringIO(response.text))
         df = tables[0]
         
-        # 쓸데없는 'Unnamed' 컬럼들 모두 삭제
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6].head(top_n)
         
-        # 실시간 원달러 환율 가져오기
         try:
             ex_rate_data = yf.Ticker("KRW=X").history(period="1d")
             ex_rate = ex_rate_data['Close'].iloc[-1]
         except:
             ex_rate = 1350.0 
             
-        # 💡 에러 해결: 가격 데이터에 섞인 다른 문자열들을 쳐내고 순수 가격만 추출
         price_col = [col for col in df.columns if 'Price' in col]
         if price_col:
             p_col = price_col[0]
             
             def format_price(x):
                 try:
-                    # '21.20 +8.42 (+65.88%)' 같은 문자열에서 띄어쓰기 기준 첫 번째(21.20)만 가져옴
                     clean_price_str = str(x).split()[0].replace(',', '')
                     val = float(clean_price_str)
                     return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
                 except:
-                    return str(x) # 변환 실패 시 원본 문자열 반환
+                    return str(x)
                     
             df[p_col] = df[p_col].apply(format_price)
             
-        return df
+        # 💡 개선: 환율 정보도 화면에 띄우기 위해 함께 반환합니다.
+        return df, ex_rate
     except Exception as e:
         st.error(f"데이터 수집 중 오류 발생: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), 1350.0
 
 korea_theme_mapping = {
     "Semiconductors": [("SK하이닉스", "000660"), ("삼성전자", "005930"), ("리노공업", "058470"), ("ISC", "095340"), ("DB하이텍", "000990")],
@@ -204,12 +201,19 @@ col1, col2 = st.columns([1, 1.2])
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('미국장 데이터를 불러오는 중입니다...'):
-        st.session_state.gainers_df = get_us_top_gainers(top_n)
+        # 💡 개선: 환율 값도 session_state에 저장
+        df, ex_rate = get_us_top_gainers(top_n)
+        st.session_state.gainers_df = df
+        st.session_state.ex_rate = ex_rate
 
 with col1:
     us_time = datetime.now() - timedelta(hours=14)
     us_date_str = us_time.strftime("%Y-%m-%d")
-    st.subheader(f"🔥 미국장 급등 종목 (기준: {us_date_str})")
+    
+    st.subheader(f"🔥 미국장 급등 종목")
+    # 💡 개선: 기준 날짜와 환율을 깔끔한 캡션(회색 작은 글씨)으로 분리해서 표시
+    current_ex_rate = st.session_state.get('ex_rate', 1350.0)
+    st.caption(f"**기준일:** {us_date_str} | **적용 환율:** 1달러 = {int(current_ex_rate):,}원")
     
     if not st.session_state.gainers_df.empty:
         st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
@@ -229,6 +233,15 @@ with col1:
 
 with col2:
     st.subheader("🎯 테마 매칭 및 타점 분석")
+    
+    # 💡 개선: 매매 신호 상태(아이콘) 범례 추가
+    st.info("""
+    **[매매 신호 상태 안내]**
+    * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
+    * ⚠️ **관심 집중:** 최근 급등하여 20일선과 벌어져 있습니다. (눌림목이 올 때까지 관망)
+    * 🛑 **추세 이탈:** 20일선을 하향 이탈했습니다. (손절 또는 접근 금지)
+    """)
+    
     if selected_ticker != "N/A":
         sector, industry, kor_stocks = get_sector_info(selected_ticker)
         st.write(f"- **분석 종목 티커:** {selected_ticker} ({sector} / {industry})")
@@ -258,7 +271,9 @@ with col2:
                 tech_result = analyze_technical_pattern(stock_name, ticker_code)
                 if tech_result:
                     status_emoji = tech_result['상태'].split(' ')[0]
-                    with st.expander(f"{status_emoji} {stock_name} (현재가: {tech_result['현재가']:,}원)", expanded=True):
+                    
+                    # 💡 개선: expanded=False 로 설정하여 기본적으로 닫혀있게 만듦
+                    with st.expander(f"{status_emoji} {stock_name} (현재가: {tech_result['현재가']:,}원)", expanded=False):
                         st.markdown(f"**진단 상태:** {tech_result['상태']}")
                         
                         p_col1, p_col2, p_col3 = st.columns(3)
