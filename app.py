@@ -203,7 +203,7 @@ def analyze_news_with_gemini(ticker, api_key):
 # 3. 웹 대시보드 화면 구성
 # ==========================================
 st.set_page_config(page_title="단기 스윙 주식 검색기", layout="wide")
-st.title("📈 1주~2개월 단기 스윙 주식 검색기")
+st.title("📈 Jemini 1주~2개월 단기 스윙 주식 검색기")
 
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -314,3 +314,4 @@ with col2:
                         with chart_col2:
                             st.caption("📊 최근 20일 거래량 (Bar Chart)")
                             st.bar_chart(tech_result["거래량 데이터"], height=150)
+
