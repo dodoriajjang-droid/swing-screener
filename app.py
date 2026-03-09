@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import google.generativeai as genai
 
 # ==========================================
-# 1. 데이터 수집 및 매칭 로직
+# 1. 데이터 수집 및 매칭 로직 (환율 적용)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_us_top_gainers(top_n=20):
@@ -17,8 +17,29 @@ def get_us_top_gainers(top_n=20):
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers)
         tables = pd.read_html(StringIO(response.text))
-        gainers_df = tables[0].iloc[:, :6].head(top_n)
-        return gainers_df
+        df = tables[0]
+        
+        # 💡 개선 1: 쓸데없는 'Unnamed' 컬럼들 모두 싹 삭제
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        # 앞 6개 핵심 컬럼만 추출 (보통 Symbol, Name, Price, Change, % Change, Volume)
+        df = df.iloc[:, :6].head(top_n)
+        
+        # 💡 개선 2: 실시간 원달러 환율 가져오기
+        try:
+            ex_rate_data = yf.Ticker("KRW=X").history(period="1d")
+            ex_rate = ex_rate_data['Close'].iloc[-1]
+        except:
+            ex_rate = 1350.0 # 야후 서버 에러 시 사용할 임시 기본 환율
+            
+        # 💡 개선 3: Price 컬럼에 $ 기호와 한화(원) 실시간 계산값 추가
+        price_col = [col for col in df.columns if 'Price' in col]
+        if price_col:
+            p_col = price_col[0]
+            # 예: 13.85 -> $13.85 (약 18,697원)
+            df[p_col] = df[p_col].apply(lambda x: f"${float(str(x).replace(',', '')):.2f} (약 {int(float(str(x).replace(',', '')) * ex_rate):,}원)")
+            
+        return df
     except Exception as e:
         st.error(f"데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame()
@@ -56,7 +77,7 @@ def get_sector_info(ticker):
         return "Unknown", "Unknown", []
 
 # ==========================================
-# 2. 기술적 분석 (이모티콘 호환성 패치)
+# 2. 기술적 분석 및 AI 기능
 # ==========================================
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -82,7 +103,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         target_price = latest['Bollinger_Upper'] 
         stop_loss_price = ma20_price * 0.97      
         
-        # 💡 신규: 엑박 없이 어디서든 잘 보이는 호환성 100% 기호로 변경
         if (ma20_price * 0.97) <= current_price <= (ma20_price * 1.03):
             status = "✅ 타점 근접 (분할 매수 고려)"
         elif current_price > (ma20_price * 1.03):
@@ -166,7 +186,7 @@ st.title("📈 1주~2개월 단기 스윙 주식 검색기")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
+    top_n = st.slider("수집할 미국 급등주 개수", 5, 20, 20)
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     
     st.divider()
@@ -180,12 +200,12 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = get_us_top_gainers(top_n)
 
 with col1:
-    # 💡 신규: 미국 시간 기준으로 시차(-14시간)를 계산하여 헤더 옆에 날짜 표시
     us_time = datetime.now() - timedelta(hours=14)
     us_date_str = us_time.strftime("%Y-%m-%d")
     st.subheader(f"🔥 미국장 급등 종목 (기준: {us_date_str})")
     
     if not st.session_state.gainers_df.empty:
+        # 데이터프레임 출력
         st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
         
         tickers_list = st.session_state.gainers_df['Symbol'].tolist()
