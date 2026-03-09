@@ -227,11 +227,11 @@ def analyze_news_with_gemini(ticker, api_key):
 # ==========================================
 # 3. 사이드바 및 UI 화면 구성 (탭 분리)
 # ==========================================
-st.title("📈 종합 스윙 트레이딩 대시보드")
+st.title("📈 Jemini 중단기 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
+    top_n = st.slider("수집할 미국 급등주 개수", 5, 20, 20)
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
@@ -243,7 +243,7 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "📰 한국 시장 실시간 속보"])
+tab1, tab2 = st.tabs(["📰 🇺🇸 미국 주도주 스윙 검색기", "📰 한국 시장 실시간 속보"])
 
 # ------------------------------------------
 # [탭 1] 기존 미국장 기반 스윙 검색기
@@ -349,3 +349,4 @@ with tab2:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
+
