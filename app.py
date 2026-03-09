@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import google.generativeai as genai
 
 # ==========================================
-# 1. 데이터 수집 및 매칭 로직 (환율 적용)
+# 1. 데이터 수집 및 매칭 로직 (환율 적용 & 에러 방어)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_us_top_gainers(top_n=20):
@@ -19,25 +19,32 @@ def get_us_top_gainers(top_n=20):
         tables = pd.read_html(StringIO(response.text))
         df = tables[0]
         
-        # 💡 개선 1: 쓸데없는 'Unnamed' 컬럼들 모두 싹 삭제
+        # 쓸데없는 'Unnamed' 컬럼들 모두 삭제
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        
-        # 앞 6개 핵심 컬럼만 추출 (보통 Symbol, Name, Price, Change, % Change, Volume)
         df = df.iloc[:, :6].head(top_n)
         
-        # 💡 개선 2: 실시간 원달러 환율 가져오기
+        # 실시간 원달러 환율 가져오기
         try:
             ex_rate_data = yf.Ticker("KRW=X").history(period="1d")
             ex_rate = ex_rate_data['Close'].iloc[-1]
         except:
-            ex_rate = 1350.0 # 야후 서버 에러 시 사용할 임시 기본 환율
+            ex_rate = 1350.0 
             
-        # 💡 개선 3: Price 컬럼에 $ 기호와 한화(원) 실시간 계산값 추가
+        # 💡 에러 해결: 가격 데이터에 섞인 다른 문자열들을 쳐내고 순수 가격만 추출
         price_col = [col for col in df.columns if 'Price' in col]
         if price_col:
             p_col = price_col[0]
-            # 예: 13.85 -> $13.85 (약 18,697원)
-            df[p_col] = df[p_col].apply(lambda x: f"${float(str(x).replace(',', '')):.2f} (약 {int(float(str(x).replace(',', '')) * ex_rate):,}원)")
+            
+            def format_price(x):
+                try:
+                    # '21.20 +8.42 (+65.88%)' 같은 문자열에서 띄어쓰기 기준 첫 번째(21.20)만 가져옴
+                    clean_price_str = str(x).split()[0].replace(',', '')
+                    val = float(clean_price_str)
+                    return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
+                except:
+                    return str(x) # 변환 실패 시 원본 문자열 반환
+                    
+            df[p_col] = df[p_col].apply(format_price)
             
         return df
     except Exception as e:
@@ -205,7 +212,6 @@ with col1:
     st.subheader(f"🔥 미국장 급등 종목 (기준: {us_date_str})")
     
     if not st.session_state.gainers_df.empty:
-        # 데이터프레임 출력
         st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
         
         tickers_list = st.session_state.gainers_df['Symbol'].tolist()
