@@ -6,10 +6,10 @@ import yfinance as yf
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import google.generativeai as genai
-import urllib.parse # 💡 신규 추가: 번역을 위한 URL 인코딩 라이브러리 (기본 내장)
+import urllib.parse
 
 # ==========================================
-# 1. 데이터 수집 및 매칭 로직 (환율 & 기업명 한글 번역 적용)
+# 1. 데이터 수집 및 매칭 로직 (환율 & 전체 한글화 적용)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_us_top_gainers(top_n=20):
@@ -23,27 +23,24 @@ def get_us_top_gainers(top_n=20):
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6].head(top_n)
         
-        # 💡 개선: Name 컬럼의 영문 회사명을 구글 번역기를 거쳐 "영어 / 한글" 로 변환
-        name_col = [col for col in df.columns if 'Name' in col]
-        if name_col:
-            n_col = name_col[0]
-            
-            def get_korean_name(name):
-                try:
-                    # 구글 번역 오픈 API를 활용해 무료로 한글 번역 결과를 가져옵니다.
-                    encoded_name = urllib.parse.quote(name)
-                    api_url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={encoded_name}"
-                    res = requests.get(api_url, timeout=2)
-                    ko_name = res.json()[0][0][0]
-                    
-                    # 번역된 결과가 원본과 다르다면 (정상 번역되었다면) 병기해서 출력
-                    if ko_name.lower() != name.lower() and ko_name.strip():
-                        return f"{name} / {ko_name}"
-                    return name
-                except:
-                    return name # 번역 실패 시 원본 영어 이름 그대로 반환
-            
-            df[n_col] = df[n_col].apply(get_korean_name)
+        # 💡 개선 1: 야후 파이낸스의 영어 컬럼명을 직관적인 한글로 모두 변경
+        df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
+        
+        # 기업명 영문/한글 번역 로직
+        def get_korean_name(name):
+            try:
+                encoded_name = urllib.parse.quote(name)
+                api_url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={encoded_name}"
+                res = requests.get(api_url, timeout=2)
+                ko_name = res.json()[0][0][0]
+                
+                if ko_name.lower() != name.lower() and ko_name.strip():
+                    return f"{name} / {ko_name}"
+                return name
+            except:
+                return name
+                
+        df['기업명'] = df['기업명'].apply(get_korean_name)
         
         # 환율 가져오기
         try:
@@ -52,20 +49,16 @@ def get_us_top_gainers(top_n=20):
         except:
             ex_rate = 1350.0 
             
-        # 가격 포맷팅 ($ 및 원화 계산)
-        price_col = [col for col in df.columns if 'Price' in col]
-        if price_col:
-            p_col = price_col[0]
-            
-            def format_price(x):
-                try:
-                    clean_price_str = str(x).split()[0].replace(',', '')
-                    val = float(clean_price_str)
-                    return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
-                except:
-                    return str(x)
-                    
-            df[p_col] = df[p_col].apply(format_price)
+        # 현재가 포맷팅 ($ 및 원화 계산)
+        def format_price(x):
+            try:
+                clean_price_str = str(x).split()[0].replace(',', '')
+                val = float(clean_price_str)
+                return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
+            except:
+                return str(x)
+                
+        df['현재가'] = df['현재가'].apply(format_price)
             
         return df, ex_rate
     except Exception as e:
@@ -240,16 +233,26 @@ with col1:
     if not st.session_state.gainers_df.empty:
         st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
         
-        tickers_list = st.session_state.gainers_df['Symbol'].tolist()
-        
         options = []
         with st.spinner("테마/섹터 정보를 불러오는 중입니다... (최초 1회 약 5초 소요)"):
-            for t in tickers_list:
+            # 💡 개선 2: 표의 데이터를 순회하며, 심볼과 한글 기업명을 드롭다운에 모두 표시합니다.
+            for index, row in st.session_state.gainers_df.iterrows():
+                t = row['종목코드']
+                
+                # 'Apple Inc. / 애플 주식회사' 에서 뒤의 한글명만 가져오는 로직
+                full_name = row['기업명']
+                if ' / ' in full_name:
+                    kor_name = full_name.split(' / ')[-1]
+                else:
+                    kor_name = full_name
+                    
                 sec, ind, _ = get_sector_info(t)
-                options.append(f"{t} - ({sec} / {ind})")
+                options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                 
         selected_option = st.selectbox("👉 분석할 미국 주식 테마를 선택하세요:", options)
-        selected_ticker = selected_option.split(" - ")[0]
+        
+        # 'TTD (더 트레이드 데스크) - ...' 에서 맨 앞의 'TTD'만 정확하게 잘라냅니다.
+        selected_ticker = selected_option.split(" (")[0]
     else:
         selected_ticker = "N/A"
 
