@@ -6,9 +6,10 @@ import yfinance as yf
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import google.generativeai as genai
+import urllib.parse # 💡 신규 추가: 번역을 위한 URL 인코딩 라이브러리 (기본 내장)
 
 # ==========================================
-# 1. 데이터 수집 및 매칭 로직 (환율 적용 & 에러 방어)
+# 1. 데이터 수집 및 매칭 로직 (환율 & 기업명 한글 번역 적용)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_us_top_gainers(top_n=20):
@@ -22,12 +23,36 @@ def get_us_top_gainers(top_n=20):
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6].head(top_n)
         
+        # 💡 개선: Name 컬럼의 영문 회사명을 구글 번역기를 거쳐 "영어 / 한글" 로 변환
+        name_col = [col for col in df.columns if 'Name' in col]
+        if name_col:
+            n_col = name_col[0]
+            
+            def get_korean_name(name):
+                try:
+                    # 구글 번역 오픈 API를 활용해 무료로 한글 번역 결과를 가져옵니다.
+                    encoded_name = urllib.parse.quote(name)
+                    api_url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={encoded_name}"
+                    res = requests.get(api_url, timeout=2)
+                    ko_name = res.json()[0][0][0]
+                    
+                    # 번역된 결과가 원본과 다르다면 (정상 번역되었다면) 병기해서 출력
+                    if ko_name.lower() != name.lower() and ko_name.strip():
+                        return f"{name} / {ko_name}"
+                    return name
+                except:
+                    return name # 번역 실패 시 원본 영어 이름 그대로 반환
+            
+            df[n_col] = df[n_col].apply(get_korean_name)
+        
+        # 환율 가져오기
         try:
             ex_rate_data = yf.Ticker("KRW=X").history(period="1d")
             ex_rate = ex_rate_data['Close'].iloc[-1]
         except:
             ex_rate = 1350.0 
             
+        # 가격 포맷팅 ($ 및 원화 계산)
         price_col = [col for col in df.columns if 'Price' in col]
         if price_col:
             p_col = price_col[0]
@@ -42,7 +67,6 @@ def get_us_top_gainers(top_n=20):
                     
             df[p_col] = df[p_col].apply(format_price)
             
-        # 💡 개선: 환율 정보도 화면에 띄우기 위해 함께 반환합니다.
         return df, ex_rate
     except Exception as e:
         st.error(f"데이터 수집 중 오류 발생: {e}")
@@ -200,8 +224,7 @@ with st.sidebar:
 col1, col2 = st.columns([1, 1.2])
 
 if "gainers_df" not in st.session_state or fetch_button:
-    with st.spinner('미국장 데이터를 불러오는 중입니다...'):
-        # 💡 개선: 환율 값도 session_state에 저장
+    with st.spinner('미국장 데이터를 불러오고 번역 중입니다... (약 2~4초 소요)'):
         df, ex_rate = get_us_top_gainers(top_n)
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
@@ -211,7 +234,6 @@ with col1:
     us_date_str = us_time.strftime("%Y-%m-%d")
     
     st.subheader(f"🔥 미국장 급등 종목")
-    # 💡 개선: 기준 날짜와 환율을 깔끔한 캡션(회색 작은 글씨)으로 분리해서 표시
     current_ex_rate = st.session_state.get('ex_rate', 1350.0)
     st.caption(f"**기준일:** {us_date_str} | **적용 환율:** 1달러 = {int(current_ex_rate):,}원")
     
@@ -234,7 +256,6 @@ with col1:
 with col2:
     st.subheader("🎯 테마 매칭 및 타점 분석")
     
-    # 💡 개선: 매매 신호 상태(아이콘) 범례 추가
     st.info("""
     **[매매 신호 상태 안내]**
     * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
@@ -271,8 +292,6 @@ with col2:
                 tech_result = analyze_technical_pattern(stock_name, ticker_code)
                 if tech_result:
                     status_emoji = tech_result['상태'].split(' ')[0]
-                    
-                    # 💡 개선: expanded=False 로 설정하여 기본적으로 닫혀있게 만듦
                     with st.expander(f"{status_emoji} {stock_name} (현재가: {tech_result['현재가']:,}원)", expanded=False):
                         st.markdown(f"**진단 상태:** {tech_result['상태']}")
                         
