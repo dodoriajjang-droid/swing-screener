@@ -5,3 +5,5 @@ lxml
 yfinance
 finance-datareader
 google-generativeai
+beautifulsoup4
+streamlit-autorefresh
