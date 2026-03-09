@@ -15,7 +15,6 @@ from streamlit_autorefresh import st_autorefresh
 # ==========================================
 st.set_page_config(page_title="단기 스윙 주식 검색기", layout="wide")
 
-# 5분마다 전체 화면을 새로고침하는 타이머 (300,000ms = 5분)
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 if 'seen_links' not in st.session_state:
@@ -74,7 +73,6 @@ def get_us_top_gainers(top_n=20):
         st.error(f"미국장 데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame(), 1350.0
 
-# 💡 실시간 뉴스 크롤링 함수 (네이버 금융)
 def fetch_news():
     base_url = "https://finance.naver.com"
     list_url = f"{base_url}/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258"
@@ -91,6 +89,9 @@ def fetch_news():
         subject_tags = soup.select("dl dd.articleSubject a")
         new_items_count = 0
         
+        # 💡 개선: 서버 위치와 상관없이 완벽한 한국 시간(UTC+9) 계산
+        kst_now = datetime.utcnow() + timedelta(hours=9)
+        
         for tag in subject_tags:
             title = tag.get_text(strip=True)
             link = tag['href']
@@ -99,7 +100,7 @@ def fetch_news():
             if full_link in st.session_state.seen_links:
                 continue
                 
-            current_time = datetime.now().strftime("%H:%M")
+            current_time = kst_now.strftime("%H:%M")
             st.session_state.news_data.insert(0, {
                 "time": current_time,
                 "title": title,
@@ -230,20 +231,18 @@ st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 20, 20)
+    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
     api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
 
-# 전체 데이터를 갱신합니다.
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('미국장 데이터를 불러오고 번역 중입니다...'):
         df, ex_rate = get_us_top_gainers(top_n)
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 💡 신규: 화면을 두 개의 탭으로 분리합니다.
 tab1, tab2 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "📰 한국 시장 실시간 속보"])
 
 # ------------------------------------------
@@ -253,12 +252,13 @@ with tab1:
     col1, col2 = st.columns([1, 1.2])
 
     with col1:
-        us_time = datetime.now() - timedelta(hours=14)
+        # 💡 개선: 서버 위치 상관없이 미국 시간(EST)을 항상 정확하게 가져오도록 UTC 기준으로 -5시간 처리
+        us_time = datetime.utcnow() - timedelta(hours=5) 
         us_date_str = us_time.strftime("%Y-%m-%d")
         
         st.subheader("🔥 미국장 급등 종목")
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
-        st.caption(f"**기준일:** {us_date_str} | **적용 환율:** 1달러 = {int(current_ex_rate):,}원")
+        st.caption(f"**기준일:** {us_date_str} (뉴욕 시간) | **적용 환율:** 1달러 = {int(current_ex_rate):,}원")
         
         if not st.session_state.gainers_df.empty:
             st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
@@ -325,11 +325,13 @@ with tab1:
                                 st.bar_chart(tech_result["거래량 데이터"], height=150)
 
 # ------------------------------------------
-# [탭 2] 💡 새로 추가된 실시간 금융 뉴스 탭
+# [탭 2] 실시간 금융 뉴스 탭
 # ------------------------------------------
 with tab2:
     st.subheader("📰 네이버 금융 실시간 시황/전망 속보")
-    st.caption(f"마지막 업데이트 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (5분 주기 자동 갱신 중)")
+    # 💡 개선: 탭 2의 전체 시간도 완벽한 한국 시간(KST)으로 표기
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    st.caption(f"마지막 업데이트 시간: {kst_now.strftime('%Y-%m-%d %H:%M:%S')} (5분 주기 자동 갱신 중)")
     
     with st.spinner('새로운 뉴스를 확인하는 중입니다...'):
         new_count = fetch_news()
@@ -342,7 +344,6 @@ with tab2:
     if not st.session_state.news_data:
         st.info("현재 수집된 뉴스가 없습니다. 5분 뒤 자동으로 다시 확인합니다.")
     else:
-        # 최신 뉴스 30개까지만 보여주도록 제한 (스크롤이 너무 길어지는 것 방지)
         for news in st.session_state.news_data[:30]:
             with st.container():
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
