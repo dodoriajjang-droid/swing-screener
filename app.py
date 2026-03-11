@@ -12,12 +12,10 @@ import re
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
-# 1. 초기 설정
+# 1. 초기 설정 
 # ==========================================
-# 브라우저 탭 이름과 아이콘 설정
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 
-# 5분 단위 자동 새로고침
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 if 'seen_links' not in st.session_state:
@@ -235,18 +233,26 @@ def analyze_news_with_gemini(ticker, api_key):
     except Exception:
         return "뉴스 분석 중 오류가 발생했습니다."
 
-# 💡 공통 UI 컴포넌트 분리 (카드를 예쁘게 그려주는 함수)
-def draw_stock_card(tech_result):
+# 💡 공통 가이드라인 모듈화 (어느 탭에서든 부를 수 있도록)
+def show_trading_guidelines():
+    st.info("""
+    **[매매 신호 및 타점 가이드]**
+    * ✅ **타점 근접:** 주가가 20일선 근처에 위치 **(분할 매수 권장)**
+    * ⚠️ **관심 집중:** 급등으로 인한 단기 이격 발생 **(눌림목 대기)**
+    * 🛑 **추세 이탈:** 20일선 하향 이탈 **(손절 또는 접근 금지)**
+    * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
+    """)
+
+# 💡 공통 UI 컴포넌트: 드롭다운(Expander)으로 다시 복구 & 기본 닫힘(expanded=False) 적용
+def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    with st.container(border=True):
-        st.markdown(f"### {status_emoji} {tech_result['종목명']} <span style='font-size:16px; color:gray;'>({tech_result['현재가']:,}원)</span>", unsafe_allow_html=True)
+    with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원)", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급 현황:** {tech_result['거래량 급증']}")
         
         c1, c2, c3 = st.columns(3)
         curr = tech_result['현재가']
         
-        # 💡 UI/UX 버그 수정: 손절가의 delta_color를 'normal'로 두어 마이너스 금액이 '빨간색 하락 화살표'로 직관적으로 보이게 수정
         c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (현재가 대비)", delta_color="off")
         c2.metric("🎯 1차 목표가", f"{tech_result['목표가']:,}원", f"+{tech_result['목표가'] - curr:,}원 (기대 수익)")
         c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
@@ -262,7 +268,6 @@ def draw_stock_card(tech_result):
 # ==========================================
 # 3. 사이드바 및 UI 화면 구성
 # ==========================================
-# 실제 화면에 출력되는 메인 타이틀
 st.title("📈 AI 스윙 트레이딩 관제 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
@@ -301,9 +306,8 @@ with tab1:
         st.caption(f"🗓️ **기준일:** {us_time.strftime('%Y-%m-%d')} (NYT) ｜ 💱 **적용 환율:** 1달러 = {int(st.session_state.get('ex_rate', 1350)):,}원")
         
         if not st.session_state.gainers_df.empty:
-            # 💡 UI/UX 개선: 표가 무한히 길어지지 않게 height=400으로 박스 크기를 고정하여 레이아웃 밸런스 유지
             st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True, height=400)
-            options = []
+            options = [""] # 💡 빈 옵션을 추가하여 최초 진입 시 무의미한 검색 방지
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
@@ -312,28 +316,33 @@ with tab1:
             
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
-            selected_ticker = selected_option.split(" ")[0]
+            selected_ticker = selected_option.split(" ")[0] if selected_option else "N/A"
         else:
             selected_ticker = "N/A"
             st.info("현재 +10% 이상 급등한 종목이 없습니다.")
 
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
+        show_trading_guidelines() # 💡 매매 가이드라인 부활
+        
         if selected_ticker != "N/A":
             sector, industry = get_basic_sector_info(selected_ticker)
             if api_key_input:
-                with st.container(border=True):
-                    st.markdown(f"**🏢 비즈니스 모델 요약 ({selected_ticker})**\n> {get_company_summary(selected_ticker, api_key_input)}")
-                    st.markdown(f"**📰 AI 뉴스 판독**\n> {analyze_news_with_gemini(selected_ticker, api_key_input)}")
-            
-            if api_key_input:
-                with st.spinner('✨ AI가 연관된 한국 수혜주를 샅샅이 발굴 중입니다...'):
+                with st.spinner(f"🔍 '{selected_ticker}' 기업 정보 및 뉴스를 AI가 분석 중입니다..."):
+                    with st.container(border=True):
+                        st.markdown(f"**🏢 비즈니스 모델 요약 ({selected_ticker})**\n> {get_company_summary(selected_ticker, api_key_input)}")
+                        st.markdown(f"**📰 AI 뉴스 판독**\n> {analyze_news_with_gemini(selected_ticker, api_key_input)}")
+                
+                with st.spinner('✨ AI가 연관된 한국 수혜주를 샅샅이 검색하고 타점을 계산 중입니다...'):
                     kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, selected_option.split(" - ")[0], api_key_input)
                     if kor_stocks:
-                        st.markdown("### ✨ AI 추천 국내 수혜주")
+                        st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 확인)")
                         for stock_name, ticker_code in kor_stocks:
                             tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                            if tech_result: draw_stock_card(tech_result)
+                            if tech_result: 
+                                draw_stock_card(tech_result, is_expanded=False)
+                    else:
+                        st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
 # ------------------------------------------
 # [탭 2]
@@ -341,6 +350,10 @@ with tab1:
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
+    st.write("관심 있는 국내 상장사를 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 계산합니다.")
+    
+    show_trading_guidelines() # 💡 탭 2 매매 가이드라인 부활
+    
     krx_df = get_krx_stocks()
     if not krx_df.empty:
         krx_options = [""] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
@@ -349,10 +362,15 @@ with tab2:
         if search_query:
             searched_name = search_query.split(" (")[0]
             searched_code = search_query.split("(")[1].replace(")", "")
-            with st.spinner(f"'{searched_name}' 타점 분석 중..."):
+            
+            with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
-                if tech_result: draw_stock_card(tech_result)
-                else: st.error("데이터가 부족합니다. (상장 20일 미만 등)")
+                
+            if tech_result: 
+                # 단일 검색이므로 이 탭에서는 열려있도록 True 설정
+                draw_stock_card(tech_result, is_expanded=True)
+            else: 
+                st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
 
 # ------------------------------------------
 # [탭 3]
@@ -360,16 +378,23 @@ with tab2:
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
-    theme_input = st.text_input("🔍 검색할 테마/키워드 (예: 2차전지, 엔비디아 관련주):")
+    st.write("검색할 테마/키워드 (예: `2차전지`, `엔비디아 관련주`)를 입력하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
+    
+    show_trading_guidelines() # 💡 탭 3 매매 가이드라인 부활
+    
+    theme_input = st.text_input("🔍 검색할 테마/키워드 입력:")
     
     if theme_input and api_key_input:
-        with st.spinner(f"✨ '{theme_input}' 관련주 발굴 중..."):
+        with st.spinner(f"✨ AI가 증시 전체에서 '{theme_input}' 관련주를 발굴하고 타점을 진단하는 중입니다... (약 3~5초 소요)"):
             theme_stocks = get_theme_stocks_with_ai(theme_input, api_key_input)
             if theme_stocks:
-                st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 완료!**")
+                st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
                 for stock_name, ticker_code in theme_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                    if tech_result: draw_stock_card(tech_result)
+                    if tech_result: 
+                        draw_stock_card(tech_result, is_expanded=False)
+            else:
+                st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다. 다시 시도해 주세요.")
 
 # ------------------------------------------
 # [탭 4]
@@ -377,7 +402,7 @@ with tab3:
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📰 실시간 금융 속보")
-    with st.spinner('새로운 뉴스를 스캔하는 중입니다...'):
+    with st.spinner('📡 네이버 금융 서버에서 최신 뉴스를 스캔하는 중입니다...'):
         fetch_news()
     if st.session_state.news_data:
         for news in st.session_state.news_data[:30]:
