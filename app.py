@@ -29,28 +29,30 @@ if 'news_data' not in st.session_state:
     st.session_state.news_data = []
 
 # ==========================================
-# 2. 데이터 수집 및 분석 함수들 (💡 전부 캐싱 처리 완료)
+# 2. 데이터 수집 및 분석 함수들
 # ==========================================
+# 💡 수정: 하나가 실패해도 다른 건 살리도록 에러 독립 처리
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
-    try:
-        tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
-        results = {}
-        for name, t in tickers.items():
+    tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+    results = {}
+    for name, t in tickers.items():
+        try:
             df = yf.Ticker(t).history(period="5d")
-            latest = df['Close'].iloc[-1]
-            prev = df['Close'].iloc[-2]
-            results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
-        return results
-    except Exception:
-        return None
+            if len(df) >= 2:
+                latest = float(df['Close'].iloc[-1])
+                prev = float(df['Close'].iloc[-2])
+                results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
+        except:
+            continue # 에러 나면 그냥 넘어가고 성공한 것만 반환
+    return results
 
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Referer": "https://edition.cnn.com/"
         }
@@ -58,8 +60,7 @@ def get_fear_and_greed():
         data = res.json()
         score = data['fear_and_greed']['score']
         prev = data['fear_and_greed']['previous_close']
-        rating = data['fear_and_greed']['rating'].capitalize()
-        return {"score": round(score), "delta": round(score - prev), "rating": rating}
+        return {"score": round(score), "delta": round(score - prev)}
     except:
         return None
 
@@ -71,19 +72,23 @@ def get_us_top_gainers():
         response = requests.get(url, headers=headers)
         tables = pd.read_html(StringIO(response.text))
         df = tables[0]
+        
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6] 
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
+        
         def extract_pct(x):
             try:
                 match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
                 if match: return float(match.group(1))
                 return float(re.sub(r'[^\d\.\+\-]', '', str(x)))
             except: return 0.0
+                
         df['실제등락률'] = df['등락률'].apply(extract_pct)
         df = df[df['실제등락률'] >= 10.0] 
         df = df.drop(columns=['실제등락률']) 
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
+        
         def get_korean_name(name):
             try:
                 encoded_name = urllib.parse.quote(name)
@@ -93,14 +98,18 @@ def get_us_top_gainers():
                 if ko_name.lower() != name.lower() and ko_name.strip(): return f"{name} / {ko_name}"
                 return name
             except: return name
+                
         df['기업명'] = df['기업명'].apply(get_korean_name)
+        
         try: ex_rate = yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1]
         except: ex_rate = 1350.0 
+            
         def format_price(x):
             try:
                 val = float(str(x).split()[0].replace(',', ''))
                 return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
             except: return str(x)
+                
         df['현재가'] = df['현재가'].apply(format_price)
         return df, ex_rate
     except Exception as e:
@@ -202,7 +211,6 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", model.generate_content(prompt).text)[:20]
     except Exception: return []
 
-# 💡 신규: 타 탭 간섭 방지를 위해 수급 데이터 함수 캐싱 추가
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
@@ -235,7 +243,6 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 신규: 탭 전환 시 재실행 방지를 위해 차트/데이터 분석 함수 캐싱 추가
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -281,7 +288,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         }
     except: return None
 
-# 💡 신규: 불필요한 AI 요약 재호출 방지를 위해 캐싱 추가
 @st.cache_data(ttl=3600)
 def get_company_summary(ticker, api_key):
     try:
@@ -295,7 +301,6 @@ def get_company_summary(ticker, api_key):
         return model.generate_content(prompt).text
     except Exception: return f"기업 정보를 요약하는 중 오류가 발생했습니다."
 
-# 💡 신규: 뉴스 분석 함수 캐싱 추가
 @st.cache_data(ttl=3600)
 def analyze_news_with_gemini(ticker, api_key):
     try:
@@ -386,19 +391,16 @@ def draw_stock_card(tech_result, is_expanded=False):
 st.title("📈 Jaemini 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
+# 💡 수정: 매크로 지표 영역이 절대 사라지지 않도록 무조건 렌더링하도록 뼈대 고정
+st.markdown("##### 🌍 실시간 글로벌 매크로 지표 & 시장 체력")
+
 macro_data = get_macro_indicators()
 fg_data = get_fear_and_greed()
 
-if macro_data:
-    st.markdown("##### 🌍 실시간 글로벌 매크로 지표 & 시장 체력")
-    
-    if fg_data:
-        m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
-    else:
-        m_col1, m_col3 = st.columns([1, 2])
-        m_col2 = None
-    
-    with m_col1:
+m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
+
+with m_col1:
+    if macro_data and 'VIX' in macro_data:
         vix_val = macro_data['VIX']['value']
         vix_prev = macro_data['VIX']['prev']
         fig_vix = go.Figure(go.Indicator(
@@ -422,41 +424,54 @@ if macro_data:
         ))
         fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
+    else:
+        st.info("⚠️ VIX 데이터 로딩 지연")
+
+with m_col2:
+    if fg_data:
+        fg_val = fg_data['score']
+        fg_prev = fg_val - fg_data['delta']
+        fig_fg = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = fg_val,
+            title = {'text': "<b>CNN 공포/탐욕 지수</b><br><span style='font-size:12px;color:gray'>25이하: 공포(매수) ｜ 75이상: 탐욕(매도)</span>", 'font': {'size': 15}},
+            delta = {'reference': fg_prev, 'position': "top"},
+            gauge = {
+                'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                'bar': {'color': "black", 'thickness': 0.2},
+                'bgcolor': "white",
+                'borderwidth': 1,
+                'bordercolor': "gray",
+                'steps': [
+                    {'range': [0, 25], 'color': "rgba(255, 0, 0, 0.4)"},     
+                    {'range': [25, 45], 'color': "rgba(255, 165, 0, 0.4)"},   
+                    {'range': [45, 55], 'color': "rgba(255, 255, 0, 0.4)"},   
+                    {'range': [55, 75], 'color': "rgba(144, 238, 144, 0.4)"}, 
+                    {'range': [75, 100], 'color': "rgba(0, 128, 0, 0.4)"}     
+                ],
+            }
+        ))
+        fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
+        st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
+    else:
+        st.info("⚠️ CNN 공포지수 데이터 로딩 지연")
+    
+with m_col3:
+    with st.container(border=True):
+        st.markdown("<br>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
         
-    if fg_data and m_col2:
-        with m_col2:
-            fg_val = fg_data['score']
-            fg_prev = fg_val - fg_data['delta']
-            fig_fg = go.Figure(go.Indicator(
-                mode = "gauge+number+delta",
-                value = fg_val,
-                title = {'text': "<b>CNN 공포/탐욕 지수</b><br><span style='font-size:12px;color:gray'>25이하: 공포(매수) ｜ 75이상: 탐욕(매도)</span>", 'font': {'size': 15}},
-                delta = {'reference': fg_prev, 'position': "top"},
-                gauge = {
-                    'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                    'bar': {'color': "black", 'thickness': 0.2},
-                    'bgcolor': "white",
-                    'borderwidth': 1,
-                    'bordercolor': "gray",
-                    'steps': [
-                        {'range': [0, 25], 'color': "rgba(255, 0, 0, 0.4)"},     
-                        {'range': [25, 45], 'color': "rgba(255, 165, 0, 0.4)"},   
-                        {'range': [45, 55], 'color': "rgba(255, 255, 0, 0.4)"},   
-                        {'range': [55, 75], 'color': "rgba(144, 238, 144, 0.4)"}, 
-                        {'range': [75, 100], 'color': "rgba(0, 128, 0, 0.4)"}     
-                    ],
-                }
-            ))
-            fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
-            st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
-        
-    with m_col3:
-        with st.container(border=True):
-            st.markdown("<br>", unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
+        if macro_data and '美 10년물 국채' in macro_data:
             c1.metric("🏦 美 10년물 국채 금리", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
+        else:
+            c1.metric("🏦 美 10년물 국채 금리", "조회 불가")
+            
+        if macro_data and '원/달러 환율' in macro_data:
             c2.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
-            st.info("💡 **[시장 체력 가이드]** VIX가 높게 치솟거나 공포/탐욕 지수가 '공포(빨간색)' 구간일 때가 통계적으로 최고의 스윙 매수 찬스입니다.")
+        else:
+            c2.metric("💱 원/달러 환율", "조회 불가")
+            
+        st.info("💡 **[시장 체력 가이드]** VIX가 높게 치솟거나 공포/탐욕 지수가 '공포(빨간색)' 구간일 때가 통계적으로 최고의 스윙 매수 찬스입니다.")
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
@@ -470,7 +485,6 @@ with st.sidebar:
         api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
 
 if fetch_button:
-    # 💡 모든 함수들의 캐시를 아주 깔끔하게 비워서 완벽한 리로드 보장
     get_us_top_gainers.clear()
     get_krx_stocks.clear()
     get_all_sector_info.clear()
