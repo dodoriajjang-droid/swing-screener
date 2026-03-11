@@ -258,7 +258,7 @@ st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
+    top_n = st.slider("수집할 미국 급등주 개수", 5, 20, 20)
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
@@ -402,3 +402,4 @@ with tab2:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
+
