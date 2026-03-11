@@ -10,7 +10,6 @@ import google.generativeai as genai
 import urllib.parse
 import re
 import plotly.express as px
-import time # 💡 딜레이 추가용
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -148,18 +147,48 @@ def fetch_news():
     except Exception:
         return 0
 
-# 💡 신규: 야후 파이낸스 차단(Rate Limit)을 막기 위한 벌크(일괄) 캐싱 함수
+# 💡 핵심 무기: 야후 차단을 무시하는 AI 기반 벌크(Bulk) 섹터 판독기
 @st.cache_data(ttl=3600)
-def get_all_sector_info(tickers):
-    results = {}
-    for t in tickers:
-        try:
-            info = yf.Ticker(t).info
-            results[t] = (info.get('sector', 'Unknown'), info.get('industry', 'Unknown'))
-            time.sleep(0.1) # 방화벽 튕김 방지를 위한 0.1초 딜레이
-        except:
-            results[t] = ("Unknown", "Unknown")
-    return results
+def get_all_sector_info(tickers, api_key):
+    results = {t: ("분석 대기", "분석 대기") for t in tickers}
+    if not api_key:
+        return results
+        
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        # 30개 티커를 하나의 텍스트 덩어리로 만듦
+        ticker_str = "\n".join(tickers)
+        
+        # AI에게 한 번에 싹 다 분류하라고 지시 (단 1번의 API 호출!)
+        prompt = f"""
+        당신은 월스트리트 주식 전문가입니다.
+        다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.
+        반드시 아래 예시처럼 '티커|섹터|산업' 형태로만 답변하고 다른 말은 절대 하지 마세요.
+        예시:
+        AAPL|기술|소비자 가전
+        TSLA|임의소비재|자동차 제조
+        
+        [티커 목록]
+        {ticker_str}
+        """
+        
+        response = model.generate_content(prompt)
+        
+        # AI 답변을 분리해서 딕셔너리에 저장
+        for line in response.text.strip().split('\n'):
+            parts = line.split('|')
+            if len(parts) >= 3:
+                # AI가 가끔 마크다운(*)을 붙일 수 있으니 제거
+                t = parts[0].strip().replace('*', '').replace('-', '')
+                s = parts[1].strip()
+                i = parts[2].strip()
+                if t in results:
+                    results[t] = (s, i)
+        return results
+    except Exception:
+        return results
 
 @st.cache_data(ttl=3600)
 def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
@@ -239,8 +268,7 @@ def get_company_summary(ticker, api_key):
         biz_summary = ""
         try:
             biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
-        except:
-            pass 
+        except: pass 
             
         if biz_summary:
             prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}"
@@ -258,8 +286,7 @@ def analyze_news_with_gemini(ticker, api_key):
         news_list = []
         try:
             news_list = yf.Ticker(ticker).news
-        except:
-            pass
+        except: pass
             
         if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
         news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
@@ -350,7 +377,7 @@ with st.sidebar:
 if fetch_button:
     get_us_top_gainers.clear()
     get_krx_stocks.clear()
-    get_all_sector_info.clear() # 💡 종목 섹터 캐시도 초기화
+    get_all_sector_info.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -375,28 +402,28 @@ with tab1:
         if not st.session_state.gainers_df.empty:
             st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True, height=400)
             
-            # 💡 1. 드롭다운 제일 첫 칸에 가이드 메시지 고정!
             PLACEHOLDER = "🔍 검색 종목을 선택해주세요."
             options = [PLACEHOLDER]
             
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             
-            # 💡 2. 리스트에 있는 모든 종목의 섹터를 '한 번에' 매핑하고 캐싱 (차단 방지용 스피너 출력)
-            with st.spinner("테마/섹터 정보를 로딩 중입니다... (최초 1회만 약 5~10초 소요)"):
-                sector_dict = get_all_sector_info(tuple(tickers_list))
+            # 💡 야후 대신 AI가 한 번에 섹터를 다 발라냅니다! (API 키 입력 전에는 '분석 대기'로 표시)
+            if api_key_input:
+                with st.spinner("🤖 AI가 30개 종목의 섹터 정보를 일괄 분석 중입니다... (최초 1회 3초 소요)"):
+                    sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input)
+            else:
+                sector_dict = {t: ("분석 대기", "분석 대기") for t in tickers_list}
             
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
                 
-                # 💡 3. 기업명 뒤에 섹터/산업 정보 예쁘게 결합!
-                sec, ind = sector_dict.get(t, ("Unknown", "Unknown"))
+                sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
                 options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
             
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
             
-            # 💡 검색 안내 문구가 선택되었을 때는 아무 동작 안 함 (N/A)
             if selected_option == PLACEHOLDER:
                 selected_ticker = "N/A"
             else:
@@ -410,8 +437,7 @@ with tab1:
         show_trading_guidelines() 
         
         if selected_ticker != "N/A":
-            # 위에서 미리 구해둔 딕셔너리에서 바로 섹터를 꺼내옴 (야후 통신 X, 엄청 빠름!)
-            sector, industry = sector_dict.get(selected_ticker, ("Unknown", "Unknown"))
+            sector, industry = sector_dict.get(selected_ticker, ("분석 불가", "분석 불가"))
             st.markdown(f"**🏷️ 섹터 정보:** `{sector}` / `{industry}`")
 
             if api_key_input:
@@ -430,6 +456,8 @@ with tab1:
                                 draw_stock_card(tech_result, is_expanded=False)
                     else:
                         st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
+            else:
+                st.warning("👈 좌측 사이드바에 API 키를 입력하시면 AI 분석이 시작됩니다.")
 
 # ------------------------------------------
 # [탭 2]
