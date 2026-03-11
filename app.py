@@ -27,7 +27,6 @@ if 'news_data' not in st.session_state:
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
 @st.cache_data(ttl=3600)
-# 💡 수정: top_n 변수를 없애고 개수 제한을 해제했습니다.
 def get_us_top_gainers():
     try:
         url = 'https://finance.yahoo.com/gainers'
@@ -37,14 +36,12 @@ def get_us_top_gainers():
         df = tables[0]
         
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        df = df.iloc[:, :6] # 개수 제한(.head) 삭제, 전체 다 가져옴
+        df = df.iloc[:, :6] 
         
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
         
-        # 💡 신규: 등락률 컬럼에서 숫자만 추출하여 +10% 이상인 종목만 필터링
         def extract_pct(x):
             try:
-                # '+15.23%' 같은 문자열에서 15.23 숫자만 정확히 뽑아냅니다.
                 match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
                 if match:
                     return float(match.group(1))
@@ -54,8 +51,8 @@ def get_us_top_gainers():
                 return 0.0
                 
         df['실제등락률'] = df['등락률'].apply(extract_pct)
-        df = df[df['실제등락률'] >= 10.0] # 10% 이상만 남김
-        df = df.drop(columns=['실제등락률']) # 계산용 임시 컬럼은 다시 삭제
+        df = df[df['실제등락률'] >= 10.0] 
+        df = df.drop(columns=['실제등락률']) 
         
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
         
@@ -92,6 +89,16 @@ def get_us_top_gainers():
     except Exception as e:
         st.error(f"미국장 데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame(), 1350.0
+
+# 💡 신규: 국내 코스피/코스닥 전 종목 리스트 가져오기 (검색용)
+@st.cache_data(ttl=86400) # 하루에 한 번만 갱신
+def get_krx_stocks():
+    try:
+        df = fdr.StockListing('KRX')
+        return df[['Name', 'Code']]
+    except Exception as e:
+        st.error("국내 주식 목록을 불러오는 중 오류가 발생했습니다.")
+        return pd.DataFrame(columns=['Name', 'Code'])
 
 def fetch_news():
     base_url = "https://finance.naver.com"
@@ -269,8 +276,7 @@ st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    # 💡 수정: 개수 설정 슬라이더를 완전히 제거했습니다.
-    fetch_button = st.button("데이터 업데이트 🔄", type="primary")
+    fetch_button = st.button("미국장 급등주 다시 불러오기 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
     if "GEMINI_API_KEY" in st.secrets:
@@ -281,12 +287,12 @@ with st.sidebar:
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('미국장 폭등주(+10% 이상) 데이터를 선별 중입니다...'):
-        # 함수 호출 시 개수 인자 없이 호출
         df, ex_rate = get_us_top_gainers()
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "📰 한국 시장 실시간 속보"])
+# 💡 신규: 탭 3개로 확장
+tab1, tab2, tab3 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "🎯 국내 개별 종목 타점 검색", "📰 실시간 금융 속보"])
 
 # ------------------------------------------
 # [탭 1] 미국장 기반 스윙 검색기
@@ -392,9 +398,69 @@ with tab1:
                                 st.bar_chart(tech_result["거래량 데이터"], height=150)
 
 # ------------------------------------------
-# [탭 2] 실시간 금융 뉴스 탭
+# [탭 2] 💡 신규: 국내 개별 종목 타점 검색
 # ------------------------------------------
 with tab2:
+    st.subheader("🔍 국내 개별 종목 타점 검색기")
+    st.write("관심 있는 국내 주식을 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 제공합니다.")
+    
+    krx_df = get_krx_stocks()
+    
+    if not krx_df.empty:
+        # 검색용 리스트 만들기: "삼성전자 (005930)" 형태
+        krx_options = [""] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
+        
+        # 💡 자동 완성(검색)이 지원되는 selectbox
+        search_query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", krx_options)
+        
+        if search_query:
+            st.divider()
+            
+            # 💡 기존과 동일한 매매 가이드라인 표기
+            st.info("""
+            **[매매 가이드라인 안내]**
+            * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
+            * ⚠️ **관심 집중:** 최근 급등하여 20일선과 벌어져 있습니다. (눌림목이 올 때까지 관망)
+            * 🛑 **추세 이탈:** 20일선을 하향 이탈했습니다. (손절 또는 접근 금지)
+            * 🎯 **1차 목표가 (볼린저 상단):** 단기 슈팅(급등) 시 통계적으로 강력한 저항을 받을 확률이 높은 가격대입니다.
+            """)
+            
+            # 선택한 종목에서 이름과 코드 분리
+            searched_name = search_query.split(" (")[0]
+            searched_code = search_query.split("(")[1].replace(")", "")
+            
+            with st.spinner(f"'{searched_name}' 기술적 타점 분석 중..."):
+                tech_result = analyze_technical_pattern(searched_name, searched_code)
+                
+            if tech_result:
+                status_emoji = tech_result['상태'].split(' ')[0]
+                # 개별 검색이므로 클릭할 필요 없이 무조건 열려있게(expanded=True) 설정
+                with st.expander(f"{status_emoji} {searched_name} (현재가: {tech_result['현재가']:,}원)", expanded=True):
+                    st.markdown(f"**진단 상태:** {tech_result['상태']}")
+                    p_col1, p_col2, p_col3 = st.columns(3)
+                    
+                    p_col1.metric("💡 진입 기준가", f"{tech_result['진입가_가이드']:,}원")
+                    p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원", help="단기 급등 시 부딪힐 확률이 높은 저항선입니다.")
+                    p_col3.metric("🛑 기계적 손절가", f"{tech_result['손절가']:,}원")
+                    
+                    st.divider()
+                    st.metric("수급 분석", f"{tech_result['최근_거래량']:,}주", tech_result["거래량 급증"])
+                    chart_col1, chart_col2 = st.columns(2)
+                    with chart_col1:
+                        st.caption("📈 최근 20일 주가 흐름")
+                        st.line_chart(tech_result["종가 데이터"], height=200) # 차트를 조금 더 크게!
+                    with chart_col2:
+                        st.caption("📊 최근 20일 거래량")
+                        st.bar_chart(tech_result["거래량 데이터"], height=200)
+            else:
+                st.error("상장된 지 얼마 안 된 신규 상장주이거나 데이터를 불러올 수 없습니다. (최소 20일의 데이터 필요)")
+    else:
+        st.error("국내 주식 목록을 불러올 수 없습니다.")
+
+# ------------------------------------------
+# [탭 3] 실시간 금융 뉴스 탭
+# ------------------------------------------
+with tab3:
     st.subheader("📰 네이버 금융 실시간 시황/전망 속보")
     kst_now = datetime.utcnow() + timedelta(hours=9)
     st.caption(f"마지막 업데이트 시간: {kst_now.strftime('%Y-%m-%d %H:%M:%S')} (5분 주기 자동 갱신 중)")
