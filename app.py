@@ -151,27 +151,6 @@ def fetch_news():
     except Exception as e:
         return 0
 
-korea_theme_mapping = {
-    "Semiconductors": [("SK하이닉스", "000660"), ("삼성전자", "005930"), ("리노공업", "058470"), ("ISC", "095340"), ("DB하이텍", "000990")],
-    "Semiconductor Equipment & Materials": [("한미반도체", "042700"), ("HPSP", "403870"), ("이오테크닉스", "039200"), ("주성엔지니어링", "036930"), ("원익IPS", "240810"), ("동진쎄미켐", "005290"), ("솔브레인", "357780"), ("티씨케이", "064760"), ("하나마이크론", "067310"), ("피에스케이", "319660")],
-    "Electronic Components": [("삼성전기", "009150"), ("LG이노텍", "011070"), ("이수페타시스", "007660"), ("심텍", "222800"), ("대덕전자", "353200"), ("비에이치", "090460"), ("해성디에스", "195870"), ("아비코전자", "036010")],
-    "Specialty Chemicals": [("에코프로비엠", "247540"), ("포스코퓨처엠", "003670"), ("에코프로", "086520"), ("엘앤에프", "066970"), ("엔켐", "348370"), ("코스모신소재", "005070"), ("나노신소재", "121600"), ("대주전자재료", "078600"), ("천보", "278280")],
-    "Technology": [("네이버", "035420"), ("카카오", "035720"), ("삼성SDS", "018260"), ("현대오토에버", "307950"), ("포스코DX", "022100"), ("롯데정보통신", "286940"), ("다우기술", "023590"), ("카페24", "042000")],
-    "Software - Infrastructure": [("아이티센글로벌", "124500"), ("더존비즈온", "012510"), ("엠로", "058970"), ("파수", "150900"), ("안랩", "053800"), ("지니언스", "263860"), ("이스트소프트", "047560"), ("엑스게이트", "356680"), ("파이오링크", "170790")],
-    "Artificial Intelligence": [("루닛", "328130"), ("크라우드웍스", "355390"), ("한글과컴퓨터", "030520"), ("폴라리스오피스", "041020"), ("솔트룩스", "304100"), ("뷰노", "338220"), ("제이엘케이", "322510"), ("코난테크놀로지", "402030")],
-    "Utilities - Renewable": [("HD현대일렉트릭", "267260"), ("LS ELECTRIC", "010120"), ("두산에너빌리티", "034020"), ("효성중공업", "298040"), ("제룡전기", "033100"), ("일진전기", "103590"), ("가온전선", "000500"), ("씨에스윈드", "112610")],
-    "Energy": [("S-Oil", "010950"), ("SK이노베이션", "096770"), ("HD현대마린솔루션", "443060"), ("한국가스공사", "036460"), ("포스코인터내셔널", "047050"), ("GS", "078930"), ("HD현대중공업", "329180"), ("삼성중공업", "010140")],
-    "Oil & Gas Drilling": [("HD현대중공업", "329180"), ("삼성중공업", "010140"), ("한화오션", "042660"), ("한국가스공사", "036460"), ("포스코인터내셔널", "047050"), ("HD현대마린솔루션", "443060")],
-    "Healthcare": [("삼성바이오로직스", "207940"), ("셀트리온", "068270"), ("유한양행", "000100"), ("한미약품", "128940"), ("종근당", "185750"), ("휴젤", "145020"), ("파마리서치", "214450"), ("클래시스", "214150")],
-    "Biotechnology": [("알테오젠", "196170"), ("HLB", "028300"), ("리가켐바이오", "141080"), ("삼천당제약", "000250"), ("에이비엘바이오", "298380"), ("펩트론", "087010"), ("보로노이", "310210")],
-    "Industrials": [("한화에어로스페이스", "012450"), ("LIG넥스원", "079550"), ("현대로템", "064350"), ("한국항공우주", "047810"), ("HD현대건설기계", "267270"), ("두산밥캣", "241560"), ("LS", "006260"), ("효성첨단소재", "298050")],
-    "Consumer Cyclical": [("효성티앤씨", "298020"), ("호텔신라", "008770"), ("파라다이스", "034230"), ("코스맥스", "192820"), ("아모레퍼시픽", "090430"), ("영원무역", "111110"), ("F&F", "383220"), ("실리콘투", "257720")],
-    "Basic Materials": [("효성티앤씨", "298020"), ("LG화학", "051910"), ("포스코홀딩스", "005490"), ("금호석유", "011780"), ("롯데케미칼", "011170")],
-    "Communication Services": [("KT", "030200"), ("SK텔레콤", "017670"), ("LG유플러스", "032640"), ("서진시스템", "253010"), ("쏠리드", "050890"), ("제일기획", "030000"), ("에코마케팅", "236200"), ("나스미디어", "089600")],
-    "Auto Manufacturers": [("현대차", "005380"), ("기아", "000270"), ("현대모비스", "012330"), ("HL만도", "204320"), ("현대위아", "011210"), ("서연이화", "200880"), ("성우하이텍", "015750"), ("화신", "010690")],
-    "Financials": [("KB금융", "105560"), ("신한지주", "055550"), ("하나금융지주", "086790"), ("메리츠금융지주", "138040"), ("삼성생명", "032830"), ("삼성화재", "000810"), ("키움증권", "039490"), ("한국금융지주", "071050")]
-}
-
 @st.cache_data(ttl=3600)
 def get_basic_sector_info(ticker):
     try:
@@ -188,7 +167,6 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
-        # 💡 개선: 프롬프트 상의 추천 개수를 5개에서 10개로 수정
         prompt = f"""
         당신은 한국 주식 전문가입니다.
         미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 
@@ -200,7 +178,27 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
         response = model.generate_content(prompt)
         pattern = r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]"
         matches = re.findall(pattern, response.text)
-        # 💡 개선: 최대 10개까지 슬라이싱
+        return matches[:10] if matches else []
+    except Exception as e:
+        return []
+
+# 💡 신규: 직접 입력한 테마 키워드로 관련주를 찾아주는 AI 함수
+@st.cache_data(ttl=3600)
+def get_theme_stocks_with_ai(theme_keyword, api_key):
+    if not api_key: return []
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = f"""
+        당신은 한국 주식 전문가입니다.
+        사용자가 입력한 테마명: '{theme_keyword}'
+        이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 10개를 찾아주세요.
+        반드시 아래 예시와 같은 파이썬 리스트 형태로만 답변하세요. 부가 설명이나 코멘트는 절대 금지입니다.
+        예시: [('에코프로', '086520'), ('LG에너지솔루션', '373220')]
+        """
+        response = model.generate_content(prompt)
+        pattern = r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]"
+        matches = re.findall(pattern, response.text)
         return matches[:10] if matches else []
     except Exception as e:
         return []
@@ -304,7 +302,13 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "🎯 국내 개별 종목 타점 검색", "📰 실시간 금융 속보"])
+# 💡 신규: 탭을 4개로 확장 (테마주 검색 탭 추가)
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🇺🇸 미국 주도주 스윙 검색기", 
+    "🎯 국내 개별 종목 검색", 
+    "💡 테마/관련주 AI 발굴", 
+    "📰 실시간 금융 속보"
+])
 
 # ------------------------------------------
 # [탭 1] 미국장 기반 스윙 검색기
@@ -347,7 +351,7 @@ with tab1:
         * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
         * ⚠️ **관심 집중:** 최근 급등하여 20일선과 벌어져 있습니다. (눌림목이 올 때까지 관망)
         * 🛑 **추세 이탈:** 20일선을 하향 이탈했습니다. (손절 또는 접근 금지)
-        * 🎯 **1차 목표가 (볼린저 상단):** 단기 슈팅(급등) 시 통계적으로 강력한 저항을 받을 확률이 높은 가격대입니다. 이 가격 부근에 도달하면 절반 정도 수익 실현하는 것을 권장합니다.
+        * 🎯 **1차 목표가 (볼린저 상단):** 단기 슈팅(급등) 시 통계적으로 강력한 저항을 받을 확률이 높은 가격대입니다.
         """)
         
         if selected_ticker != "N/A":
@@ -369,23 +373,6 @@ with tab1:
             
             st.divider()
             
-            # ==============================================================
-            # 💡 [롤백용 주석 처리] 기존: 하드코딩된 리스트 우선, 없으면 AI 호출
-            # ==============================================================
-            # kor_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
-            # is_ai_matched = False
-            # 
-            # if not kor_stocks and api_key_input:
-            #     with st.spinner('해당 테마에 매칭되는 한국 주식을 AI가 실시간으로 발굴하고 있습니다...'):
-            #         comp_name = selected_option.split(" - ")[0]
-            #         kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, comp_name, api_key_input)
-            #         if kor_stocks:
-            #             is_ai_matched = True
-            # ==============================================================
-            
-            # ==============================================================
-            # 🚀 [신규 적용] 무조건 AI가 실시간으로 분석하여 100% 발굴하는 모드
-            # ==============================================================
             kor_stocks = []
             is_ai_matched = False
             
@@ -395,15 +382,11 @@ with tab1:
                     kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, comp_name, api_key_input)
                     if kor_stocks:
                         is_ai_matched = True
-            # ==============================================================
             
             if not kor_stocks:
                 st.warning("⚠️ 매핑된 국내 주식이 없거나 AI 분석 중 오류가 발생했습니다. (사이드바에 API 키를 입력해 주세요!)")
             else:
-                if is_ai_matched:
-                    st.write("✨ **AI가 기업 정보를 바탕으로 실시간 발굴한 연관 국내 주식입니다!**")
-                else:
-                    st.write("👇 **기본 설정된 핵심 우량주 매핑 결과입니다.**")
+                st.write("✨ **AI가 기업 정보를 바탕으로 실시간 발굴한 연관 국내 주식입니다!**")
                 
                 for stock_name, ticker_code in kor_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
@@ -414,7 +397,7 @@ with tab1:
                             p_col1, p_col2, p_col3 = st.columns(3)
                             
                             p_col1.metric("💡 진입 기준가", f"{tech_result['진입가_가이드']:,}원")
-                            p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원", help="단기 급등 시 부딪힐 확률이 높은 저항선입니다. 스윙 투자 시 안전한 1차 매도 타점으로 활용하세요.")
+                            p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원")
                             p_col3.metric("🛑 기계적 손절가", f"{tech_result['손절가']:,}원")
                             
                             st.divider()
@@ -431,26 +414,18 @@ with tab1:
 # [탭 2] 국내 개별 종목 타점 검색
 # ------------------------------------------
 with tab2:
-    st.subheader("🔍 국내 개별 종목 타점 검색기")
+    st.subheader("🔍 국내 개별 종목 타점 진단기")
     st.write("관심 있는 국내 주식을 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 제공합니다.")
     
     krx_df = get_krx_stocks()
     
     if not krx_df.empty:
         krx_options = [""] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
-        
         search_query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", krx_options)
         
         if search_query:
             st.divider()
-            
-            st.info("""
-            **[매매 가이드라인 안내]**
-            * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
-            * ⚠️ **관심 집중:** 최근 급등하여 20일선과 벌어져 있습니다. (눌림목이 올 때까지 관망)
-            * 🛑 **추세 이탈:** 20일선을 하향 이탈했습니다. (손절 또는 접근 금지)
-            * 🎯 **1차 목표가 (볼린저 상단):** 단기 슈팅(급등) 시 통계적으로 강력한 저항을 받을 확률이 높은 가격대입니다.
-            """)
+            st.info("**[매매 가이드라인 안내]**\n* ✅ **타점 근접:** 분할 매수하기 좋은 위치\n* ⚠️ **관심 집중:** 급등 후 이격 발생 (눌림목 대기)\n* 🛑 **추세 이탈:** 하향 이탈 (손절/접근 금지)")
             
             searched_name = search_query.split(" (")[0]
             searched_code = search_query.split("(")[1].replace(")", "")
@@ -463,11 +438,9 @@ with tab2:
                 with st.expander(f"{status_emoji} {searched_name} (현재가: {tech_result['현재가']:,}원)", expanded=True):
                     st.markdown(f"**진단 상태:** {tech_result['상태']}")
                     p_col1, p_col2, p_col3 = st.columns(3)
-                    
                     p_col1.metric("💡 진입 기준가", f"{tech_result['진입가_가이드']:,}원")
-                    p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원", help="단기 급등 시 부딪힐 확률이 높은 저항선입니다.")
+                    p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원")
                     p_col3.metric("🛑 기계적 손절가", f"{tech_result['손절가']:,}원")
-                    
                     st.divider()
                     st.metric("수급 분석", f"{tech_result['최근_거래량']:,}주", tech_result["거래량 급증"])
                     chart_col1, chart_col2 = st.columns(2)
@@ -478,14 +451,57 @@ with tab2:
                         st.caption("📊 최근 20일 거래량")
                         st.bar_chart(tech_result["거래량 데이터"], height=200)
             else:
-                st.error("상장된 지 얼마 안 된 신규 상장주이거나 데이터를 불러올 수 없습니다. (최소 20일의 데이터 필요)")
-    else:
-        st.error("국내 주식 목록을 불러올 수 없습니다. 'html5lib' 라이브러리 설치를 확인해 주세요.")
+                st.error("데이터를 불러올 수 없습니다. (최소 20일의 거래 데이터 필요)")
 
 # ------------------------------------------
-# [탭 3] 실시간 금융 뉴스 탭
+# [탭 3] 💡 신규: 테마/관련주 AI 검색
 # ------------------------------------------
 with tab3:
+    st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
+    st.write("관심 있는 테마나 키워드(예: `2차전지`, `비만치료제`, `초전도체`)를 입력하시면, AI가 대장주와 관련주를 찾아 즉시 타점을 진단합니다.")
+    
+    theme_input = st.text_input("🔍 검색할 테마/키워드를 자유롭게 입력하세요:")
+    
+    if theme_input:
+        if not api_key_input:
+            st.error("⚠️ 좌측 사이드바에 API 키를 먼저 입력해야 AI 테마 발굴 기능이 작동합니다.")
+        else:
+            st.divider()
+            with st.spinner(f"'{theme_input}' 관련주를 AI가 샅샅이 뒤지고 있습니다... (약 3~5초 소요)"):
+                theme_stocks = get_theme_stocks_with_ai(theme_input, api_key_input)
+            
+            if not theme_stocks:
+                st.error(f"'{theme_input}' 테마에 대한 관련주를 찾지 못했습니다. 다른 키워드로 검색해 보세요.")
+            else:
+                st.success(f"✨ **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 완료!** (아래에서 타점을 확인하세요)")
+                
+                for stock_name, ticker_code in theme_stocks:
+                    tech_result = analyze_technical_pattern(stock_name, ticker_code)
+                    if tech_result:
+                        status_emoji = tech_result['상태'].split(' ')[0]
+                        # 💡 연관 테마주는 빠르게 훑어볼 수 있도록 닫혀있게 설정
+                        with st.expander(f"{status_emoji} {stock_name} (현재가: {tech_result['현재가']:,}원)", expanded=False):
+                            st.markdown(f"**진단 상태:** {tech_result['상태']}")
+                            p_col1, p_col2, p_col3 = st.columns(3)
+                            
+                            p_col1.metric("💡 진입 기준가", f"{tech_result['진입가_가이드']:,}원")
+                            p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원")
+                            p_col3.metric("🛑 기계적 손절가", f"{tech_result['손절가']:,}원")
+                            
+                            st.divider()
+                            st.metric("수급 분석", f"{tech_result['최근_거래량']:,}주", tech_result["거래량 급증"])
+                            chart_col1, chart_col2 = st.columns(2)
+                            with chart_col1:
+                                st.caption("📈 최근 20일 주가 흐름")
+                                st.line_chart(tech_result["종가 데이터"], height=150)
+                            with chart_col2:
+                                st.caption("📊 최근 20일 거래량")
+                                st.bar_chart(tech_result["거래량 데이터"], height=150)
+
+# ------------------------------------------
+# [탭 4] 실시간 금융 뉴스 탭
+# ------------------------------------------
+with tab4:
     st.subheader("📰 네이버 금융 실시간 시황/전망 속보")
     kst_now = datetime.utcnow() + timedelta(hours=9)
     st.caption(f"마지막 업데이트 시간: {kst_now.strftime('%Y-%m-%d %H:%M:%S')} (5분 주기 자동 갱신 중)")
