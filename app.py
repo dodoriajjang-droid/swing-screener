@@ -90,7 +90,7 @@ def get_us_top_gainers():
         st.error(f"미국장 데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame(), 1350.0
 
-# 💡 개선: 국내 코스피/코스닥 전 종목 리스트 가져오기 (방화벽 우회 로직 포함)
+# 💡 개선: 국내 코스피/코스닥 전 종목 리스트 가져오기 (방화벽 우회 + 한글 인코딩 깨짐 해결)
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
@@ -99,7 +99,13 @@ def get_krx_stocks():
     except Exception:
         try:
             url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
-            df = pd.read_html(url, header=0)[0]
+            
+            # 💡 수정: 판다스가 바로 읽지 않고, requests로 먼저 가져와서 인코딩을 'euc-kr'로 강제 변환합니다.
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            res = requests.get(url, headers=headers)
+            res.encoding = 'euc-kr' 
+            
+            df = pd.read_html(StringIO(res.text), header=0)[0]
             df = df[['회사명', '종목코드']]
             df.columns = ['Name', 'Code']
             df['Code'] = df['Code'].astype(str).str.zfill(6)
@@ -483,3 +489,4 @@ with tab3:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
+
