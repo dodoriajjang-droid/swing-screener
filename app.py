@@ -12,10 +12,12 @@ import re
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
-# 1. 초기 설정 
+# 1. 초기 설정
 # ==========================================
+# 브라우저 탭 이름과 아이콘 설정
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 
+# 5분 단위 자동 새로고침
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 if 'seen_links' not in st.session_state:
@@ -237,7 +239,6 @@ def analyze_news_with_gemini(ticker, api_key):
 def draw_stock_card(tech_result):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    # 테두리가 있는 컨테이너를 생성하여 시각적 분리 (최신 스트림릿 기능)
     with st.container(border=True):
         st.markdown(f"### {status_emoji} {tech_result['종목명']} <span style='font-size:16px; color:gray;'>({tech_result['현재가']:,}원)</span>", unsafe_allow_html=True)
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급 현황:** {tech_result['거래량 급증']}")
@@ -245,10 +246,10 @@ def draw_stock_card(tech_result):
         c1, c2, c3 = st.columns(3)
         curr = tech_result['현재가']
         
-        # 💡 네이티브 기능인 delta 속성을 활용하여 빨강/초록 화살표 표시
+        # 💡 UI/UX 버그 수정: 손절가의 delta_color를 'normal'로 두어 마이너스 금액이 '빨간색 하락 화살표'로 직관적으로 보이게 수정
         c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (현재가 대비)", delta_color="off")
         c2.metric("🎯 1차 목표가", f"{tech_result['목표가']:,}원", f"+{tech_result['목표가'] - curr:,}원 (기대 수익)")
-        c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="inverse")
+        c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         
         ch1, ch2 = st.columns(2)
         with ch1:
@@ -261,6 +262,7 @@ def draw_stock_card(tech_result):
 # ==========================================
 # 3. 사이드바 및 UI 화면 구성
 # ==========================================
+# 실제 화면에 출력되는 메인 타이틀
 st.title("📈 AI 스윙 트레이딩 관제 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
@@ -299,7 +301,8 @@ with tab1:
         st.caption(f"🗓️ **기준일:** {us_time.strftime('%Y-%m-%d')} (NYT) ｜ 💱 **적용 환율:** 1달러 = {int(st.session_state.get('ex_rate', 1350)):,}원")
         
         if not st.session_state.gainers_df.empty:
-            st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
+            # 💡 UI/UX 개선: 표가 무한히 길어지지 않게 height=400으로 박스 크기를 고정하여 레이아웃 밸런스 유지
+            st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True, height=400)
             options = []
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
@@ -312,6 +315,7 @@ with tab1:
             selected_ticker = selected_option.split(" ")[0]
         else:
             selected_ticker = "N/A"
+            st.info("현재 +10% 이상 급등한 종목이 없습니다.")
 
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
@@ -381,4 +385,3 @@ with tab4:
                 cols = st.columns([5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {news['title']}")
                 cols[1].link_button("원문 읽기 🔗", news['link'], use_container_width=True)
-
