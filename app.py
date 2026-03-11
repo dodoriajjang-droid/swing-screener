@@ -45,7 +45,6 @@ def get_macro_indicators():
     except Exception:
         return None
 
-# 💡 신규: CNN 공포탐욕지수 크롤링 함수
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     try:
@@ -204,45 +203,32 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", model.generate_content(prompt).text)[:20]
     except Exception: return []
 
-# 💡 버그 픽스: 네이버 금융 실시간 외국인/기관 수급 데이터 구조에 맞게 완벽 수정
 def get_investor_trend(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # 네이버 금융에서 'table.type2' 클래스를 가진 표 중 '두 번째 표'가 일별 매매동향입니다.
         tables = soup.select('table.type2')
         if len(tables) < 2: return "조회불가", "조회불가"
-        
         rows = tables[1].select('tr')
         inst_sum, forgn_sum, count = 0, 0, 0
-        
         for row in rows:
             tds = row.select('td')
-            if len(tds) < 9: continue # 빈 줄(구분선) 패스
-            
+            if len(tds) < 9: continue 
             date_str = tds[0].text.strip()
             if not date_str or len(date_str) < 8: continue
-            
-            # 인덱스 5: 기관 순매매량, 인덱스 6: 외국인 순매매량
             inst_str = tds[5].text.strip().replace(',', '').replace('+', '')
             forgn_str = tds[6].text.strip().replace(',', '').replace('+', '')
-            
             if not inst_str or not forgn_str: continue
-            
             try:
                 inst_sum += int(inst_str)
                 forgn_sum += int(forgn_str)
                 count += 1
             except: pass
-            
-            if count >= 3: break # 최근 3일치만 더하고 종료
-                
+            if count >= 3: break 
         inst_status = "🔥매집" if inst_sum > 0 else "💧매도" if inst_sum < 0 else "➖중립"
         forgn_status = "🔥매집" if forgn_sum > 0 else "💧매도" if forgn_sum < 0 else "➖중립"
-        
         def format_val(val): return f"+{val:,}" if val > 0 else f"{val:,}"
         return f"{format_val(inst_sum)} ({inst_status})", f"{format_val(forgn_sum)} ({forgn_status})"
     except:
@@ -334,7 +320,6 @@ def get_trending_themes_with_ai(api_key):
         return themes[:5] if len(themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 💡 수정: 가이드라인에 RSI 설명을 더 직관적으로 강화
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -393,14 +378,12 @@ def draw_stock_card(tech_result, is_expanded=False):
 st.title("📈 Jaemini 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
-# 💡 신규: VIX와 CNN 공포/탐욕 지수를 나란히 보여주는 막강한 매크로 패널
 macro_data = get_macro_indicators()
 fg_data = get_fear_and_greed()
 
 if macro_data:
     st.markdown("##### 🌍 실시간 글로벌 매크로 지표 & 시장 체력")
     
-    # 공포탐욕지수가 성공적으로 로드되면 3칸, 실패하면 2칸으로 레이아웃 자동 조정
     if fg_data:
         m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
     else:
@@ -410,10 +393,11 @@ if macro_data:
     with m_col1:
         vix_val = macro_data['VIX']['value']
         vix_prev = macro_data['VIX']['prev']
+        # 💡 여백(t=80)과 높이(250)를 늘리고, 제목 안에 <br> 태그로 설명을 명확히 삽입하여 글씨 잘림 해결!
         fig_vix = go.Figure(go.Indicator(
             mode = "gauge+number+delta",
             value = vix_val,
-            title = {'text': "<b>VIX (시장 공포지수)</b>", 'font': {'size': 14}},
+            title = {'text': "<b>VIX (시장 공포지수)</b><br><span style='font-size:12px;color:gray'>20: 경계 ｜ 30: 공포 (현금확대)</span>", 'font': {'size': 15}},
             delta = {'reference': vix_prev, 'position': "top"},
             gauge = {
                 'axis': {'range': [0, 50], 'tickwidth': 1, 'tickcolor': "darkblue"},
@@ -429,17 +413,18 @@ if macro_data:
                 ],
             }
         ))
-        fig_vix.update_layout(margin=dict(l=20, r=20, t=30, b=10), height=180)
+        fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
         
     if fg_data and m_col2:
         with m_col2:
             fg_val = fg_data['score']
             fg_prev = fg_val - fg_data['delta']
+            # 💡 공포탐욕지수에도 설명과 여백 추가 완료!
             fig_fg = go.Figure(go.Indicator(
                 mode = "gauge+number+delta",
                 value = fg_val,
-                title = {'text': "<b>CNN 공포/탐욕 지수</b>", 'font': {'size': 14}},
+                title = {'text': "<b>CNN 공포/탐욕 지수</b><br><span style='font-size:12px;color:gray'>25이하: 공포(매수) ｜ 75이상: 탐욕(매도)</span>", 'font': {'size': 15}},
                 delta = {'reference': fg_prev, 'position': "top"},
                 gauge = {
                     'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
@@ -456,7 +441,7 @@ if macro_data:
                     ],
                 }
             ))
-            fig_fg.update_layout(margin=dict(l=20, r=20, t=30, b=10), height=180)
+            fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
             st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
         
     with m_col3:
@@ -465,7 +450,7 @@ if macro_data:
             c1, c2 = st.columns(2)
             c1.metric("🏦 美 10년물 국채 금리", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
             c2.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
-            st.info("💡 **[가이드]** VIX가 높거나 공포/탐욕 지수가 '극도 공포(빨간색)'일 때가 최고의 매수 찬스입니다.")
+            st.info("💡 **[시장 체력 가이드]** VIX가 높게 치솟거나 공포/탐욕 지수가 '공포(빨간색)' 구간일 때가 통계적으로 최고의 스윙 매수 찬스입니다.")
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
