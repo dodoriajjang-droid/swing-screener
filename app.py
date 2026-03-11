@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np # 💡 신규: 수학적 보조지표(RSI, OBV) 계산을 위한 라이브러리
 import requests
 from bs4 import BeautifulSoup
 from io import StringIO
@@ -21,7 +22,6 @@ st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 if 'seen_links' not in st.session_state:
     st.session_state.seen_links = set()
-# 💡 신규: '재탕 기사' 노이즈 필터링을 위한 제목 기억 저장소 추가
 if 'seen_titles' not in st.session_state:
     st.session_state.seen_titles = set()
 if 'news_data' not in st.session_state:
@@ -30,6 +30,21 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
+# 💡 신규: 거시경제(Macro) 지표 수집 함수
+@st.cache_data(ttl=3600)
+def get_macro_indicators():
+    try:
+        tickers = {"VIX (공포지수)": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+        results = {}
+        for name, t in tickers.items():
+            df = yf.Ticker(t).history(period="5d")
+            latest = df['Close'].iloc[-1]
+            prev = df['Close'].iloc[-2]
+            results[name] = {"value": latest, "delta": latest - prev}
+        return results
+    except Exception:
+        return None
+
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     try:
@@ -41,7 +56,6 @@ def get_us_top_gainers():
         
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6] 
-        
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
         
         def extract_pct(x):
@@ -55,7 +69,6 @@ def get_us_top_gainers():
         df['실제등락률'] = df['등락률'].apply(extract_pct)
         df = df[df['실제등락률'] >= 10.0] 
         df = df.drop(columns=['실제등락률']) 
-        
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
         
         def get_korean_name(name):
@@ -88,7 +101,6 @@ def get_us_top_gainers():
         df['현재가'] = df['현재가'].apply(format_price)
         return df, ex_rate
     except Exception as e:
-        st.error(f"미국장 데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame(), 1350.0
 
 @st.cache_data(ttl=86400)
@@ -97,14 +109,12 @@ def get_krx_stocks():
         df = fdr.StockListing('KRX')
         if not df.empty: return df[['Name', 'Code']]
     except: pass
-    
     try:
         kospi = fdr.StockListing('KOSPI')
         kosdaq = fdr.StockListing('KOSDAQ')
         df = pd.concat([kospi, kosdaq], ignore_index=True)
         if not df.empty: return df[['Name', 'Code']]
     except: pass
-
     try:
         url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
         headers = {
@@ -118,8 +128,7 @@ def get_krx_stocks():
         df.columns = ['Name', 'Code']
         df['Code'] = df['Code'].astype(str).str.zfill(6)
         return df
-    except Exception as e:
-        st.error(f"⚠️ 국내 주식 목록 서버(KRX) 통신 장애가 발생했습니다. (사유: {e})")
+    except Exception:
         return pd.DataFrame(columns=['Name', 'Code'])
 
 def fetch_news():
@@ -134,21 +143,17 @@ def fetch_news():
         subject_tags = soup.select("dl dd.articleSubject a")
         new_items_count = 0
         kst_now = datetime.utcnow() + timedelta(hours=9)
-        
         for tag in subject_tags:
             title = tag.get_text(strip=True)
             link = tag['href']
             full_link = base_url + link if link.startswith("/") else link
-            
-            # 💡 신규: 노이즈 필터링 (이미 본 링크거나, 제목이 완전히 똑같은 재탕 기사는 버림)
             if full_link in st.session_state.seen_links or title in st.session_state.seen_titles:
                 continue
-                
             st.session_state.news_data.insert(0, {
                 "time": kst_now.strftime("%H:%M"), "title": title, "link": full_link
             })
             st.session_state.seen_links.add(full_link)
-            st.session_state.seen_titles.add(title) # 제목 기억
+            st.session_state.seen_titles.add(title)
             new_items_count += 1
         return new_items_count
     except Exception:
@@ -157,37 +162,28 @@ def fetch_news():
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
-    if not api_key:
-        return results
-        
+    if not api_key: return results
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
         ticker_str = "\n".join(tickers)
-        
         prompt = f"""
         당신은 월스트리트 주식 전문가입니다.
         다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.
         반드시 아래 예시처럼 '티커|섹터|산업' 형태로만 답변하고 다른 말은 절대 하지 마세요.
         예시:
         AAPL|기술|소비자 가전
-        TSLA|임의소비재|자동차 제조
-        
         [티커 목록]
         {ticker_str}
         """
-        
         response = model.generate_content(prompt)
-        
         for line in response.text.strip().split('\n'):
             parts = line.split('|')
             if len(parts) >= 3:
                 t = parts[0].strip().replace('*', '').replace('-', '')
                 s = parts[1].strip()
                 i = parts[2].strip()
-                if t in results:
-                    results[t] = (s, i)
+                if t in results: results[t] = (s, i)
         return results
     except Exception:
         return results
@@ -232,11 +228,22 @@ def analyze_technical_pattern(stock_name, ticker_code):
         df = fdr.DataReader(ticker_code, (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d'))
         if len(df) < 20: return None
         
+        # 기본 이평선 및 볼린저 밴드
         df['MA20'] = df['Close'].rolling(window=20).mean()
         df['Vol_MA20'] = df['Volume'].rolling(window=20).mean()
         df['Std_20'] = df['Close'].rolling(window=20).std()
         df['Bollinger_Upper'] = df['MA20'] + (df['Std_20'] * 2)
         
+        # 💡 신규: RSI (상대강도지수) 계산 (14일 기준)
+        delta = df['Close'].diff()
+        gain = delta.where(delta > 0, 0.0).rolling(window=14).mean()
+        loss = -delta.where(delta < 0, 0.0).rolling(window=14).mean()
+        rs = gain / loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+        
+        latest_rsi = df['RSI'].iloc[-1]
+        rsi_status = "🔴 과열 (추격매수 금지)" if latest_rsi >= 70 else "🟢 바닥 (매수 관점)" if latest_rsi <= 30 else "⚪ 보통"
+
         latest = df.iloc[-1]
         recent_10_days = df.iloc[-10:]
         is_volume_spike = recent_10_days['Volume'].max() > (recent_10_days['Vol_MA20'].mean() * 2)
@@ -257,6 +264,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "종목명": stock_name, "현재가": int(current_price), "상태": status,
             "진입가_가이드": int(ma20_price), "목표가": int(target_price), "손절가": int(stop_loss_price),
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
+            "RSI": latest_rsi, "RSI_상태": rsi_status, # 신규 데이터
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
     except:
@@ -266,38 +274,27 @@ def get_company_summary(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
         biz_summary = ""
         try:
             biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
         except: pass 
-            
-        if biz_summary:
-            prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}"
-        else:
-            prompt = f"미국 주식 티커 '{ticker}' 기업에 대해 아는 대로 '무엇을 만들고 어떻게 돈을 버는 기업인지' 핵심 비즈니스 모델을 한국어로 2~3줄로 요약해 주세요."
-            
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"기업 정보를 요약하는 중 오류가 발생했습니다. (에러: {e})"
+        if biz_summary: prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}"
+        else: prompt = f"미국 주식 티커 '{ticker}' 기업에 대해 아는 대로 '무엇을 만들고 어떻게 돈을 버는 기업인지' 핵심 비즈니스 모델을 한국어로 2~3줄로 요약해 주세요."
+        return model.generate_content(prompt).text
+    except Exception as e: return f"기업 정보를 요약하는 중 오류가 발생했습니다."
 
 def analyze_news_with_gemini(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
         news_list = []
-        try:
-            news_list = yf.Ticker(ticker).news
+        try: news_list = yf.Ticker(ticker).news
         except: pass
-            
         if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
         news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
         prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
-    except Exception:
-        return "뉴스 분석 중 오류가 발생했습니다."
+    except Exception: return "뉴스 분석 중 오류가 발생했습니다."
 
-# 💡 신규: 단일 뉴스 재료 심층 분석기 (팩트체크 및 선반영 여부)
 def analyze_single_news(title, api_key):
     try:
         genai.configure(api_key=api_key)
@@ -305,16 +302,13 @@ def analyze_single_news(title, api_key):
         prompt = f"""
         당신은 한국 주식 시장의 실전 스윙 트레이더입니다. 다음 발생한 실시간 뉴스 속보를 트레이딩 관점에서 냉철하게 분석해주세요.
         [속보 헤드라인]: "{title}"
-        
         다음 3가지 항목에 대해 짧고 명확하게 답변하세요:
-        1. 🔍 팩트 vs 노이즈: (실제 기업가치나 수급에 영향을 줄 '진짜 재료'인가, 단순 기대감을 부추기는 '찌라시/노이즈'인가?)
-        2. 📉 선반영 및 기대치: (이미 시장 컨센서스에 선반영되어 '재료 소멸' 가능성이 높은가, 아니면 시장이 예상 못한 '서프라이즈/쇼크'인가?)
-        3. ⚡ 트레이딩 전략: (관련 섹터에 대해 관망 / 단기 매수 / 차익 실현 등 어떤 스탠스를 취해야 하는가?)
+        1. 🔍 팩트 vs 노이즈: (진짜 재료인가, 찌라시인가?)
+        2. 📉 선반영 및 기대치: (재료 소멸인가, 서프라이즈인가?)
+        3. ⚡ 트레이딩 전략: (관망/매수/매도 스탠스)
         """
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception:
-        return "뉴스 분석 중 오류가 발생했습니다."
+        return model.generate_content(prompt).text
+    except Exception: return "뉴스 분석 중 오류가 발생했습니다."
 
 @st.cache_data(ttl=10800)
 def get_trending_themes_with_ai(api_key):
@@ -325,37 +319,39 @@ def get_trending_themes_with_ai(api_key):
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = """
         당신은 한국 주식 시장 단기 스윙 트레이더입니다. 
-        최근 1~2일 사이 한국 코스피/코스닥 증시에서 가장 거래대금이 몰리고 핫한 주도 테마 5개를 쉼표(,)로 구분해서 알려주세요.
-        절대 부가 설명이나 번호, 마크다운 기호를 쓰지 말고 딱 테마 이름만 출력하세요.
-        예시: 전고체 배터리,비만치료제,저PBR,AI반도체,로봇
+        최근 1~2일 사이 한국 증시에서 가장 핫한 주도 테마 5개를 쉼표(,)로 구분해서 알려주세요.
+        절대 부가 설명이나 번호, 기호를 쓰지 말고 딱 테마 이름만 출력하세요.
+        예시: 전고체,비만치료제,저PBR,반도체,로봇
         """
         response = model.generate_content(prompt)
         themes = [t.strip() for t in response.text.replace('\n', '').replace('*', '').split(',')]
         return themes[:5] if len(themes) >= 5 else default_themes
-    except Exception:
-        return default_themes
+    except Exception: return default_themes
 
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
-    * ✅ **타점 근접:** 주가가 20일선 근처에 위치 **(분할 매수 권장)**
-    * ⚠️ **관심 집중:** 급등으로 인한 단기 이격 발생 **(눌림목 대기)**
-    * 🛑 **추세 이탈:** 20일선 하향 이탈 **(손절 또는 접근 금지)**
-    * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
+    * ✅ **타점 근접:** 20일선 근처에 위치 **(분할 매수 권장)** / ⚠️ **관심 집중:** 단기 급등 **(눌림목 대기)** / 🛑 **추세 이탈:** 20일선 하향 이탈 **(손절)**
+    * **[RSI 지표]** 🔴 과열(70 이상): 단기 고점 위험 / 🟢 바닥(30 이하): 과대 낙폭 줍줍 찬스
     """)
 
+# 💡 수정: 종목 카드에 RSI 지표 추가 반영
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원)", expanded=is_expanded):
-        st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급 현황:** {tech_result['거래량 급증']}")
+    with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
+        st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
         
-        c1, c2, c3 = st.columns(3)
+        # 💡 컬럼을 4개로 늘려서 RSI도 예쁘게 카드 형태로 출력
+        c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
         
-        c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (현재가 대비)", delta_color="off")
-        c2.metric("🎯 1차 목표가", f"{tech_result['목표가']:,}원", f"+{tech_result['목표가'] - curr:,}원 (기대 수익)")
+        c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (대비)", delta_color="off")
+        c2.metric("🎯 1차 목표가", f"{tech_result['목표가']:,}원", f"+{tech_result['목표가'] - curr:,}원 (기대수익)")
         c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
+        
+        # RSI는 숫자가 높으면 빨간색(경고), 낮으면 초록색(기회)이 되도록 inverse 적용
+        c4.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         
         ch1, ch2 = st.columns(2)
         
@@ -370,30 +366,14 @@ def draw_stock_card(tech_result, is_expanded=False):
         with ch1:
             st.caption("📈 주가 흐름 (최근 20일)")
             fig_price = px.line(price_df, x='Date_Str', y='Price', markers=True)
-            fig_price.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0),
-                xaxis_title="", yaxis_title="",
-                yaxis_tickformat=",", 
-                hovermode="x unified",
-                xaxis=dict(showgrid=False, type='category'),
-                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
-                height=220
-            )
+            fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type='category'), yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), height=220)
             fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
             st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False})
             
         with ch2:
             st.caption("📊 거래량 (최근 20일)")
             fig_vol = px.bar(vol_df, x='Date_Str', y='Volume')
-            fig_vol.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0),
-                xaxis_title="", yaxis_title="",
-                yaxis_tickformat=",", 
-                hovermode="x unified",
-                xaxis=dict(showgrid=False, type='category'), 
-                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
-                height=220
-            )
+            fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type='category'), yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), height=220)
             fig_vol.update_traces(marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>")
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
 
@@ -402,6 +382,17 @@ def draw_stock_card(tech_result, is_expanded=False):
 # ==========================================
 st.title("📈 Jaemini 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
+
+# 💡 신규: 대시보드 최상단 거시경제(Macro) 모니터링 패널
+macro_data = get_macro_indicators()
+if macro_data:
+    st.markdown("##### 🌍 실시간 글로벌 매크로 지표")
+    m1, m2, m3, m4 = st.columns(4)
+    with st.container(border=True):
+        m1.metric("📉 VIX (시장 공포지수)", f"{macro_data['VIX (공포지수)']['value']:.2f}", f"{macro_data['VIX (공포지수)']['delta']:.2f}", delta_color="inverse")
+        m2.metric("🏦 美 10년물 국채 금리", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
+        m3.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
+        m4.info("💡 **VIX가 오르면 시장 불안 (현금 비중 확대), 국채 금리가 오르면 성장주/기술주 하락 압력 발생**")
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
@@ -418,6 +409,7 @@ if fetch_button:
     get_us_top_gainers.clear()
     get_krx_stocks.clear()
     get_all_sector_info.clear()
+    get_macro_indicators.clear() # 매크로 지표 캐시도 초기화
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -437,20 +429,18 @@ with tab1:
     with col1:
         us_time = datetime.utcnow() - timedelta(hours=5) 
         st.subheader("🔥 미국장 폭등주 (+10% 이상)")
-        st.caption(f"🗓️ **기준일:** {us_time.strftime('%Y-%m-%d')} (NYT) ｜ 💱 **적용 환율:** 1달러 = {int(st.session_state.get('ex_rate', 1350)):,}원")
+        st.caption(f"🗓️ **기준일:** {us_time.strftime('%Y-%m-%d')} (NYT)")
         
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
-            
             if api_key_input:
-                with st.spinner("🤖 AI가 30개 종목의 섹터 정보를 일괄 분석 중입니다... (최초 1회 3초 소요)"):
+                with st.spinner("🤖 AI가 30개 종목의 섹터 정보를 일괄 분석 중입니다..."):
                     sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input)
             else:
                 sector_dict = {t: ("분석 대기", "분석 대기") for t in tickers_list}
             
             display_df = st.session_state.gainers_df.copy()
             new_company_names = []
-            
             PLACEHOLDER = "🔍 검색 종목을 선택해주세요."
             options = [PLACEHOLDER]
             
@@ -459,23 +449,15 @@ with tab1:
                 full_name = row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
                 sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
-                
-                table_name = f"{full_name} ({sec} / {ind})"
-                new_company_names.append(table_name)
-                
+                new_company_names.append(f"{full_name} ({sec} / {ind})")
                 options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                 
             display_df['기업명'] = new_company_names
-            
             st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
             
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
-            
-            if selected_option == PLACEHOLDER:
-                selected_ticker = "N/A"
-            else:
-                selected_ticker = selected_option.split(" ")[0]
+            selected_ticker = "N/A" if selected_option == PLACEHOLDER else selected_option.split(" ")[0]
         else:
             selected_ticker = "N/A"
             st.info("현재 +10% 이상 급등한 종목이 없습니다.")
@@ -483,11 +465,9 @@ with tab1:
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
         show_trading_guidelines() 
-        
         if selected_ticker != "N/A":
             sector, industry = sector_dict.get(selected_ticker, ("분석 불가", "분석 불가"))
             st.markdown(f"**🏷️ 섹터 정보:** `{sector}` / `{industry}`")
-
             if api_key_input:
                 with st.spinner(f"🔍 '{selected_ticker}' 기업 정보 및 뉴스를 AI가 분석 중입니다..."):
                     with st.container(border=True):
@@ -500,12 +480,9 @@ with tab1:
                         st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 확인)")
                         for stock_name, ticker_code in kor_stocks:
                             tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                            if tech_result: 
-                                draw_stock_card(tech_result, is_expanded=False)
-                    else:
-                        st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
-            else:
-                st.warning("👈 좌측 사이드바에 API 키를 입력하시면 AI 분석이 시작됩니다.")
+                            if tech_result: draw_stock_card(tech_result, is_expanded=False)
+                    else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
+            else: st.warning("👈 좌측 사이드바에 API 키를 입력하시면 AI 분석이 시작됩니다.")
 
 # ------------------------------------------
 # [탭 2]
@@ -514,27 +491,19 @@ with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
     st.write("관심 있는 국내 상장사를 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 계산합니다.")
-    
     show_trading_guidelines() 
-    
     krx_df = get_krx_stocks()
     if not krx_df.empty:
         krx_options = ["🔍 검색 종목을 선택해주세요."] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
         search_query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", krx_options)
-        
         if search_query and search_query != "🔍 검색 종목을 선택해주세요.":
             searched_name = search_query.split(" (")[0]
             searched_code = search_query.split("(")[1].replace(")", "")
-            
             with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
-                
-            if tech_result: 
-                draw_stock_card(tech_result, is_expanded=True)
-            else: 
-                st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
-    else:
-        st.error("❌ 국내 주식 목록을 불러오는 데 실패했습니다. 좌측 사이드바에서 [🔄 증시 데이터 리로드] 버튼을 눌러주세요.")
+            if tech_result: draw_stock_card(tech_result, is_expanded=True)
+            else: st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
+    else: st.error("❌ 국내 주식 목록을 불러오는 데 실패했습니다. 좌측 사이드바에서 [🔄 증시 데이터 리로드] 버튼을 눌러주세요.")
 
 # ------------------------------------------
 # [탭 3]
@@ -543,20 +512,16 @@ with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
     st.write("검색할 테마/키워드를 직접 입력하거나, AI가 스캔한 오늘의 핫 테마를 클릭하세요.")
-    
     show_trading_guidelines() 
-    
     st.markdown("🔥 **AI가 감지한 오늘의 실시간 주도 테마**")
     
     with st.spinner("📡 현재 시장을 주도하는 핫 테마를 스캔 중입니다..."):
         hot_themes = get_trending_themes_with_ai(api_key_input)
         
     cols = st.columns(len(hot_themes))
-    
     clicked_theme = None
     for i, theme in enumerate(hot_themes):
-        if cols[i].button(theme, use_container_width=True):
-            clicked_theme = theme
+        if cols[i].button(theme, use_container_width=True): clicked_theme = theme
 
     theme_input = st.text_input("🔍 직접 검색할 테마/키워드 입력:", value=clicked_theme if clicked_theme else "", placeholder="🔍 검색 종목을 선택해주세요.")
     
@@ -567,10 +532,8 @@ with tab3:
                 st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
                 for stock_name, ticker_code in theme_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                    if tech_result: 
-                        draw_stock_card(tech_result, is_expanded=False)
-            else:
-                st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다. 다시 시도해 주세요.")
+                    if tech_result: draw_stock_card(tech_result, is_expanded=False)
+            else: st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다. 다시 시도해 주세요.")
 
 # ------------------------------------------
 # [탭 4]
@@ -579,47 +542,31 @@ with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📰 트레이더용 실시간 금융 속보 (노이즈 필터링 적용)")
     st.write("5분 주기로 시장 속보를 스캔하며, 중복된 재탕 기사는 자동으로 차단합니다.")
-    
-    # 💡 신규: 핵심 키워드 필터링 세팅 
     st.markdown("### 🎯 주도 테마 핵심 키워드 모니터링")
     keywords_input = st.text_input("하이라이트 및 필터링할 핵심 키워드 (쉼표로 구분):", value="AI, 반도체, 데이터센터, 원전")
     keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
-    
     only_keyword_news = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
     
     with st.spinner('📡 네이버 금융 서버에서 최신 뉴스를 스캔하는 중입니다...'):
         fetch_news()
-        
     st.divider()
         
     if st.session_state.news_data:
-        # 최근 50개 기사만 렌더링
         for i, news in enumerate(st.session_state.news_data[:50]):
             title = news['title']
-            
-            # 키워드 매칭 로직
             has_keyword = any(k.lower() in title.lower() for k in keywords)
-            
-            # 체크박스 선택 시 키워드 없는 뉴스 스킵
-            if only_keyword_news and not has_keyword:
-                continue
-                
-            # 키워드 포함 시 하이라이트 효과 적용
+            if only_keyword_news and not has_keyword: continue
             display_title = f"🔥 **{title}**" if has_keyword else title
                 
             with st.container(border=True):
                 cols = st.columns([6, 1.5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {display_title}")
-                
-                # 💡 신규: 뉴스에 대한 AI 선반영 및 팩트체크 버튼
                 if cols[1].button("🤖 AI 뉴스 판독", key=f"ai_news_{i}"):
                     if api_key_input:
                         with st.spinner("AI가 재료의 가치와 선반영 여부를 분석 중입니다..."):
                             analysis_result = analyze_single_news(title, api_key_input)
                             st.info(analysis_result)
-                    else:
-                        st.warning("사이드바에 API 키를 입력해주세요.")
-                        
+                    else: st.warning("사이드바에 API 키를 입력해주세요.")
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
     else:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
