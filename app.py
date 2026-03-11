@@ -21,6 +21,9 @@ st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 if 'seen_links' not in st.session_state:
     st.session_state.seen_links = set()
+# 💡 신규: '재탕 기사' 노이즈 필터링을 위한 제목 기억 저장소 추가
+if 'seen_titles' not in st.session_state:
+    st.session_state.seen_titles = set()
 if 'news_data' not in st.session_state:
     st.session_state.news_data = []
 
@@ -136,12 +139,16 @@ def fetch_news():
             title = tag.get_text(strip=True)
             link = tag['href']
             full_link = base_url + link if link.startswith("/") else link
-            if full_link in st.session_state.seen_links:
+            
+            # 💡 신규: 노이즈 필터링 (이미 본 링크거나, 제목이 완전히 똑같은 재탕 기사는 버림)
+            if full_link in st.session_state.seen_links or title in st.session_state.seen_titles:
                 continue
+                
             st.session_state.news_data.insert(0, {
                 "time": kst_now.strftime("%H:%M"), "title": title, "link": full_link
             })
             st.session_state.seen_links.add(full_link)
+            st.session_state.seen_titles.add(title) # 제목 기억
             new_items_count += 1
         return new_items_count
     except Exception:
@@ -289,11 +296,28 @@ def analyze_news_with_gemini(ticker, api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception:
         return "뉴스 분석 중 오류가 발생했습니다."
+
+# 💡 신규: 단일 뉴스 재료 심층 분석기 (팩트체크 및 선반영 여부)
+def analyze_single_news(title, api_key):
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = f"""
+        당신은 한국 주식 시장의 실전 스윙 트레이더입니다. 다음 발생한 실시간 뉴스 속보를 트레이딩 관점에서 냉철하게 분석해주세요.
+        [속보 헤드라인]: "{title}"
         
-        # 💡 신규: 오늘 시장을 주도하는 핫 테마 5개를 AI가 실시간으로 스캔하는 함수
-@st.cache_data(ttl=10800) # 3시간(10800초)마다 최신 테마로 자동 갱신
+        다음 3가지 항목에 대해 짧고 명확하게 답변하세요:
+        1. 🔍 팩트 vs 노이즈: (실제 기업가치나 수급에 영향을 줄 '진짜 재료'인가, 단순 기대감을 부추기는 '찌라시/노이즈'인가?)
+        2. 📉 선반영 및 기대치: (이미 시장 컨센서스에 선반영되어 '재료 소멸' 가능성이 높은가, 아니면 시장이 예상 못한 '서프라이즈/쇼크'인가?)
+        3. ⚡ 트레이딩 전략: (관련 섹터에 대해 관망 / 단기 매수 / 차익 실현 등 어떤 스탠스를 취해야 하는가?)
+        """
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception:
+        return "뉴스 분석 중 오류가 발생했습니다."
+
+@st.cache_data(ttl=10800)
 def get_trending_themes_with_ai(api_key):
-    # API 키가 없거나 에러 시 보여줄 기본(비상용) 테마 세팅
     default_themes = ["전고체 배터리", "비만치료제", "저PBR/밸류업", "유리기판", "로봇/자동화"]
     if not api_key: return default_themes
     try:
@@ -306,9 +330,7 @@ def get_trending_themes_with_ai(api_key):
         예시: 전고체 배터리,비만치료제,저PBR,AI반도체,로봇
         """
         response = model.generate_content(prompt)
-        # AI가 준 쉼표 텍스트를 리스트로 쪼개기
         themes = [t.strip() for t in response.text.replace('\n', '').replace('*', '').split(',')]
-        # 정확히 5개가 나오도록 자르기
         return themes[:5] if len(themes) >= 5 else default_themes
     except Exception:
         return default_themes
@@ -517,9 +539,6 @@ with tab2:
 # ------------------------------------------
 # [탭 3]
 # ------------------------------------------
-# ------------------------------------------
-# [탭 3]
-# ------------------------------------------
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
@@ -527,7 +546,6 @@ with tab3:
     
     show_trading_guidelines() 
     
-    # 💡 수정: 고정된 텍스트가 아닌 AI 함수를 호출하여 살아 움직이는 테마 버튼 생성!
     st.markdown("🔥 **AI가 감지한 오늘의 실시간 주도 테마**")
     
     with st.spinner("📡 현재 시장을 주도하는 핫 테마를 스캔 중입니다..."):
@@ -553,19 +571,55 @@ with tab3:
                         draw_stock_card(tech_result, is_expanded=False)
             else:
                 st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다. 다시 시도해 주세요.")
+
 # ------------------------------------------
 # [탭 4]
 # ------------------------------------------
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📰 실시간 금융 속보")
+    st.subheader("📰 트레이더용 실시간 금융 속보 (노이즈 필터링 적용)")
+    st.write("5분 주기로 시장 속보를 스캔하며, 중복된 재탕 기사는 자동으로 차단합니다.")
+    
+    # 💡 신규: 핵심 키워드 필터링 세팅 
+    st.markdown("### 🎯 주도 테마 핵심 키워드 모니터링")
+    keywords_input = st.text_input("하이라이트 및 필터링할 핵심 키워드 (쉼표로 구분):", value="AI, 반도체, 데이터센터, 원전")
+    keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
+    
+    only_keyword_news = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
+    
     with st.spinner('📡 네이버 금융 서버에서 최신 뉴스를 스캔하는 중입니다...'):
         fetch_news()
+        
+    st.divider()
+        
     if st.session_state.news_data:
-        for news in st.session_state.news_data[:30]:
+        # 최근 50개 기사만 렌더링
+        for i, news in enumerate(st.session_state.news_data[:50]):
+            title = news['title']
+            
+            # 키워드 매칭 로직
+            has_keyword = any(k.lower() in title.lower() for k in keywords)
+            
+            # 체크박스 선택 시 키워드 없는 뉴스 스킵
+            if only_keyword_news and not has_keyword:
+                continue
+                
+            # 키워드 포함 시 하이라이트 효과 적용
+            display_title = f"🔥 **{title}**" if has_keyword else title
+                
             with st.container(border=True):
-                cols = st.columns([5, 1])
-                cols[0].markdown(f"**🕒 {news['time']}** | {news['title']}")
-                cols[1].link_button("원문 읽기 🔗", news['link'], use_container_width=True)
-
-
+                cols = st.columns([6, 1.5, 1])
+                cols[0].markdown(f"**🕒 {news['time']}** | {display_title}")
+                
+                # 💡 신규: 뉴스에 대한 AI 선반영 및 팩트체크 버튼
+                if cols[1].button("🤖 AI 뉴스 판독", key=f"ai_news_{i}"):
+                    if api_key_input:
+                        with st.spinner("AI가 재료의 가치와 선반영 여부를 분석 중입니다..."):
+                            analysis_result = analyze_single_news(title, api_key_input)
+                            st.info(analysis_result)
+                    else:
+                        st.warning("사이드바에 API 키를 입력해주세요.")
+                        
+                cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
+    else:
+        st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
