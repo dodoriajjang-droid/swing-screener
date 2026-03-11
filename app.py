@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import google.generativeai as genai
 import urllib.parse
 import re
+import plotly.express as px # 💡 신규: 전문가용 차트 라이브러리 탑재!
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -233,7 +234,6 @@ def analyze_news_with_gemini(ticker, api_key):
     except Exception:
         return "뉴스 분석 중 오류가 발생했습니다."
 
-# 💡 공통 가이드라인 모듈화
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -243,7 +243,7 @@ def show_trading_guidelines():
     * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
     """)
 
-# 💡 공통 UI 컴포넌트
+# 💡 개선: 전문가용 Plotly 인터랙티브 차트 적용
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -258,17 +258,55 @@ def draw_stock_card(tech_result, is_expanded=False):
         c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         
         ch1, ch2 = st.columns(2)
+        
+        # 주가 데이터 정제 (날짜를 MM-DD 형태로 깔끔하게)
+        price_df = tech_result["종가 데이터"].reset_index()
+        price_df.columns = ['Date', 'Price']
+        price_df['Date_Str'] = price_df['Date'].dt.strftime('%m-%d')
+        
+        # 거래량 데이터 정제
+        vol_df = tech_result["거래량 데이터"].reset_index()
+        vol_df.columns = ['Date', 'Volume']
+        vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m-%d')
+        
+        # 주가 차트 그리기
         with ch1:
-            st.caption("📈 주가 흐름 (20일)")
-            st.line_chart(tech_result["종가 데이터"], height=150)
+            st.caption("📈 주가 흐름 (최근 20일)")
+            fig_price = px.line(price_df, x='Date_Str', y='Price', markers=True)
+            fig_price.update_layout(
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis_title="", yaxis_title="",
+                yaxis_tickformat=",", # 천단위 콤마 표시
+                hovermode="x unified",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), # 연한 보조선
+                height=220
+            )
+            # 마우스 오버 시 '원' 단위 표시 및 선 색상 변경
+            fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
+            st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False})
+            
+        # 거래량 차트 그리기
         with ch2:
-            st.caption("📊 거래량 (20일)")
-            st.bar_chart(tech_result["거래량 데이터"], height=150)
+            st.caption("📊 거래량 (최근 20일)")
+            fig_vol = px.bar(vol_df, x='Date_Str', y='Volume')
+            fig_vol.update_layout(
+                margin=dict(l=0, r=0, t=10, b=0),
+                xaxis_title="", yaxis_title="",
+                yaxis_tickformat=",", # 천단위 콤마 표시
+                hovermode="x unified",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
+                height=220
+            )
+            # 마우스 오버 시 '주' 단위 표시 및 막대 색상 변경
+            fig_vol.update_traces(marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>")
+            st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
 
 # ==========================================
 # 3. 사이드바 및 UI 화면 구성
 # ==========================================
-st.title("📈 AI 스윙 트레이딩 관제 대시보드")
+st.title("📈 Jaemini 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
 with st.sidebar:
@@ -323,7 +361,7 @@ with tab1:
 
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
-        show_trading_guidelines() 
+        show_trading_guidelines()
         
         if selected_ticker != "N/A":
             sector, industry = get_basic_sector_info(selected_ticker)
@@ -352,7 +390,7 @@ with tab2:
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
     st.write("관심 있는 국내 상장사를 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 계산합니다.")
     
-    show_trading_guidelines() 
+    show_trading_guidelines()
     
     krx_df = get_krx_stocks()
     if not krx_df.empty:
@@ -379,7 +417,7 @@ with tab3:
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
     st.write("검색할 테마/키워드 (예: `2차전지`, `엔비디아 관련주`)를 입력하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
     
-    show_trading_guidelines() 
+    show_trading_guidelines()
     
     theme_input = st.text_input("🔍 검색할 테마/키워드 입력:")
     
