@@ -14,7 +14,7 @@ from streamlit_autorefresh import st_autorefresh
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="단기 스윙 주식 검색기", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
@@ -284,7 +284,7 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4 = st.tabs(["🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보"])
+tab1, tab2, tab3, tab4 = st.tabs(["🔥 🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보"])
 
 # ------------------------------------------
 # [탭 1]
@@ -381,3 +381,4 @@ with tab4:
                 cols = st.columns([5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {news['title']}")
                 cols[1].link_button("원문 읽기 🔗", news['link'], use_container_width=True)
+
