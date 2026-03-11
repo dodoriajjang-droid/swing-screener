@@ -90,27 +90,36 @@ def get_us_top_gainers():
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
-    # 💡 수정: KOSPI와 KOSDAQ을 분리 호출하여 라이브러리 버그(오류) 우회
+    # 1차 시도: FDR 기본
+    try:
+        df = fdr.StockListing('KRX')
+        if not df.empty: return df[['Name', 'Code']]
+    except: pass
+    
+    # 2차 시도: 코스피/코스닥 분리 우회
     try:
         kospi = fdr.StockListing('KOSPI')
         kosdaq = fdr.StockListing('KOSDAQ')
         df = pd.concat([kospi, kosdaq], ignore_index=True)
-        if not df.empty:
-            return df[['Name', 'Code']]
-    except:
-        pass
+        if not df.empty: return df[['Name', 'Code']]
+    except: pass
 
+    # 3차 시도: KIND 직접 접속 (강력한 브라우저 위장 헤더 적용)
     try:
         url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        res = requests.get(url, headers=headers, timeout=10)
         res.encoding = 'euc-kr' 
         df = pd.read_html(StringIO(res.text), header=0)[0]
         df = df[['회사명', '종목코드']]
         df.columns = ['Name', 'Code']
         df['Code'] = df['Code'].astype(str).str.zfill(6)
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"⚠️ 국내 주식 목록 서버(KRX) 통신 장애가 발생했습니다. (사유: {e})")
         return pd.DataFrame(columns=['Name', 'Code'])
 
 def fetch_news():
@@ -219,20 +228,38 @@ def analyze_technical_pattern(stock_name, ticker_code):
     except:
         return None
 
+# 💡 수정: 야후 파이낸스가 막혀도 AI 지식으로 강제 요약하는 무적의 로직!
 def get_company_summary(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
-        biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
-        if not biz_summary: return "기업 정보가 없습니다."
-        response = genai.GenerativeModel('gemini-2.5-flash').generate_content(f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}")
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        biz_summary = ""
+        try:
+            biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
+        except:
+            pass # 야후가 에러를 뱉어도 무시하고 넘어감
+            
+        if biz_summary:
+            prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}"
+        else:
+            # 야후 데이터가 없으면 AI에게 직접 물어봄!
+            prompt = f"미국 주식 티커 '{ticker}' 기업에 대해 아는 대로 '무엇을 만들고 어떻게 돈을 버는 기업인지' 핵심 비즈니스 모델을 한국어로 2~3줄로 요약해 주세요."
+            
+        response = model.generate_content(prompt)
         return response.text
-    except Exception:
-        return "기업 정보를 요약하는 중 오류가 발생했습니다."
+    except Exception as e:
+        return f"기업 정보를 요약하는 중 오류가 발생했습니다. (에러: {e})"
 
 def analyze_news_with_gemini(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
-        news_list = yf.Ticker(ticker).news
+        news_list = []
+        try:
+            news_list = yf.Ticker(ticker).news
+        except:
+            pass
+            
         if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
         news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
         prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
@@ -349,7 +376,6 @@ with tab1:
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
-                # 💡 수정: 목록 생성 시 야후 통신을 제거하여 IP 차단 방지 (Unknown 해소)
                 options.append(f"{t} ({kor_name})")
             
             st.markdown("#### 🔍 분석 대상 종목 선택")
@@ -364,7 +390,6 @@ with tab1:
         show_trading_guidelines() 
         
         if selected_ticker != "N/A":
-            # 💡 수정: 사용자가 종목을 선택했을 때 딱 한 번만 야후에 물어보도록 변경!
             with st.spinner("해당 종목의 상세 섹터 정보를 분석 중입니다..."):
                 sector, industry = get_basic_sector_info(selected_ticker)
             
