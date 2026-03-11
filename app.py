@@ -258,11 +258,17 @@ st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 20, 20)
+    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
-    api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
+    
+    # 💡 신규 개선: 금고(Secrets)에 키가 있으면 자동으로 가져오고, 없으면 입력창을 띄웁니다.
+    if "GEMINI_API_KEY" in st.secrets:
+        api_key_input = st.secrets["GEMINI_API_KEY"]
+        st.success("✅ 시스템 API 키가 자동으로 적용되었습니다.")
+    else:
+        api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('미국장 데이터를 불러오고 번역 중입니다...'):
@@ -402,4 +408,5 @@ with tab2:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
+
 
