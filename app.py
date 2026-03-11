@@ -8,6 +8,7 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import google.generativeai as genai
 import urllib.parse
+import re # 💡 신규: AI가 답변한 종목 코드를 추출하기 위한 정규표현식 라이브러리
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -89,7 +90,6 @@ def fetch_news():
         subject_tags = soup.select("dl dd.articleSubject a")
         new_items_count = 0
         
-        # 💡 개선: 서버 위치와 상관없이 완벽한 한국 시간(UTC+9) 계산
         kst_now = datetime.utcnow() + timedelta(hours=9)
         
         for tag in subject_tags:
@@ -136,16 +136,43 @@ korea_theme_mapping = {
     "Financials": [("KB금융", "105560"), ("신한지주", "055550"), ("하나금융지주", "086790"), ("메리츠금융지주", "138040"), ("삼성생명", "032830"), ("삼성화재", "000810"), ("키움증권", "039490"), ("한국금융지주", "071050")]
 }
 
+# 💡 개선: API Key를 받아, 매핑 테이블에 없을 경우 실시간 AI 매칭 수행
 @st.cache_data(ttl=3600)
-def get_sector_info(ticker):
+def get_sector_info(ticker, api_key=""):
     try:
         stock = yf.Ticker(ticker)
         sector = stock.info.get('sector', 'Unknown')
         industry = stock.info.get('industry', 'Unknown')
+        
+        # 1차 시도: 하드코딩된 매핑 테이블 확인
         matched_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
-        return sector, industry, matched_stocks
+        is_ai_matched = False
+        
+        # 2차 시도: 매핑 테이블에 없고, 사용자가 API Key를 넣었다면 Gemini를 호출하여 실시간 동적 매칭!
+        if not matched_stocks and api_key:
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel('gemini-2.5-flash')
+                prompt = f"""
+                미국 주식 '{ticker}' (섹터: {sector}, 산업: {industry}) 테마와 연관된 한국 코스피/코스닥 주식 5개를 찾아주세요. 
+                반드시 아래 형태의 파이썬 리스트로만 답변하세요. 다른 설명은 금지입니다.
+                예시: [('삼성전자', '005930'), ('SK하이닉스', '000660')]
+                """
+                response = model.generate_content(prompt)
+                
+                # 정규표현식을 사용하여 안전하게 종목명과 종목코드만 추출
+                pattern = r"\(['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]\)"
+                matches = re.findall(pattern, response.text)
+                
+                if matches:
+                    matched_stocks = matches[:5]
+                    is_ai_matched = True
+            except Exception as e:
+                pass
+                
+        return sector, industry, matched_stocks, is_ai_matched
     except:
-        return "Unknown", "Unknown", []
+        return "Unknown", "Unknown", [], False
 
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -227,7 +254,7 @@ def analyze_news_with_gemini(ticker, api_key):
 # ==========================================
 # 3. 사이드바 및 UI 화면 구성 (탭 분리)
 # ==========================================
-st.title("📈 Jemini 중단기 종합 스윙 트레이딩 대시보드")
+st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -243,16 +270,15 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2 = st.tabs(["📰 🇺🇸 미국 주도주 스윙 검색기", "📰 한국 시장 실시간 속보"])
+tab1, tab2 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "📰 한국 시장 실시간 속보"])
 
 # ------------------------------------------
-# [탭 1] 기존 미국장 기반 스윙 검색기
+# [탭 1] 미국장 기반 스윙 검색기
 # ------------------------------------------
 with tab1:
     col1, col2 = st.columns([1, 1.2])
 
     with col1:
-        # 💡 개선: 서버 위치 상관없이 미국 시간(EST)을 항상 정확하게 가져오도록 UTC 기준으로 -5시간 처리
         us_time = datetime.utcnow() - timedelta(hours=5) 
         us_date_str = us_time.strftime("%Y-%m-%d")
         
@@ -264,12 +290,14 @@ with tab1:
             st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             options = []
+            
+            # 드롭다운 생성 시에는 속도 저하를 막기 위해 AI 매칭을 호출하지 않습니다 (api_key="").
             with st.spinner("테마/섹터 정보를 불러오는 중입니다..."):
                 for index, row in st.session_state.gainers_df.iterrows():
                     t = row['종목코드']
                     full_name = row['기업명']
                     kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
-                    sec, ind, _ = get_sector_info(t)
+                    sec, ind, _, _ = get_sector_info(t, "") 
                     options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                     
             selected_option = st.selectbox("👉 분석할 미국 주식 테마를 선택하세요:", options)
@@ -279,10 +307,18 @@ with tab1:
 
     with col2:
         st.subheader("🎯 테마 매칭 및 타점 분석")
-        st.info("**[매매 신호 상태 안내]**\n* ✅ **타점 근접:** 분할 매수하기 좋은 20일선 근처\n* ⚠️ **관심 집중:** 급등 후 이격 발생 (눌림목 대기)\n* 🛑 **추세 이탈:** 20일선 하향 이탈 (손절/관망)")
+        
+        st.info("""
+        **[매매 가이드라인 안내]**
+        * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
+        * ⚠️ **관심 집중:** 최근 급등하여 20일선과 벌어져 있습니다. (눌림목이 올 때까지 관망)
+        * 🛑 **추세 이탈:** 20일선을 하향 이탈했습니다. (손절 또는 접근 금지)
+        * 🎯 **1차 목표가 (볼린저 상단):** 단기 슈팅(급등) 시 통계적으로 강력한 저항을 받을 확률이 높은 가격대입니다. 이 가격 부근에 도달하면 절반 정도 수익 실현하는 것을 권장합니다.
+        """)
         
         if selected_ticker != "N/A":
-            sector, industry, kor_stocks = get_sector_info(selected_ticker)
+            # 💡 여기서는 사용자가 클릭한 1개 종목에 대해서만 AI 동적 매칭을 수행합니다 (API Key 전달).
+            sector, industry, kor_stocks, is_ai_matched = get_sector_info(selected_ticker, api_key_input)
             st.write(f"- **분석 종목 티커:** {selected_ticker} ({sector} / {industry})")
             
             if api_key_input:
@@ -301,9 +337,12 @@ with tab1:
             st.divider()
             
             if not kor_stocks:
-                st.warning(f"⚠️ 매핑된 국내 주식이 없습니다.")
+                st.warning("⚠️ 매핑된 국내 주식이 없습니다. (좌측 사이드바에 API 키를 입력하시면 AI가 자동으로 종목을 찾아줍니다!)")
             else:
-                st.write("👇 **매칭된 국내 주식의 현재 기술적 위치**")
+                # 💡 AI가 찾아낸 종목인지 화면에 명시
+                match_source_text = "✨ **AI가 실시간으로 분석하여 찾아낸 연관 국내 주식입니다!**" if is_ai_matched else "👇 **미리 설정된 핵심 우량주 매핑 결과입니다.**"
+                st.write(match_source_text)
+                
                 for stock_name, ticker_code in kor_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
                     if tech_result:
@@ -311,9 +350,11 @@ with tab1:
                         with st.expander(f"{status_emoji} {stock_name} (현재가: {tech_result['현재가']:,}원)", expanded=False):
                             st.markdown(f"**진단 상태:** {tech_result['상태']}")
                             p_col1, p_col2, p_col3 = st.columns(3)
+                            
                             p_col1.metric("💡 진입 기준가", f"{tech_result['진입가_가이드']:,}원")
-                            p_col2.metric("🎯 1차 목표가", f"{tech_result['목표가']:,}원")
-                            p_col3.metric("🛑 손절가", f"{tech_result['손절가']:,}원")
+                            p_col2.metric("🎯 1차 목표가 (볼린저 상단)", f"{tech_result['목표가']:,}원", help="단기 급등 시 부딪힐 확률이 높은 저항선입니다. 스윙 투자 시 안전한 1차 매도 타점으로 활용하세요.")
+                            p_col3.metric("🛑 기계적 손절가", f"{tech_result['손절가']:,}원")
+                            
                             st.divider()
                             st.metric("수급 분석", f"{tech_result['최근_거래량']:,}주", tech_result["거래량 급증"])
                             chart_col1, chart_col2 = st.columns(2)
@@ -329,7 +370,6 @@ with tab1:
 # ------------------------------------------
 with tab2:
     st.subheader("📰 네이버 금융 실시간 시황/전망 속보")
-    # 💡 개선: 탭 2의 전체 시간도 완벽한 한국 시간(KST)으로 표기
     kst_now = datetime.utcnow() + timedelta(hours=9)
     st.caption(f"마지막 업데이트 시간: {kst_now.strftime('%Y-%m-%d %H:%M:%S')} (5분 주기 자동 갱신 중)")
     
@@ -349,4 +389,3 @@ with tab2:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
-
