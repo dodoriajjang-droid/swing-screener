@@ -27,7 +27,8 @@ if 'news_data' not in st.session_state:
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
 @st.cache_data(ttl=3600)
-def get_us_top_gainers(top_n=20):
+# 💡 수정: top_n 변수를 없애고 개수 제한을 해제했습니다.
+def get_us_top_gainers():
     try:
         url = 'https://finance.yahoo.com/gainers'
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -36,11 +37,26 @@ def get_us_top_gainers(top_n=20):
         df = tables[0]
         
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        df = df.iloc[:, :6].head(top_n)
+        df = df.iloc[:, :6] # 개수 제한(.head) 삭제, 전체 다 가져옴
         
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
         
-        # 💡 방어 코드: 야후 파이낸스 표 구조 이상으로 글자가 뭉칠 경우, 첫 단어(티커)만 확실하게 분리!
+        # 💡 신규: 등락률 컬럼에서 숫자만 추출하여 +10% 이상인 종목만 필터링
+        def extract_pct(x):
+            try:
+                # '+15.23%' 같은 문자열에서 15.23 숫자만 정확히 뽑아냅니다.
+                match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
+                if match:
+                    return float(match.group(1))
+                clean = re.sub(r'[^\d\.\+\-]', '', str(x))
+                return float(clean)
+            except:
+                return 0.0
+                
+        df['실제등락률'] = df['등락률'].apply(extract_pct)
+        df = df[df['실제등락률'] >= 10.0] # 10% 이상만 남김
+        df = df.drop(columns=['실제등락률']) # 계산용 임시 컬럼은 다시 삭제
+        
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
         
         def get_korean_name(name):
@@ -138,7 +154,6 @@ korea_theme_mapping = {
     "Financials": [("KB금융", "105560"), ("신한지주", "055550"), ("하나금융지주", "086790"), ("메리츠금융지주", "138040"), ("삼성생명", "032830"), ("삼성화재", "000810"), ("키움증권", "039490"), ("한국금융지주", "071050")]
 }
 
-# 💡 개선: 기본 섹터 정보와 실시간 AI 매칭 로직을 분리하여 안정성 강화
 @st.cache_data(ttl=3600)
 def get_basic_sector_info(ticker):
     try:
@@ -155,8 +170,6 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        # 기업명 전체를 AI에게 전달하여 섹터가 Unknown이어도 유추할 수 있게 프롬프트 강화
         prompt = f"""
         당신은 한국 주식 전문가입니다.
         미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 
@@ -166,8 +179,6 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
         예시: [('삼성전자', '005930'), ('카카오', '035720')]
         """
         response = model.generate_content(prompt)
-        
-        # 정규표현식을 매우 관대하게 수정하여 이름과 6자리 코드만 확실하게 뽑아냅니다.
         pattern = r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]"
         matches = re.findall(pattern, response.text)
         return matches[:5] if matches else []
@@ -258,12 +269,10 @@ st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
+    # 💡 수정: 개수 설정 슬라이더를 완전히 제거했습니다.
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
-    
-    # 💡 신규 개선: 금고(Secrets)에 키가 있으면 자동으로 가져오고, 없으면 입력창을 띄웁니다.
     if "GEMINI_API_KEY" in st.secrets:
         api_key_input = st.secrets["GEMINI_API_KEY"]
         st.success("✅ 시스템 API 키가 자동으로 적용되었습니다.")
@@ -271,8 +280,9 @@ with st.sidebar:
         api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
 
 if "gainers_df" not in st.session_state or fetch_button:
-    with st.spinner('미국장 데이터를 불러오고 번역 중입니다...'):
-        df, ex_rate = get_us_top_gainers(top_n)
+    with st.spinner('미국장 폭등주(+10% 이상) 데이터를 선별 중입니다...'):
+        # 함수 호출 시 개수 인자 없이 호출
+        df, ex_rate = get_us_top_gainers()
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
@@ -288,7 +298,7 @@ with tab1:
         us_time = datetime.utcnow() - timedelta(hours=5) 
         us_date_str = us_time.strftime("%Y-%m-%d")
         
-        st.subheader("🔥 미국장 급등 종목")
+        st.subheader("🔥 미국장 급등 종목 (+10% 이상)")
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         st.caption(f"**기준일:** {us_date_str} (뉴욕 시간) | **적용 환율:** 1달러 = {int(current_ex_rate):,}원")
         
@@ -306,11 +316,10 @@ with tab1:
                     options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                     
             selected_option = st.selectbox("👉 분석할 미국 주식 테마를 선택하세요:", options)
-            
-            # 💡 수정: 스페이스바 기준으로 첫 단어만 안전하게 티커로 추출합니다.
             selected_ticker = selected_option.split(" ")[0]
         else:
             selected_ticker = "N/A"
+            st.info("현재 +10% 이상 급등한 종목이 없습니다.")
 
     with col2:
         st.subheader("🎯 테마 매칭 및 타점 분석")
@@ -342,7 +351,6 @@ with tab1:
             
             st.divider()
             
-            # 💡 기존 매핑 테이블을 먼저 확인하고, 없으면 AI에게 실시간 발굴을 요청합니다.
             kor_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
             is_ai_matched = False
             
@@ -356,7 +364,6 @@ with tab1:
             if not kor_stocks:
                 st.warning("⚠️ 매핑된 국내 주식이 없습니다. (좌측 사이드바에 API 키를 입력하시면 AI가 자동으로 관련 종목을 찾아줍니다!)")
             else:
-                # 💡 AI가 찾아낸 종목인지 명시
                 if is_ai_matched:
                     st.write("✨ **AI가 기업 정보를 바탕으로 실시간 발굴한 연관 국내 주식입니다!**")
                 else:
@@ -408,5 +415,3 @@ with tab2:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
-
-
