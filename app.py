@@ -90,15 +90,23 @@ def get_us_top_gainers():
         st.error(f"미국장 데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame(), 1350.0
 
-# 💡 신규: 국내 코스피/코스닥 전 종목 리스트 가져오기 (검색용)
-@st.cache_data(ttl=86400) # 하루에 한 번만 갱신
+# 💡 개선: 국내 코스피/코스닥 전 종목 리스트 가져오기 (방화벽 우회 로직 포함)
+@st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
         df = fdr.StockListing('KRX')
         return df[['Name', 'Code']]
-    except Exception as e:
-        st.error("국내 주식 목록을 불러오는 중 오류가 발생했습니다.")
-        return pd.DataFrame(columns=['Name', 'Code'])
+    except Exception:
+        try:
+            url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+            df = pd.read_html(url, header=0)[0]
+            df = df[['회사명', '종목코드']]
+            df.columns = ['Name', 'Code']
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            return df
+        except Exception as e:
+            st.error(f"국내 주식 목록 수집 중 오류가 발생했습니다: {e}")
+            return pd.DataFrame(columns=['Name', 'Code'])
 
 def fetch_news():
     base_url = "https://finance.naver.com"
@@ -291,7 +299,6 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 💡 신규: 탭 3개로 확장
 tab1, tab2, tab3 = st.tabs(["🇺🇸 미국 주도주 스윙 검색기", "🎯 국내 개별 종목 타점 검색", "📰 실시간 금융 속보"])
 
 # ------------------------------------------
@@ -398,7 +405,7 @@ with tab1:
                                 st.bar_chart(tech_result["거래량 데이터"], height=150)
 
 # ------------------------------------------
-# [탭 2] 💡 신규: 국내 개별 종목 타점 검색
+# [탭 2] 국내 개별 종목 타점 검색
 # ------------------------------------------
 with tab2:
     st.subheader("🔍 국내 개별 종목 타점 검색기")
@@ -407,16 +414,13 @@ with tab2:
     krx_df = get_krx_stocks()
     
     if not krx_df.empty:
-        # 검색용 리스트 만들기: "삼성전자 (005930)" 형태
         krx_options = [""] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
         
-        # 💡 자동 완성(검색)이 지원되는 selectbox
         search_query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", krx_options)
         
         if search_query:
             st.divider()
             
-            # 💡 기존과 동일한 매매 가이드라인 표기
             st.info("""
             **[매매 가이드라인 안내]**
             * ✅ **타점 근접:** 주가가 20일선 근처에 있어 **분할 매수하기 가장 좋은 위치**입니다.
@@ -425,7 +429,6 @@ with tab2:
             * 🎯 **1차 목표가 (볼린저 상단):** 단기 슈팅(급등) 시 통계적으로 강력한 저항을 받을 확률이 높은 가격대입니다.
             """)
             
-            # 선택한 종목에서 이름과 코드 분리
             searched_name = search_query.split(" (")[0]
             searched_code = search_query.split("(")[1].replace(")", "")
             
@@ -434,7 +437,6 @@ with tab2:
                 
             if tech_result:
                 status_emoji = tech_result['상태'].split(' ')[0]
-                # 개별 검색이므로 클릭할 필요 없이 무조건 열려있게(expanded=True) 설정
                 with st.expander(f"{status_emoji} {searched_name} (현재가: {tech_result['현재가']:,}원)", expanded=True):
                     st.markdown(f"**진단 상태:** {tech_result['상태']}")
                     p_col1, p_col2, p_col3 = st.columns(3)
@@ -448,7 +450,7 @@ with tab2:
                     chart_col1, chart_col2 = st.columns(2)
                     with chart_col1:
                         st.caption("📈 최근 20일 주가 흐름")
-                        st.line_chart(tech_result["종가 데이터"], height=200) # 차트를 조금 더 크게!
+                        st.line_chart(tech_result["종가 데이터"], height=200) 
                     with chart_col2:
                         st.caption("📊 최근 20일 거래량")
                         st.bar_chart(tech_result["거래량 데이터"], height=200)
