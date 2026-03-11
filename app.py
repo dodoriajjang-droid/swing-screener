@@ -147,7 +147,6 @@ def fetch_news():
     except Exception:
         return 0
 
-# 💡 핵심 무기: 야후 차단을 무시하는 AI 기반 벌크(Bulk) 섹터 판독기
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
@@ -158,10 +157,8 @@ def get_all_sector_info(tickers, api_key):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
         
-        # 30개 티커를 하나의 텍스트 덩어리로 만듦
         ticker_str = "\n".join(tickers)
         
-        # AI에게 한 번에 싹 다 분류하라고 지시 (단 1번의 API 호출!)
         prompt = f"""
         당신은 월스트리트 주식 전문가입니다.
         다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.
@@ -176,11 +173,9 @@ def get_all_sector_info(tickers, api_key):
         
         response = model.generate_content(prompt)
         
-        # AI 답변을 분리해서 딕셔너리에 저장
         for line in response.text.strip().split('\n'):
             parts = line.split('|')
             if len(parts) >= 3:
-                # AI가 가끔 마크다운(*)을 붙일 수 있으니 제거
                 t = parts[0].strip().replace('*', '').replace('-', '')
                 s = parts[1].strip()
                 i = parts[2].strip()
@@ -400,27 +395,41 @@ with tab1:
         st.caption(f"🗓️ **기준일:** {us_time.strftime('%Y-%m-%d')} (NYT) ｜ 💱 **적용 환율:** 1달러 = {int(st.session_state.get('ex_rate', 1350)):,}원")
         
         if not st.session_state.gainers_df.empty:
-            st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True, height=400)
-            
-            PLACEHOLDER = "🔍 검색 종목을 선택해주세요."
-            options = [PLACEHOLDER]
-            
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             
-            # 💡 야후 대신 AI가 한 번에 섹터를 다 발라냅니다! (API 키 입력 전에는 '분석 대기'로 표시)
+            # 💡 1. 표를 그리기 전에 AI 섹터 분석을 먼저 수행합니다.
             if api_key_input:
                 with st.spinner("🤖 AI가 30개 종목의 섹터 정보를 일괄 분석 중입니다... (최초 1회 3초 소요)"):
                     sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input)
             else:
                 sector_dict = {t: ("분석 대기", "분석 대기") for t in tickers_list}
             
-            for index, row in st.session_state.gainers_df.iterrows():
-                t, full_name = row['종목코드'], row['기업명']
-                kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
-                
-                sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
-                options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
+            # 💡 2. 표(Dataframe)에 들어갈 데이터 복사 후 기업명 수정
+            display_df = st.session_state.gainers_df.copy()
+            new_company_names = []
             
+            PLACEHOLDER = "🔍 검색 종목을 선택해주세요."
+            options = [PLACEHOLDER]
+            
+            for index, row in display_df.iterrows():
+                t = row['종목코드']
+                full_name = row['기업명']
+                kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
+                sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
+                
+                # 표에 들어갈 이름: 회사명 (섹터 / 산업)
+                table_name = f"{full_name} ({sec} / {ind})"
+                new_company_names.append(table_name)
+                
+                # 드롭다운에 들어갈 이름
+                options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
+                
+            display_df['기업명'] = new_company_names
+            
+            # 💡 3. 수정한 데이터프레임(표) 출력! 이제 표 안에 섹터가 포함됩니다.
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
+            
+            # 💡 4. 드롭다운 선택창 출력
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
             
