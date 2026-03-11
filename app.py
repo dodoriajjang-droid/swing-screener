@@ -90,7 +90,6 @@ def get_us_top_gainers():
         st.error(f"미국장 데이터 수집 중 오류 발생: {e}")
         return pd.DataFrame(), 1350.0
 
-# 💡 개선: 국내 코스피/코스닥 전 종목 리스트 가져오기 (방화벽 우회 + 한글 인코딩 깨짐 해결)
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
@@ -99,8 +98,6 @@ def get_krx_stocks():
     except Exception:
         try:
             url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
-            
-            # 💡 수정: 판다스가 바로 읽지 않고, requests로 먼저 가져와서 인코딩을 'euc-kr'로 강제 변환합니다.
             headers = {'User-Agent': 'Mozilla/5.0'}
             res = requests.get(url, headers=headers)
             res.encoding = 'euc-kr' 
@@ -191,18 +188,20 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
+        # 💡 개선: 프롬프트 상의 추천 개수를 5개에서 10개로 수정
         prompt = f"""
         당신은 한국 주식 전문가입니다.
         미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 
-        비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 5개를 찾아주세요.
-        정보가 부족하면 티커와 기업명을 바탕으로 유추해서라도 반드시 5개를 채워주세요.
+        비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 10개를 찾아주세요.
+        정보가 부족하면 티커와 기업명을 바탕으로 유추해서라도 반드시 10개를 채워주세요.
         반드시 아래 예시와 같은 파이썬 리스트 형태로만 답변하세요. 부가 설명은 절대 금지입니다.
         예시: [('삼성전자', '005930'), ('카카오', '035720')]
         """
         response = model.generate_content(prompt)
         pattern = r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]"
         matches = re.findall(pattern, response.text)
-        return matches[:5] if matches else []
+        # 💡 개선: 최대 10개까지 슬라이싱
+        return matches[:10] if matches else []
     except Exception as e:
         return []
 
@@ -370,18 +369,36 @@ with tab1:
             
             st.divider()
             
-            kor_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
+            # ==============================================================
+            # 💡 [롤백용 주석 처리] 기존: 하드코딩된 리스트 우선, 없으면 AI 호출
+            # ==============================================================
+            # kor_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
+            # is_ai_matched = False
+            # 
+            # if not kor_stocks and api_key_input:
+            #     with st.spinner('해당 테마에 매칭되는 한국 주식을 AI가 실시간으로 발굴하고 있습니다...'):
+            #         comp_name = selected_option.split(" - ")[0]
+            #         kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, comp_name, api_key_input)
+            #         if kor_stocks:
+            #             is_ai_matched = True
+            # ==============================================================
+            
+            # ==============================================================
+            # 🚀 [신규 적용] 무조건 AI가 실시간으로 분석하여 100% 발굴하는 모드
+            # ==============================================================
+            kor_stocks = []
             is_ai_matched = False
             
-            if not kor_stocks and api_key_input:
-                with st.spinner('해당 테마에 매칭되는 한국 주식을 AI가 실시간으로 발굴하고 있습니다...'):
+            if api_key_input:
+                with st.spinner('AI가 기업 정보를 분석하여 연관된 한국 주식을 최대 10개까지 실시간 발굴 중입니다...'):
                     comp_name = selected_option.split(" - ")[0]
                     kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, comp_name, api_key_input)
                     if kor_stocks:
                         is_ai_matched = True
+            # ==============================================================
             
             if not kor_stocks:
-                st.warning("⚠️ 매핑된 국내 주식이 없습니다. (좌측 사이드바에 API 키를 입력하시면 AI가 자동으로 관련 종목을 찾아줍니다!)")
+                st.warning("⚠️ 매핑된 국내 주식이 없거나 AI 분석 중 오류가 발생했습니다. (사이드바에 API 키를 입력해 주세요!)")
             else:
                 if is_ai_matched:
                     st.write("✨ **AI가 기업 정보를 바탕으로 실시간 발굴한 연관 국내 주식입니다!**")
@@ -463,7 +480,7 @@ with tab2:
             else:
                 st.error("상장된 지 얼마 안 된 신규 상장주이거나 데이터를 불러올 수 없습니다. (최소 20일의 데이터 필요)")
     else:
-        st.error("국내 주식 목록을 불러올 수 없습니다.")
+        st.error("국내 주식 목록을 불러올 수 없습니다. 'html5lib' 라이브러리 설치를 확인해 주세요.")
 
 # ------------------------------------------
 # [탭 3] 실시간 금융 뉴스 탭
@@ -489,4 +506,3 @@ with tab3:
                 st.markdown(f"#### 🕒 [{news['time']}] {news['title']}")
                 st.link_button("🔗 기사 원문 읽기", news['link'])
                 st.write("---")
-
