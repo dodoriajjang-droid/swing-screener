@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import google.generativeai as genai
 import urllib.parse
 import re
-import plotly.express as px # 💡 신규: 전문가용 차트 라이브러리 탑재!
+import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -92,20 +92,24 @@ def get_us_top_gainers():
 def get_krx_stocks():
     try:
         df = fdr.StockListing('KRX')
-        return df[['Name', 'Code']]
-    except Exception:
-        try:
-            url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            res = requests.get(url, headers=headers)
-            res.encoding = 'euc-kr' 
-            df = pd.read_html(StringIO(res.text), header=0)[0]
-            df = df[['회사명', '종목코드']]
-            df.columns = ['Name', 'Code']
-            df['Code'] = df['Code'].astype(str).str.zfill(6)
-            return df
-        except Exception:
-            return pd.DataFrame(columns=['Name', 'Code'])
+        if not df.empty:
+            return df[['Name', 'Code']]
+    except:
+        pass # fdr 실패 시 조용히 다음 시도로 넘어감
+
+    try:
+        url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        res.encoding = 'euc-kr' 
+        df = pd.read_html(StringIO(res.text), header=0)[0]
+        df = df[['회사명', '종목코드']]
+        df.columns = ['Name', 'Code']
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        return df
+    except Exception as e:
+        st.error(f"⚠️ 증권사 데이터 수집 서버 우회 중 오류 발생: {e}")
+        return pd.DataFrame(columns=['Name', 'Code'])
 
 def fetch_news():
     base_url = "https://finance.naver.com"
@@ -243,7 +247,7 @@ def show_trading_guidelines():
     * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
     """)
 
-# 💡 개선: 전문가용 Plotly 인터랙티브 차트 적용
+# 💡 개선: 전문가용 Plotly 인터랙티브 차트 적용 및 날짜 꼬임 버그 수정
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -276,13 +280,12 @@ def draw_stock_card(tech_result, is_expanded=False):
             fig_price.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 xaxis_title="", yaxis_title="",
-                yaxis_tickformat=",", # 천단위 콤마 표시
+                yaxis_tickformat=",", 
                 hovermode="x unified",
-                xaxis=dict(showgrid=False),
-                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), # 연한 보조선
+                xaxis=dict(showgrid=False, type='category'), # 💡 핵심: 날짜 강제 고정으로 오류 방지
+                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
                 height=220
             )
-            # 마우스 오버 시 '원' 단위 표시 및 선 색상 변경
             fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
             st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False})
             
@@ -293,13 +296,12 @@ def draw_stock_card(tech_result, is_expanded=False):
             fig_vol.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 xaxis_title="", yaxis_title="",
-                yaxis_tickformat=",", # 천단위 콤마 표시
+                yaxis_tickformat=",", 
                 hovermode="x unified",
-                xaxis=dict(showgrid=False),
+                xaxis=dict(showgrid=False, type='category'), # 💡 핵심: 날짜 강제 고정으로 오류 방지
                 yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
                 height=220
             )
-            # 마우스 오버 시 '주' 단위 표시 및 막대 색상 변경
             fig_vol.update_traces(marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>")
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
 
@@ -322,6 +324,7 @@ with st.sidebar:
 
 if fetch_button:
     get_us_top_gainers.clear()
+    get_krx_stocks.clear() # 💡 추가: 종목 리스트 통신 에러 발생 시 캐시 삭제용
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -408,6 +411,8 @@ with tab2:
                 draw_stock_card(tech_result, is_expanded=True)
             else: 
                 st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
+    else:
+        st.error("❌ 국내 주식 목록을 불러오는 중 오류가 발생했습니다. 좌측의 '데이터 리로드' 버튼을 눌러주세요.")
 
 # ------------------------------------------
 # [탭 3]
