@@ -90,12 +90,15 @@ def get_us_top_gainers():
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
+    # 💡 수정: KOSPI와 KOSDAQ을 분리 호출하여 라이브러리 버그(오류) 우회
     try:
-        df = fdr.StockListing('KRX')
+        kospi = fdr.StockListing('KOSPI')
+        kosdaq = fdr.StockListing('KOSDAQ')
+        df = pd.concat([kospi, kosdaq], ignore_index=True)
         if not df.empty:
             return df[['Name', 'Code']]
     except:
-        pass # fdr 실패 시 조용히 다음 시도로 넘어감
+        pass
 
     try:
         url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
@@ -107,8 +110,7 @@ def get_krx_stocks():
         df.columns = ['Name', 'Code']
         df['Code'] = df['Code'].astype(str).str.zfill(6)
         return df
-    except Exception as e:
-        st.error(f"⚠️ 증권사 데이터 수집 서버 우회 중 오류 발생: {e}")
+    except Exception:
         return pd.DataFrame(columns=['Name', 'Code'])
 
 def fetch_news():
@@ -247,7 +249,6 @@ def show_trading_guidelines():
     * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
     """)
 
-# 💡 개선: 전문가용 Plotly 인터랙티브 차트 적용 및 날짜 꼬임 버그 수정
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -263,17 +264,14 @@ def draw_stock_card(tech_result, is_expanded=False):
         
         ch1, ch2 = st.columns(2)
         
-        # 주가 데이터 정제 (날짜를 MM-DD 형태로 깔끔하게)
         price_df = tech_result["종가 데이터"].reset_index()
         price_df.columns = ['Date', 'Price']
         price_df['Date_Str'] = price_df['Date'].dt.strftime('%m-%d')
         
-        # 거래량 데이터 정제
         vol_df = tech_result["거래량 데이터"].reset_index()
         vol_df.columns = ['Date', 'Volume']
         vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m-%d')
         
-        # 주가 차트 그리기
         with ch1:
             st.caption("📈 주가 흐름 (최근 20일)")
             fig_price = px.line(price_df, x='Date_Str', y='Price', markers=True)
@@ -282,14 +280,13 @@ def draw_stock_card(tech_result, is_expanded=False):
                 xaxis_title="", yaxis_title="",
                 yaxis_tickformat=",", 
                 hovermode="x unified",
-                xaxis=dict(showgrid=False, type='category'), # 💡 핵심: 날짜 강제 고정으로 오류 방지
+                xaxis=dict(showgrid=False, type='category'),
                 yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
                 height=220
             )
             fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
             st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False})
             
-        # 거래량 차트 그리기
         with ch2:
             st.caption("📊 거래량 (최근 20일)")
             fig_vol = px.bar(vol_df, x='Date_Str', y='Volume')
@@ -298,7 +295,7 @@ def draw_stock_card(tech_result, is_expanded=False):
                 xaxis_title="", yaxis_title="",
                 yaxis_tickformat=",", 
                 hovermode="x unified",
-                xaxis=dict(showgrid=False, type='category'), # 💡 핵심: 날짜 강제 고정으로 오류 방지
+                xaxis=dict(showgrid=False, type='category'), 
                 yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
                 height=220
             )
@@ -324,7 +321,7 @@ with st.sidebar:
 
 if fetch_button:
     get_us_top_gainers.clear()
-    get_krx_stocks.clear() # 💡 추가: 종목 리스트 통신 에러 발생 시 캐시 삭제용
+    get_krx_stocks.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -352,8 +349,8 @@ with tab1:
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
-                sec, ind = get_basic_sector_info(t)
-                options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
+                # 💡 수정: 목록 생성 시 야후 통신을 제거하여 IP 차단 방지 (Unknown 해소)
+                options.append(f"{t} ({kor_name})")
             
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
@@ -364,10 +361,15 @@ with tab1:
 
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
-        show_trading_guidelines()
+        show_trading_guidelines() 
         
         if selected_ticker != "N/A":
-            sector, industry = get_basic_sector_info(selected_ticker)
+            # 💡 수정: 사용자가 종목을 선택했을 때 딱 한 번만 야후에 물어보도록 변경!
+            with st.spinner("해당 종목의 상세 섹터 정보를 분석 중입니다..."):
+                sector, industry = get_basic_sector_info(selected_ticker)
+            
+            st.markdown(f"**🏷️ 섹터 정보:** `{sector}` / `{industry}`")
+
             if api_key_input:
                 with st.spinner(f"🔍 '{selected_ticker}' 기업 정보 및 뉴스를 AI가 분석 중입니다..."):
                     with st.container(border=True):
@@ -393,7 +395,7 @@ with tab2:
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
     st.write("관심 있는 국내 상장사를 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 계산합니다.")
     
-    show_trading_guidelines()
+    show_trading_guidelines() 
     
     krx_df = get_krx_stocks()
     if not krx_df.empty:
@@ -412,7 +414,7 @@ with tab2:
             else: 
                 st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
     else:
-        st.error("❌ 국내 주식 목록을 불러오는 중 오류가 발생했습니다. 좌측의 '데이터 리로드' 버튼을 눌러주세요.")
+        st.error("❌ 국내 주식 목록을 불러오는 데 실패했습니다. 좌측 사이드바에서 [🔄 증시 데이터 리로드] 버튼을 눌러주세요.")
 
 # ------------------------------------------
 # [탭 3]
@@ -422,7 +424,7 @@ with tab3:
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
     st.write("검색할 테마/키워드 (예: `2차전지`, `엔비디아 관련주`)를 입력하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
     
-    show_trading_guidelines()
+    show_trading_guidelines() 
     
     theme_input = st.text_input("🔍 검색할 테마/키워드 입력:")
     
