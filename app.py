@@ -14,7 +14,7 @@ from streamlit_autorefresh import st_autorefresh
 # ==========================================
 # 1. 초기 설정 및 세션/디자인(CSS) 초기화
 # ==========================================
-st.set_page_config(page_title="단기 스윙 주식 검색기", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 
 # 💡 신규: 고급스러운 대시보드 UI를 위한 커스텀 CSS 주입
 st.markdown("""
@@ -310,7 +310,7 @@ def analyze_news_with_gemini(ticker, api_key):
 # ==========================================
 # 3. 사이드바 및 UI 화면 구성
 # ==========================================
-st.title("📈 AI 종합 스윙 트레이딩 대시보드")
+st.title("📈 AI 기반 종합 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **미국장 주도주 분석** 및 **실시간 국내 타점 진단** 시스템입니다.")
 
 with st.sidebar:
@@ -338,7 +338,7 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.ex_rate = ex_rate
 
 tab1, tab2, tab3, tab4 = st.tabs([
-    "🇺🇸 미국 주도주 발굴", 
+    "🔥 🇺🇸 미국 주도주 발굴", 
     "🎯 국내 종목 진단", 
     "💡 AI 테마 검색기", 
     "📰 실시간 금융 속보"
@@ -558,3 +558,4 @@ with tab4:
                 with cols[1]:
                     st.link_button("기사 원문 🔗", news['link'], use_container_width=True)
                 st.markdown("<hr style='margin: 0px 0px 10px 0px; border-top: 1px solid #f0f0f0;'>", unsafe_allow_html=True)
+
