@@ -29,7 +29,7 @@ if 'news_data' not in st.session_state:
     st.session_state.news_data = []
 
 # ==========================================
-# 2. 데이터 수집 및 분석 함수들
+# 2. 데이터 수집 및 분석 함수들 (💡 전부 캐싱 처리 완료)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
@@ -50,7 +50,7 @@ def get_fear_and_greed():
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0",
             "Accept": "application/json",
             "Referer": "https://edition.cnn.com/"
         }
@@ -71,23 +71,19 @@ def get_us_top_gainers():
         response = requests.get(url, headers=headers)
         tables = pd.read_html(StringIO(response.text))
         df = tables[0]
-        
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6] 
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
-        
         def extract_pct(x):
             try:
                 match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
                 if match: return float(match.group(1))
                 return float(re.sub(r'[^\d\.\+\-]', '', str(x)))
             except: return 0.0
-                
         df['실제등락률'] = df['등락률'].apply(extract_pct)
         df = df[df['실제등락률'] >= 10.0] 
         df = df.drop(columns=['실제등락률']) 
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
-        
         def get_korean_name(name):
             try:
                 encoded_name = urllib.parse.quote(name)
@@ -97,18 +93,14 @@ def get_us_top_gainers():
                 if ko_name.lower() != name.lower() and ko_name.strip(): return f"{name} / {ko_name}"
                 return name
             except: return name
-                
         df['기업명'] = df['기업명'].apply(get_korean_name)
-        
         try: ex_rate = yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1]
         except: ex_rate = 1350.0 
-            
         def format_price(x):
             try:
                 val = float(str(x).split()[0].replace(',', ''))
                 return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
             except: return str(x)
-                
         df['현재가'] = df['현재가'].apply(format_price)
         return df, ex_rate
     except Exception as e:
@@ -139,7 +131,6 @@ def get_krx_stocks():
     except Exception:
         return pd.DataFrame(columns=['Name', 'Code'])
 
-# 💡 분리 1: 네이버 뉴스를 5분 동안 캐싱하여 무분별한 재실행 방지
 @st.cache_data(ttl=300)
 def get_latest_naver_news():
     base_url = "https://finance.naver.com"
@@ -161,17 +152,13 @@ def get_latest_naver_news():
     except Exception:
         return []
 
-# 💡 분리 2: 캐싱된 뉴스를 가져와 세션에 조용히 꽂아넣는 업데이트 함수 (스피너 없음)
 def update_news_state():
     items = get_latest_naver_news()
     kst_now = datetime.utcnow() + timedelta(hours=9)
     time_str = kst_now.strftime("%H:%M")
-    
-    for item in reversed(items): # 최신순 정렬 유지를 위해 뒤집어서 삽입
+    for item in reversed(items): 
         if item['link'] not in st.session_state.seen_links and item['title'] not in st.session_state.seen_titles:
-            st.session_state.news_data.insert(0, {
-                "time": time_str, "title": item['title'], "link": item['link']
-            })
+            st.session_state.news_data.insert(0, {"time": time_str, "title": item['title'], "link": item['link']})
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
@@ -215,6 +202,8 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", model.generate_content(prompt).text)[:20]
     except Exception: return []
 
+# 💡 신규: 타 탭 간섭 방지를 위해 수급 데이터 함수 캐싱 추가
+@st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
@@ -246,6 +235,8 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
+# 💡 신규: 탭 전환 시 재실행 방지를 위해 차트/데이터 분석 함수 캐싱 추가
+@st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
     try:
@@ -290,6 +281,8 @@ def analyze_technical_pattern(stock_name, ticker_code):
         }
     except: return None
 
+# 💡 신규: 불필요한 AI 요약 재호출 방지를 위해 캐싱 추가
+@st.cache_data(ttl=3600)
 def get_company_summary(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
@@ -302,6 +295,8 @@ def get_company_summary(ticker, api_key):
         return model.generate_content(prompt).text
     except Exception: return f"기업 정보를 요약하는 중 오류가 발생했습니다."
 
+# 💡 신규: 뉴스 분석 함수 캐싱 추가
+@st.cache_data(ttl=3600)
 def analyze_news_with_gemini(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
@@ -314,6 +309,7 @@ def analyze_news_with_gemini(ticker, api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception: return "뉴스 분석 중 오류가 발생했습니다."
 
+@st.cache_data(ttl=3600)
 def analyze_single_news(title, api_key):
     try:
         genai.configure(api_key=api_key)
@@ -474,12 +470,20 @@ with st.sidebar:
         api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
 
 if fetch_button:
+    # 💡 모든 함수들의 캐시를 아주 깔끔하게 비워서 완벽한 리로드 보장
     get_us_top_gainers.clear()
     get_krx_stocks.clear()
     get_all_sector_info.clear()
     get_macro_indicators.clear()
     get_fear_and_greed.clear()
     get_latest_naver_news.clear()
+    analyze_technical_pattern.clear()
+    get_investor_trend.clear()
+    get_company_summary.clear()
+    analyze_news_with_gemini.clear()
+    analyze_single_news.clear()
+    get_ai_matched_stocks.clear()
+    get_theme_stocks_with_ai.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -615,7 +619,6 @@ with tab4:
     with cols_top[0]:
         st.markdown("### 🎯 주도 테마 핵심 키워드 모니터링")
     with cols_top[1]:
-        # 💡 신규: 뉴스 탭 전용 강제 업데이트 버튼 (이 버튼을 누르면 캐시가 날아가고 새 뉴스를 받아옵니다)
         if st.button("🔄 실시간 뉴스 리로드", use_container_width=True):
             get_latest_naver_news.clear()
     
@@ -623,7 +626,6 @@ with tab4:
     keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
     only_keyword_news = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
     
-    # 💡 스피너(로딩 창) 없이 조용히 백그라운드에서 뉴스를 업데이트합니다.
     update_news_state()
     st.divider()
         
