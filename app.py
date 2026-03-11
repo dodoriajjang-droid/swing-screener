@@ -150,12 +150,12 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = f"""
         미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 
-        비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 10개를 찾아주세요.
+        비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요.
         반드시 아래 형태의 파이썬 리스트로만 답변하세요. 
         예시: [('삼성전자', '005930'), ('카카오', '035720')]
         """
         response = model.generate_content(prompt)
-        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response.text)[:10]
+        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response.text)[:20]
     except Exception:
         return []
 
@@ -167,12 +167,12 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
         model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = f"""
         테마명: '{theme_keyword}'
-        이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 10개를 찾아주세요.
+        이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요.
         반드시 아래 형태의 파이썬 리스트로만 답변하세요.
         예시: [('에코프로', '086520')]
         """
         response = model.generate_content(prompt)
-        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response.text)[:10]
+        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response.text)[:20]
     except Exception:
         return []
 
@@ -233,7 +233,7 @@ def analyze_news_with_gemini(ticker, api_key):
     except Exception:
         return "뉴스 분석 중 오류가 발생했습니다."
 
-# 💡 공통 가이드라인 모듈화 (어느 탭에서든 부를 수 있도록)
+# 💡 공통 가이드라인 모듈화
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -243,7 +243,7 @@ def show_trading_guidelines():
     * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
     """)
 
-# 💡 공통 UI 컴포넌트: 드롭다운(Expander)으로 다시 복구 & 기본 닫힘(expanded=False) 적용
+# 💡 공통 UI 컴포넌트
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -307,7 +307,7 @@ with tab1:
         
         if not st.session_state.gainers_df.empty:
             st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True, height=400)
-            options = [""] # 💡 빈 옵션을 추가하여 최초 진입 시 무의미한 검색 방지
+            options = [""]
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
@@ -323,7 +323,7 @@ with tab1:
 
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
-        show_trading_guidelines() # 💡 매매 가이드라인 부활
+        show_trading_guidelines() 
         
         if selected_ticker != "N/A":
             sector, industry = get_basic_sector_info(selected_ticker)
@@ -352,7 +352,7 @@ with tab2:
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
     st.write("관심 있는 국내 상장사를 검색하면 즉시 20일선 및 볼린저 밴드 기준 기술적 분석 타점을 계산합니다.")
     
-    show_trading_guidelines() # 💡 탭 2 매매 가이드라인 부활
+    show_trading_guidelines() 
     
     krx_df = get_krx_stocks()
     if not krx_df.empty:
@@ -367,7 +367,6 @@ with tab2:
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
                 
             if tech_result: 
-                # 단일 검색이므로 이 탭에서는 열려있도록 True 설정
                 draw_stock_card(tech_result, is_expanded=True)
             else: 
                 st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
@@ -380,7 +379,7 @@ with tab3:
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
     st.write("검색할 테마/키워드 (예: `2차전지`, `엔비디아 관련주`)를 입력하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
     
-    show_trading_guidelines() # 💡 탭 3 매매 가이드라인 부활
+    show_trading_guidelines() 
     
     theme_input = st.text_input("🔍 검색할 테마/키워드 입력:")
     
