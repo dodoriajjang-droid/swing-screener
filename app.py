@@ -289,6 +289,29 @@ def analyze_news_with_gemini(ticker, api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception:
         return "뉴스 분석 중 오류가 발생했습니다."
+        
+        # 💡 신규: 오늘 시장을 주도하는 핫 테마 5개를 AI가 실시간으로 스캔하는 함수
+@st.cache_data(ttl=10800) # 3시간(10800초)마다 최신 테마로 자동 갱신
+def get_trending_themes_with_ai(api_key):
+    # API 키가 없거나 에러 시 보여줄 기본(비상용) 테마 세팅
+    default_themes = ["전고체 배터리", "비만치료제", "저PBR/밸류업", "유리기판", "로봇/자동화"]
+    if not api_key: return default_themes
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        prompt = """
+        당신은 한국 주식 시장 단기 스윙 트레이더입니다. 
+        최근 1~2일 사이 한국 코스피/코스닥 증시에서 가장 거래대금이 몰리고 핫한 주도 테마 5개를 쉼표(,)로 구분해서 알려주세요.
+        절대 부가 설명이나 번호, 마크다운 기호를 쓰지 말고 딱 테마 이름만 출력하세요.
+        예시: 전고체 배터리,비만치료제,저PBR,AI반도체,로봇
+        """
+        response = model.generate_content(prompt)
+        # AI가 준 쉼표 텍스트를 리스트로 쪼개기
+        themes = [t.strip() for t in response.text.replace('\n', '').replace('*', '').split(',')]
+        # 정확히 5개가 나오도록 자르기
+        return themes[:5] if len(themes) >= 5 else default_themes
+    except Exception:
+        return default_themes
 
 def show_trading_guidelines():
     st.info("""
@@ -494,25 +517,29 @@ with tab2:
 # ------------------------------------------
 # [탭 3]
 # ------------------------------------------
+# ------------------------------------------
+# [탭 3]
+# ------------------------------------------
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
-    st.write("검색할 테마/키워드를 직접 입력하거나, 아래의 핫 테마를 클릭하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
+    st.write("검색할 테마/키워드를 직접 입력하거나, AI가 스캔한 오늘의 핫 테마를 클릭하세요.")
     
     show_trading_guidelines() 
     
-    # 💡 신규: 핫 테마 퀵 검색 버튼 구성
-    st.markdown("🔥 **최근 시장 주도 핫 테마**")
-    hot_themes = ["전고체 배터리", "비만치료제", "온디바이스 AI", "유리기판", "로봇/자동화"]
+    # 💡 수정: 고정된 텍스트가 아닌 AI 함수를 호출하여 살아 움직이는 테마 버튼 생성!
+    st.markdown("🔥 **AI가 감지한 오늘의 실시간 주도 테마**")
+    
+    with st.spinner("📡 현재 시장을 주도하는 핫 테마를 스캔 중입니다..."):
+        hot_themes = get_trending_themes_with_ai(api_key_input)
+        
     cols = st.columns(len(hot_themes))
     
     clicked_theme = None
     for i, theme in enumerate(hot_themes):
-        # 버튼을 누르면 clicked_theme 변수에 해당 테마 이름이 저장됨
         if cols[i].button(theme, use_container_width=True):
             clicked_theme = theme
 
-    # 💡 핫 테마 버튼을 클릭했다면 검색창(text_input)의 기본값(value)으로 쏙 들어감!
     theme_input = st.text_input("🔍 직접 검색할 테마/키워드 입력:", value=clicked_theme if clicked_theme else "")
     
     if theme_input and api_key_input:
@@ -526,7 +553,6 @@ with tab3:
                         draw_stock_card(tech_result, is_expanded=False)
             else:
                 st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다. 다시 시도해 주세요.")
-
 # ------------------------------------------
 # [탭 4]
 # ------------------------------------------
@@ -541,3 +567,4 @@ with tab4:
                 cols = st.columns([5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {news['title']}")
                 cols[1].link_button("원문 읽기 🔗", news['link'], use_container_width=True)
+
