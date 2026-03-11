@@ -139,7 +139,9 @@ def get_krx_stocks():
     except Exception:
         return pd.DataFrame(columns=['Name', 'Code'])
 
-def fetch_news():
+# 💡 분리 1: 네이버 뉴스를 5분 동안 캐싱하여 무분별한 재실행 방지
+@st.cache_data(ttl=300)
+def get_latest_naver_news():
     base_url = "https://finance.naver.com"
     list_url = f"{base_url}/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -149,19 +151,29 @@ def fetch_news():
         res.encoding = 'euc-kr'
         soup = BeautifulSoup(res.text, 'html.parser')
         subject_tags = soup.select("dl dd.articleSubject a")
-        new_items_count = 0
-        kst_now = datetime.utcnow() + timedelta(hours=9)
+        items = []
         for tag in subject_tags:
             title = tag.get_text(strip=True)
             link = tag['href']
             full_link = base_url + link if link.startswith("/") else link
-            if full_link in st.session_state.seen_links or title in st.session_state.seen_titles: continue
-            st.session_state.news_data.insert(0, {"time": kst_now.strftime("%H:%M"), "title": title, "link": full_link})
-            st.session_state.seen_links.add(full_link)
-            st.session_state.seen_titles.add(title)
-            new_items_count += 1
-        return new_items_count
-    except Exception: return 0
+            items.append({"title": title, "link": full_link})
+        return items
+    except Exception:
+        return []
+
+# 💡 분리 2: 캐싱된 뉴스를 가져와 세션에 조용히 꽂아넣는 업데이트 함수 (스피너 없음)
+def update_news_state():
+    items = get_latest_naver_news()
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    time_str = kst_now.strftime("%H:%M")
+    
+    for item in reversed(items): # 최신순 정렬 유지를 위해 뒤집어서 삽입
+        if item['link'] not in st.session_state.seen_links and item['title'] not in st.session_state.seen_titles:
+            st.session_state.news_data.insert(0, {
+                "time": time_str, "title": item['title'], "link": item['link']
+            })
+            st.session_state.seen_links.add(item['link'])
+            st.session_state.seen_titles.add(item['title'])
 
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, api_key):
@@ -348,7 +360,7 @@ def draw_stock_card(tech_result, is_expanded=False):
         c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c4.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         
-        st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` 주 ｜ **기관:** `{tech_result['기관수급']}` 주")
+        st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`")
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
@@ -393,7 +405,6 @@ if macro_data:
     with m_col1:
         vix_val = macro_data['VIX']['value']
         vix_prev = macro_data['VIX']['prev']
-        # 💡 여백(t=80)과 높이(250)를 늘리고, 제목 안에 <br> 태그로 설명을 명확히 삽입하여 글씨 잘림 해결!
         fig_vix = go.Figure(go.Indicator(
             mode = "gauge+number+delta",
             value = vix_val,
@@ -420,7 +431,6 @@ if macro_data:
         with m_col2:
             fg_val = fg_data['score']
             fg_prev = fg_val - fg_data['delta']
-            # 💡 공포탐욕지수에도 설명과 여백 추가 완료!
             fig_fg = go.Figure(go.Indicator(
                 mode = "gauge+number+delta",
                 value = fg_val,
@@ -433,11 +443,11 @@ if macro_data:
                     'borderwidth': 1,
                     'bordercolor': "gray",
                     'steps': [
-                        {'range': [0, 25], 'color': "rgba(255, 0, 0, 0.4)"},     # 극도 공포
-                        {'range': [25, 45], 'color': "rgba(255, 165, 0, 0.4)"},   # 공포
-                        {'range': [45, 55], 'color': "rgba(255, 255, 0, 0.4)"},   # 중립
-                        {'range': [55, 75], 'color': "rgba(144, 238, 144, 0.4)"}, # 탐욕
-                        {'range': [75, 100], 'color': "rgba(0, 128, 0, 0.4)"}     # 극도 탐욕
+                        {'range': [0, 25], 'color': "rgba(255, 0, 0, 0.4)"},     
+                        {'range': [25, 45], 'color': "rgba(255, 165, 0, 0.4)"},   
+                        {'range': [45, 55], 'color': "rgba(255, 255, 0, 0.4)"},   
+                        {'range': [55, 75], 'color': "rgba(144, 238, 144, 0.4)"}, 
+                        {'range': [75, 100], 'color': "rgba(0, 128, 0, 0.4)"}     
                     ],
                 }
             ))
@@ -469,6 +479,7 @@ if fetch_button:
     get_all_sector_info.clear()
     get_macro_indicators.clear()
     get_fear_and_greed.clear()
+    get_latest_naver_news.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -599,13 +610,21 @@ with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📰 트레이더용 실시간 금융 속보 (노이즈 필터링 적용)")
     st.write("5분 주기로 시장 속보를 스캔하며, 중복된 재탕 기사는 자동으로 차단합니다.")
-    st.markdown("### 🎯 주도 테마 핵심 키워드 모니터링")
+    
+    cols_top = st.columns([4, 1])
+    with cols_top[0]:
+        st.markdown("### 🎯 주도 테마 핵심 키워드 모니터링")
+    with cols_top[1]:
+        # 💡 신규: 뉴스 탭 전용 강제 업데이트 버튼 (이 버튼을 누르면 캐시가 날아가고 새 뉴스를 받아옵니다)
+        if st.button("🔄 실시간 뉴스 리로드", use_container_width=True):
+            get_latest_naver_news.clear()
+    
     keywords_input = st.text_input("하이라이트 및 필터링할 핵심 키워드 (쉼표로 구분):", value="AI, 반도체, 데이터센터, 원전")
     keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
     only_keyword_news = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
     
-    with st.spinner('📡 네이버 금융 서버에서 최신 뉴스를 스캔하는 중입니다...'):
-        fetch_news()
+    # 💡 스피너(로딩 창) 없이 조용히 백그라운드에서 뉴스를 업데이트합니다.
+    update_news_state()
     st.divider()
         
     if st.session_state.news_data:
