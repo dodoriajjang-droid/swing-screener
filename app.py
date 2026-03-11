@@ -10,6 +10,7 @@ import google.generativeai as genai
 import urllib.parse
 import re
 import plotly.express as px
+import time # 💡 딜레이 추가용
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -90,13 +91,11 @@ def get_us_top_gainers():
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
-    # 1차 시도: FDR 기본
     try:
         df = fdr.StockListing('KRX')
         if not df.empty: return df[['Name', 'Code']]
     except: pass
     
-    # 2차 시도: 코스피/코스닥 분리 우회
     try:
         kospi = fdr.StockListing('KOSPI')
         kosdaq = fdr.StockListing('KOSDAQ')
@@ -104,7 +103,6 @@ def get_krx_stocks():
         if not df.empty: return df[['Name', 'Code']]
     except: pass
 
-    # 3차 시도: KIND 직접 접속 (강력한 브라우저 위장 헤더 적용)
     try:
         url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
         headers = {
@@ -150,13 +148,18 @@ def fetch_news():
     except Exception:
         return 0
 
+# 💡 신규: 야후 파이낸스 차단(Rate Limit)을 막기 위한 벌크(일괄) 캐싱 함수
 @st.cache_data(ttl=3600)
-def get_basic_sector_info(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        return stock.info.get('sector', 'Unknown'), stock.info.get('industry', 'Unknown')
-    except:
-        return "Unknown", "Unknown"
+def get_all_sector_info(tickers):
+    results = {}
+    for t in tickers:
+        try:
+            info = yf.Ticker(t).info
+            results[t] = (info.get('sector', 'Unknown'), info.get('industry', 'Unknown'))
+            time.sleep(0.1) # 방화벽 튕김 방지를 위한 0.1초 딜레이
+        except:
+            results[t] = ("Unknown", "Unknown")
+    return results
 
 @st.cache_data(ttl=3600)
 def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
@@ -228,7 +231,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
     except:
         return None
 
-# 💡 수정: 야후 파이낸스가 막혀도 AI 지식으로 강제 요약하는 무적의 로직!
 def get_company_summary(ticker, api_key):
     try:
         genai.configure(api_key=api_key)
@@ -238,12 +240,11 @@ def get_company_summary(ticker, api_key):
         try:
             biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
         except:
-            pass # 야후가 에러를 뱉어도 무시하고 넘어감
+            pass 
             
         if biz_summary:
             prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}"
         else:
-            # 야후 데이터가 없으면 AI에게 직접 물어봄!
             prompt = f"미국 주식 티커 '{ticker}' 기업에 대해 아는 대로 '무엇을 만들고 어떻게 돈을 버는 기업인지' 핵심 비즈니스 모델을 한국어로 2~3줄로 요약해 주세요."
             
         response = model.generate_content(prompt)
@@ -349,6 +350,7 @@ with st.sidebar:
 if fetch_button:
     get_us_top_gainers.clear()
     get_krx_stocks.clear()
+    get_all_sector_info.clear() # 💡 종목 섹터 캐시도 초기화
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -372,15 +374,33 @@ with tab1:
         
         if not st.session_state.gainers_df.empty:
             st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True, height=400)
-            options = [""]
+            
+            # 💡 1. 드롭다운 제일 첫 칸에 가이드 메시지 고정!
+            PLACEHOLDER = "🔍 검색 종목을 선택해주세요."
+            options = [PLACEHOLDER]
+            
+            tickers_list = st.session_state.gainers_df['종목코드'].tolist()
+            
+            # 💡 2. 리스트에 있는 모든 종목의 섹터를 '한 번에' 매핑하고 캐싱 (차단 방지용 스피너 출력)
+            with st.spinner("테마/섹터 정보를 로딩 중입니다... (최초 1회만 약 5~10초 소요)"):
+                sector_dict = get_all_sector_info(tuple(tickers_list))
+            
             for index, row in st.session_state.gainers_df.iterrows():
                 t, full_name = row['종목코드'], row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
-                options.append(f"{t} ({kor_name})")
+                
+                # 💡 3. 기업명 뒤에 섹터/산업 정보 예쁘게 결합!
+                sec, ind = sector_dict.get(t, ("Unknown", "Unknown"))
+                options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
             
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
-            selected_ticker = selected_option.split(" ")[0] if selected_option else "N/A"
+            
+            # 💡 검색 안내 문구가 선택되었을 때는 아무 동작 안 함 (N/A)
+            if selected_option == PLACEHOLDER:
+                selected_ticker = "N/A"
+            else:
+                selected_ticker = selected_option.split(" ")[0]
         else:
             selected_ticker = "N/A"
             st.info("현재 +10% 이상 급등한 종목이 없습니다.")
@@ -390,9 +410,8 @@ with tab1:
         show_trading_guidelines() 
         
         if selected_ticker != "N/A":
-            with st.spinner("해당 종목의 상세 섹터 정보를 분석 중입니다..."):
-                sector, industry = get_basic_sector_info(selected_ticker)
-            
+            # 위에서 미리 구해둔 딕셔너리에서 바로 섹터를 꺼내옴 (야후 통신 X, 엄청 빠름!)
+            sector, industry = sector_dict.get(selected_ticker, ("Unknown", "Unknown"))
             st.markdown(f"**🏷️ 섹터 정보:** `{sector}` / `{industry}`")
 
             if api_key_input:
@@ -424,10 +443,10 @@ with tab2:
     
     krx_df = get_krx_stocks()
     if not krx_df.empty:
-        krx_options = [""] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
+        krx_options = ["🔍 검색 종목을 선택해주세요."] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
         search_query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", krx_options)
         
-        if search_query:
+        if search_query and search_query != "🔍 검색 종목을 선택해주세요.":
             searched_name = search_query.split(" (")[0]
             searched_code = search_query.split("(")[1].replace(")", "")
             
