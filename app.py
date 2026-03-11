@@ -8,7 +8,7 @@ import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 import google.generativeai as genai
 import urllib.parse
-import re # 💡 신규: AI가 답변한 종목 코드를 추출하기 위한 정규표현식 라이브러리
+import re
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -39,6 +39,9 @@ def get_us_top_gainers(top_n=20):
         df = df.iloc[:, :6].head(top_n)
         
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
+        
+        # 💡 방어 코드: 야후 파이낸스 표 구조 이상으로 글자가 뭉칠 경우, 첫 단어(티커)만 확실하게 분리!
+        df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
         
         def get_korean_name(name):
             try:
@@ -112,7 +115,6 @@ def fetch_news():
             
         return new_items_count
     except Exception as e:
-        st.error(f"뉴스 크롤링 에러 발생: {e}")
         return 0
 
 korea_theme_mapping = {
@@ -136,43 +138,41 @@ korea_theme_mapping = {
     "Financials": [("KB금융", "105560"), ("신한지주", "055550"), ("하나금융지주", "086790"), ("메리츠금융지주", "138040"), ("삼성생명", "032830"), ("삼성화재", "000810"), ("키움증권", "039490"), ("한국금융지주", "071050")]
 }
 
-# 💡 개선: API Key를 받아, 매핑 테이블에 없을 경우 실시간 AI 매칭 수행
+# 💡 개선: 기본 섹터 정보와 실시간 AI 매칭 로직을 분리하여 안정성 강화
 @st.cache_data(ttl=3600)
-def get_sector_info(ticker, api_key=""):
+def get_basic_sector_info(ticker):
     try:
         stock = yf.Ticker(ticker)
         sector = stock.info.get('sector', 'Unknown')
         industry = stock.info.get('industry', 'Unknown')
-        
-        # 1차 시도: 하드코딩된 매핑 테이블 확인
-        matched_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
-        is_ai_matched = False
-        
-        # 2차 시도: 매핑 테이블에 없고, 사용자가 API Key를 넣었다면 Gemini를 호출하여 실시간 동적 매칭!
-        if not matched_stocks and api_key:
-            try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-2.5-flash')
-                prompt = f"""
-                미국 주식 '{ticker}' (섹터: {sector}, 산업: {industry}) 테마와 연관된 한국 코스피/코스닥 주식 5개를 찾아주세요. 
-                반드시 아래 형태의 파이썬 리스트로만 답변하세요. 다른 설명은 금지입니다.
-                예시: [('삼성전자', '005930'), ('SK하이닉스', '000660')]
-                """
-                response = model.generate_content(prompt)
-                
-                # 정규표현식을 사용하여 안전하게 종목명과 종목코드만 추출
-                pattern = r"\(['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]\)"
-                matches = re.findall(pattern, response.text)
-                
-                if matches:
-                    matched_stocks = matches[:5]
-                    is_ai_matched = True
-            except Exception as e:
-                pass
-                
-        return sector, industry, matched_stocks, is_ai_matched
+        return sector, industry
     except:
-        return "Unknown", "Unknown", [], False
+        return "Unknown", "Unknown"
+
+@st.cache_data(ttl=3600)
+def get_ai_matched_stocks(ticker, sector, industry, comp_name, api_key):
+    if not api_key: return []
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        # 기업명 전체를 AI에게 전달하여 섹터가 Unknown이어도 유추할 수 있게 프롬프트 강화
+        prompt = f"""
+        당신은 한국 주식 전문가입니다.
+        미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 
+        비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 5개를 찾아주세요.
+        정보가 부족하면 티커와 기업명을 바탕으로 유추해서라도 반드시 5개를 채워주세요.
+        반드시 아래 예시와 같은 파이썬 리스트 형태로만 답변하세요. 부가 설명은 절대 금지입니다.
+        예시: [('삼성전자', '005930'), ('카카오', '035720')]
+        """
+        response = model.generate_content(prompt)
+        
+        # 정규표현식을 매우 관대하게 수정하여 이름과 6자리 코드만 확실하게 뽑아냅니다.
+        pattern = r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]"
+        matches = re.findall(pattern, response.text)
+        return matches[:5] if matches else []
+    except Exception as e:
+        return []
 
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -258,7 +258,7 @@ st.title("📈 종합 스윙 트레이딩 대시보드")
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    top_n = st.slider("수집할 미국 급등주 개수", 5, 20, 20)
+    top_n = st.slider("수집할 미국 급등주 개수", 5, 50, 20)
     fetch_button = st.button("데이터 업데이트 🔄", type="primary")
     st.divider()
     st.header("🧠 AI 뉴스 분석 설정")
@@ -291,17 +291,18 @@ with tab1:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             options = []
             
-            # 드롭다운 생성 시에는 속도 저하를 막기 위해 AI 매칭을 호출하지 않습니다 (api_key="").
             with st.spinner("테마/섹터 정보를 불러오는 중입니다..."):
                 for index, row in st.session_state.gainers_df.iterrows():
                     t = row['종목코드']
                     full_name = row['기업명']
                     kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
-                    sec, ind, _, _ = get_sector_info(t, "") 
+                    sec, ind = get_basic_sector_info(t)
                     options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                     
             selected_option = st.selectbox("👉 분석할 미국 주식 테마를 선택하세요:", options)
-            selected_ticker = selected_option.split(" (")[0]
+            
+            # 💡 수정: 스페이스바 기준으로 첫 단어만 안전하게 티커로 추출합니다.
+            selected_ticker = selected_option.split(" ")[0]
         else:
             selected_ticker = "N/A"
 
@@ -317,8 +318,7 @@ with tab1:
         """)
         
         if selected_ticker != "N/A":
-            # 💡 여기서는 사용자가 클릭한 1개 종목에 대해서만 AI 동적 매칭을 수행합니다 (API Key 전달).
-            sector, industry, kor_stocks, is_ai_matched = get_sector_info(selected_ticker, api_key_input)
+            sector, industry = get_basic_sector_info(selected_ticker)
             st.write(f"- **분석 종목 티커:** {selected_ticker} ({sector} / {industry})")
             
             if api_key_input:
@@ -336,12 +336,25 @@ with tab1:
             
             st.divider()
             
+            # 💡 기존 매핑 테이블을 먼저 확인하고, 없으면 AI에게 실시간 발굴을 요청합니다.
+            kor_stocks = korea_theme_mapping.get(industry) or korea_theme_mapping.get(sector, [])
+            is_ai_matched = False
+            
+            if not kor_stocks and api_key_input:
+                with st.spinner('해당 테마에 매칭되는 한국 주식을 AI가 실시간으로 발굴하고 있습니다...'):
+                    comp_name = selected_option.split(" - ")[0]
+                    kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, comp_name, api_key_input)
+                    if kor_stocks:
+                        is_ai_matched = True
+            
             if not kor_stocks:
-                st.warning("⚠️ 매핑된 국내 주식이 없습니다. (좌측 사이드바에 API 키를 입력하시면 AI가 자동으로 종목을 찾아줍니다!)")
+                st.warning("⚠️ 매핑된 국내 주식이 없습니다. (좌측 사이드바에 API 키를 입력하시면 AI가 자동으로 관련 종목을 찾아줍니다!)")
             else:
-                # 💡 AI가 찾아낸 종목인지 화면에 명시
-                match_source_text = "✨ **AI가 실시간으로 분석하여 찾아낸 연관 국내 주식입니다!**" if is_ai_matched else "👇 **미리 설정된 핵심 우량주 매핑 결과입니다.**"
-                st.write(match_source_text)
+                # 💡 AI가 찾아낸 종목인지 명시
+                if is_ai_matched:
+                    st.write("✨ **AI가 기업 정보를 바탕으로 실시간 발굴한 연관 국내 주식입니다!**")
+                else:
+                    st.write("👇 **기본 설정된 핵심 우량주 매핑 결과입니다.**")
                 
                 for stock_name, ticker_code in kor_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
