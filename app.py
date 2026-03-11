@@ -397,14 +397,12 @@ with tab1:
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             
-            # 💡 1. 표를 그리기 전에 AI 섹터 분석을 먼저 수행합니다.
             if api_key_input:
                 with st.spinner("🤖 AI가 30개 종목의 섹터 정보를 일괄 분석 중입니다... (최초 1회 3초 소요)"):
                     sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input)
             else:
                 sector_dict = {t: ("분석 대기", "분석 대기") for t in tickers_list}
             
-            # 💡 2. 표(Dataframe)에 들어갈 데이터 복사 후 기업명 수정
             display_df = st.session_state.gainers_df.copy()
             new_company_names = []
             
@@ -417,19 +415,15 @@ with tab1:
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
                 sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
                 
-                # 표에 들어갈 이름: 회사명 (섹터 / 산업)
                 table_name = f"{full_name} ({sec} / {ind})"
                 new_company_names.append(table_name)
                 
-                # 드롭다운에 들어갈 이름
                 options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                 
             display_df['기업명'] = new_company_names
             
-            # 💡 3. 수정한 데이터프레임(표) 출력! 이제 표 안에 섹터가 포함됩니다.
             st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
             
-            # 💡 4. 드롭다운 선택창 출력
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
             
@@ -503,11 +497,23 @@ with tab2:
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
-    st.write("검색할 테마/키워드 (예: `2차전지`, `엔비디아 관련주`)를 입력하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
+    st.write("검색할 테마/키워드를 직접 입력하거나, 아래의 핫 테마를 클릭하세요. AI가 관련주를 찾아 즉시 타점을 진단합니다.")
     
     show_trading_guidelines() 
     
-    theme_input = st.text_input("🔍 검색할 테마/키워드 입력:")
+    # 💡 신규: 핫 테마 퀵 검색 버튼 구성
+    st.markdown("🔥 **최근 시장 주도 핫 테마**")
+    hot_themes = ["전고체 배터리", "비만치료제", "온디바이스 AI", "유리기판", "로봇/자동화"]
+    cols = st.columns(len(hot_themes))
+    
+    clicked_theme = None
+    for i, theme in enumerate(hot_themes):
+        # 버튼을 누르면 clicked_theme 변수에 해당 테마 이름이 저장됨
+        if cols[i].button(theme, use_container_width=True):
+            clicked_theme = theme
+
+    # 💡 핫 테마 버튼을 클릭했다면 검색창(text_input)의 기본값(value)으로 쏙 들어감!
+    theme_input = st.text_input("🔍 직접 검색할 테마/키워드 입력:", value=clicked_theme if clicked_theme else "")
     
     if theme_input and api_key_input:
         with st.spinner(f"✨ AI가 증시 전체에서 '{theme_input}' 관련주를 발굴하고 타점을 진단하는 중입니다... (약 3~5초 소요)"):
