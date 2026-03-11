@@ -540,7 +540,7 @@ with tab3:
         if cols[i].button(theme, use_container_width=True):
             clicked_theme = theme
 
-    theme_input = st.text_input("🔍 직접 검색할 테마/키워드 입력:", value=clicked_theme if clicked_theme else "")
+    theme_input = st.text_input("🔍 직접 검색할 테마/키워드 입력:", value=clicked_theme if clicked_theme else "", placeholder="🔍 검색 종목을 선택해주세요.")
     
     if theme_input and api_key_input:
         with st.spinner(f"✨ AI가 증시 전체에서 '{theme_input}' 관련주를 발굴하고 타점을 진단하는 중입니다... (약 3~5초 소요)"):
@@ -567,4 +567,5 @@ with tab4:
                 cols = st.columns([5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {news['title']}")
                 cols[1].link_button("원문 읽기 🔗", news['link'], use_container_width=True)
+
 
