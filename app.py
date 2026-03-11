@@ -11,7 +11,7 @@ import google.generativeai as genai
 import urllib.parse
 import re
 import plotly.express as px
-import plotly.graph_objects as go # 💡 신규: 게이지 차트를 그리기 위한 라이브러리
+import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
@@ -43,6 +43,25 @@ def get_macro_indicators():
             results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
         return results
     except Exception:
+        return None
+
+# 💡 신규: CNN 공포탐욕지수 크롤링 함수
+@st.cache_data(ttl=3600)
+def get_fear_and_greed():
+    try:
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://edition.cnn.com/"
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        data = res.json()
+        score = data['fear_and_greed']['score']
+        prev = data['fear_and_greed']['previous_close']
+        rating = data['fear_and_greed']['rating'].capitalize()
+        return {"score": round(score), "delta": round(score - prev), "rating": rating}
+    except:
         return None
 
 @st.cache_data(ttl=3600)
@@ -153,9 +172,7 @@ def get_all_sector_info(tickers, api_key):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
         ticker_str = "\n".join(tickers)
-        prompt = f"""당신은 월스트리트 주식 전문가입니다.
-        다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.
-        반드시 '티커|섹터|산업' 형태로만 답변하세요.\n[티커 목록]\n{ticker_str}"""
+        prompt = f"당신은 월스트리트 주식 전문가입니다.\n다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.\n반드시 '티커|섹터|산업' 형태로만 답변하세요.\n[티커 목록]\n{ticker_str}"
         response = model.generate_content(prompt)
         for line in response.text.strip().split('\n'):
             parts = line.split('|')
@@ -187,7 +204,7 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", model.generate_content(prompt).text)[:20]
     except Exception: return []
 
-# 💡 신규: 네이버 금융 실시간 외국인/기관 수급 데이터(최근 3일 합산) 크롤링 함수
+# 💡 버그 픽스: 네이버 금융 실시간 외국인/기관 수급 데이터 구조에 맞게 완벽 수정
 def get_investor_trend(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
@@ -195,19 +212,21 @@ def get_investor_trend(code):
         res = requests.get(url, headers=headers, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        table = soup.select_one('table.type2')
-        if not table: return "알수없음", "알수없음"
+        # 네이버 금융에서 'table.type2' 클래스를 가진 표 중 '두 번째 표'가 일별 매매동향입니다.
+        tables = soup.select('table.type2')
+        if len(tables) < 2: return "조회불가", "조회불가"
         
-        rows = table.select('tr')
+        rows = tables[1].select('tr')
         inst_sum, forgn_sum, count = 0, 0, 0
         
         for row in rows:
             tds = row.select('td')
-            if len(tds) < 9: continue
+            if len(tds) < 9: continue # 빈 줄(구분선) 패스
             
             date_str = tds[0].text.strip()
             if not date_str or len(date_str) < 8: continue
             
+            # 인덱스 5: 기관 순매매량, 인덱스 6: 외국인 순매매량
             inst_str = tds[5].text.strip().replace(',', '').replace('+', '')
             forgn_str = tds[6].text.strip().replace(',', '').replace('+', '')
             
@@ -218,7 +237,8 @@ def get_investor_trend(code):
                 forgn_sum += int(forgn_str)
                 count += 1
             except: pass
-            if count >= 3: break
+            
+            if count >= 3: break # 최근 3일치만 더하고 종료
                 
         inst_status = "🔥매집" if inst_sum > 0 else "💧매도" if inst_sum < 0 else "➖중립"
         forgn_status = "🔥매집" if forgn_sum > 0 else "💧매도" if forgn_sum < 0 else "➖중립"
@@ -260,7 +280,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         elif current_price > (ma20_price * 1.03): status = "⚠️ 관심 집중 (단기 급등, 눌림목 대기)"
         else: status = "🛑 추세 이탈 (관망/손절 구간)"
         
-        # 💡 신규: 메이저 수급 긁어오기 호출
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
             
         return {
@@ -268,7 +287,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "진입가_가이드": int(ma20_price), "목표가": int(target_price), "손절가": int(stop_loss_price),
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
-            "기관수급": inst_vol, "외인수급": forgn_vol, # 💡 신규 수급 데이터
+            "기관수급": inst_vol, "외인수급": forgn_vol,
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
     except: return None
@@ -315,7 +334,7 @@ def get_trending_themes_with_ai(api_key):
         return themes[:5] if len(themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 💡 수정: 가이드라인 정렬 완벽 복구 (줄바꿈 반영)
+# 💡 수정: 가이드라인에 RSI 설명을 더 직관적으로 강화
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -323,7 +342,11 @@ def show_trading_guidelines():
     * ⚠️ **관심 집중:** 급등으로 인한 단기 이격 발생 **(눌림목 대기)**
     * 🛑 **추세 이탈:** 20일선 하향 이탈 **(손절 또는 접근 금지)**
     * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
-    * **[RSI 지표]** 🔴 과열(70 이상): 단기 고점 위험 / 🟢 바닥(30 이하): 과대 낙폭 줍줍 찬스
+    
+    **[RSI (상대강도지수) 활용 가이드]**
+    * 🔴 **과열 (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
+    * 🟢 **바닥 (30 이하):** 매도세가 과도하여 저평가된 상태입니다. **(과대 낙폭 줍줍 찬스)**
+    * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
 def draw_stock_card(tech_result, is_expanded=False):
@@ -340,7 +363,6 @@ def draw_stock_card(tech_result, is_expanded=False):
         c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c4.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         
-        # 💡 신규: 메이저 수급 (외인/기관) 표시
         st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` 주 ｜ **기관:** `{tech_result['기관수급']}` 주")
         
         ch1, ch2 = st.columns(2)
@@ -371,19 +393,27 @@ def draw_stock_card(tech_result, is_expanded=False):
 st.title("📈 Jaemini 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
-# 💡 신규: VIX 게이지 차트를 포함한 강력한 매크로 신호등 패널
+# 💡 신규: VIX와 CNN 공포/탐욕 지수를 나란히 보여주는 막강한 매크로 패널
 macro_data = get_macro_indicators()
+fg_data = get_fear_and_greed()
+
 if macro_data:
     st.markdown("##### 🌍 실시간 글로벌 매크로 지표 & 시장 체력")
-    m_col1, m_col2 = st.columns([1, 2.5])
+    
+    # 공포탐욕지수가 성공적으로 로드되면 3칸, 실패하면 2칸으로 레이아웃 자동 조정
+    if fg_data:
+        m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
+    else:
+        m_col1, m_col3 = st.columns([1, 2])
+        m_col2 = None
     
     with m_col1:
         vix_val = macro_data['VIX']['value']
         vix_prev = macro_data['VIX']['prev']
-        # VIX를 반원 형태의 아름다운 게이지 차트로 렌더링
         fig_vix = go.Figure(go.Indicator(
             mode = "gauge+number+delta",
             value = vix_val,
+            title = {'text': "<b>VIX (시장 공포지수)</b>", 'font': {'size': 14}},
             delta = {'reference': vix_prev, 'position': "top"},
             gauge = {
                 'axis': {'range': [0, 50], 'tickwidth': 1, 'tickcolor': "darkblue"},
@@ -392,23 +422,50 @@ if macro_data:
                 'borderwidth': 1,
                 'bordercolor': "gray",
                 'steps': [
-                    {'range': [0, 15], 'color': "rgba(0, 255, 0, 0.3)"},     # 탐욕 (안정)
-                    {'range': [15, 20], 'color': "rgba(255, 255, 0, 0.3)"},   # 보통
-                    {'range': [20, 30], 'color': "rgba(255, 165, 0, 0.3)"},   # 경계
-                    {'range': [30, 50], 'color': "rgba(255, 0, 0, 0.3)"}      # 공포
+                    {'range': [0, 15], 'color': "rgba(0, 255, 0, 0.3)"},
+                    {'range': [15, 20], 'color': "rgba(255, 255, 0, 0.3)"},
+                    {'range': [20, 30], 'color': "rgba(255, 165, 0, 0.3)"},
+                    {'range': [30, 50], 'color': "rgba(255, 0, 0, 0.3)"}
                 ],
             }
         ))
         fig_vix.update_layout(margin=dict(l=20, r=20, t=30, b=10), height=180)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
         
-    with m_col2:
+    if fg_data and m_col2:
+        with m_col2:
+            fg_val = fg_data['score']
+            fg_prev = fg_val - fg_data['delta']
+            fig_fg = go.Figure(go.Indicator(
+                mode = "gauge+number+delta",
+                value = fg_val,
+                title = {'text': "<b>CNN 공포/탐욕 지수</b>", 'font': {'size': 14}},
+                delta = {'reference': fg_prev, 'position': "top"},
+                gauge = {
+                    'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'bar': {'color': "black", 'thickness': 0.2},
+                    'bgcolor': "white",
+                    'borderwidth': 1,
+                    'bordercolor': "gray",
+                    'steps': [
+                        {'range': [0, 25], 'color': "rgba(255, 0, 0, 0.4)"},     # 극도 공포
+                        {'range': [25, 45], 'color': "rgba(255, 165, 0, 0.4)"},   # 공포
+                        {'range': [45, 55], 'color': "rgba(255, 255, 0, 0.4)"},   # 중립
+                        {'range': [55, 75], 'color': "rgba(144, 238, 144, 0.4)"}, # 탐욕
+                        {'range': [75, 100], 'color': "rgba(0, 128, 0, 0.4)"}     # 극도 탐욕
+                    ],
+                }
+            ))
+            fig_fg.update_layout(margin=dict(l=20, r=20, t=30, b=10), height=180)
+            st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
+        
+    with m_col3:
         with st.container(border=True):
             st.markdown("<br>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             c1.metric("🏦 美 10년물 국채 금리", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
             c2.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
-            st.info("💡 **[VIX 가이드]** 0~15: 매우 안정 / 15~20: 보통 / 20~30: 경계 (현금 비중 확대) / 30 이상: 극도 공포 (시장 발작)")
+            st.info("💡 **[가이드]** VIX가 높거나 공포/탐욕 지수가 '극도 공포(빨간색)'일 때가 최고의 매수 찬스입니다.")
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
@@ -426,6 +483,7 @@ if fetch_button:
     get_krx_stocks.clear()
     get_all_sector_info.clear()
     get_macro_indicators.clear()
+    get_fear_and_greed.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -460,7 +518,8 @@ with tab1:
             options = [PLACEHOLDER]
             
             for index, row in display_df.iterrows():
-                t, full_name = row['종목코드'], row['기업명']
+                t = row['종목코드']
+                full_name = row['기업명']
                 kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
                 sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
                 new_company_names.append(f"{full_name} ({sec} / {ind})")
