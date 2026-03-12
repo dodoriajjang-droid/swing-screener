@@ -389,9 +389,6 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# ==========================================
-# [핵심 변경 사항] 3중 다중 우회 시스템이 적용된 크롤링 함수
-# ==========================================
 @st.cache_data(ttl=43200)
 def get_naver_calendar_events():
     target_url = "https://finance.naver.com/sise/calendar.naver"
@@ -401,23 +398,20 @@ def get_naver_calendar_events():
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     }
     
-    # 순차적으로 시도할 우회 서버 목록 (1순위부터 3순위까지)
     urls_to_try = [
-        target_url, # 1. 우선 정면 돌파 (Direct)
-        f"https://corsproxy.io/?{urllib.parse.quote(target_url)}", # 2. corsproxy.io 우회
-        f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}" # 3. allorigins 우회
+        target_url,
+        f"https://corsproxy.io/?{urllib.parse.quote(target_url)}",
+        f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}"
     ]
     
     html_content = None
-    
     for url in urls_to_try:
         try:
             res = requests.get(url, headers=headers, timeout=8)
             if res.status_code == 200:
                 html_content = res.content.decode('euc-kr', errors='replace')
-                break # 응답 성공 시 반복문 즉시 종료
-        except:
-            continue # 실패하면 에러를 무시하고 다음 주소로 재시도
+                break 
+        except: continue 
             
     if not html_content:
         return pd.DataFrame([{"날짜": "에러", "일정": "모든 우회 서버가 응답하지 않습니다. 잠시 후 다시 시도해주세요."}])
@@ -425,24 +419,97 @@ def get_naver_calendar_events():
     try:
         soup = BeautifulSoup(html_content, 'html.parser')
         events_data = []
-        
         cells = soup.select("table.type_cal tbody tr td")
         for cell in cells:
             day_tag = cell.select_one("span.t_day")
             if not day_tag: continue
             day = day_tag.text.strip()
-            
             event_items = cell.select("ul li")
             for item in event_items:
                 event_text = item.text.strip()
                 if event_text:
                     events_data.append({"날짜": day, "일정": event_text})
         
-        if events_data:
-            return pd.DataFrame(events_data)
+        if events_data: return pd.DataFrame(events_data)
         return pd.DataFrame(columns=["날짜", "일정"])
     except Exception as e:
         return pd.DataFrame([{"날짜": "에러", "일정": f"데이터 분석 실패: {str(e)}"}])
+
+# 👈 [추가] 7번 탭을 위한 고배당 포트폴리오 스크래핑 함수
+@st.cache_data(ttl=43200) # 12시간마다 갱신
+def get_dividend_portfolio():
+    portfolio = {
+        "KRX": [
+            {"ticker": "088980.KS", "name": "맥쿼리인프라", "period": "반기 (6, 12월)", "est_yield": "6.0% ~ 6.5%"},
+            {"ticker": "024110.KS", "name": "기업은행", "period": "결산 (12월)", "est_yield": "7.5% ~ 8.5%"},
+            {"ticker": "316140.KS", "name": "우리금융지주", "period": "분기 (3, 6, 9, 12월)", "est_yield": "8.0% ~ 9.0%"},
+            {"ticker": "033780.KS", "name": "KT&G", "period": "반기/결산", "est_yield": "6.0% ~ 7.0%"},
+            {"ticker": "017670.KS", "name": "SK텔레콤", "period": "분기 (3, 6, 9, 12월)", "est_yield": "6.5% ~ 7.0%"},
+            {"ticker": "055550.KS", "name": "신한지주", "period": "분기 (3, 6, 9, 12월)", "est_yield": "5.5% ~ 6.5%"}
+        ],
+        "US": [
+            {"ticker": "O", "name": "Realty Income", "period": "월배당", "est_yield": "5.5% ~ 6.0%"},
+            {"ticker": "MO", "name": "Altria Group", "period": "분기 (1, 4, 7, 10월)", "est_yield": "9.0% ~ 9.5%"},
+            {"ticker": "VZ", "name": "Verizon", "period": "분기 (2, 5, 8, 11월)", "est_yield": "6.0% ~ 6.5%"},
+            {"ticker": "T", "name": "AT&T", "period": "분기 (1, 4, 7, 10월)", "est_yield": "6.0% ~ 6.5%"},
+            {"ticker": "PM", "name": "Philip Morris", "period": "분기 (1, 4, 7, 10월)", "est_yield": "5.0% ~ 5.5%"},
+            {"ticker": "KO", "name": "Coca-Cola", "period": "분기 (4, 7, 10, 12월)", "est_yield": "3.0% ~ 3.5%"}
+        ],
+        "ETF": [
+            {"ticker": "SCHD", "name": "SCHD (미국 고배당 ETF)", "period": "분기 (3, 6, 9, 12월)", "est_yield": "3.4% ~ 3.8%"},
+            {"ticker": "JEPI", "name": "JEPI (프리미엄 월배당)", "period": "월배당", "est_yield": "7.0% ~ 8.0%"},
+            {"ticker": "JEPQ", "name": "JEPQ (나스닥 커버드콜)", "period": "월배당", "est_yield": "8.5% ~ 9.5%"},
+            {"ticker": "458730.KS", "name": "TIGER 미국배당다우존스", "period": "월배당", "est_yield": "3.5% ~ 4.0%"},
+            {"ticker": "161510.KS", "name": "ARIRANG 고배당주", "period": "결산 (12월)", "est_yield": "6.0% ~ 7.0%"},
+            {"ticker": "458760.KS", "name": "TIGER 미국배당+7%프리미엄", "period": "월배당", "est_yield": "10.0% ~ 11.0%"}
+        ]
+    }
+    
+    results = {"KRX": [], "US": [], "ETF": []}
+    
+    for category, stocks in portfolio.items():
+        for item in stocks:
+            try:
+                ticker_obj = yf.Ticker(item["ticker"])
+                info = ticker_obj.info
+                
+                price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose')
+                if not price:
+                    hist = ticker_obj.history(period="1d")
+                    price = hist['Close'].iloc[-1] if not hist.empty else 0
+                        
+                div_yield = info.get('dividendYield') or info.get('trailingAnnualDividendYield')
+                
+                # 야후 파이낸스에서 배당률 조회가 안될 경우 폴백(est_yield) 사용
+                if div_yield:
+                    div_yield_str = f"{div_yield * 100:.2f}%"
+                else:
+                    div_yield_str = item.get("est_yield", "N/A")
+                    
+                if ".KS" in item["ticker"]:
+                    price_str = f"{int(price):,}원"
+                    display_ticker = item["ticker"].replace(".KS", "")
+                else:
+                    price_str = f"${price:,.2f}"
+                    display_ticker = item["ticker"]
+                    
+                results[category].append({
+                    "티커/코드": display_ticker,
+                    "종목명": item["name"],
+                    "현재가": price_str,
+                    "배당수익률(예상)": div_yield_str,
+                    "배당기간": item["period"]
+                })
+            except Exception as e:
+                results[category].append({
+                    "티커/코드": item["ticker"].replace(".KS", ""),
+                    "종목명": item["name"],
+                    "현재가": "조회 실패",
+                    "배당수익률(예상)": item.get("est_yield", "N/A"),
+                    "배당기간": item["period"]
+                })
+                
+    return {k: pd.DataFrame(v) for k, v in results.items()}
 
 def show_trading_guidelines():
     st.info("""
@@ -630,6 +697,8 @@ if fetch_button:
     get_ai_matched_stocks.clear()
     get_theme_stocks_with_ai.clear()
     get_trading_value_kings.clear()
+    get_naver_calendar_events.clear()
+    get_dividend_portfolio.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -637,7 +706,8 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔥 🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패 스캐너", "📅 증시 캘린더 (글로벌/국내)"])
+# 👈 [추가] 7개의 탭 리스트 적용
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🔥 🇺🇸 미국장 폭등주", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패", "📅 증시 캘린더", "💰 고배당주/ETF 컬렉션"])
 
 # ------------------------------------------
 # [탭 1]
@@ -832,7 +902,7 @@ with tab5:
         st.error("데이터를 불러오는 중 문제가 발생했습니다.")
 
 # ------------------------------------------
-# [탭 6] 증시 캘린더 (글로벌/국내 통합)
+# [탭 6] 
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -858,8 +928,7 @@ with tab6:
 
     with cal_tab2:
         st.info("💡 **[국내 이벤트]** 신규 상장(IPO), 실적 발표, 보호예수 해제 등 수급에 직접적인 영향을 주는 이번 달 일정입니다.")
-        
-        with st.spinner("안전한 우회 접속 채널을 통해 일정을 로드 중입니다..."):
+        with st.spinner("안전한 다중 우회 채널을 통해 일정을 로드 중입니다..."):
             naver_cal_df = get_naver_calendar_events()
             
         if not naver_cal_df.empty:
@@ -869,3 +938,27 @@ with tab6:
                 st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
         else:
             st.warning("현재 가져올 수 있는 국내 증시 일정이 없거나, 서버 연결이 지연되고 있습니다.")
+
+# 👈 [추가] 7번 탭: 배당 포트폴리오 컬렉션
+# ------------------------------------------
+with tab7:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("💰 고배당주 & ETF 파이프라인")
+    st.write("안정적인 현금흐름을 창출할 수 있는 국내외 대표 고배당 주식과 ETF 목록입니다. (배당일자 대신 배당주기로 표기)")
+    
+    with st.spinner("최신 실시간 가격 및 배당 데이터를 불러오는 중입니다... (최초 로딩 시 최대 10초 소요)"):
+        div_dfs = get_dividend_portfolio()
+        
+    div_tab1, div_tab2, div_tab3 = st.tabs(["🇰🇷 국장 (한국 고배당주)", "🇺🇸 미장 (미국 배당귀족/고배당)", "📈 배당 ETF (국내/해외)"])
+    
+    with div_tab1:
+        st.info("💡 **[한국 고배당주]** 전통적으로 배당수익률이 높은 금융/통신주와 맥쿼리인프라 등 대표 배당주입니다.")
+        st.dataframe(div_dfs["KRX"], use_container_width=True, hide_index=True)
+        
+    with div_tab2:
+        st.info("💡 **[미국 고배당주]** 오랜 기간 배당을 꾸준히 늘려온 배당귀족주 및 통신/리츠 대표 종목입니다.")
+        st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
+        
+    with div_tab3:
+        st.info("💡 **[배당 ETF]** 매월 현금이 들어오는 월배당 ETF 및 안정적인 배당 성장을 보여주는 인기 ETF 모음입니다.")
+        st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
