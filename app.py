@@ -839,11 +839,42 @@ with tab6:
         )
 
     with cal_tab2:
-        st.info("💡 **[국내 이벤트]** 신규 상장(IPO), 실적 발표, 보호예수 해제 등 수급에 직접적인 영향을 주는 이번 달 일정입니다.")
-        with st.spinner("네이버 금융에서 이번 달 국내 증시 일정을 가져오는 중입니다..."):
-            naver_cal_df = get_naver_calendar_events()
+@st.cache_data(ttl=43200) # 12시간마다 갱신
+def get_naver_calendar_events():
+    try:
+        # 💡 Streamlit Cloud의 IP 차단을 우회하기 위해 무료 프록시(AllOrigins) 사용
+        target_url = "https://finance.naver.com/sise/calendar.naver"
+        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
+        res = requests.get(proxy_url, headers=headers, timeout=15)
+        res.raise_for_status()
+        
+        # 네이버 증시 원본 인코딩 세팅
+        res.encoding = 'euc-kr' 
+        
+        soup = BeautifulSoup(res.text, 'html.parser')
+        events_data = []
+        
+        cells = soup.select("table.type_cal tbody tr td")
+        for cell in cells:
+            day_tag = cell.select_one("span.t_day")
+            if not day_tag: continue
+            day = day_tag.text.strip()
             
-        if not naver_cal_df.empty:
-            st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
-        else:
-            st.warning("현재 가져올 수 있는 국내 증시 일정이 없거나, 서버 연결이 지연되고 있습니다.")
+            event_items = cell.select("ul li")
+            for item in event_items:
+                event_text = item.text.strip()
+                if event_text:
+                    events_data.append({"날짜": day, "일정": event_text})
+        
+        if events_data:
+            return pd.DataFrame(events_data)
+        
+        return pd.DataFrame(columns=["날짜", "일정"])
+    except Exception as e:
+        # 혹시라도 또 막히면 원인을 바로 알 수 있도록 화면에 에러를 띄웁니다.
+        st.error(f"⚠️ 네이버 캘린더 우회 접속 실패: {e}") 
+        return pd.DataFrame(columns=["날짜", "일정"])
