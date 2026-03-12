@@ -31,28 +31,26 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 수정: 하나가 실패해도 다른 건 살리도록 에러 독립 처리
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
-    tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
-    results = {}
-    for name, t in tickers.items():
-        try:
+    try:
+        tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+        results = {}
+        for name, t in tickers.items():
             df = yf.Ticker(t).history(period="5d")
-            if len(df) >= 2:
-                latest = float(df['Close'].iloc[-1])
-                prev = float(df['Close'].iloc[-2])
-                results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
-        except:
-            continue # 에러 나면 그냥 넘어가고 성공한 것만 반환
-    return results
+            latest = df['Close'].iloc[-1]
+            prev = df['Close'].iloc[-2]
+            results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
+        return results
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0",
             "Accept": "application/json",
             "Referer": "https://edition.cnn.com/"
         }
@@ -60,7 +58,8 @@ def get_fear_and_greed():
         data = res.json()
         score = data['fear_and_greed']['score']
         prev = data['fear_and_greed']['previous_close']
-        return {"score": round(score), "delta": round(score - prev)}
+        rating = data['fear_and_greed']['rating'].capitalize()
+        return {"score": round(score), "delta": round(score - prev), "rating": rating}
     except:
         return None
 
@@ -72,23 +71,19 @@ def get_us_top_gainers():
         response = requests.get(url, headers=headers)
         tables = pd.read_html(StringIO(response.text))
         df = tables[0]
-        
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df = df.iloc[:, :6] 
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
-        
         def extract_pct(x):
             try:
                 match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
                 if match: return float(match.group(1))
                 return float(re.sub(r'[^\d\.\+\-]', '', str(x)))
             except: return 0.0
-                
         df['실제등락률'] = df['등락률'].apply(extract_pct)
         df = df[df['실제등락률'] >= 10.0] 
         df = df.drop(columns=['실제등락률']) 
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
-        
         def get_korean_name(name):
             try:
                 encoded_name = urllib.parse.quote(name)
@@ -98,18 +93,14 @@ def get_us_top_gainers():
                 if ko_name.lower() != name.lower() and ko_name.strip(): return f"{name} / {ko_name}"
                 return name
             except: return name
-                
         df['기업명'] = df['기업명'].apply(get_korean_name)
-        
         try: ex_rate = yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1]
         except: ex_rate = 1350.0 
-            
         def format_price(x):
             try:
                 val = float(str(x).split()[0].replace(',', ''))
                 return f"${val:.2f} (약 {int(val * ex_rate):,}원)"
             except: return str(x)
-                
         df['현재가'] = df['현재가'].apply(format_price)
         return df, ex_rate
     except Exception as e:
@@ -243,6 +234,7 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
+# 💡 핵심 로직 수정: 3단계 목표가 산출 조건 추가
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -269,8 +261,21 @@ def analyze_technical_pattern(stock_name, ticker_code):
         
         current_price = latest['Close']
         ma20_price = latest['MA20']
-        target_price = latest['Bollinger_Upper'] 
-        stop_loss_price = ma20_price * 0.97      
+        
+        # 💡 [3단계 목표가 로직 계산]
+        # 1차 목표가: 단기 저항선인 볼린저 밴드 상단
+        target_1 = int(latest['Bollinger_Upper'])
+        
+        # 2차 목표가: 최근 90일 기준 전고점. 
+        # (만약 이미 볼밴 상단이 전고점보다 높다면, 볼밴상단에서 +5% 추가 상승값을 2차로 설정)
+        recent_high = int(df['Close'].max())
+        target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
+        
+        # 3차 목표가: 전고점 돌파 후 광기가 붙는 오버슈팅 구간 (2차 목표가 대비 +8%)
+        target_3 = int(target_2 * 1.08)
+        
+        # 손절가: 20일 이평선 이탈 (-3%)
+        stop_loss_price = int(ma20_price * 0.97)      
         
         if (ma20_price * 0.97) <= current_price <= (ma20_price * 1.03): status = "✅ 타점 근접 (분할 매수 고려)"
         elif current_price > (ma20_price * 1.03): status = "⚠️ 관심 집중 (단기 급등, 눌림목 대기)"
@@ -280,7 +285,9 @@ def analyze_technical_pattern(stock_name, ticker_code):
             
         return {
             "종목명": stock_name, "현재가": int(current_price), "상태": status,
-            "진입가_가이드": int(ma20_price), "목표가": int(target_price), "손절가": int(stop_loss_price),
+            "진입가_가이드": int(ma20_price), 
+            "목표가1": target_1, "목표가2": target_2, "목표가3": target_3, # 💡 신규 추가
+            "손절가": stop_loss_price,
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol,
@@ -322,7 +329,6 @@ def analyze_single_news(title, api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception: return "뉴스 분석 중 오류가 발생했습니다."
 
-# 💡 수정: AI의 헛소리(Thought) 유출을 막는 강력 통제 및 필터링 로직 적용
 @st.cache_data(ttl=10800)
 def get_trending_themes_with_ai(api_key):
     default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
@@ -330,8 +336,6 @@ def get_trending_themes_with_ai(api_key):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        # 1. 프롬프트 아주 강력하게 통제
         prompt = """
         최근 1~2일 사이 한국 증시에서 가장 핫한 주도 테마 5개만 추출하세요.
         [절대 준수 규칙]
@@ -341,34 +345,25 @@ def get_trending_themes_with_ai(api_key):
         출력 예시: 전고체,비만치료제,저PBR,AI반도체,로봇
         """
         response = model.generate_content(prompt)
-        
-        # 2. 불필요한 기호 1차 제거
         raw_text = response.text.replace('\n', '').replace('*', '').replace('"', '').replace("'", "")
-        
-        # 3. 만약 영문 생각 과정(THOUGHT)이 유출되었다면 아예 기본값으로 덮어버림
-        if 'THOUGHT' in raw_text.upper():
-            return default_themes
-            
-        # 4. 쉼표로 쪼개기
+        if 'THOUGHT' in raw_text.upper(): return default_themes
         themes = [t.strip() for t in raw_text.split(',')]
-        
-        # 5. 파이썬 2차 방어선: 테마 이름이 비정상적으로 길면(15자 초과) 가짜로 간주하고 필터링
         valid_themes = [t for t in themes if 0 < len(t) <= 15]
-        
-        if len(valid_themes) >= 5:
-            return valid_themes[:5]
-        else:
-            return default_themes
-    except Exception: 
-        return default_themes
-        
+        return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
+    except Exception: return default_themes
+
+# 💡 수정: 가이드라인에 분할 매도(1, 2, 3차) 설명 추가
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
     * ✅ **타점 근접:** 주가가 20일선 근처에 위치 **(분할 매수 권장)**
     * ⚠️ **관심 집중:** 급등으로 인한 단기 이격 발생 **(눌림목 대기)**
     * 🛑 **추세 이탈:** 20일선 하향 이탈 **(손절 또는 접근 금지)**
-    * 🎯 **1차 목표가:** 볼린저 밴드 상단 저항선 **(절반 수익 실현 권장)**
+    
+    **[🎯 3단계 분할 익절 가이드]**
+    * **1차 (단기 저항):** 볼린저 밴드 상단 도달 시 **절반 수익 실현**
+    * **2차 (스윙 저항):** 전고점 부근 до달 시 **추가 비중 축소**
+    * **3차 (오버슈팅):** 광기장 추세 연장 구간, **전량 익절** 목표
     
     **[RSI (상대강도지수) 활용 가이드]**
     * 🔴 **과열 (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
@@ -376,21 +371,28 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
+# 💡 수정: 종목 카드 UI를 2줄로 쾌적하게 나누고 3차 목표가까지 렌더링
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
         
+        # 1번째 줄: 진입가 및 3단계 목표가
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
-        
         c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (대비)", delta_color="off")
-        c2.metric("🎯 1차 목표가", f"{tech_result['목표가']:,}원", f"+{tech_result['목표가'] - curr:,}원 (기대수익)")
-        c3.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
-        c4.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
+        c2.metric("🎯 1차 (볼밴상단)", f"{tech_result['목표가1']:,}원", f"+{tech_result['목표가1'] - curr:,}원")
+        c3.metric("🚀 2차 (전고점)", f"{tech_result['목표가2']:,}원", f"+{tech_result['목표가2'] - curr:,}원")
+        c4.metric("🌌 3차 (오버슈팅)", f"{tech_result['목표가3']:,}원", f"+{tech_result['목표가3'] - curr:,}원")
         
-        st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`")
+        # 2번째 줄: 손절가, RSI, 수급 동향
+        st.markdown("---")
+        c5, c6, c7 = st.columns([1, 1, 2])
+        c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
+        c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
+        with c7:
+            st.markdown(f"🕵️ **최근 3일 수급 동향**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
@@ -420,7 +422,6 @@ def draw_stock_card(tech_result, is_expanded=False):
 st.title("📈 Jaemini 스윙 트레이딩 대시보드")
 st.markdown("단기 스윙 매매를 위한 **글로벌 주도주 분석** 및 **실시간 타점 모니터링** 시스템입니다.")
 
-# 💡 수정: 매크로 지표 영역이 절대 사라지지 않도록 무조건 렌더링하도록 뼈대 고정
 st.markdown("##### 🌍 실시간 글로벌 매크로 지표 & 시장 체력")
 
 macro_data = get_macro_indicators()
@@ -691,5 +692,3 @@ with tab4:
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
     else:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
-
-
