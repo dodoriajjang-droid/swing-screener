@@ -45,7 +45,6 @@ def get_macro_indicators():
     except Exception:
         return None
 
-# 💡 수정: CNN 서버의 봇 차단 방화벽을 뚫기 위해 완벽한 브라우저 헤더로 위장
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     try:
@@ -56,17 +55,14 @@ def get_fear_and_greed():
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
-        
-        # 서버가 정상(200) 응답을 주었을 때만 처리
         if res.status_code == 200:
             data = res.json()
             score = data['fear_and_greed']['score']
             prev = data['fear_and_greed']['previous_close']
             rating = data['fear_and_greed']['rating'].capitalize()
             return {"score": round(score), "delta": round(score - prev), "rating": rating}
-        else:
-            return None
-    except Exception:
+        return None
+    except:
         return None
 
 @st.cache_data(ttl=3600)
@@ -136,6 +132,31 @@ def get_krx_stocks():
         return df
     except Exception:
         return pd.DataFrame(columns=['Name', 'Code'])
+
+# 💡 신규: 거래대금 상위 깡패 스캐너 데이터 크롤링 함수 (10분 단위 캐싱)
+@st.cache_data(ttl=600)
+def get_trading_value_kings():
+    try:
+        df = fdr.StockListing('KRX')
+        if df.empty: return pd.DataFrame()
+        
+        # ETF, 스팩, ETN 등 파생/잡주 필터링 제거 (순수 주식만 필터링)
+        mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지')
+        df = df[~mask]
+        
+        # 거래대금(Amount) 기준 내림차순 정렬 후 상위 20개 추출
+        df = df.sort_values('Amount', ascending=False).head(20)
+        
+        # 거래대금을 '억 원' 단위로 변환
+        df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
+        df['Marcap_Ouk'] = (df['Marcap'] / 100000000).astype(int)
+        
+        # 회전율 계산 (거래대금 / 시가총액) * 100
+        df['Turnover_Ratio'] = (df['Amount_Ouk'] / df['Marcap_Ouk'] * 100).round(1)
+        
+        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Marcap_Ouk', 'Turnover_Ratio']]
+    except Exception as e:
+        return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def get_latest_naver_news():
@@ -240,7 +261,6 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 핵심 로직 수정: 3단계 목표가 산출 조건 추가
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -268,19 +288,10 @@ def analyze_technical_pattern(stock_name, ticker_code):
         current_price = latest['Close']
         ma20_price = latest['MA20']
         
-        # 💡 [3단계 목표가 로직 계산]
-        # 1차 목표가: 단기 저항선인 볼린저 밴드 상단
         target_1 = int(latest['Bollinger_Upper'])
-        
-        # 2차 목표가: 최근 90일 기준 전고점. 
-        # (만약 이미 볼밴 상단이 전고점보다 높다면, 볼밴상단에서 +5% 추가 상승값을 2차로 설정)
         recent_high = int(df['Close'].max())
         target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
-        
-        # 3차 목표가: 전고점 돌파 후 광기가 붙는 오버슈팅 구간 (2차 목표가 대비 +8%)
         target_3 = int(target_2 * 1.08)
-        
-        # 손절가: 20일 이평선 이탈 (-3%)
         stop_loss_price = int(ma20_price * 0.97)      
         
         if (ma20_price * 0.97) <= current_price <= (ma20_price * 1.03): status = "✅ 타점 근접 (분할 매수 고려)"
@@ -292,7 +303,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
         return {
             "종목명": stock_name, "현재가": int(current_price), "상태": status,
             "진입가_가이드": int(ma20_price), 
-            "목표가1": target_1, "목표가2": target_2, "목표가3": target_3, # 💡 신규 추가
+            "목표가1": target_1, "목표가2": target_2, "목표가3": target_3,
             "손절가": stop_loss_price,
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
@@ -358,7 +369,6 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 💡 수정: 가이드라인에 분할 매도(1, 2, 3차) 설명 추가
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -368,7 +378,7 @@ def show_trading_guidelines():
     
     **[🎯 3단계 분할 익절 가이드]**
     * **1차 (단기 저항):** 볼린저 밴드 상단 도달 시 **절반 수익 실현**
-    * **2차 (스윙 저항):** 전고점 부근 до달 시 **추가 비중 축소**
+    * **2차 (스윙 저항):** 전고점 부근 도달 시 **추가 비중 축소**
     * **3차 (오버슈팅):** 광기장 추세 연장 구간, **전량 익절** 목표
     
     **[RSI (상대강도지수) 활용 가이드]**
@@ -377,14 +387,12 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
-# 💡 수정: 종목 카드 UI를 2줄로 쾌적하게 나누고 3차 목표가까지 렌더링
 def draw_stock_card(tech_result, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
         
-        # 1번째 줄: 진입가 및 3단계 목표가
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
         c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (대비)", delta_color="off")
@@ -392,7 +400,6 @@ def draw_stock_card(tech_result, is_expanded=False):
         c3.metric("🚀 2차 (전고점)", f"{tech_result['목표가2']:,}원", f"+{tech_result['목표가2'] - curr:,}원")
         c4.metric("🌌 3차 (오버슈팅)", f"{tech_result['목표가3']:,}원", f"+{tech_result['목표가3'] - curr:,}원")
         
-        # 2번째 줄: 손절가, RSI, 수급 동향
         st.markdown("---")
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
@@ -534,6 +541,7 @@ if fetch_button:
     analyze_single_news.clear()
     get_ai_matched_stocks.clear()
     get_theme_stocks_with_ai.clear()
+    get_trading_value_kings.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -541,7 +549,8 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4 = st.tabs(["🔥 🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보"])
+# 💡 신규 탭 추가: 5. 당일 거래대금 깡패 스캐너
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔥 🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패 스캐너"])
 
 # ------------------------------------------
 # [탭 1]
@@ -699,3 +708,41 @@ with tab4:
     else:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
 
+# ------------------------------------------
+# [탭 5] 💡 신규: 당일 거래대금 깡패 스캐너
+# ------------------------------------------
+with tab5:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("💸 실시간 당일 거래대금 깡패 스캐너")
+    st.write("오늘 하루 한국 증시(코스피/코스닥)에서 돈이 가장 많이 몰리고 있는 상위 20개 종목입니다. (ETF 및 스팩주 제외)")
+    
+    with st.spinner("📡 거래소 데이터를 스캔 중입니다..."):
+        trading_kings_df = get_trading_value_kings()
+        
+    if not trading_kings_df.empty:
+        st.info("💡 **[세력주 판별 꿀팁]** 거래대금 회전율(당일 거래대금 ÷ 시가총액)이 **100%**를 넘어가면 비정상적인 손바뀜이 일어나고 있는 세력주/광기장일 확률이 높습니다.")
+        
+        # 보기 좋게 컬럼명 한글화 및 포맷팅 적용
+        display_df = trading_kings_df.copy()
+        display_df.columns = ['종목코드', '종목명', '현재가', '등락률(%)', '거래대금(억원)', '시가총액(억원)', '회전율(%)']
+        display_df['현재가'] = display_df['현재가'].apply(lambda x: f"{x:,}원")
+        display_df['등락률(%)'] = display_df['등락률(%)'].apply(lambda x: f"+{x}%" if x > 0 else f"{x}%")
+        display_df['거래대금(억원)'] = display_df['거래대금(억원)'].apply(lambda x: f"{x:,}억")
+        display_df['시가총액(억원)'] = display_df['시가총액(억원)'].apply(lambda x: f"{x:,}억")
+        display_df['회전율(%)'] = display_df['회전율(%)'].apply(lambda x: f"🔥 {x}%" if x >= 100 else f"{x}%")
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("### 🎯 주도주 즉시 타점 진단")
+        king_options = ["🔍 종목을 선택하세요."] + (trading_kings_df['Name'] + " (" + trading_kings_df['Code'] + ")").tolist()
+        selected_king = st.selectbox("목록에서 타점을 확인할 종목을 고르세요:", king_options)
+        
+        if selected_king != "🔍 종목을 선택하세요.":
+            k_name = selected_king.split(" (")[0]
+            k_code = selected_king.split("(")[1].replace(")", "")
+            with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
+                k_result = analyze_technical_pattern(k_name, k_code)
+            if k_result: draw_stock_card(k_result, is_expanded=True)
+            else: st.error("❌ 데이터를 불러올 수 없습니다.")
+    else:
+        st.error("데이터를 불러오는 중 문제가 발생했습니다.")
