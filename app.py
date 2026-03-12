@@ -31,21 +31,27 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 수정 1: VIX 등 매크로 지표 하나가 실패해도 나머지는 살려내는 독립 생존 로직
+# 💡 수정: 야후 파이낸스 봇 차단 우회 세션 적용 및 period 확대
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
-    tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
-    results = {}
-    for name, t in tickers.items():
-        try:
-            df = yf.Ticker(t).history(period="5d")
-            if not df.empty and len(df) >= 2:
-                latest = float(df['Close'].iloc[-1])
-                prev = float(df['Close'].iloc[-2])
-                results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
-        except Exception:
-            continue # 에러 나면 다음 지표로 넘어감
-    return results if results else None
+    try:
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"})
+        
+        tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+        results = {}
+        for name, t in tickers.items():
+            try:
+                df = yf.Ticker(t, session=session).history(period="1mo") # 5d -> 1mo 로 변경하여 휴장일 대비
+                if not df.empty and len(df) >= 2:
+                    latest = float(df['Close'].iloc[-1])
+                    prev = float(df['Close'].iloc[-2])
+                    results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
+            except Exception:
+                continue
+        return results if results else None
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
@@ -53,7 +59,7 @@ def get_fear_and_greed():
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
+            "Accept": "application/json",
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
@@ -253,28 +259,39 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 수정 2: 신용잔고율 euc-kr 인코딩 명시 및 정규식 완벽 방어
+# 💡 수정: 한글 강제 euc-kr 디코딩 및 2중 정규식 방어 체계 적용
 @st.cache_data(ttl=3600)
 def get_stock_fundamentals(code):
     margin_ratio = 0.0
     market_cap_oek = 0
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=3)
-        res.encoding = 'euc-kr' # 💡 한글 깨짐 방지 마법의 코드
-        soup = BeautifulSoup(res.text, 'html.parser')
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        res = requests.get(url, headers=headers, timeout=5)
         
-        # 1. 신용비율 추출
-        ths = soup.select('th')
+        # HTML 텍스트를 강제로 euc-kr로 변환하여 글자 깨짐(0.0% 오류) 방지
+        html_text = res.content.decode('euc-kr', 'replace')
+        soup = BeautifulSoup(html_text, 'html.parser')
+        
+        # 1. 신용비율 추출 로직 강화
+        found = False
+        ths = soup.find_all('th')
         for th in ths:
-            if '신용비율' in th.text:
+            if th.text and '신용비율' in th.text:
                 td = th.find_next_sibling('td')
                 if td:
                     num_str = re.sub(r'[^0-9.]', '', td.text)
-                    if num_str: margin_ratio = float(num_str)
+                    if num_str:
+                        margin_ratio = float(num_str)
+                        found = True
                 break
                 
+        # 만약 HTML 구조가 달라서 실패했다면 전체 텍스트에서 정규식으로 직접 추출 (2차 방어선)
+        if not found:
+            match = re.search(r'신용비율.*?([0-9.]+)\s*%', html_text, re.DOTALL | re.IGNORECASE)
+            if match:
+                margin_ratio = float(match.group(1))
+
         # 2. 시가총액 추출
         ms_em = soup.select_one('#_market_sum')
         if ms_em:
@@ -286,7 +303,7 @@ def get_stock_fundamentals(code):
                 market_cap_oek = jo * 10000 + ouk
             else:
                 market_cap_oek = int(re.sub(r'[^0-9]', '', ms_text)) if ms_text else 0
-    except Exception:
+    except Exception as e:
         pass
     return margin_ratio, market_cap_oek
 
@@ -328,8 +345,8 @@ def analyze_technical_pattern(stock_name, ticker_code):
         else: status = "🛑 추세 이탈 (관망/손절 구간)"
         
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
-        
         margin_ratio, market_cap_oek = get_stock_fundamentals(ticker_code)
+        
         amount_oek = (current_price * int(latest['Volume'])) // 100000000
         turnover_ratio = round((amount_oek / market_cap_oek) * 100, 1) if market_cap_oek > 0 else 0.0
         
