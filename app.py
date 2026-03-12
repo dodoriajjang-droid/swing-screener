@@ -56,19 +56,32 @@ def get_macro_indicators():
     except: pass
     return results if results else None
 
+# 👈 [핵심 수정] 공포탐욕지수 우회 및 복구 로직 강화
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
+    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Origin": "https://edition.cnn.com",
+        "Referer": "https://edition.cnn.com/"
+    }
+    
     try:
-        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Referer": "https://edition.cnn.com/"}
+        # 1차 시도
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
-            score = data['fear_and_greed']['score']
-            prev = data['fear_and_greed']['previous_close']
-            return {"score": round(score), "delta": round(score - prev), "rating": data['fear_and_greed']['rating'].capitalize()}
-        return None
-    except: return None
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+            
+        # 2차 시도 (프록시 우회)
+        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}"
+        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res2.status_code == 200:
+            data = res2.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    return None
 
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
@@ -79,13 +92,7 @@ def get_us_top_gainers():
         tables = pd.read_html(StringIO(response.text))
         df = tables[0].iloc[:, :6] 
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
-        def extract_pct(x):
-            try:
-                match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
-                if match: return float(match.group(1))
-                return float(re.sub(r'[^\d\.\+\-]', '', str(x)))
-            except: return 0.0
-        df['실제등락률'] = df['등락률'].apply(extract_pct)
+        df['실제등락률'] = df['등락률'].apply(lambda x: float(re.sub(r'[^\d\.\+\-]', '', str(x))) if pd.notnull(x) else 0.0)
         df = df[df['실제등락률'] >= 10.0].drop(columns=['실제등락률']) 
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
         def get_korean_name(name):
@@ -273,29 +280,6 @@ def get_trending_themes_with_ai(api_key):
     except Exception: return default_themes
 
 # ==========================================
-# 🚀 6번 탭 전용: 네이버 캘린더 (실패 시 우회 버튼 제공)
-# ==========================================
-@st.cache_data(ttl=43200)
-def get_naver_calendar_events():
-    try:
-        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
-            events_data = []
-            for cell in soup.select("table.type_cal tbody tr td"):
-                day_tag = cell.select_one("span.t_day")
-                if not day_tag: continue
-                day = day_tag.text.strip()
-                for item in cell.select("ul li"):
-                    if item.text.strip():
-                        events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
-            if events_data:
-                return pd.DataFrame(events_data)
-    except: pass
-    # 에러 발생 시 빈 데이터프레임 리턴하여 UI에서 버튼 렌더링하도록 유도
-    return pd.DataFrame()
-
-# ==========================================
 # 🚀 7번 탭 전용: 60종목 고배당주 대량 가격 로딩 함수
 # ==========================================
 @st.cache_data(ttl=43200) 
@@ -346,15 +330,15 @@ def get_dividend_portfolio():
             ("KMI", "Kinder Morgan", "분기 (2,5,8,11월)", "6.0% ~ 6.5%")
         ],
         "ETF": [
-            ("SCHD", "미국 SCHD (다우존스 고배당)", "분기 (3,6,9,12월)", "3.4% ~ 3.8%"),
+            ("SCHD", "미국 SCHD (고배당 ETF)", "분기 (3,6,9,12월)", "3.4% ~ 3.8%"),
             ("JEPI", "미국 JEPI (S&P 프리미엄)", "월배당", "7.0% ~ 8.0%"),
-            ("JEPQ", "미국 JEPQ (나스닥 커버드콜)", "월배당", "8.5% ~ 9.5%"),
+            ("JEPQ", "미국 JEPQ (나스닥 프리미엄)", "월배당", "8.5% ~ 9.5%"),
             ("VYM", "미국 VYM (고배당 수익)", "분기 (3,6,9,12월)", "2.8% ~ 3.2%"),
             ("SPYD", "미국 SPYD (S&P500 고배당)", "분기 (3,6,9,12월)", "4.5% ~ 5.0%"),
             ("DGRO", "미국 DGRO (배당 성장)", "분기 (3,6,9,12월)", "2.2% ~ 2.6%"),
             ("QYLD", "미국 QYLD (나스닥 커버드콜)", "월배당", "11.0% ~ 12.0%"),
             ("XYLD", "미국 XYLD (S&P 커버드콜)", "월배당", "9.0% ~ 10.0%"),
-            ("DIVO", "미국 DIVO (배당+옵션 프리미엄)", "월배당", "4.5% ~ 5.0%"),
+            ("DIVO", "미국 DIVO (배당+옵션)", "월배당", "4.5% ~ 5.0%"),
             ("VNQ", "미국 VNQ (뱅가드 리츠)", "분기 (3,6,9,12월)", "4.0% ~ 4.5%"),
             ("458730.KS", "TIGER 미국배당다우존스", "월배당", "3.5% ~ 4.0%"),
             ("161510.KS", "ARIRANG 고배당주", "결산 (12월)", "6.0% ~ 7.0%"),
@@ -369,7 +353,6 @@ def get_dividend_portfolio():
         ]
     }
     
-    # 60개 종목 가격을 yfinance로 한 방에 긁어오는 로직 (초고속화)
     all_tickers = []
     for cat in portfolio.values():
         for t, n, p, y in cat:
@@ -392,7 +375,6 @@ def get_dividend_portfolio():
         for t_code, name, period, est_yield in stocks:
             price_val = price_dict.get(t_code)
             
-            # 가격 포맷팅 (한국주식은 원화, 미국주식은 달러)
             if price_val:
                 if ".KS" in t_code: price_str = f"{int(price_val):,}원"
                 else: price_str = f"${price_val:,.2f}"
@@ -492,6 +474,14 @@ with m_col1:
         ))
         fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
+    else:
+        fig_vix = go.Figure(go.Indicator(
+            mode = "gauge", value = 0,
+            title = {'text': "<b>VIX (데이터 지연)</b><br><span style='font-size:12px;color:red'>야후 서버 응답 지연중</span>", 'font': {'size': 15}},
+            gauge = {'axis': {'range': [0, 50]}, 'bar': {'color': "gray"}}
+        ))
+        fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
+        st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
 
 with m_col2:
     if fg_data:
@@ -510,6 +500,15 @@ with m_col2:
         ))
         fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
+    else:
+        # 👈 차단되었을 때도 게이지 바가 화면에 나오도록 복구
+        fig_fg = go.Figure(go.Indicator(
+            mode = "gauge", value = 0,
+            title = {'text': "<b>CNN 공포/탐욕 지수</b><br><span style='font-size:12px;color:red'>서버 로딩 지연중</span>", 'font': {'size': 15}},
+            gauge = {'axis': {'range': [0, 100]}, 'bar': {'color': "gray"}}
+        ))
+        fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
+        st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
     
 with m_col3:
     with st.container(border=True):
@@ -517,8 +516,14 @@ with m_col3:
         c1, c2 = st.columns(2)
         if macro_data and '美 10년물 국채' in macro_data:
             c1.metric("🏦 美 10년물 국채 금리", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
+        else:
+            c1.metric("🏦 美 10년물 국채 금리", "점검중")
+            
         if macro_data and '원/달러 환율' in macro_data:
             c2.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
+        else:
+            c2.metric("💱 원/달러 환율", "점검중")
+            
         st.info("💡 **[시장 체력 가이드]** VIX가 높게 치솟거나 공포/탐욕 지수가 '공포(빨간색)' 구간일 때가 통계적으로 최고의 스윙 매수 찬스입니다.")
 
 with st.sidebar:
@@ -557,23 +562,29 @@ with tab1:
         
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
-            sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input) if api_key_input else {t: ("분석 대기", "분석 대기") for t in tickers_list}
+            if api_key_input:
+                with st.spinner("🤖 AI가 30개 종목의 섹터 정보를 일괄 분석 중입니다..."):
+                    sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input)
+            else: sector_dict = {t: ("분석 대기", "분석 대기") for t in tickers_list}
             
             display_df = st.session_state.gainers_df.copy()
             new_company_names = []
-            options = ["🔍 검색 종목을 선택해주세요."]
+            PLACEHOLDER = "🔍 검색 종목을 선택해주세요."
+            options = [PLACEHOLDER]
+            
             for index, row in display_df.iterrows():
                 t = row['종목코드']
                 full_name = row['기업명']
+                kor_name = full_name.split(' / ')[-1] if ' / ' in full_name else full_name
                 sec, ind = sector_dict.get(t, ("분석 불가", "분석 불가"))
                 new_company_names.append(f"{full_name} ({sec} / {ind})")
-                options.append(f"{t} ({full_name.split(' / ')[-1] if ' / ' in full_name else full_name}) - ({sec} / {ind})")
+                options.append(f"{t} ({kor_name}) - ({sec} / {ind})")
                 
             display_df['기업명'] = new_company_names
             st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
             st.markdown("#### 🔍 분석 대상 종목 선택")
             selected_option = st.selectbox("목록에서 주식을 선택하세요:", options, label_visibility="collapsed")
-            selected_ticker = "N/A" if selected_option == "🔍 검색 종목을 선택해주세요." else selected_option.split(" ")[0]
+            selected_ticker = "N/A" if selected_option == PLACEHOLDER else selected_option.split(" ")[0]
         else:
             selected_ticker = "N/A"
             st.info("현재 +10% 이상 급등한 종목이 없습니다.")
@@ -612,7 +623,7 @@ with tab2:
     if not krx_df.empty:
         krx_options = ["🔍 검색 종목을 선택해주세요."] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
         search_query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", krx_options)
-        if search_query != "🔍 검색 종목을 선택해주세요.":
+        if search_query and search_query != "🔍 검색 종목을 선택해주세요.":
             searched_name = search_query.split(" (")[0]
             searched_code = search_query.split("(")[1].replace(")", "")
             with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
@@ -722,35 +733,48 @@ with tab5:
             if k_result: draw_stock_card(k_result, is_expanded=True)
 
 # ------------------------------------------
-# [탭 6] 
+# 👈 [핵심 수정] 6번 탭: 실존하는 네이버 IPO 주소 크롤링 & 다이렉트 버튼 추가
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📅 핵심 증시 일정 모니터링")
-    st.write("시장의 방향성을 결정하는 글로벌 경제 지표와 국내 개별 종목의 주요 일정입니다.")
+    st.write("시장의 방향성을 결정하는 글로벌 경제 지표와 국내 신규상장(IPO) 일정입니다.")
     
-    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 증시 주요 일정 (Naver)"])
+    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 주요 증시 일정 (Naver)"])
     
     with cal_tab1:
         st.info("💡 **[글로벌 매크로]** CPI, FOMC, 고용지표 등 중요 일정을 확인하세요. (TradingView 제공)")
         components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
 
     with cal_tab2:
-        st.info("💡 **[국내 이벤트]** 신규 상장(IPO), 실적 발표, 보호예수 해제 등 수급에 직접적인 영향을 주는 이번 달 일정입니다.")
+        st.info("💡 **[IPO 일정]** 이번 달 수급에 가장 직접적인 영향을 주는 국내 주식 신규상장(IPO) 표입니다.")
         
-        with st.spinner("일정을 로드 중입니다..."):
-            naver_cal_df = get_naver_calendar_events()
-            
-        if not naver_cal_df.empty:
-            st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
-        else:
-            # 완벽한 해결책: 크롤링이 완벽하게 차단되었을 때 흉하게 뻗지 않고 깔끔한 버튼을 렌더링합니다.
-            st.warning("⚠️ 현재 네이버 금융 서버의 강력한 봇(Bot) 보안 정책으로 인해 클라우드 서버에서의 자동 데이터 수집이 일시적으로 차단되었습니다.")
-            st.markdown("👇 **아래 버튼을 클릭하시면 팝업 없이 깔끔하게 '네이버 증시 달력'으로 이동하여 확인하실 수 있습니다.**")
-            st.link_button("📅 네이버 이번 달 증시 일정 바로가기", "https://finance.naver.com/sise/calendar.naver", use_container_width=True)
+        with st.spinner("네이버 금융에서 IPO 일정을 로드 중입니다..."):
+            try:
+                res = requests.get("https://finance.naver.com/sise/ipo.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+                res.encoding = 'euc-kr'
+                tables = pd.read_html(StringIO(res.text))
+                ipo_df = None
+                for t in tables:
+                    if '종목명' in t.columns and '상장일' in t.columns:
+                        t = t.dropna(subset=['종목명', '상장일'])
+                        if not t.empty:
+                            ipo_df = t[['종목명', '현재가', '공모가', '청약일', '상장일']].head(15)
+                            break
+                
+                if ipo_df is not None and not ipo_df.empty:
+                    st.dataframe(ipo_df, use_container_width=True, hide_index=True)
+            except:
+                st.warning("⚠️ 현재 네이버 봇 차단(Cloudflare)으로 인해 자동 표 가져오기가 제한되었습니다. 아래 버튼을 이용해 주세요.")
+        
+        st.divider()
+        st.markdown("👇 **막힘 없이 정확하게 확인하려면 아래 버튼을 클릭하여 네이버 금융으로 바로 이동하세요.**")
+        btn_c1, btn_c2 = st.columns(2)
+        btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
+        btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
 
 # ------------------------------------------
-# [탭 7] 고배당주
+# [탭 7] 고배당주 (가격 누락 문제 완벽 해결)
 # ------------------------------------------
 with tab7:
     st.markdown("<br>", unsafe_allow_html=True)
