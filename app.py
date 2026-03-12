@@ -389,24 +389,25 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 👈 [핵심수정] Cloud 환경 차단을 우회하기 위해 무료 프록시(allorigins)가 적용된 버전입니다.
-@st.cache_data(ttl=43200) # 12시간마다 갱신
+# ==========================================
+# [중요] 탭 6용 프록시 우회 함수
+# ==========================================
+@st.cache_data(ttl=43200)
 def get_naver_calendar_events():
     try:
+        # Streamlit Cloud IP 차단을 피하기 위해 AllOrigins 무료 프록시 사용
         target_url = "https://finance.naver.com/sise/calendar.naver"
         proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}"
         
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         res = requests.get(proxy_url, headers=headers, timeout=15)
         res.raise_for_status()
         
-        res.encoding = 'euc-kr' 
+        # 프록시를 거치면 인코딩이 풀릴 수 있으므로 강제 디코딩 세팅
+        content = res.content.decode('euc-kr', errors='replace')
+        soup = BeautifulSoup(content, 'html.parser')
         
-        soup = BeautifulSoup(res.text, 'html.parser')
         events_data = []
-        
         cells = soup.select("table.type_cal tbody tr td")
         for cell in cells:
             day_tag = cell.select_one("span.t_day")
@@ -421,11 +422,9 @@ def get_naver_calendar_events():
         
         if events_data:
             return pd.DataFrame(events_data)
-        
         return pd.DataFrame(columns=["날짜", "일정"])
     except Exception as e:
-        st.error(f"⚠️ 네이버 캘린더 우회 접속 실패: {e}") 
-        return pd.DataFrame(columns=["날짜", "일정"])
+        return pd.DataFrame([{"날짜": "에러", "일정": str(e)}])
 
 def show_trading_guidelines():
     st.info("""
@@ -815,7 +814,7 @@ with tab5:
         st.error("데이터를 불러오는 중 문제가 발생했습니다.")
 
 # ------------------------------------------
-# [탭 6] 증시 캘린더 (글로벌/국내 통합)
+# [탭 6] 
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -841,10 +840,15 @@ with tab6:
 
     with cal_tab2:
         st.info("💡 **[국내 이벤트]** 신규 상장(IPO), 실적 발표, 보호예수 해제 등 수급에 직접적인 영향을 주는 이번 달 일정입니다.")
-        with st.spinner("네이버 금융에서 이번 달 국내 증시 일정을 가져오는 중입니다..."):
+        
+        # 들여쓰기를 정확히 맞춘 상태입니다.
+        with st.spinner("프록시 서버를 통해 네이버 금융 일정을 가져오는 중입니다..."):
             naver_cal_df = get_naver_calendar_events()
             
         if not naver_cal_df.empty:
-            st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
+            if naver_cal_df.iloc[0]['날짜'] == '에러':
+                st.error(f"⚠️ 네이버 캘린더 데이터 로드 실패: {naver_cal_df.iloc[0]['일정']}")
+            else:
+                st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
         else:
             st.warning("현재 가져올 수 있는 국내 증시 일정이 없거나, 서버 연결이 지연되고 있습니다.")
