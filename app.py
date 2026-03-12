@@ -251,7 +251,7 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 신규: 네이버 금융 실시간 시가총액 & 신용잔고율 스캐너
+# 💡 수정: 신용잔고율 추출 정규식(Regex) 강화로 0.0 버그 완벽 해결
 @st.cache_data(ttl=3600)
 def get_stock_fundamentals(code):
     margin_ratio = 0.0
@@ -262,24 +262,30 @@ def get_stock_fundamentals(code):
         res = requests.get(url, headers=headers, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 신용비율 추출
-        th_margin = soup.find('th', string=re.compile('신용비율'))
-        if th_margin:
-            margin_text = th_margin.find_next_sibling('td').text.strip().replace('%', '')
-            margin_ratio = float(margin_text)
-            
-        # 시가총액(억원) 추출
+        # 신용비율 추출 (텍스트에 포함된 것 찾은 후, 숫자와 소수점만 깔끔하게 파싱)
+        ths = soup.select('th')
+        for th in ths:
+            if '신용비율' in th.text:
+                td = th.find_next_sibling('td')
+                if td:
+                    # 영문자, 공백 등 모든 방해물 무시하고 숫자.숫자 형태만 남김
+                    num_str = re.sub(r'[^0-9.]', '', td.text)
+                    if num_str:
+                        margin_ratio = float(num_str)
+                break
+                
+        # 시가총액(억원) 추출 보완 (공백 처리 완벽 방어)
         ms_em = soup.select_one('#_market_sum')
         if ms_em:
-            ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '')
+            ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '').replace(' ', '')
             if '조' in ms_text:
                 parts = ms_text.split('조')
-                jo = int(parts[0].strip())
-                ouk = int(parts[1].strip()) if parts[1].strip() else 0
+                jo = int(parts[0]) if parts[0] else 0
+                ouk = int(parts[1]) if len(parts) > 1 and parts[1] else 0
                 market_cap_oek = jo * 10000 + ouk
             else:
-                market_cap_oek = int(ms_text)
-    except:
+                market_cap_oek = int(ms_text) if ms_text else 0
+    except Exception as e:
         pass
     return margin_ratio, market_cap_oek
 
@@ -322,7 +328,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
         
-        # 💡 신규: 펀더멘털 기반 세력 & 리스크 경고 로직
         margin_ratio, market_cap_oek = get_stock_fundamentals(ticker_code)
         amount_oek = (current_price * int(latest['Volume'])) // 100000000
         turnover_ratio = round((amount_oek / market_cap_oek) * 100, 1) if market_cap_oek > 0 else 0.0
@@ -341,8 +346,8 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol,
-            "회전율": turnover_ratio, "신용잔고율": margin_ratio, # 신규 데이터
-            "경고": warnings, # 신규 경고 시스템
+            "회전율": turnover_ratio, "신용잔고율": margin_ratio,
+            "경고": warnings, 
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
     except: return None
@@ -428,7 +433,6 @@ def draw_stock_card(tech_result, is_expanded=False):
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
         
-        # 💡 신규: 세력 개입 및 신용 털기 경고창 렌더링
         if tech_result.get('경고'):
             for warning in tech_result['경고']:
                 st.error(warning, icon="⚠️")
@@ -445,7 +449,6 @@ def draw_stock_card(tech_result, is_expanded=False):
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7:
-            # 💡 신규: 기초 수급 데이터(회전율, 신용잔고율) 추가 노출
             st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`<br>"
                         f"📊 **기초 수급 데이터** ｜ **당일 회전율:** `{tech_result['회전율']}%` ｜ **신용잔고율:** `{tech_result['신용잔고율']}%`", unsafe_allow_html=True)
         
