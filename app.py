@@ -322,17 +322,46 @@ def analyze_single_news(title, api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception: return "뉴스 분석 중 오류가 발생했습니다."
 
+# 💡 수정: AI의 헛소리(Thought) 유출을 막는 강력 통제 및 필터링 로직 적용
 @st.cache_data(ttl=10800)
 def get_trending_themes_with_ai(api_key):
-    default_themes = ["전고체 배터리", "비만치료제", "저PBR/밸류업", "유리기판", "로봇/자동화"]
+    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
     if not api_key: return default_themes
     try:
         genai.configure(api_key=api_key)
-        prompt = "최근 1~2일 사이 한국 증시에서 가장 핫한 주도 테마 5개를 쉼표(,)로 구분해서 알려주세요. 절대 부가 설명이나 번호, 기호를 쓰지 말고 딱 테마 이름만 출력하세요."
-        themes = [t.strip() for t in genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text.replace('\n', '').replace('*', '').split(',')]
-        return themes[:5] if len(themes) >= 5 else default_themes
-    except Exception: return default_themes
-
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        # 1. 프롬프트 아주 강력하게 통제
+        prompt = """
+        최근 1~2일 사이 한국 증시에서 가장 핫한 주도 테마 5개만 추출하세요.
+        [절대 준수 규칙]
+        1. Thought, 사고 과정, 영어 문장, 부연 설명 절대 금지.
+        2. 1. 2. 3. 같은 번호 매기기나 줄바꿈 절대 금지.
+        3. 오직 쉼표(,)로 구분된 단어 5개만 딱 1줄로 출력할 것.
+        출력 예시: 전고체,비만치료제,저PBR,AI반도체,로봇
+        """
+        response = model.generate_content(prompt)
+        
+        # 2. 불필요한 기호 1차 제거
+        raw_text = response.text.replace('\n', '').replace('*', '').replace('"', '').replace("'", "")
+        
+        # 3. 만약 영문 생각 과정(THOUGHT)이 유출되었다면 아예 기본값으로 덮어버림
+        if 'THOUGHT' in raw_text.upper():
+            return default_themes
+            
+        # 4. 쉼표로 쪼개기
+        themes = [t.strip() for t in raw_text.split(',')]
+        
+        # 5. 파이썬 2차 방어선: 테마 이름이 비정상적으로 길면(15자 초과) 가짜로 간주하고 필터링
+        valid_themes = [t for t in themes if 0 < len(t) <= 15]
+        
+        if len(valid_themes) >= 5:
+            return valid_themes[:5]
+        else:
+            return default_themes
+    except Exception: 
+        return default_themes
+        
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -662,3 +691,4 @@ with tab4:
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
     else:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
+
