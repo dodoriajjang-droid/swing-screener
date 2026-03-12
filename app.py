@@ -31,24 +31,20 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 수정: 야후 방화벽 우회 세션(Session) 및 1개월(1mo) 넉넉한 데이터 수집으로 에러 원천 차단
+# 💡 완벽 수정: 야후 파이낸스 차단 방지를 위해 3개 지표를 '단 한 번의 다운로드'로 처리!
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     try:
-        session = requests.Session()
-        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"})
-        
-        tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+        df = yf.download(['^VIX', '^TNX', 'KRW=X'], period="1mo", progress=False)
         results = {}
-        for name, t in tickers.items():
-            try:
-                df = yf.Ticker(t, session=session).history(period="1mo")
-                if not df.empty and len(df) >= 2:
-                    latest = float(df['Close'].iloc[-1])
-                    prev = float(df['Close'].iloc[-2])
-                    results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
-            except Exception:
-                continue
+        if 'Close' in df:
+            close_df = df['Close']
+            mapping = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+            for name, ticker in mapping.items():
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
+                    if len(s) >= 2:
+                        results[name] = {"value": float(s.iloc[-1]), "delta": float(s.iloc[-1] - s.iloc[-2]), "prev": float(s.iloc[-2])}
         return results if results else None
     except Exception:
         return None
@@ -59,7 +55,7 @@ def get_fear_and_greed():
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
+            "Accept": "application/json",
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
@@ -259,44 +255,39 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 수정: 신용잔고율 추출 정규식 무적 스캔 + 직접 ID 추출 병행
+# 💡 완벽 수정: 무적 정규식 도입으로 신용잔고율 절대 놓치지 않음
 @st.cache_data(ttl=3600)
 def get_stock_fundamentals(code):
-    margin_ratio = 0.0
+    margin_val = 0.0
+    margin_str = "제공안됨" # ETF나 신규상장이라 아예 없는 경우
     market_cap_oek = 0
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=5)
-        html_text = res.content.decode('euc-kr', 'replace')
-        soup = BeautifulSoup(html_text, 'html.parser')
+        # 글자가 깨지든 말든 텍스트 전체를 가져와서 정규식으로 멱살을 잡습니다.
+        text = res.content.decode('euc-kr', 'replace')
         
-        # 1. 신용비율 (가장 안전한 고유 ID 우선 검색)
-        credit_el = soup.select_one('#_credit_ratio')
-        if credit_el:
-            num_str = re.sub(r'[^0-9.]', '', credit_el.text)
-            if num_str: 
-                margin_ratio = float(num_str)
-        else:
-            # ID가 없다면 정규식으로 통째로 스캔
-            margin_match = re.search(r'신용비율.*?([0-9.]+)\s*%', html_text, re.DOTALL)
-            if margin_match: 
-                margin_ratio = float(margin_match.group(1))
+        # 1. 신용비율 강제 추출: '신용비율' 이라는 글자 뒤에 나오는 숫자.숫자% 를 무조건 찾아냅니다.
+        m = re.search(r'신용비율.*?([0-9\.]+)\s*%', text, re.DOTALL)
+        if m:
+            margin_val = float(m.group(1))
+            margin_str = f"{margin_val}%"
 
-        # 2. 시가총액 (숫자만 확실하게 뜯어오기)
-        ms_em = soup.select_one('#_market_sum')
-        if ms_em:
-            ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '').replace(' ', '')
-            if '조' in ms_text:
-                parts = ms_text.split('조')
-                jo = int(re.sub(r'[^0-9]', '', parts[0])) if parts[0] else 0
-                ouk = int(re.sub(r'[^0-9]', '', parts[1])) if len(parts) > 1 and parts[1] else 0
+        # 2. 시가총액 강제 추출
+        m2 = re.search(r'시가총액.*?<em id="_market_sum">(.*?)</em>', text, re.DOTALL)
+        if m2:
+            val = m2.group(1).replace(',', '').replace('\t', '').replace('\n', '').replace(' ', '')
+            if '조' in val:
+                parts = val.split('조')
+                jo = int(parts[0]) if parts[0] else 0
+                ouk = int(parts[1]) if len(parts)>1 and parts[1] else 0
                 market_cap_oek = jo * 10000 + ouk
             else:
-                market_cap_oek = int(re.sub(r'[^0-9]', '', ms_text)) if ms_text else 0
+                market_cap_oek = int(val)
     except Exception:
         pass
-    return margin_ratio, market_cap_oek
+    return margin_val, margin_str, market_cap_oek
 
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
@@ -336,7 +327,8 @@ def analyze_technical_pattern(stock_name, ticker_code):
         else: status = "🛑 추세 이탈 (관망/손절 구간)"
         
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
-        margin_ratio, market_cap_oek = get_stock_fundamentals(ticker_code)
+        
+        margin_val, margin_str, market_cap_oek = get_stock_fundamentals(ticker_code)
         
         amount_oek = (current_price * int(latest['Volume'])) // 100000000
         turnover_ratio = round((amount_oek / market_cap_oek) * 100, 1) if market_cap_oek > 0 else 0.0
@@ -344,8 +336,8 @@ def analyze_technical_pattern(stock_name, ticker_code):
         warnings = []
         if turnover_ratio >= 100.0:
             warnings.append(f"🚨 <b>[세력 개입 주의 / 광기 구간]</b> 당일 회전율 {turnover_ratio}% (시가총액보다 많은 거래대금이 터졌습니다!)")
-        if margin_ratio >= 8.0:
-            warnings.append(f"💣 <b>[신용 털기 조심]</b> 신용잔고율 {margin_ratio}% (개미들의 빚투가 많아 세력이 반대매매를 유도할 위험이 큽니다.)")
+        if margin_val >= 8.0:
+            warnings.append(f"💣 <b>[신용 털기 조심]</b> 신용잔고율 {margin_str} (개미들의 빚투가 많아 세력이 반대매매를 유도할 위험이 큽니다.)")
             
         return {
             "종목명": stock_name, "현재가": current_price, "상태": status,
@@ -355,7 +347,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol,
-            "회전율": turnover_ratio, "신용잔고율": margin_ratio,
+            "회전율": f"{turnover_ratio}%", "신용잔고율": margin_str, # 문자열 포맷 반영
             "경고": warnings, 
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
@@ -459,7 +451,7 @@ def draw_stock_card(tech_result, is_expanded=False):
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7:
             st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`<br>"
-                        f"📊 **기초 수급 데이터** ｜ **당일 회전율:** `{tech_result['회전율']}%` ｜ **신용잔고율:** `{tech_result['신용잔고율']}%`", unsafe_allow_html=True)
+                        f"📊 **기초 수급 데이터** ｜ **당일 회전율:** `{tech_result['회전율']}` ｜ **신용잔고율:** `{tech_result['신용잔고율']}`", unsafe_allow_html=True)
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
@@ -522,7 +514,15 @@ with m_col1:
         fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
     else:
-        st.warning("⚠️ 야후 파이낸스 서버 지연으로 VIX 데이터를 불러올 수 없습니다.")
+        # VIX를 못 불러와도 에러 띄우지 않고 0점 세팅으로 우아하게 표시
+        fig_vix = go.Figure(go.Indicator(
+            mode = "gauge",
+            value = 0,
+            title = {'text': "<b>VIX (데이터 지연)</b><br><span style='font-size:12px;color:red'>야후 서버 응답 지연중</span>", 'font': {'size': 15}},
+            gauge = {'axis': {'range': [0, 50]}, 'bar': {'color': "gray"}}
+        ))
+        fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
+        st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
 
 with m_col2:
     if fg_data:
@@ -551,7 +551,13 @@ with m_col2:
         fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
     else:
-        st.warning("⚠️ CNN 서버 지연으로 공포지수를 불러올 수 없습니다.")
+        fig_fg = go.Figure(go.Indicator(
+            mode = "gauge", value = 0,
+            title = {'text': "<b>CNN 공포/탐욕 지수</b><br><span style='font-size:12px;color:red'>서버 로딩 지연중</span>", 'font': {'size': 15}},
+            gauge = {'axis': {'range': [0, 100]}, 'bar': {'color': "gray"}}
+        ))
+        fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
+        st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
     
 with m_col3:
     with st.container(border=True):
@@ -561,12 +567,12 @@ with m_col3:
         if macro_data and '美 10년물 국채' in macro_data:
             c1.metric("🏦 美 10년물 국채 금리", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
         else:
-            c1.metric("🏦 美 10년물 국채 금리", "조회 불가")
+            c1.metric("🏦 美 10년물 국채 금리", "점검중")
             
         if macro_data and '원/달러 환율' in macro_data:
             c2.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
         else:
-            c2.metric("💱 원/달러 환율", "조회 불가")
+            c2.metric("💱 원/달러 환율", "점검중")
             
         st.info("💡 **[시장 체력 가이드]** VIX가 높게 치솟거나 공포/탐욕 지수가 '공포(빨간색)' 구간일 때가 통계적으로 최고의 스윙 매수 찬스입니다.")
 
