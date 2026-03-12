@@ -31,20 +31,27 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 완벽 수정: 야후 파이낸스 차단 방지를 위해 3개 지표를 '단 한 번의 다운로드'로 처리!
+# 💡 완벽 수정: 야후 파이낸스 튕김 방지를 위해 3개 지표를 한방에 병렬 다운로드!
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     try:
-        df = yf.download(['^VIX', '^TNX', 'KRW=X'], period="1mo", progress=False)
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"})
+        
+        # 3개를 한 번에 다운로드하여 디도스 오인 차단 방지
+        df = yf.download(['^VIX', '^TNX', 'KRW=X'], period="1mo", session=session, progress=False)
+        
         results = {}
-        if 'Close' in df:
-            close_df = df['Close']
-            mapping = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
-            for name, ticker in mapping.items():
-                if ticker in close_df.columns:
-                    s = close_df[ticker].dropna()
-                    if len(s) >= 2:
-                        results[name] = {"value": float(s.iloc[-1]), "delta": float(s.iloc[-1] - s.iloc[-2]), "prev": float(s.iloc[-2])}
+        close_df = df['Close'] if 'Close' in df else df
+            
+        mapping = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+        for name, ticker in mapping.items():
+            if ticker in close_df.columns:
+                s = close_df[ticker].dropna()
+                if len(s) >= 2:
+                    latest = float(s.iloc[-1])
+                    prev = float(s.iloc[-2])
+                    results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
         return results if results else None
     except Exception:
         return None
@@ -55,7 +62,7 @@ def get_fear_and_greed():
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
@@ -73,7 +80,7 @@ def get_fear_and_greed():
 def get_us_top_gainers():
     try:
         url = 'https://finance.yahoo.com/gainers'
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
         response = requests.get(url, headers=headers)
         tables = pd.read_html(StringIO(response.text))
         df = tables[0]
@@ -156,7 +163,7 @@ def get_trading_value_kings():
 def get_latest_naver_news():
     base_url = "https://finance.naver.com"
     list_url = f"{base_url}/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
         res = requests.get(list_url, headers=headers)
         res.raise_for_status()
@@ -227,7 +234,7 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
 def get_investor_trend(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         res = requests.get(url, headers=headers, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         tables = soup.select('table.type2')
@@ -255,36 +262,50 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 완벽 수정: 무적 정규식 도입으로 신용잔고율 절대 놓치지 않음
+# 💡 완벽 수정: 네이버 금융 봇 차단 방어막 우회 및 무적 정규식 적용
 @st.cache_data(ttl=3600)
 def get_stock_fundamentals(code):
     margin_val = 0.0
-    margin_str = "제공안됨" # ETF나 신규상장이라 아예 없는 경우
+    margin_str = "제공안됨" 
     market_cap_oek = 0
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        # 네이버가 봇으로 인식하지 못하도록 '사람'의 접속 헤더 완벽 모방
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Referer": "https://finance.naver.com/"
+        }
         res = requests.get(url, headers=headers, timeout=5)
-        # 글자가 깨지든 말든 텍스트 전체를 가져와서 정규식으로 멱살을 잡습니다.
-        text = res.content.decode('euc-kr', 'replace')
+        html_text = res.content.decode('euc-kr', 'replace') # 한글 깨짐 원천 봉쇄
+        soup = BeautifulSoup(html_text, 'html.parser')
         
-        # 1. 신용비율 강제 추출: '신용비율' 이라는 글자 뒤에 나오는 숫자.숫자% 를 무조건 찾아냅니다.
-        m = re.search(r'신용비율.*?([0-9\.]+)\s*%', text, re.DOTALL)
-        if m:
-            margin_val = float(m.group(1))
-            margin_str = f"{margin_val}%"
+        # 1. 신용비율 (HTML 구조가 어떻든 '신용비율' 주변의 숫자를 무식하게 뜯어옴)
+        th = soup.find('th', string=re.compile('신용비율'))
+        if th:
+            td = th.find_next_sibling('td')
+            if td:
+                num_str = re.sub(r'[^0-9.]', '', td.text)
+                if num_str:
+                    margin_val = float(num_str)
+                    margin_str = f"{margin_val}%"
+        else:
+            m = re.search(r'신용비율.*?<td[^>]*>([0-9.]+)\s*%</td>', html_text, re.DOTALL)
+            if m:
+                margin_val = float(m.group(1))
+                margin_str = f"{margin_val}%"
 
-        # 2. 시가총액 강제 추출
-        m2 = re.search(r'시가총액.*?<em id="_market_sum">(.*?)</em>', text, re.DOTALL)
-        if m2:
-            val = m2.group(1).replace(',', '').replace('\t', '').replace('\n', '').replace(' ', '')
-            if '조' in val:
-                parts = val.split('조')
-                jo = int(parts[0]) if parts[0] else 0
-                ouk = int(parts[1]) if len(parts)>1 and parts[1] else 0
+        # 2. 시가총액 (가장 정확한 태그 추출)
+        ms_em = soup.select_one('#_market_sum')
+        if ms_em:
+            ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '').replace(' ', '')
+            if '조' in ms_text:
+                parts = ms_text.split('조')
+                jo = int(re.sub(r'[^0-9]', '', parts[0])) if parts[0] else 0
+                ouk = int(re.sub(r'[^0-9]', '', parts[1])) if len(parts)>1 and parts[1] else 0
                 market_cap_oek = jo * 10000 + ouk
             else:
-                market_cap_oek = int(val)
+                market_cap_oek = int(re.sub(r'[^0-9]', '', ms_text)) if ms_text else 0
     except Exception:
         pass
     return margin_val, margin_str, market_cap_oek
@@ -347,7 +368,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol,
-            "회전율": f"{turnover_ratio}%", "신용잔고율": margin_str, # 문자열 포맷 반영
+            "회전율": f"{turnover_ratio}%", "신용잔고율": margin_str, 
             "경고": warnings, 
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
@@ -514,7 +535,6 @@ with m_col1:
         fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
     else:
-        # VIX를 못 불러와도 에러 띄우지 않고 0점 세팅으로 우아하게 표시
         fig_vix = go.Figure(go.Indicator(
             mode = "gauge",
             value = 0,
