@@ -299,7 +299,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         df['RSI'] = 100 - (100 / (1 + rs))
         latest_rsi = df['RSI'].iloc[-1]
         
-        # 💡 이모지 깨짐 방지: 🟢(초록 동그라미) 대신 한국 주식 감성에 맞는 🔵(파란 동그라미)로 교체
         rsi_status = "🔴 과열 (추격매수 금지)" if latest_rsi >= 70 else "🔵 바닥 (매수 관점)" if latest_rsi <= 30 else "⚪ 보통"
 
         latest = df.iloc[-1]
@@ -379,7 +378,7 @@ def get_trending_themes_with_ai(api_key):
         [절대 준수 규칙]
         1. Thought, 사고 과정, 영어 문장, 부연 설명 절대 금지.
         2. 1. 2. 3. 같은 번호 매기기나 줄바꿈 절대 금지.
-        3. 오직 쉼표(,)로 구분된 단어 5개만 딱 1줄로 출력할 것.
+        3. 오직 쉼표(,)로 구분된 단어 5개만 딱 1줄로 출력할 단어.
         출력 예시: 전고체,비만치료제,저PBR,AI반도체,로봇
         """
         response = model.generate_content(prompt)
@@ -390,26 +389,31 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 👈 [추가] 6번째 탭을 위한 네이버 증시 캘린더 크롤링 함수
-@st.cache_data(ttl=43200) # 12시간마다 갱신
+# 👈 [추가/수정] 클라우드 환경에서 403 차단을 우회하기 위한 개선된 네이버 크롤링 함수
+@st.cache_data(ttl=43200)
 def get_naver_calendar_events():
     try:
         url = "https://finance.naver.com/sise/calendar.naver"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=5)
+        # 헤더를 일반 브라우저와 완벽하게 동일하게 세팅하여 차단 방지
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": "https://finance.naver.com/"
+        }
+        res = requests.get(url, headers=headers, timeout=10) # 타임아웃 10초로 연장
+        res.raise_for_status() 
+        
         res.encoding = 'euc-kr'
         soup = BeautifulSoup(res.text, 'html.parser')
         
         events_data = []
-        # 네이버 캘린더의 각 날짜 칸(td)을 탐색
         cells = soup.select("table.type_cal tbody tr td")
         for cell in cells:
             day_tag = cell.select_one("span.t_day")
-            if not day_tag:
-                continue
+            if not day_tag: continue
             day = day_tag.text.strip()
             
-            # 해당 날짜의 일정 목록(ul li) 추출
             event_items = cell.select("ul li")
             for item in event_items:
                 event_text = item.text.strip()
@@ -419,7 +423,8 @@ def get_naver_calendar_events():
         if events_data:
             return pd.DataFrame(events_data)
         return pd.DataFrame(columns=["날짜", "일정"])
-    except Exception:
+    except Exception as e:
+        print(f"네이버 캘린더 크롤링 에러: {e}") 
         return pd.DataFrame(columns=["날짜", "일정"])
 
 def show_trading_guidelines():
@@ -615,7 +620,6 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 👈 [추가] 탭 리스트에 6번째 캘린더 탭을 반영했습니다.
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔥 🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패 스캐너", "📅 증시 캘린더 (글로벌/국내)"])
 
 # ------------------------------------------
@@ -810,37 +814,28 @@ with tab5:
     else:
         st.error("데이터를 불러오는 중 문제가 발생했습니다.")
 
-# 👈 [추가] 6번째 탭: 증시 캘린더 (글로벌/국내 통합)
+# 👈 [추가/수정] 6번째 탭: 클라우드 환경에서도 잘 보이도록 Iframe 방식으로 변경된 글로벌 캘린더
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📅 핵심 증시 일정 모니터링")
     st.write("시장의 방향성을 결정하는 글로벌 경제 지표와 국내 개별 종목의 주요 일정입니다.")
     
-    # 서브 탭(Sub-tabs) 구성
     cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 증시 주요 일정 (Naver)"])
     
     with cal_tab1:
-        st.info("💡 **[글로벌 매크로]** CPI, FOMC, 고용지표 등 빨간색 아이콘으로 표시된 '중요도 높음' 일정을 주목하세요.")
+        st.info("💡 **[글로벌 매크로]** CPI, FOMC, 고용지표 등 중요 일정을 확인하세요. (TradingView 제공)")
         components.html(
             """
-            <div class="tradingview-widget-container">
-              <div class="tradingview-widget-container__widget"></div>
-              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
-              {
-              "colorTheme": "light",
-              "isTransparent": false,
-              "width": "100%",
-              "height": "600",
-              "locale": "kr",
-              "importanceFilter": "-1,0,1",
-              "currencyFilter": "USD,KRW,CNY,EUR"
-              }
-              </script>
-            </div>
+            <iframe 
+                scrolling="yes" 
+                allowtransparency="true" 
+                frameborder="0" 
+                src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" 
+                style="box-sizing: border-box; height: 600px; width: 100%;">
+            </iframe>
             """,
             height=600,
-            scrolling=True
         )
 
     with cal_tab2:
