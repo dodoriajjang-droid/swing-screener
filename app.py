@@ -133,27 +133,17 @@ def get_krx_stocks():
     except Exception:
         return pd.DataFrame(columns=['Name', 'Code'])
 
-# 💡 신규: 거래대금 상위 깡패 스캐너 데이터 크롤링 함수 (10분 단위 캐싱)
 @st.cache_data(ttl=600)
 def get_trading_value_kings():
     try:
         df = fdr.StockListing('KRX')
         if df.empty: return pd.DataFrame()
-        
-        # ETF, 스팩, ETN 등 파생/잡주 필터링 제거 (순수 주식만 필터링)
         mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지')
         df = df[~mask]
-        
-        # 거래대금(Amount) 기준 내림차순 정렬 후 상위 20개 추출
         df = df.sort_values('Amount', ascending=False).head(20)
-        
-        # 거래대금을 '억 원' 단위로 변환
         df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
         df['Marcap_Ouk'] = (df['Marcap'] / 100000000).astype(int)
-        
-        # 회전율 계산 (거래대금 / 시가총액) * 100
         df['Turnover_Ratio'] = (df['Amount_Ouk'] / df['Marcap_Ouk'] * 100).round(1)
-        
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Marcap_Ouk', 'Turnover_Ratio']]
     except Exception as e:
         return pd.DataFrame()
@@ -261,6 +251,38 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
+# 💡 신규: 네이버 금융 실시간 시가총액 & 신용잔고율 스캐너
+@st.cache_data(ttl=3600)
+def get_stock_fundamentals(code):
+    margin_ratio = 0.0
+    market_cap_oek = 0
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        res = requests.get(url, headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 신용비율 추출
+        th_margin = soup.find('th', string=re.compile('신용비율'))
+        if th_margin:
+            margin_text = th_margin.find_next_sibling('td').text.strip().replace('%', '')
+            margin_ratio = float(margin_text)
+            
+        # 시가총액(억원) 추출
+        ms_em = soup.select_one('#_market_sum')
+        if ms_em:
+            ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '')
+            if '조' in ms_text:
+                parts = ms_text.split('조')
+                jo = int(parts[0].strip())
+                ouk = int(parts[1].strip()) if parts[1].strip() else 0
+                market_cap_oek = jo * 10000 + ouk
+            else:
+                market_cap_oek = int(ms_text)
+    except:
+        pass
+    return margin_ratio, market_cap_oek
+
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -285,7 +307,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
         recent_10_days = df.iloc[-10:]
         is_volume_spike = recent_10_days['Volume'].max() > (recent_10_days['Vol_MA20'].mean() * 2)
         
-        current_price = latest['Close']
+        current_price = int(latest['Close'])
         ma20_price = latest['MA20']
         
         target_1 = int(latest['Bollinger_Upper'])
@@ -299,15 +321,28 @@ def analyze_technical_pattern(stock_name, ticker_code):
         else: status = "🛑 추세 이탈 (관망/손절 구간)"
         
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
+        
+        # 💡 신규: 펀더멘털 기반 세력 & 리스크 경고 로직
+        margin_ratio, market_cap_oek = get_stock_fundamentals(ticker_code)
+        amount_oek = (current_price * int(latest['Volume'])) // 100000000
+        turnover_ratio = round((amount_oek / market_cap_oek) * 100, 1) if market_cap_oek > 0 else 0.0
+        
+        warnings = []
+        if turnover_ratio >= 100.0:
+            warnings.append(f"🚨 <b>[세력 개입 주의 / 광기 구간]</b> 당일 회전율 {turnover_ratio}% (시가총액보다 많은 거래대금이 터졌습니다!)")
+        if margin_ratio >= 8.0:
+            warnings.append(f"💣 <b>[신용 털기 조심]</b> 신용잔고율 {margin_ratio}% (개미들의 빚투가 많아 세력이 반대매매를 유도할 위험이 큽니다.)")
             
         return {
-            "종목명": stock_name, "현재가": int(current_price), "상태": status,
+            "종목명": stock_name, "현재가": current_price, "상태": status,
             "진입가_가이드": int(ma20_price), 
             "목표가1": target_1, "목표가2": target_2, "목표가3": target_3,
             "손절가": stop_loss_price,
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol,
+            "회전율": turnover_ratio, "신용잔고율": margin_ratio, # 신규 데이터
+            "경고": warnings, # 신규 경고 시스템
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
     except: return None
@@ -381,10 +416,10 @@ def show_trading_guidelines():
     * **2차 (스윙 저항):** 전고점 부근 도달 시 **추가 비중 축소**
     * **3차 (오버슈팅):** 광기장 추세 연장 구간, **전량 익절** 목표
     
-    **[RSI (상대강도지수) 활용 가이드]**
-    * 🔴 **과열 (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
-    * 🟢 **바닥 (30 이하):** 매도세가 과도하여 저평가된 상태입니다. **(과대 낙폭 줍줍 찬스)**
-    * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
+    **[세력 판독 & 리스크 지표 가이드]**
+    * 🚨 **회전율 100% 초과:** 시가총액보다 많은 거래대금이 터진 전형적인 세력 개입/광기 구간입니다. 급등락에 주의하세요.
+    * 💣 **신용잔고 8% 초과:** 빚을 내서 투자한 개미들이 많아, 세력이 반대매매를 유도하기 위해 고의로 하락시킬 위험이 높습니다.
+    * 🔴 **RSI (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
     """)
 
 def draw_stock_card(tech_result, is_expanded=False):
@@ -392,6 +427,11 @@ def draw_stock_card(tech_result, is_expanded=False):
     
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
+        
+        # 💡 신규: 세력 개입 및 신용 털기 경고창 렌더링
+        if tech_result.get('경고'):
+            for warning in tech_result['경고']:
+                st.error(warning, icon="⚠️")
         
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
@@ -405,7 +445,9 @@ def draw_stock_card(tech_result, is_expanded=False):
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7:
-            st.markdown(f"🕵️ **최근 3일 수급 동향**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
+            # 💡 신규: 기초 수급 데이터(회전율, 신용잔고율) 추가 노출
+            st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`<br>"
+                        f"📊 **기초 수급 데이터** ｜ **당일 회전율:** `{tech_result['회전율']}%` ｜ **신용잔고율:** `{tech_result['신용잔고율']}%`", unsafe_allow_html=True)
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
@@ -542,6 +584,7 @@ if fetch_button:
     get_ai_matched_stocks.clear()
     get_theme_stocks_with_ai.clear()
     get_trading_value_kings.clear()
+    get_stock_fundamentals.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -549,7 +592,6 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 💡 신규 탭 추가: 5. 당일 거래대금 깡패 스캐너
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔥 🇺🇸 미국장 기반 테마 발굴", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패 스캐너"])
 
 # ------------------------------------------
@@ -709,7 +751,7 @@ with tab4:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
 
 # ------------------------------------------
-# [탭 5] 💡 신규: 당일 거래대금 깡패 스캐너
+# [탭 5] 
 # ------------------------------------------
 with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -722,7 +764,6 @@ with tab5:
     if not trading_kings_df.empty:
         st.info("💡 **[세력주 판별 꿀팁]** 거래대금 회전율(당일 거래대금 ÷ 시가총액)이 **100%**를 넘어가면 비정상적인 손바뀜이 일어나고 있는 세력주/광기장일 확률이 높습니다.")
         
-        # 보기 좋게 컬럼명 한글화 및 포맷팅 적용
         display_df = trading_kings_df.copy()
         display_df.columns = ['종목코드', '종목명', '현재가', '등락률(%)', '거래대금(억원)', '시가총액(억원)', '회전율(%)']
         display_df['현재가'] = display_df['현재가'].apply(lambda x: f"{x:,}원")
@@ -740,7 +781,7 @@ with tab5:
         if selected_king != "🔍 종목을 선택하세요.":
             k_name = selected_king.split(" (")[0]
             k_code = selected_king.split("(")[1].replace(")", "")
-            with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
+            with st.spinner(f"📡 '{k_name}'의 타점, 메이저 수급, 신용잔고를 분석 중입니다..."):
                 k_result = analyze_technical_pattern(k_name, k_code)
             if k_result: draw_stock_card(k_result, is_expanded=True)
             else: st.error("❌ 데이터를 불러올 수 없습니다.")
