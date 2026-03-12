@@ -13,7 +13,7 @@ import re
 import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
-import streamlit.components.v1 as components  # 👈 추가된 패키지
+import streamlit.components.v1 as components
 
 # ==========================================
 # 1. 초기 설정 
@@ -389,25 +389,24 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 👈 [추가/수정] 클라우드 환경에서 403 차단을 우회하기 위한 개선된 네이버 크롤링 함수
-@st.cache_data(ttl=43200)
+# 👈 [핵심수정] Cloud 환경 차단을 우회하기 위해 무료 프록시(allorigins)가 적용된 버전입니다.
+@st.cache_data(ttl=43200) # 12시간마다 갱신
 def get_naver_calendar_events():
     try:
-        url = "https://finance.naver.com/sise/calendar.naver"
-        # 헤더를 일반 브라우저와 완벽하게 동일하게 세팅하여 차단 방지
+        target_url = "https://finance.naver.com/sise/calendar.naver"
+        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}"
+        
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": "https://finance.naver.com/"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
-        res = requests.get(url, headers=headers, timeout=10) # 타임아웃 10초로 연장
-        res.raise_for_status() 
+        res = requests.get(proxy_url, headers=headers, timeout=15)
+        res.raise_for_status()
         
-        res.encoding = 'euc-kr'
+        res.encoding = 'euc-kr' 
+        
         soup = BeautifulSoup(res.text, 'html.parser')
-        
         events_data = []
+        
         cells = soup.select("table.type_cal tbody tr td")
         for cell in cells:
             day_tag = cell.select_one("span.t_day")
@@ -422,9 +421,10 @@ def get_naver_calendar_events():
         
         if events_data:
             return pd.DataFrame(events_data)
+        
         return pd.DataFrame(columns=["날짜", "일정"])
     except Exception as e:
-        print(f"네이버 캘린더 크롤링 에러: {e}") 
+        st.error(f"⚠️ 네이버 캘린더 우회 접속 실패: {e}") 
         return pd.DataFrame(columns=["날짜", "일정"])
 
 def show_trading_guidelines():
@@ -814,7 +814,8 @@ with tab5:
     else:
         st.error("데이터를 불러오는 중 문제가 발생했습니다.")
 
-# 👈 [추가/수정] 6번째 탭: 클라우드 환경에서도 잘 보이도록 Iframe 방식으로 변경된 글로벌 캘린더
+# ------------------------------------------
+# [탭 6] 증시 캘린더 (글로벌/국내 통합)
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -839,42 +840,11 @@ with tab6:
         )
 
     with cal_tab2:
-@st.cache_data(ttl=43200) # 12시간마다 갱신
-def get_naver_calendar_events():
-    try:
-        # 💡 Streamlit Cloud의 IP 차단을 우회하기 위해 무료 프록시(AllOrigins) 사용
-        target_url = "https://finance.naver.com/sise/calendar.naver"
-        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}"
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
-        res = requests.get(proxy_url, headers=headers, timeout=15)
-        res.raise_for_status()
-        
-        # 네이버 증시 원본 인코딩 세팅
-        res.encoding = 'euc-kr' 
-        
-        soup = BeautifulSoup(res.text, 'html.parser')
-        events_data = []
-        
-        cells = soup.select("table.type_cal tbody tr td")
-        for cell in cells:
-            day_tag = cell.select_one("span.t_day")
-            if not day_tag: continue
-            day = day_tag.text.strip()
+        st.info("💡 **[국내 이벤트]** 신규 상장(IPO), 실적 발표, 보호예수 해제 등 수급에 직접적인 영향을 주는 이번 달 일정입니다.")
+        with st.spinner("네이버 금융에서 이번 달 국내 증시 일정을 가져오는 중입니다..."):
+            naver_cal_df = get_naver_calendar_events()
             
-            event_items = cell.select("ul li")
-            for item in event_items:
-                event_text = item.text.strip()
-                if event_text:
-                    events_data.append({"날짜": day, "일정": event_text})
-        
-        if events_data:
-            return pd.DataFrame(events_data)
-        
-        return pd.DataFrame(columns=["날짜", "일정"])
-    except Exception as e:
-        # 혹시라도 또 막히면 원인을 바로 알 수 있도록 화면에 에러를 띄웁니다.
-        st.error(f"⚠️ 네이버 캘린더 우회 접속 실패: {e}") 
-        return pd.DataFrame(columns=["날짜", "일정"])
+        if not naver_cal_df.empty:
+            st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
+        else:
+            st.warning("현재 가져올 수 있는 국내 증시 일정이 없거나, 서버 연결이 지연되고 있습니다.")
