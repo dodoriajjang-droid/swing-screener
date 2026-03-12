@@ -390,24 +390,42 @@ def get_trending_themes_with_ai(api_key):
     except Exception: return default_themes
 
 # ==========================================
-# [중요] 탭 6용 프록시 우회 함수
+# [핵심 변경 사항] 3중 다중 우회 시스템이 적용된 크롤링 함수
 # ==========================================
 @st.cache_data(ttl=43200)
 def get_naver_calendar_events():
+    target_url = "https://finance.naver.com/sise/calendar.naver"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+    
+    # 순차적으로 시도할 우회 서버 목록 (1순위부터 3순위까지)
+    urls_to_try = [
+        target_url, # 1. 우선 정면 돌파 (Direct)
+        f"https://corsproxy.io/?{urllib.parse.quote(target_url)}", # 2. corsproxy.io 우회
+        f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}" # 3. allorigins 우회
+    ]
+    
+    html_content = None
+    
+    for url in urls_to_try:
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                html_content = res.content.decode('euc-kr', errors='replace')
+                break # 응답 성공 시 반복문 즉시 종료
+        except:
+            continue # 실패하면 에러를 무시하고 다음 주소로 재시도
+            
+    if not html_content:
+        return pd.DataFrame([{"날짜": "에러", "일정": "모든 우회 서버가 응답하지 않습니다. 잠시 후 다시 시도해주세요."}])
+        
     try:
-        # Streamlit Cloud IP 차단을 피하기 위해 AllOrigins 무료 프록시 사용
-        target_url = "https://finance.naver.com/sise/calendar.naver"
-        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(target_url)}"
-        
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        res = requests.get(proxy_url, headers=headers, timeout=15)
-        res.raise_for_status()
-        
-        # 프록시를 거치면 인코딩이 풀릴 수 있으므로 강제 디코딩 세팅
-        content = res.content.decode('euc-kr', errors='replace')
-        soup = BeautifulSoup(content, 'html.parser')
-        
+        soup = BeautifulSoup(html_content, 'html.parser')
         events_data = []
+        
         cells = soup.select("table.type_cal tbody tr td")
         for cell in cells:
             day_tag = cell.select_one("span.t_day")
@@ -424,7 +442,7 @@ def get_naver_calendar_events():
             return pd.DataFrame(events_data)
         return pd.DataFrame(columns=["날짜", "일정"])
     except Exception as e:
-        return pd.DataFrame([{"날짜": "에러", "일정": str(e)}])
+        return pd.DataFrame([{"날짜": "에러", "일정": f"데이터 분석 실패: {str(e)}"}])
 
 def show_trading_guidelines():
     st.info("""
@@ -814,7 +832,7 @@ with tab5:
         st.error("데이터를 불러오는 중 문제가 발생했습니다.")
 
 # ------------------------------------------
-# [탭 6] 
+# [탭 6] 증시 캘린더 (글로벌/국내 통합)
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -841,13 +859,12 @@ with tab6:
     with cal_tab2:
         st.info("💡 **[국내 이벤트]** 신규 상장(IPO), 실적 발표, 보호예수 해제 등 수급에 직접적인 영향을 주는 이번 달 일정입니다.")
         
-        # 들여쓰기를 정확히 맞춘 상태입니다.
-        with st.spinner("프록시 서버를 통해 네이버 금융 일정을 가져오는 중입니다..."):
+        with st.spinner("안전한 우회 접속 채널을 통해 일정을 로드 중입니다..."):
             naver_cal_df = get_naver_calendar_events()
             
         if not naver_cal_df.empty:
             if naver_cal_df.iloc[0]['날짜'] == '에러':
-                st.error(f"⚠️ 네이버 캘린더 데이터 로드 실패: {naver_cal_df.iloc[0]['일정']}")
+                st.error(f"⚠️ 캘린더 데이터 로드 실패: {naver_cal_df.iloc[0]['일정']}")
             else:
                 st.dataframe(naver_cal_df, use_container_width=True, hide_index=True, height=500)
         else:
