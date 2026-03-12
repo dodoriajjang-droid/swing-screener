@@ -31,19 +31,21 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
+# 💡 수정 1: VIX 등 매크로 지표 하나가 실패해도 나머지는 살려내는 독립 생존 로직
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
-    try:
-        tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
-        results = {}
-        for name, t in tickers.items():
+    tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
+    results = {}
+    for name, t in tickers.items():
+        try:
             df = yf.Ticker(t).history(period="5d")
-            latest = df['Close'].iloc[-1]
-            prev = df['Close'].iloc[-2]
-            results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
-        return results
-    except Exception:
-        return None
+            if not df.empty and len(df) >= 2:
+                latest = float(df['Close'].iloc[-1])
+                prev = float(df['Close'].iloc[-2])
+                results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
+        except Exception:
+            continue # 에러 나면 다음 지표로 넘어감
+    return results if results else None
 
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
@@ -251,41 +253,40 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 수정: 신용잔고율 추출 정규식(Regex) 강화로 0.0 버그 완벽 해결
+# 💡 수정 2: 신용잔고율 euc-kr 인코딩 명시 및 정규식 완벽 방어
 @st.cache_data(ttl=3600)
 def get_stock_fundamentals(code):
     margin_ratio = 0.0
     market_cap_oek = 0
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=3)
+        res.encoding = 'euc-kr' # 💡 한글 깨짐 방지 마법의 코드
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 신용비율 추출 (텍스트에 포함된 것 찾은 후, 숫자와 소수점만 깔끔하게 파싱)
+        # 1. 신용비율 추출
         ths = soup.select('th')
         for th in ths:
             if '신용비율' in th.text:
                 td = th.find_next_sibling('td')
                 if td:
-                    # 영문자, 공백 등 모든 방해물 무시하고 숫자.숫자 형태만 남김
                     num_str = re.sub(r'[^0-9.]', '', td.text)
-                    if num_str:
-                        margin_ratio = float(num_str)
+                    if num_str: margin_ratio = float(num_str)
                 break
                 
-        # 시가총액(억원) 추출 보완 (공백 처리 완벽 방어)
+        # 2. 시가총액 추출
         ms_em = soup.select_one('#_market_sum')
         if ms_em:
             ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '').replace(' ', '')
             if '조' in ms_text:
                 parts = ms_text.split('조')
-                jo = int(parts[0]) if parts[0] else 0
-                ouk = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+                jo = int(re.sub(r'[^0-9]', '', parts[0])) if parts[0] else 0
+                ouk = int(re.sub(r'[^0-9]', '', parts[1])) if len(parts) > 1 and parts[1] else 0
                 market_cap_oek = jo * 10000 + ouk
             else:
-                market_cap_oek = int(ms_text) if ms_text else 0
-    except Exception as e:
+                market_cap_oek = int(re.sub(r'[^0-9]', '', ms_text)) if ms_text else 0
+    except Exception:
         pass
     return margin_ratio, market_cap_oek
 
@@ -513,7 +514,7 @@ with m_col1:
         fig_vix.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_vix, use_container_width=True, config={'displayModeBar': False})
     else:
-        st.info("⚠️ VIX 데이터 로딩 지연")
+        st.warning("⚠️ 야후 파이낸스 서버 지연으로 VIX 데이터를 불러올 수 없습니다.")
 
 with m_col2:
     if fg_data:
@@ -542,7 +543,7 @@ with m_col2:
         fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
     else:
-        st.info("⚠️ CNN 공포지수 데이터 로딩 지연")
+        st.warning("⚠️ CNN 서버 지연으로 공포지수를 불러올 수 없습니다.")
     
 with m_col3:
     with st.container(border=True):
