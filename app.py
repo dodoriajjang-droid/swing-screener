@@ -31,12 +31,10 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 완벽 복구: 야후 에러를 방지하고 개별적으로 안전하게 데이터를 가져오는 3중 백업 로직
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
     
-    # 1. VIX (공포지수)
     try:
         df_vix = yf.Ticker("^VIX").history(period="1mo")
         if not df_vix.empty and len(df_vix) >= 2:
@@ -47,7 +45,6 @@ def get_macro_indicators():
             }
     except: pass
     
-    # 2. 美 10년물 국채
     try:
         df_tnx = yf.Ticker("^TNX").history(period="1mo")
         if not df_tnx.empty and len(df_tnx) >= 2:
@@ -58,7 +55,6 @@ def get_macro_indicators():
             }
     except: pass
 
-    # 3. 원/달러 환율 (가장 안정적인 fdr을 최우선으로 사용)
     try:
         df_krw = fdr.DataReader('USD/KRW', (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'))
         if not df_krw.empty and len(df_krw) >= 2:
@@ -176,7 +172,6 @@ def get_trading_value_kings():
         df = df[~mask]
         df = df.sort_values('Amount', ascending=False).head(20)
         df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
-        # 💡 회전율/시총 관련 데이터 완벽 삭제
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
     except Exception as e:
         return pd.DataFrame()
@@ -284,7 +279,6 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 신용잔고 및 회전율 계산 로직 완전히 제거됨
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -303,7 +297,9 @@ def analyze_technical_pattern(stock_name, ticker_code):
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
         latest_rsi = df['RSI'].iloc[-1]
-        rsi_status = "🔴 과열 (추격매수 금지)" if latest_rsi >= 70 else "🟢 바닥 (매수 관점)" if latest_rsi <= 30 else "⚪ 보통"
+        
+        # 💡 이모지 깨짐 방지: 🟢(초록 동그라미) 대신 한국 주식 감성에 맞는 🔵(파란 동그라미)로 교체
+        rsi_status = "🔴 과열 (추격매수 금지)" if latest_rsi >= 70 else "🔵 바닥 (매수 관점)" if latest_rsi <= 30 else "⚪ 보통"
 
         latest = df.iloc[-1]
         recent_10_days = df.iloc[-10:]
@@ -407,7 +403,7 @@ def show_trading_guidelines():
     
     **[RSI (상대강도지수) 활용 가이드]**
     * 🔴 **과열 (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
-    * 🟢 **바닥 (30 이하):** 매도세가 과도하여 저평가된 상태입니다. **(과대 낙폭 줍줍 찬스)**
+    * 🔵 **바닥 (30 이하):** 매도세가 과도하여 저평가된 상태입니다. **(과대 낙폭 줍줍 찬스)**
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
@@ -429,7 +425,6 @@ def draw_stock_card(tech_result, is_expanded=False):
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7:
-            # 💡 회전율/신용잔고율 UI 흔적 완벽 제거
             st.markdown(f"🕵️ **최근 3일 수급 동향**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
         
         ch1, ch2 = st.columns(2)
@@ -760,7 +755,6 @@ with tab5:
         st.info("💡 **[매매 꿀팁]** 당일 거래대금이 가장 많이 터진 종목들은 시장의 수급이 완벽하게 쏠려있는 진짜 주도주일 확률이 높습니다.")
         
         display_df = trading_kings_df.copy()
-        # 💡 불필요한 회전율, 시가총액 컬럼 완전히 제거하고 깔끔하게 5개만 노출
         display_df.columns = ['종목코드', '종목명', '현재가', '등락률(%)', '거래대금(억원)']
         display_df['현재가'] = display_df['현재가'].apply(lambda x: f"{x:,}원")
         display_df['등락률(%)'] = display_df['등락률(%)'].apply(lambda x: f"+{x}%" if x > 0 else f"{x}%")
