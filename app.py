@@ -31,7 +31,7 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 수정: 야후 파이낸스 봇 차단 우회 세션 적용 및 period 확대
+# 💡 수정: 야후 방화벽 우회 세션(Session) 및 1개월(1mo) 넉넉한 데이터 수집으로 에러 원천 차단
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     try:
@@ -42,7 +42,7 @@ def get_macro_indicators():
         results = {}
         for name, t in tickers.items():
             try:
-                df = yf.Ticker(t, session=session).history(period="1mo") # 5d -> 1mo 로 변경하여 휴장일 대비
+                df = yf.Ticker(t, session=session).history(period="1mo")
                 if not df.empty and len(df) >= 2:
                     latest = float(df['Close'].iloc[-1])
                     prev = float(df['Close'].iloc[-2])
@@ -59,7 +59,7 @@ def get_fear_and_greed():
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
@@ -259,7 +259,7 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 수정: 한글 강제 euc-kr 디코딩 및 2중 정규식 방어 체계 적용
+# 💡 수정: 신용잔고율 추출 정규식 무적 스캔 + 직접 ID 추출 병행
 @st.cache_data(ttl=3600)
 def get_stock_fundamentals(code):
     margin_ratio = 0.0
@@ -268,31 +268,22 @@ def get_stock_fundamentals(code):
         url = f"https://finance.naver.com/item/main.naver?code={code}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         res = requests.get(url, headers=headers, timeout=5)
-        
-        # HTML 텍스트를 강제로 euc-kr로 변환하여 글자 깨짐(0.0% 오류) 방지
         html_text = res.content.decode('euc-kr', 'replace')
         soup = BeautifulSoup(html_text, 'html.parser')
         
-        # 1. 신용비율 추출 로직 강화
-        found = False
-        ths = soup.find_all('th')
-        for th in ths:
-            if th.text and '신용비율' in th.text:
-                td = th.find_next_sibling('td')
-                if td:
-                    num_str = re.sub(r'[^0-9.]', '', td.text)
-                    if num_str:
-                        margin_ratio = float(num_str)
-                        found = True
-                break
-                
-        # 만약 HTML 구조가 달라서 실패했다면 전체 텍스트에서 정규식으로 직접 추출 (2차 방어선)
-        if not found:
-            match = re.search(r'신용비율.*?([0-9.]+)\s*%', html_text, re.DOTALL | re.IGNORECASE)
-            if match:
-                margin_ratio = float(match.group(1))
+        # 1. 신용비율 (가장 안전한 고유 ID 우선 검색)
+        credit_el = soup.select_one('#_credit_ratio')
+        if credit_el:
+            num_str = re.sub(r'[^0-9.]', '', credit_el.text)
+            if num_str: 
+                margin_ratio = float(num_str)
+        else:
+            # ID가 없다면 정규식으로 통째로 스캔
+            margin_match = re.search(r'신용비율.*?([0-9.]+)\s*%', html_text, re.DOTALL)
+            if margin_match: 
+                margin_ratio = float(margin_match.group(1))
 
-        # 2. 시가총액 추출
+        # 2. 시가총액 (숫자만 확실하게 뜯어오기)
         ms_em = soup.select_one('#_market_sum')
         if ms_em:
             ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '').replace(' ', '')
@@ -303,7 +294,7 @@ def get_stock_fundamentals(code):
                 market_cap_oek = jo * 10000 + ouk
             else:
                 market_cap_oek = int(re.sub(r'[^0-9]', '', ms_text)) if ms_text else 0
-    except Exception as e:
+    except Exception:
         pass
     return margin_ratio, market_cap_oek
 
