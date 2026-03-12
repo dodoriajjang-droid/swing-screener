@@ -45,22 +45,28 @@ def get_macro_indicators():
     except Exception:
         return None
 
+# 💡 수정: CNN 서버의 봇 차단 방화벽을 뚫기 위해 완벽한 브라우저 헤더로 위장
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
-        data = res.json()
-        score = data['fear_and_greed']['score']
-        prev = data['fear_and_greed']['previous_close']
-        rating = data['fear_and_greed']['rating'].capitalize()
-        return {"score": round(score), "delta": round(score - prev), "rating": rating}
-    except:
+        
+        # 서버가 정상(200) 응답을 주었을 때만 처리
+        if res.status_code == 200:
+            data = res.json()
+            score = data['fear_and_greed']['score']
+            prev = data['fear_and_greed']['previous_close']
+            rating = data['fear_and_greed']['rating'].capitalize()
+            return {"score": round(score), "delta": round(score - prev), "rating": rating}
+        else:
+            return None
+    except Exception:
         return None
 
 @st.cache_data(ttl=3600)
@@ -692,3 +698,4 @@ with tab4:
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
     else:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
+
