@@ -665,7 +665,7 @@ with tab4:
         if st.button("🔄 실시간 뉴스 리로드", use_container_width=True):
             get_latest_naver_news.clear()
     
-    keywords_input = st.text_input("하이라이트 및 필터링할 핵심 키워드 (쉼표로 구분):", value="AI, 반도체, 데이터센터, 원전")
+    keywords_input = st.text_input("하이라이트 및 필터링할 핵심 키워드 (쉼표로 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 선박, 방산, 드론")
     keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
     only_keyword_news = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
     
@@ -691,4 +691,5 @@ with tab4:
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
     else:
         st.info("수집된 뉴스가 없습니다. 잠시 후 다시 확인합니다.")
+
 
