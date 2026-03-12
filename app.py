@@ -31,30 +31,53 @@ if 'news_data' not in st.session_state:
 # ==========================================
 # 2. 데이터 수집 및 분석 함수들
 # ==========================================
-# 💡 완벽 수정: 야후 파이낸스 튕김 방지를 위해 3개 지표를 한방에 병렬 다운로드!
+# 💡 완벽 복구: 야후 에러를 방지하고 개별적으로 안전하게 데이터를 가져오는 3중 백업 로직
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
+    results = {}
+    
+    # 1. VIX (공포지수)
     try:
-        session = requests.Session()
-        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"})
-        
-        # 3개를 한 번에 다운로드하여 디도스 오인 차단 방지
-        df = yf.download(['^VIX', '^TNX', 'KRW=X'], period="1mo", session=session, progress=False)
-        
-        results = {}
-        close_df = df['Close'] if 'Close' in df else df
-            
-        mapping = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "원/달러 환율": "KRW=X"}
-        for name, ticker in mapping.items():
-            if ticker in close_df.columns:
-                s = close_df[ticker].dropna()
-                if len(s) >= 2:
-                    latest = float(s.iloc[-1])
-                    prev = float(s.iloc[-2])
-                    results[name] = {"value": latest, "delta": latest - prev, "prev": prev}
-        return results if results else None
-    except Exception:
-        return None
+        df_vix = yf.Ticker("^VIX").history(period="1mo")
+        if not df_vix.empty and len(df_vix) >= 2:
+            results["VIX"] = {
+                "value": float(df_vix['Close'].iloc[-1]), 
+                "delta": float(df_vix['Close'].iloc[-1] - df_vix['Close'].iloc[-2]), 
+                "prev": float(df_vix['Close'].iloc[-2])
+            }
+    except: pass
+    
+    # 2. 美 10년물 국채
+    try:
+        df_tnx = yf.Ticker("^TNX").history(period="1mo")
+        if not df_tnx.empty and len(df_tnx) >= 2:
+            results["美 10년물 국채"] = {
+                "value": float(df_tnx['Close'].iloc[-1]), 
+                "delta": float(df_tnx['Close'].iloc[-1] - df_tnx['Close'].iloc[-2]), 
+                "prev": float(df_tnx['Close'].iloc[-2])
+            }
+    except: pass
+
+    # 3. 원/달러 환율 (가장 안정적인 fdr을 최우선으로 사용)
+    try:
+        df_krw = fdr.DataReader('USD/KRW', (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'))
+        if not df_krw.empty and len(df_krw) >= 2:
+            results["원/달러 환율"] = {
+                "value": float(df_krw['Close'].iloc[-1]), 
+                "delta": float(df_krw['Close'].iloc[-1] - df_krw['Close'].iloc[-2]), 
+                "prev": float(df_krw['Close'].iloc[-2])
+            }
+        else:
+            df_krw_yf = yf.Ticker("KRW=X").history(period="1mo")
+            if not df_krw_yf.empty and len(df_krw_yf) >= 2:
+                results["원/달러 환율"] = {
+                    "value": float(df_krw_yf['Close'].iloc[-1]), 
+                    "delta": float(df_krw_yf['Close'].iloc[-1] - df_krw_yf['Close'].iloc[-2]), 
+                    "prev": float(df_krw_yf['Close'].iloc[-2])
+                }
+    except: pass
+
+    return results if results else None
 
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
@@ -62,7 +85,7 @@ def get_fear_and_greed():
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
+            "Accept": "application/json",
             "Referer": "https://edition.cnn.com/"
         }
         res = requests.get(url, headers=headers, timeout=5)
@@ -153,9 +176,8 @@ def get_trading_value_kings():
         df = df[~mask]
         df = df.sort_values('Amount', ascending=False).head(20)
         df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
-        df['Marcap_Ouk'] = (df['Marcap'] / 100000000).astype(int)
-        df['Turnover_Ratio'] = (df['Amount_Ouk'] / df['Marcap_Ouk'] * 100).round(1)
-        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Marcap_Ouk', 'Turnover_Ratio']]
+        # 💡 회전율/시총 관련 데이터 완벽 삭제
+        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
     except Exception as e:
         return pd.DataFrame()
 
@@ -234,7 +256,7 @@ def get_theme_stocks_with_ai(theme_keyword, api_key):
 def get_investor_trend(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         tables = soup.select('table.type2')
@@ -262,54 +284,7 @@ def get_investor_trend(code):
     except:
         return "조회불가", "조회불가"
 
-# 💡 완벽 수정: 네이버 금융 봇 차단 방어막 우회 및 무적 정규식 적용
-@st.cache_data(ttl=3600)
-def get_stock_fundamentals(code):
-    margin_val = 0.0
-    margin_str = "제공안됨" 
-    market_cap_oek = 0
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        # 네이버가 봇으로 인식하지 못하도록 '사람'의 접속 헤더 완벽 모방
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Referer": "https://finance.naver.com/"
-        }
-        res = requests.get(url, headers=headers, timeout=5)
-        html_text = res.content.decode('euc-kr', 'replace') # 한글 깨짐 원천 봉쇄
-        soup = BeautifulSoup(html_text, 'html.parser')
-        
-        # 1. 신용비율 (HTML 구조가 어떻든 '신용비율' 주변의 숫자를 무식하게 뜯어옴)
-        th = soup.find('th', string=re.compile('신용비율'))
-        if th:
-            td = th.find_next_sibling('td')
-            if td:
-                num_str = re.sub(r'[^0-9.]', '', td.text)
-                if num_str:
-                    margin_val = float(num_str)
-                    margin_str = f"{margin_val}%"
-        else:
-            m = re.search(r'신용비율.*?<td[^>]*>([0-9.]+)\s*%</td>', html_text, re.DOTALL)
-            if m:
-                margin_val = float(m.group(1))
-                margin_str = f"{margin_val}%"
-
-        # 2. 시가총액 (가장 정확한 태그 추출)
-        ms_em = soup.select_one('#_market_sum')
-        if ms_em:
-            ms_text = ms_em.text.strip().replace('\t', '').replace('\n', '').replace(',', '').replace(' ', '')
-            if '조' in ms_text:
-                parts = ms_text.split('조')
-                jo = int(re.sub(r'[^0-9]', '', parts[0])) if parts[0] else 0
-                ouk = int(re.sub(r'[^0-9]', '', parts[1])) if len(parts)>1 and parts[1] else 0
-                market_cap_oek = jo * 10000 + ouk
-            else:
-                market_cap_oek = int(re.sub(r'[^0-9]', '', ms_text)) if ms_text else 0
-    except Exception:
-        pass
-    return margin_val, margin_str, market_cap_oek
-
+# 💡 신용잔고 및 회전율 계산 로직 완전히 제거됨
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -348,17 +323,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         else: status = "🛑 추세 이탈 (관망/손절 구간)"
         
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
-        
-        margin_val, margin_str, market_cap_oek = get_stock_fundamentals(ticker_code)
-        
-        amount_oek = (current_price * int(latest['Volume'])) // 100000000
-        turnover_ratio = round((amount_oek / market_cap_oek) * 100, 1) if market_cap_oek > 0 else 0.0
-        
-        warnings = []
-        if turnover_ratio >= 100.0:
-            warnings.append(f"🚨 <b>[세력 개입 주의 / 광기 구간]</b> 당일 회전율 {turnover_ratio}% (시가총액보다 많은 거래대금이 터졌습니다!)")
-        if margin_val >= 8.0:
-            warnings.append(f"💣 <b>[신용 털기 조심]</b> 신용잔고율 {margin_str} (개미들의 빚투가 많아 세력이 반대매매를 유도할 위험이 큽니다.)")
             
         return {
             "종목명": stock_name, "현재가": current_price, "상태": status,
@@ -368,8 +332,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "최근_거래량": int(latest['Volume']), "거래량 급증": "🔥 거래량 급증" if is_volume_spike else "평이함",
             "RSI": latest_rsi, "RSI_상태": rsi_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol,
-            "회전율": f"{turnover_ratio}%", "신용잔고율": margin_str, 
-            "경고": warnings, 
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
     except: return None
@@ -443,10 +405,10 @@ def show_trading_guidelines():
     * **2차 (스윙 저항):** 전고점 부근 도달 시 **추가 비중 축소**
     * **3차 (오버슈팅):** 광기장 추세 연장 구간, **전량 익절** 목표
     
-    **[세력 판독 & 리스크 지표 가이드]**
-    * 🚨 **회전율 100% 초과:** 시가총액보다 많은 거래대금이 터진 전형적인 세력 개입/광기 구간입니다. 급등락에 주의하세요.
-    * 💣 **신용잔고 8% 초과:** 빚을 내서 투자한 개미들이 많아, 세력이 반대매매를 유도하기 위해 고의로 하락시킬 위험이 높습니다.
-    * 🔴 **RSI (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
+    **[RSI (상대강도지수) 활용 가이드]**
+    * 🔴 **과열 (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
+    * 🟢 **바닥 (30 이하):** 매도세가 과도하여 저평가된 상태입니다. **(과대 낙폭 줍줍 찬스)**
+    * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
 def draw_stock_card(tech_result, is_expanded=False):
@@ -454,10 +416,6 @@ def draw_stock_card(tech_result, is_expanded=False):
     
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
-        
-        if tech_result.get('경고'):
-            for warning in tech_result['경고']:
-                st.error(warning, icon="⚠️")
         
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
@@ -471,8 +429,8 @@ def draw_stock_card(tech_result, is_expanded=False):
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7:
-            st.markdown(f"🕵️ **최근 3일 수급 동향** ｜ **외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`<br>"
-                        f"📊 **기초 수급 데이터** ｜ **당일 회전율:** `{tech_result['회전율']}` ｜ **신용잔고율:** `{tech_result['신용잔고율']}`", unsafe_allow_html=True)
+            # 💡 회전율/신용잔고율 UI 흔적 완벽 제거
+            st.markdown(f"🕵️ **최근 3일 수급 동향**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
@@ -622,7 +580,6 @@ if fetch_button:
     get_ai_matched_stocks.clear()
     get_theme_stocks_with_ai.clear()
     get_trading_value_kings.clear()
-    get_stock_fundamentals.clear()
 
 if "gainers_df" not in st.session_state or fetch_button:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
@@ -800,15 +757,14 @@ with tab5:
         trading_kings_df = get_trading_value_kings()
         
     if not trading_kings_df.empty:
-        st.info("💡 **[세력주 판별 꿀팁]** 거래대금 회전율(당일 거래대금 ÷ 시가총액)이 **100%**를 넘어가면 비정상적인 손바뀜이 일어나고 있는 세력주/광기장일 확률이 높습니다.")
+        st.info("💡 **[매매 꿀팁]** 당일 거래대금이 가장 많이 터진 종목들은 시장의 수급이 완벽하게 쏠려있는 진짜 주도주일 확률이 높습니다.")
         
         display_df = trading_kings_df.copy()
-        display_df.columns = ['종목코드', '종목명', '현재가', '등락률(%)', '거래대금(억원)', '시가총액(억원)', '회전율(%)']
+        # 💡 불필요한 회전율, 시가총액 컬럼 완전히 제거하고 깔끔하게 5개만 노출
+        display_df.columns = ['종목코드', '종목명', '현재가', '등락률(%)', '거래대금(억원)']
         display_df['현재가'] = display_df['현재가'].apply(lambda x: f"{x:,}원")
         display_df['등락률(%)'] = display_df['등락률(%)'].apply(lambda x: f"+{x}%" if x > 0 else f"{x}%")
         display_df['거래대금(억원)'] = display_df['거래대금(억원)'].apply(lambda x: f"{x:,}억")
-        display_df['시가총액(억원)'] = display_df['시가총액(억원)'].apply(lambda x: f"{x:,}억")
-        display_df['회전율(%)'] = display_df['회전율(%)'].apply(lambda x: f"🔥 {x}%" if x >= 100 else f"{x}%")
         
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         
@@ -819,7 +775,7 @@ with tab5:
         if selected_king != "🔍 종목을 선택하세요.":
             k_name = selected_king.split(" (")[0]
             k_code = selected_king.split("(")[1].replace(")", "")
-            with st.spinner(f"📡 '{k_name}'의 타점, 메이저 수급, 신용잔고를 분석 중입니다..."):
+            with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
                 k_result = analyze_technical_pattern(k_name, k_code)
             if k_result: draw_stock_card(k_result, is_expanded=True)
             else: st.error("❌ 데이터를 불러올 수 없습니다.")
