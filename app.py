@@ -56,7 +56,6 @@ def get_macro_indicators():
     except: pass
     return results if results else None
 
-# 👈 [핵심 수정] 공포탐욕지수 우회 및 복구 로직 강화
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
@@ -66,15 +65,12 @@ def get_fear_and_greed():
         "Origin": "https://edition.cnn.com",
         "Referer": "https://edition.cnn.com/"
     }
-    
     try:
-        # 1차 시도
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
             
-        # 2차 시도 (프록시 우회)
         proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}"
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
@@ -229,7 +225,9 @@ def analyze_technical_pattern(stock_name, ticker_code):
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
             
         return {
-            "종목명": stock_name, "현재가": current_price, "상태": status,
+            "종목명": stock_name,
+            "티커": ticker_code, # AI 매매 의견을 위해 티커 데이터 추가
+            "현재가": current_price, "상태": status,
             "진입가_가이드": int(ma20_price), 
             "목표가1": target_1, "목표가2": target_2, "목표가3": target_3,
             "손절가": stop_loss_price,
@@ -279,9 +277,46 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# ==========================================
-# 🚀 7번 탭 전용: 60종목 고배당주 대량 가격 로딩 함수
-# ==========================================
+# 👈 [핵심 추가] AI 기반 적정가 및 매매 의견 분석 함수
+@st.cache_data(ttl=3600)
+def get_ai_trading_opinion(stock_name, ticker_code, current_price, ma20, rsi, api_key):
+    if not api_key: return "API 키가 필요합니다."
+    try:
+        genai.configure(api_key=api_key)
+        prompt = f"""
+        당신은 한국과 미국 주식 시장을 꿰뚫고 있는 탑티어 실전 트레이더이자 가치투자자입니다.
+        분석할 종목: {stock_name} (티커/코드: {ticker_code})
+        현재 데이터: 현재가 {current_price:,}, 20일 이동평균선 {ma20:,}, RSI {rsi:.1f}
+        
+        이 종목의 펀더멘털(비즈니스 모델, 미래 전망 등)과 위 기술적 지표를 종합하여 다음 3가지 항목을 명확하게 답변해 주세요. 부연 설명은 길지 않게 트레이더의 관점에서 핵심만 짚어주세요.
+        
+        1. ⚖️ 가치 평가 (적정가 대비): 현재 가격이 이 회사의 내재가치 및 모멘텀 대비 비싼 편인지, 싼 편인지, 적정한지 평가.
+        2. 📉 타점 분석: 현재가, 20일선, RSI를 볼 때 지금 당장 진입하기 유리한 자리인지 불리한 자리인지 기술적 분석.
+        3. 🎯 최종 액션 플랜: "적극 매수", "분할 매수", "관망(대기)", "매수 금지" 중 하나로 확실한 스탠스를 정하고, 그 이유를 1~2줄로 요약.
+        """
+        return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
+    except Exception as e:
+        return f"AI 의견 생성 중 오류가 발생했습니다: {str(e)}"
+
+@st.cache_data(ttl=43200)
+def get_naver_calendar_events():
+    try:
+        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
+            events_data = []
+            for cell in soup.select("table.type_cal tbody tr td"):
+                day_tag = cell.select_one("span.t_day")
+                if not day_tag: continue
+                day = day_tag.text.strip()
+                for item in cell.select("ul li"):
+                    if item.text.strip():
+                        events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
+            if events_data:
+                return pd.DataFrame(events_data)
+    except: pass
+    return pd.DataFrame()
+
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
     portfolio = {
@@ -392,7 +427,8 @@ def get_dividend_portfolio():
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-def draw_stock_card(tech_result, is_expanded=False):
+# 👈 [핵심 추가] 종목 카드에 AI 적정가 및 매매 의견 버튼 추가 (api_key_input 전달 받음)
+def draw_stock_card(tech_result, api_key=None, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
@@ -407,6 +443,15 @@ def draw_stock_card(tech_result, is_expanded=False):
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7: st.markdown(f"🕵️ **최근 3일 수급 동향**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
+        
+        # 👇 추가된 AI 매매 의견 영역
+        if api_key:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견 듣기", key=f"ai_btn_{tech_result['티커']}"):
+                with st.spinner("AI가 기업 내재 가치와 현재 타점을 종합 분석 중입니다..."):
+                    ai_opinion = get_ai_trading_opinion(tech_result['종목명'], tech_result['티커'], tech_result['현재가'], tech_result['진입가_가이드'], tech_result['RSI'], api_key)
+                    st.success(ai_opinion)
+        
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
         price_df.columns = ['Date', 'Price']
@@ -501,7 +546,6 @@ with m_col2:
         fig_fg.update_layout(margin=dict(l=10, r=10, t=80, b=10), height=250)
         st.plotly_chart(fig_fg, use_container_width=True, config={'displayModeBar': False})
     else:
-        # 👈 차단되었을 때도 게이지 바가 화면에 나오도록 복구
         fig_fg = go.Figure(go.Indicator(
             mode = "gauge", value = 0,
             title = {'text': "<b>CNN 공포/탐욕 지수</b><br><span style='font-size:12px;color:red'>서버 로딩 지연중</span>", 'font': {'size': 15}},
@@ -604,10 +648,11 @@ with tab1:
                 with st.spinner('✨ AI가 연관된 한국 수혜주를 샅샅이 검색하고 타점을 계산 중입니다...'):
                     kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, selected_option.split(" - ")[0], api_key_input)
                     if kor_stocks:
-                        st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 확인)")
+                        st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 및 의견 확인)")
                         for stock_name, ticker_code in kor_stocks:
                             tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                            if tech_result: draw_stock_card(tech_result, is_expanded=False)
+                            # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
+                            if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False)
                     else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
             else: st.warning("👈 좌측 사이드바에 API 키를 입력하시면 AI 분석이 시작됩니다.")
 
@@ -628,7 +673,8 @@ with tab2:
             searched_code = search_query.split("(")[1].replace(")", "")
             with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
-            if tech_result: draw_stock_card(tech_result, is_expanded=True)
+            # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
+            if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=True)
             else: st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
 
 # ------------------------------------------
@@ -658,7 +704,8 @@ with tab3:
                 st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
                 for stock_name, ticker_code in theme_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                    if tech_result: draw_stock_card(tech_result, is_expanded=False)
+                    # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
+                    if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False)
             else: st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
 # ------------------------------------------
@@ -730,10 +777,11 @@ with tab5:
             k_code = selected_king.split("(")[1].replace(")", "")
             with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
                 k_result = analyze_technical_pattern(k_name, k_code)
-            if k_result: draw_stock_card(k_result, is_expanded=True)
+            # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
+            if k_result: draw_stock_card(k_result, api_key=api_key_input, is_expanded=True)
 
 # ------------------------------------------
-# 👈 [핵심 수정] 6번 탭: 실존하는 네이버 IPO 주소 크롤링 & 다이렉트 버튼 추가
+# [탭 6] 
 # ------------------------------------------
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -774,7 +822,7 @@ with tab6:
         btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
 
 # ------------------------------------------
-# [탭 7] 고배당주 (가격 누락 문제 완벽 해결)
+# [탭 7] 고배당주
 # ------------------------------------------
 with tab7:
     st.markdown("<br>", unsafe_allow_html=True)
