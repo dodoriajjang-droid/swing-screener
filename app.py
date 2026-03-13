@@ -303,9 +303,25 @@ def get_ai_trading_opinion(stock_name, ticker_code, current_price, ma20, rsi, ap
     except Exception as e:
         return f"AI 의견 생성 중 오류가 발생했습니다: {str(e)}"
 
-# ==========================================
-# 🚀 7번 탭 전용: 60종목 고배당주 대량 가격 로딩 (주말/휴일 에러 완벽 방지)
-# ==========================================
+@st.cache_data(ttl=43200)
+def get_naver_calendar_events():
+    try:
+        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
+            events_data = []
+            for cell in soup.select("table.type_cal tbody tr td"):
+                day_tag = cell.select_one("span.t_day")
+                if not day_tag: continue
+                day = day_tag.text.strip()
+                for item in cell.select("ul li"):
+                    if item.text.strip():
+                        events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
+            if events_data:
+                return pd.DataFrame(events_data)
+    except: pass
+    return pd.DataFrame()
+
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
     portfolio = {
@@ -384,7 +400,6 @@ def get_dividend_portfolio():
             
     price_dict = {}
     try:
-        # 💡 주말이나 휴장일에도 에러가 나지 않도록 최근 5일치 데이터를 불러와 최신값을 추출합니다.
         data = yf.download(all_tickers, period="5d", progress=False)
         if 'Close' in data:
             close_data = data['Close']
@@ -417,8 +432,8 @@ def get_dividend_portfolio():
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-# 👈 [핵심 수정] 차트 날짜(x축) 오류 해결 및 UI 디테일 완벽 복원
-def draw_stock_card(tech_result, api_key=None, is_expanded=False):
+# 👈 [핵심 수정] 위젯 키 중복 방지 (key_suffix 추가) 및 차트 날짜 포맷 해결
+def draw_stock_card(tech_result, api_key=None, is_expanded=False, key_suffix="default"):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
@@ -438,7 +453,8 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False):
         
         if api_key:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견 듣기", key=f"ai_btn_{tech_result['티커']}"):
+            # 💡 여러 탭에서 같은 종목이 호출되어도 에러나지 않게 key_suffix 결합
+            if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견 듣기", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
                 with st.spinner("AI가 기업 내재 가치와 현재 타점을 종합 분석 중입니다..."):
                     ai_opinion = get_ai_trading_opinion(tech_result['종목명'], tech_result['티커'], tech_result['현재가'], tech_result['진입가_가이드'], tech_result['RSI'], api_key)
                     st.success(ai_opinion)
@@ -446,7 +462,7 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False):
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
         price_df.columns = ['Date', 'Price']
-        # 💡 날짜를 '월/일' 형태의 완벽한 문자로 바꾸어 Plotly가 멋대로 연도를 붙이는 현상 차단
+        # 💡 날짜를 '월/일' 문자로 변경 (연도가 마음대로 붙는 현상 해결)
         price_df['Date_Str'] = price_df['Date'].dt.strftime('%m/%d') 
         
         vol_df = tech_result["거래량 데이터"].reset_index()
@@ -459,10 +475,10 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False):
             fig_price.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0), 
                 xaxis_title="", yaxis_title="", 
-                yaxis_tickformat=",", # y축 가격에 콤마 추가
+                yaxis_tickformat=",", 
                 hovermode="x unified",
-                xaxis=dict(showgrid=False, type='category'), # 💡 type='category'를 강제하여 날짜 버그 완벽 해결
-                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), # 배경 가로줄 추가
+                xaxis=dict(showgrid=False, type='category'), # 💡 type을 category로 강제 고정!
+                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
                 height=220
             )
             fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
@@ -476,7 +492,7 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False):
                 xaxis_title="", yaxis_title="", 
                 yaxis_tickformat=",",
                 hovermode="x unified", 
-                xaxis=dict(showgrid=False, type='category'), # 날짜 버그 해결
+                xaxis=dict(showgrid=False, type='category'),
                 yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), 
                 height=220
             )
@@ -661,9 +677,10 @@ with tab1:
                     kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, selected_option.split(" - ")[0], api_key_input)
                     if kor_stocks:
                         st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 및 의견 확인)")
-                        for stock_name, ticker_code in kor_stocks:
+                        # 💡 key_suffix 추가: 탭 이름과 반복문 인덱스를 결합하여 고유값 생성
+                        for i, (stock_name, ticker_code) in enumerate(kor_stocks):
                             tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                            if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False)
+                            if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False, key_suffix=f"tab1_{i}")
                     else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
             else: st.warning("👈 좌측 사이드바에 API 키를 입력하시면 AI 분석이 시작됩니다.")
 
@@ -684,7 +701,8 @@ with tab2:
             searched_code = search_query.split("(")[1].replace(")", "")
             with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
-            if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=True)
+            # 💡 key_suffix 추가
+            if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=True, key_suffix="tab2")
             else: st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
 
 # ------------------------------------------
@@ -712,9 +730,10 @@ with tab3:
             theme_stocks = get_theme_stocks_with_ai(theme_input, api_key_input)
             if theme_stocks:
                 st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
-                for stock_name, ticker_code in theme_stocks:
+                # 💡 key_suffix 추가
+                for i, (stock_name, ticker_code) in enumerate(theme_stocks):
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                    if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False)
+                    if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False, key_suffix=f"tab3_{i}")
             else: st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
 # ------------------------------------------
@@ -786,7 +805,8 @@ with tab5:
             k_code = selected_king.split("(")[1].replace(")", "")
             with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
                 k_result = analyze_technical_pattern(k_name, k_code)
-            if k_result: draw_stock_card(k_result, api_key=api_key_input, is_expanded=True)
+            # 💡 key_suffix 추가
+            if k_result: draw_stock_card(k_result, api_key=api_key_input, is_expanded=True, key_suffix="tab5")
 
 # ------------------------------------------
 # [탭 6] 
