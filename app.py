@@ -24,6 +24,10 @@ st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
+        
+# 💡 뉴스 종목 즉시 진단을 위한 세션 추가
+if 'quick_analyze_news' not in st.session_state:
+    st.session_state.quick_analyze_news = None
 
 # ==========================================
 # 2. 통합 AI 호출 엔진
@@ -225,13 +229,11 @@ def get_fundamentals(ticker_code):
         return info.get('trailingPE', 'N/A'), info.get('priceToBook', 'N/A')
     except: return 'N/A', 'N/A'
 
-# 👈 [핵심 수정] 신규 상장주 에러 방지 (60 -> 20일 데이터로 완화)
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
     try:
         df = fdr.DataReader(ticker_code, (datetime.now() - timedelta(days=150)).strftime('%Y-%m-%d'))
-        # 데이터가 20일치도 없으면 분석 불가 처리
         if len(df) < 20: return None
         
         df['MA5'] = df['Close'].rolling(window=5).mean()
@@ -251,7 +253,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         prev = df.iloc[-2] if len(df) > 1 else latest
         current_price = int(latest['Close'])
         
-        # MA60이 NaN일 수 있으므로(상장 60일 미만) 예외 처리
         if pd.notna(latest['MA60']) and latest['MA5'] > latest['MA20'] > latest['MA60']: align_status = "🔥 완벽 정배열 (상승 추세)"
         elif pd.notna(latest['MA60']) and latest['MA5'] < latest['MA20'] < latest['MA60']: align_status = "❄️ 역배열 (하락 추세)"
         elif latest['MA5'] > latest['MA20'] and prev['MA5'] <= prev['MA20']: align_status = "✨ 5-20 골든크로스"
@@ -469,7 +470,7 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["🔥 🇺🇸 미국 폭등주", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 속보 필터링", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["🔥 🇺🇸 미국 폭등주", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목"])
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -519,12 +520,10 @@ with tab2:
     show_trading_guidelines() 
     krx_df = get_krx_stocks()
     if not krx_df.empty:
-        # 💡 에러 방지를 위해 .astype(str) 적용
         opts = ["🔍 검색 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
         query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts)
         
         if query != "🔍 검색 종목을 입력하세요.":
-            # 💡 괄호가 포함된 종목 이름(예: KODEX 200(합성)) 파싱 에러 완벽 해결
             searched_name = query.rsplit(" (", 1)[0]
             searched_code = query.rsplit("(", 1)[-1].replace(")", "").strip()
             
@@ -563,26 +562,115 @@ with tab3:
                     if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t3_{i}")
             else: st.error(f"❌ '{query}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
+# ------------------------------------------
+# [탭 4] 완전히 새롭게 업그레이드된 실시간 뉴스 터미널
+# ------------------------------------------
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     cols_top = st.columns([4, 1])
-    cols_top[0].subheader("📰 트레이더용 실시간 금융 속보")
-    if cols_top[1].button("🔄 리로드", use_container_width=True): get_latest_naver_news.clear()
-    keywords = [k.strip() for k in st.text_input("핵심 키워드 필터:", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오").split(",") if k.strip()]
-    only_kw = st.checkbox("🔥 위 키워드가 포함된 뉴스만 보기", value=False)
+    cols_top[0].subheader("📰 프로 트레이더용 실시간 속보 터미널")
+    if cols_top[1].button("🔄 속보 리로드", use_container_width=True): get_latest_naver_news.clear()
+    
+    keywords_input = st.text_input("🎯 핵심 키워드 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
+    keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
+    only_kw = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
+    
     update_news_state()
     st.divider()
-    if st.session_state.news_data:
-        for i, news in enumerate(st.session_state.news_data[:50]):
-            has_kw = any(k.lower() in news['title'].lower() for k in keywords)
-            if only_kw and not has_kw: continue
-            with st.container(border=True):
-                cols = st.columns([6, 1.5, 1])
-                cols[0].markdown(f"**🕒 {news['time']}** | {'🔥 **'+news['title']+'**' if has_kw else news['title']}")
-                if cols[1].button("🤖 AI 뉴스 판독", key=f"n_{i}") and api_key_input:
-                    prompt = f"실전 스윙 트레이더입니다. 다음 속보를 분석해주세요.\n[속보]: \"{news['title']}\"\n1. 🔍 팩트 vs 노이즈:\n2. 📉 선반영 여부:\n3. ⚡ 전략:"
+
+    # 1. 뉴스에서 특정 종목 진단 버튼을 눌렀을 때 팝업되는 '즉시 진단 패널'
+    if st.session_state.quick_analyze_news:
+        qa_name, qa_code = st.session_state.quick_analyze_news
+        st.success(f"⚡ **{qa_name}** 뉴스 감지! 즉시 타점을 진단합니다.")
+        with st.spinner(f"'{qa_name}' 정밀 분석 중..."):
+            res = analyze_technical_pattern(qa_name, qa_code)
+            if res: 
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="news_qa")
+            else:
+                st.error("데이터 부족으로 분석할 수 없습니다.")
+        if st.button("닫기 ❌", key="close_qa"):
+            st.session_state.quick_analyze_news = None
+            st.rerun()
+        st.divider()
+
+    # 종목 매칭을 위한 국내 주식 딕셔너리화 (글자수 2자 이상만 필터링하여 정확도 상승)
+    krx_df = get_krx_stocks()
+    krx_dict = {}
+    if not krx_df.empty:
+        krx_dict = {row['Name']: row['Code'] for _, row in krx_df.iterrows() if len(str(row['Name'])) > 1}
+
+    # 뉴스 리스트 분리: 핀(Pin) 고정용 주요 뉴스 vs 일반 뉴스
+    pinned_news = []
+    regular_news = []
+    
+    for news in st.session_state.news_data[:60]:
+        has_kw = any(k.lower() in news['title'].lower() for k in keywords)
+        if only_kw and not has_kw: continue
+        
+        # '단독', '특징주', '상한가' 등 강력한 재료가 포함된 키워드일 경우 Pinned 후보로 승격
+        is_urgent = any(kw in news['title'] for kw in ['단독', '특징주', '상한가', '수주', '최대'])
+        
+        if has_kw and is_urgent and len(pinned_news) < 2:
+            pinned_news.append(news)
+        else:
+            regular_news.append(news)
+
+    # 2. 최상단 실시간 메인 헤드라인 카드 렌더링
+    if pinned_news:
+        st.markdown("### 🚨 실시간 메인 헤드라인 (특징주/단독)")
+        cols_pin = st.columns(len(pinned_news))
+        for idx, p_news in enumerate(pinned_news):
+            with cols_pin[idx]:
+                with st.container(border=True):
+                    st.caption(f"⏱️ {p_news['time']}")
+                    st.markdown(f"#### {p_news['title']}")
+                    if st.button("🤖 팩트체크 및 AI 전략", key=f"pin_ai_{idx}") and api_key_input:
+                        st.info(ask_gemini(f"속보 분석: {p_news['title']}\n1.팩트 2.선반영 3.전략", api_key_input))
+                    st.link_button("원문 전체 읽기 🔗", p_news['link'], use_container_width=True)
+        st.markdown("---")
+
+    # 3. 일반 뉴스 리스트 (호재/악재 뱃지 및 종목 자동 매칭 버튼)
+    good_kws = ['돌파', '최대', '흑자', '승인', '급등', '수주', '상한가', '호실적', 'MOU']
+    bad_kws = ['하락', '적자', '배임', '블록딜', '급락', '횡령', '상장폐지', '주의']
+    
+    for i, news in enumerate(regular_news[:40]):
+        title = news['title']
+        
+        # 라벨링 및 컬러 뱃지 생성
+        prefix = ""
+        if '단독' in title: prefix += "🚨**[단독]** "
+        if '특징주' in title: prefix += "💡**[특징주]** "
+        
+        if any(kw in title for kw in good_kws): prefix += "🔴`[호재]` "
+        elif any(kw in title for kw in bad_kws): prefix += "🔵`[악재]` "
+        
+        display_title = f"{prefix}{title}"
+        
+        # 뉴스 제목에서 상장사 이름 추출 (최대 1개만 매칭하여 UI 깔끔하게 유지)
+        found_comps = []
+        for name, code in krx_dict.items():
+            if name in title:
+                found_comps.append((name, code))
+                if len(found_comps) >= 1: break
+        
+        with st.container(border=True):
+            cols = st.columns([1, 5.5, 2, 1.5, 1])
+            cols[0].markdown(f"**🕒 {news['time']}**")
+            cols[1].markdown(display_title)
+            
+            # 뉴스에 언급된 종목의 즉시 진단 버튼 렌더링
+            with cols[2]:
+                for c_name, c_code in found_comps:
+                    if st.button(f"🔍 {c_name} 타점보기", key=f"qa_{c_code}_{i}"):
+                        st.session_state.quick_analyze_news = (c_name, c_code)
+                        st.rerun()
+
+            if cols[3].button("🤖 AI 판독", key=f"n_ai_{i}"):
+                if api_key_input:
+                    prompt = f"실전 트레이더입니다. 다음 속보를 분석해주세요.\n[속보]: \"{title}\"\n1. 🔍 팩트 vs 노이즈:\n2. 📉 선반영 여부:\n3. ⚡ 전략:"
                     st.info(ask_gemini(prompt, api_key_input))
-                cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
+                else: st.warning("API 키를 입력해주세요.")
+            cols[4].link_button("원문🔗", news['link'], use_container_width=True)
 
 with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -609,7 +697,6 @@ with tab5:
         sel_king = st.selectbox("목록에서 타점을 확인할 종목을 고르세요:", opts)
         
         if sel_king != "🔍 종목을 선택하세요.":
-            # 💡 파싱 버그 해결 완료
             k_name = sel_king.rsplit(" (", 1)[0]
             k_code = sel_king.rsplit("(", 1)[-1].replace(")", "").strip()
             
