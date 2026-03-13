@@ -88,7 +88,13 @@ def get_us_top_gainers():
         tables = pd.read_html(StringIO(response.text))
         df = tables[0].iloc[:, :6] 
         df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
-        df['실제등락률'] = df['등락률'].apply(lambda x: float(re.sub(r'[^\d\.\+\-]', '', str(x))) if pd.notnull(x) else 0.0)
+        def extract_pct(x):
+            try:
+                match = re.search(r'([+-]?\d+\.?\d*)%', str(x))
+                if match: return float(match.group(1))
+                return float(re.sub(r'[^\d\.\+\-]', '', str(x)))
+            except: return 0.0
+        df['실제등락률'] = df['등락률'].apply(extract_pct)
         df = df[df['실제등락률'] >= 10.0].drop(columns=['실제등락률']) 
         df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
         def get_korean_name(name):
@@ -226,7 +232,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
             
         return {
             "종목명": stock_name,
-            "티커": ticker_code, # AI 매매 의견을 위해 티커 데이터 추가
+            "티커": ticker_code,
             "현재가": current_price, "상태": status,
             "진입가_가이드": int(ma20_price), 
             "목표가1": target_1, "목표가2": target_2, "목표가3": target_3,
@@ -277,7 +283,6 @@ def get_trending_themes_with_ai(api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 👈 [핵심 추가] AI 기반 적정가 및 매매 의견 분석 함수
 @st.cache_data(ttl=3600)
 def get_ai_trading_opinion(stock_name, ticker_code, current_price, ma20, rsi, api_key):
     if not api_key: return "API 키가 필요합니다."
@@ -288,35 +293,19 @@ def get_ai_trading_opinion(stock_name, ticker_code, current_price, ma20, rsi, ap
         분석할 종목: {stock_name} (티커/코드: {ticker_code})
         현재 데이터: 현재가 {current_price:,}, 20일 이동평균선 {ma20:,}, RSI {rsi:.1f}
         
-        이 종목의 펀더멘털(비즈니스 모델, 미래 전망 등)과 위 기술적 지표를 종합하여 다음 3가지 항목을 명확하게 답변해 주세요. 부연 설명은 길지 않게 트레이더의 관점에서 핵심만 짚어주세요.
+        이 종목의 펀더멘털과 위 기술적 지표를 종합하여 다음 3가지 항목을 명확하게 답변해 주세요. 부연 설명은 길지 않게 핵심만 짚어주세요.
         
         1. ⚖️ 가치 평가 (적정가 대비): 현재 가격이 이 회사의 내재가치 및 모멘텀 대비 비싼 편인지, 싼 편인지, 적정한지 평가.
-        2. 📉 타점 분석: 현재가, 20일선, RSI를 볼 때 지금 당장 진입하기 유리한 자리인지 불리한 자리인지 기술적 분석.
-        3. 🎯 최종 액션 플랜: "적극 매수", "분할 매수", "관망(대기)", "매수 금지" 중 하나로 확실한 스탠스를 정하고, 그 이유를 1~2줄로 요약.
+        2. 📉 타점 분석: 현재가, 20일선, RSI를 볼 때 지금 당장 진입하기 유리한 자리인지 기술적 분석.
+        3. 🎯 최종 액션 플랜: "적극 매수", "분할 매수", "관망(대기)", "매수 금지" 중 하나로 스탠스를 정하고, 그 이유를 1줄로 요약.
         """
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception as e:
         return f"AI 의견 생성 중 오류가 발생했습니다: {str(e)}"
 
-@st.cache_data(ttl=43200)
-def get_naver_calendar_events():
-    try:
-        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
-            events_data = []
-            for cell in soup.select("table.type_cal tbody tr td"):
-                day_tag = cell.select_one("span.t_day")
-                if not day_tag: continue
-                day = day_tag.text.strip()
-                for item in cell.select("ul li"):
-                    if item.text.strip():
-                        events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
-            if events_data:
-                return pd.DataFrame(events_data)
-    except: pass
-    return pd.DataFrame()
-
+# ==========================================
+# 🚀 7번 탭 전용: 60종목 고배당주 대량 가격 로딩 (주말/휴일 에러 완벽 방지)
+# ==========================================
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
     portfolio = {
@@ -395,8 +384,9 @@ def get_dividend_portfolio():
             
     price_dict = {}
     try:
-        data = yf.download(all_tickers, period="1d", progress=False)
-        if 'Close' in data.columns:
+        # 💡 주말이나 휴장일에도 에러가 나지 않도록 최근 5일치 데이터를 불러와 최신값을 추출합니다.
+        data = yf.download(all_tickers, period="5d", progress=False)
+        if 'Close' in data:
             close_data = data['Close']
             for t in all_tickers:
                 if t in close_data.columns:
@@ -427,24 +417,25 @@ def get_dividend_portfolio():
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-# 👈 [핵심 추가] 종목 카드에 AI 적정가 및 매매 의견 버튼 추가 (api_key_input 전달 받음)
+# 👈 [핵심 수정] 차트 날짜(x축) 오류 해결 및 UI 디테일 완벽 복원
 def draw_stock_card(tech_result, api_key=None, is_expanded=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
         st.markdown(f"**진단 상태:** {tech_result['상태']} ｜ **수급/과열:** {tech_result['거래량 급증']} / {tech_result['RSI_상태']}")
+        
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
         c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (대비)", delta_color="off")
-        c2.metric("🎯 1차 (볼밴상단)", f"{tech_result['목표가1']:,}원", f"+{tech_result['목표가1'] - curr:,}원")
-        c3.metric("🚀 2차 (전고점)", f"{tech_result['목표가2']:,}원", f"+{tech_result['목표가2'] - curr:,}원")
-        c4.metric("🌌 3차 (오버슈팅)", f"{tech_result['목표가3']:,}원", f"+{tech_result['목표가3'] - curr:,}원")
+        c2.metric("🎯 1차 (볼밴상단)", f"{tech_result['목표가1']:,}원", f"+{tech_result['목표가1'] - curr:,}원", delta_color="normal")
+        c3.metric("🚀 2차 (전고점)", f"{tech_result['목표가2']:,}원", f"+{tech_result['목표가2'] - curr:,}원", delta_color="normal")
+        c4.metric("🌌 3차 (오버슈팅)", f"{tech_result['목표가3']:,}원", f"+{tech_result['목표가3'] - curr:,}원", delta_color="normal")
+        
         st.markdown("---")
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "과열 위험" if tech_result['RSI'] >= 70 else "바닥권" if tech_result['RSI'] <= 30 else "보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         with c7: st.markdown(f"🕵️ **최근 3일 수급 동향**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
         
-        # 👇 추가된 AI 매매 의견 영역
         if api_key:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견 듣기", key=f"ai_btn_{tech_result['티커']}"):
@@ -455,20 +446,41 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False):
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
         price_df.columns = ['Date', 'Price']
-        price_df['Date_Str'] = price_df['Date'].dt.strftime('%m-%d')
+        # 💡 날짜를 '월/일' 형태의 완벽한 문자로 바꾸어 Plotly가 멋대로 연도를 붙이는 현상 차단
+        price_df['Date_Str'] = price_df['Date'].dt.strftime('%m/%d') 
+        
         vol_df = tech_result["거래량 데이터"].reset_index()
         vol_df.columns = ['Date', 'Volume']
-        vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m-%d')
+        vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m/%d')
+        
         with ch1:
             st.caption("📈 주가 흐름 (최근 20일)")
             fig_price = px.line(price_df, x='Date_Str', y='Price', markers=True)
-            fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", hovermode="x unified", height=220)
-            fig_price.update_traces(line_color="#FF4B4B")
+            fig_price.update_layout(
+                margin=dict(l=0, r=0, t=10, b=0), 
+                xaxis_title="", yaxis_title="", 
+                yaxis_tickformat=",", # y축 가격에 콤마 추가
+                hovermode="x unified",
+                xaxis=dict(showgrid=False, type='category'), # 💡 type='category'를 강제하여 날짜 버그 완벽 해결
+                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), # 배경 가로줄 추가
+                height=220
+            )
+            fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
             st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False})
+            
         with ch2:
             st.caption("📊 거래량 (최근 20일)")
             fig_vol = px.bar(vol_df, x='Date_Str', y='Volume')
-            fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", hovermode="x unified", height=220)
+            fig_vol.update_layout(
+                margin=dict(l=0, r=0, t=10, b=0), 
+                xaxis_title="", yaxis_title="", 
+                yaxis_tickformat=",",
+                hovermode="x unified", 
+                xaxis=dict(showgrid=False, type='category'), # 날짜 버그 해결
+                yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'), 
+                height=220
+            )
+            fig_vol.update_traces(marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>")
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
 
 def show_trading_guidelines():
@@ -590,7 +602,7 @@ if "gainers_df" not in st.session_state or fetch_button:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🔥 🇺🇸 미국장 폭등주", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패", "📅 증시 캘린더", "💰 고배당주/ETF TOP 60"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🔥 🇺🇸 미국장 폭등주", "🎯 국내 종목 정밀 진단", "💡 AI 테마/관련주 검색", "📰 실시간 금융 속보", "💸 당일 거래대금 깡패", "📅 증시 캘린더", "💰 배당 파이프라인 (TOP 60)"])
 
 # ------------------------------------------
 # [탭 1]
@@ -651,7 +663,6 @@ with tab1:
                         st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 및 의견 확인)")
                         for stock_name, ticker_code in kor_stocks:
                             tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                            # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
                             if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False)
                     else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
             else: st.warning("👈 좌측 사이드바에 API 키를 입력하시면 AI 분석이 시작됩니다.")
@@ -673,7 +684,6 @@ with tab2:
             searched_code = search_query.split("(")[1].replace(")", "")
             with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
-            # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
             if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=True)
             else: st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
 
@@ -704,7 +714,6 @@ with tab3:
                 st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
                 for stock_name, ticker_code in theme_stocks:
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
-                    # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
                     if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False)
             else: st.error(f"❌ '{theme_input}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
@@ -777,7 +786,6 @@ with tab5:
             k_code = selected_king.split("(")[1].replace(")", "")
             with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
                 k_result = analyze_technical_pattern(k_name, k_code)
-            # 👉 api_key_input을 넘겨주어 AI 의견 버튼 활성화
             if k_result: draw_stock_card(k_result, api_key=api_key_input, is_expanded=True)
 
 # ------------------------------------------
@@ -829,7 +837,7 @@ with tab7:
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 60)")
     st.write("안정적인 현금흐름을 창출하는 국내외 대표 고배당 리스트입니다. (배당주기 표기)")
     
-    with st.spinner("야후 파이낸스에서 60개 종목의 실시간 데이터를 대량으로 다운로드 중입니다... (약 2~3초 소요)"):
+    with st.spinner("야후 파이낸스에서 60개 종목의 최신 실시간 데이터를 다운로드 중입니다... (약 3초 소요)"):
         div_dfs = get_dividend_portfolio()
         
     div_tab1, div_tab2, div_tab3 = st.tabs(["🇰🇷 국장 (한국 배당주 TOP 20)", "🇺🇸 미장 (미국 배당주 TOP 20)", "📈 배당 ETF (국내/해외 TOP 20)"])
