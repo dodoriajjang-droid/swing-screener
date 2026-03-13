@@ -432,7 +432,7 @@ def get_dividend_portfolio():
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-# 👈 [핵심 수정] 위젯 키 중복 방지 (key_suffix 추가) 및 차트 날짜 포맷 해결
+# 👈 [핵심 수정] st.plotly_chart 에 고유 key 파라미터 부여하여 충돌 방지
 def draw_stock_card(tech_result, api_key=None, is_expanded=False, key_suffix="default"):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f}", expanded=is_expanded):
@@ -453,7 +453,6 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False, key_suffix="de
         
         if api_key:
             st.markdown("<br>", unsafe_allow_html=True)
-            # 💡 여러 탭에서 같은 종목이 호출되어도 에러나지 않게 key_suffix 결합
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견 듣기", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
                 with st.spinner("AI가 기업 내재 가치와 현재 타점을 종합 분석 중입니다..."):
                     ai_opinion = get_ai_trading_opinion(tech_result['종목명'], tech_result['티커'], tech_result['현재가'], tech_result['진입가_가이드'], tech_result['RSI'], api_key)
@@ -462,7 +461,6 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False, key_suffix="de
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
         price_df.columns = ['Date', 'Price']
-        # 💡 날짜를 '월/일' 문자로 변경 (연도가 마음대로 붙는 현상 해결)
         price_df['Date_Str'] = price_df['Date'].dt.strftime('%m/%d') 
         
         vol_df = tech_result["거래량 데이터"].reset_index()
@@ -477,12 +475,13 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False, key_suffix="de
                 xaxis_title="", yaxis_title="", 
                 yaxis_tickformat=",", 
                 hovermode="x unified",
-                xaxis=dict(showgrid=False, type='category'), # 💡 type을 category로 강제 고정!
+                xaxis=dict(showgrid=False, type='category'),
                 yaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)'),
                 height=220
             )
             fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
-            st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False})
+            # 💡 st.plotly_chart에 고유 key 추가 (이 부분 때문에 발생한 에러입니다)
+            st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"price_chart_{tech_result['티커']}_{key_suffix}")
             
         with ch2:
             st.caption("📊 거래량 (최근 20일)")
@@ -497,7 +496,8 @@ def draw_stock_card(tech_result, api_key=None, is_expanded=False, key_suffix="de
                 height=220
             )
             fig_vol.update_traces(marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>")
-            st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
+            # 💡 st.plotly_chart에 고유 key 추가
+            st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"vol_chart_{tech_result['티커']}_{key_suffix}")
 
 def show_trading_guidelines():
     st.info("""
@@ -677,7 +677,6 @@ with tab1:
                     kor_stocks = get_ai_matched_stocks(selected_ticker, sector, industry, selected_option.split(" - ")[0], api_key_input)
                     if kor_stocks:
                         st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 및 의견 확인)")
-                        # 💡 key_suffix 추가: 탭 이름과 반복문 인덱스를 결합하여 고유값 생성
                         for i, (stock_name, ticker_code) in enumerate(kor_stocks):
                             tech_result = analyze_technical_pattern(stock_name, ticker_code)
                             if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False, key_suffix=f"tab1_{i}")
@@ -701,7 +700,6 @@ with tab2:
             searched_code = search_query.split("(")[1].replace(")", "")
             with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 과거 90일 치 데이터를 가져와 타점 분석 중입니다..."):
                 tech_result = analyze_technical_pattern(searched_name, searched_code)
-            # 💡 key_suffix 추가
             if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=True, key_suffix="tab2")
             else: st.error("❌ 데이터를 불러올 수 없습니다. (신규 상장 등으로 20일 데이터가 부족할 수 있습니다)")
 
@@ -730,7 +728,6 @@ with tab3:
             theme_stocks = get_theme_stocks_with_ai(theme_input, api_key_input)
             if theme_stocks:
                 st.success(f"🎯 **'{theme_input}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
-                # 💡 key_suffix 추가
                 for i, (stock_name, ticker_code) in enumerate(theme_stocks):
                     tech_result = analyze_technical_pattern(stock_name, ticker_code)
                     if tech_result: draw_stock_card(tech_result, api_key=api_key_input, is_expanded=False, key_suffix=f"tab3_{i}")
@@ -805,7 +802,6 @@ with tab5:
             k_code = selected_king.split("(")[1].replace(")", "")
             with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급을 분석 중입니다..."):
                 k_result = analyze_technical_pattern(k_name, k_code)
-            # 💡 key_suffix 추가
             if k_result: draw_stock_card(k_result, api_key=api_key_input, is_expanded=True, key_suffix="tab5")
 
 # ------------------------------------------
