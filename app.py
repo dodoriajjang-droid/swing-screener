@@ -19,16 +19,25 @@ import streamlit.components.v1 as components
 # 1. 초기 설정 
 # ==========================================
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
-
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 세션 상태 초기화 (관심종목 포함)
 for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
 
 # ==========================================
-# 2. 데이터 수집 및 분석 함수들
+# 2. 통합 AI 호출 엔진
+# ==========================================
+@st.cache_data(ttl=3600)
+def ask_gemini(prompt, _api_key):
+    if not _api_key: return "API 키가 필요합니다."
+    try:
+        genai.configure(api_key=_api_key)
+        return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
+    except Exception as e: return f"AI 분석 오류: {str(e)}"
+
+# ==========================================
+# 3. 데이터 수집 및 분석 함수들 (누락 기능 완벽 복구)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
@@ -70,13 +79,28 @@ def get_us_top_gainers():
         return df, ex_rate
     except: return pd.DataFrame(), 1350.0
 
+# 👈 [복구] 한국 주식 목록 불러오기 3중 안전장치 부활
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
         df = fdr.StockListing('KRX')
         if not df.empty: return df[['Name', 'Code', 'Sector']]
     except: pass
-    return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
+    try:
+        kospi = fdr.StockListing('KOSPI')
+        kosdaq = fdr.StockListing('KOSDAQ')
+        df = pd.concat([kospi, kosdaq], ignore_index=True)
+        if not df.empty: return df[['Name', 'Code', 'Sector']]
+    except: pass
+    try:
+        url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        df = pd.read_html(StringIO(res.content.decode('euc-kr')), header=0)[0]
+        df = df[['회사명', '종목코드', '업종']]
+        df.columns = ['Name', 'Code', 'Sector']
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        return df
+    except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
 @st.cache_data(ttl=600)
 def get_trading_value_kings():
@@ -87,8 +111,7 @@ def get_trading_value_kings():
         df = df[~mask].sort_values('Amount', ascending=False).head(20)
         df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
-    except Exception as e:
-        return pd.DataFrame()
+    except Exception as e: return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def get_latest_naver_news():
@@ -107,15 +130,6 @@ def update_news_state():
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
-# 💡 _api_key를 사용하여 Streamlit 캐싱 에러 완벽 회피
-@st.cache_data(ttl=3600)
-def ask_gemini(prompt, _api_key):
-    if not _api_key: return "API 키가 필요합니다."
-    try:
-        genai.configure(api_key=_api_key)
-        return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
-    except Exception as e: return f"AI 분석 오류: {str(e)}"
-
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
@@ -129,11 +143,31 @@ def get_all_sector_info(tickers, _api_key):
         return results
     except: return results
 
+# 👈 [복구] yfinance 기업 개요 실시간 추출 복구
+@st.cache_data(ttl=3600)
+def get_company_summary(ticker, _api_key):
+    try:
+        biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
+        prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}" if biz_summary else f"미국 주식 '{ticker}' 핵심 비즈니스 모델을 한국어로 2~3줄 요약해 주세요."
+        return ask_gemini(prompt, _api_key)
+    except Exception: return "기업 정보를 요약하는 중 오류가 발생했습니다."
+
+# 👈 [복구] yfinance 실시간 뉴스 추출 및 디테일 프롬프트 복구
+@st.cache_data(ttl=3600)
+def analyze_news_with_gemini(ticker, _api_key):
+    try:
+        news_list = yf.Ticker(ticker).news
+        if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
+        news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
+        prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
+        return ask_gemini(prompt, _api_key)
+    except Exception: return "뉴스 분석 중 오류가 발생했습니다."
+
 @st.cache_data(ttl=3600)
 def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
     if not _api_key: return []
     try:
-        response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사한 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
+        response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
     except: return []
 
@@ -144,16 +178,6 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
         response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
     except: return []
-
-@st.cache_data(ttl=10800)
-def get_trending_themes_with_ai(_api_key):
-    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
-    if not _api_key: return default_themes
-    try:
-        response = ask_gemini("최근 한국 증시 가장 핫한 주도 테마 5개만 쉼표로 구분해서 1줄로 출력하세요. 번호/부연설명 절대 금지.", _api_key)
-        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').split(',')]
-        return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
-    except: return default_themes
 
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
@@ -271,11 +295,17 @@ def get_dividend_portfolio():
     price_dict = {}
     try:
         data = yf.download(all_tickers, period="5d", progress=False)
-        if 'Close' in data:
-            for t in all_tickers:
-                if t in data['Close'].columns:
-                    val = data['Close'][t].dropna()
-                    if not val.empty: price_dict[t] = float(val.iloc[-1])
+        if isinstance(data.columns, pd.MultiIndex):
+            close_data = data['Close']
+        elif 'Close' in data:
+            close_data = pd.DataFrame(data['Close'])
+        else:
+            close_data = pd.DataFrame()
+            
+        for t in all_tickers:
+            if t in close_data.columns:
+                val = close_data[t].dropna()
+                if not val.empty: price_dict[t] = float(val.iloc[-1])
     except Exception: pass
 
     results = {"KRX": [], "US": [], "ETF": []}
@@ -317,7 +347,7 @@ def draw_stock_card(tech_result, _api_key=None, is_expanded=False, key_suffix="d
         if _api_key:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 재무 및 차트를 종합 분석 중입니다..."):
+                with st.spinner("AI가 기업 가치와 현재 타점을 종합 분석 중입니다..."):
                     prompt = f"트레이더 분석 요망. 종목:{tech_result['종목명']}. 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}. 1.가치평가(비싼지/싼지) 2.타점분석(차트위치) 3.최종액션(적극매수/분할매수/관망/매수금지 중 택1 및 이유 1줄)"
                     st.success(ask_gemini(prompt, _api_key))
         
@@ -442,9 +472,11 @@ with tab1:
         if sel_tick != "N/A" and api_key_input:
             sec, ind = sector_dict.get(sel_tick, ("분석 불가", "분석 불가"))
             st.markdown(f"**🏷️ 섹터 정보:** `{sec}` / `{ind}`")
-            with st.spinner(f"🔍 기업 개요 및 속보 분석 중..."):
+            with st.spinner(f"🔍 기업 개요 및 분석 중..."):
                 with st.container(border=True):
-                    st.markdown(f"**🏢 비즈니스 모델 요약**\n> {ask_gemini(f'미국 주식 {sel_tick} 핵심 비즈니스 모델을 한국어로 2줄 요약.', api_key_input)}")
+                    # 👈 [복구] 뉴스 및 기업개요 AI 요약 제대로 불러오기
+                    st.markdown(f"**🏢 비즈니스 모델 요약**\n> {get_company_summary(sel_tick, api_key_input)}")
+                    st.markdown(f"**📰 최근 뉴스 AI 판독**\n> {analyze_news_with_gemini(sel_tick, api_key_input)}")
             with st.spinner('✨ AI가 연관된 한국 수혜주를 샅샅이 검색하고 타점을 계산 중입니다...'):
                 kor_stocks = get_ai_matched_stocks(sel_tick, sec, ind, sel_opt.split(" - ")[0], api_key_input)
                 if kor_stocks:
@@ -463,6 +495,8 @@ with tab2:
             with st.spinner(f"📡 타점 분석 중..."):
                 res = analyze_technical_pattern(query.split(" (")[0], query.split("(")[1].replace(")", ""))
             if res: draw_stock_card(res, _api_key=api_key_input, is_expanded=True, key_suffix="t2")
+    else:
+        st.error("종목 목록을 불러오지 못했습니다. 사이드바의 리로드 버튼을 눌러주세요.")
 
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -497,8 +531,10 @@ with tab4:
             with st.container(border=True):
                 cols = st.columns([6, 1.5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {'🔥 **'+news['title']+'**' if has_kw else news['title']}")
+                # 👈 [복구] 디테일한 속보 분석 프롬프트 복구
                 if cols[1].button("🤖 AI 뉴스 판독", key=f"n_{i}") and api_key_input:
-                    st.info(ask_gemini(f"속보 트레이딩 관점 분석(팩트/선반영/전략): {news['title']}", api_key_input))
+                    prompt = f"실전 스윙 트레이더입니다. 다음 속보를 분석해주세요.\n[속보]: \"{news['title']}\"\n1. 🔍 팩트 vs 노이즈:\n2. 📉 선반영 여부:\n3. ⚡ 전략:"
+                    st.info(ask_gemini(prompt, api_key_input))
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
 
 with tab5:
