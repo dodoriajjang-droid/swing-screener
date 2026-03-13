@@ -26,9 +26,8 @@ for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
         st.session_state[key] = set() if 'seen' in key else []
 
 # ==========================================
-# 2. 통합 AI 호출 엔진 (캐싱 에러 완벽 차단)
+# 2. 통합 AI 호출 엔진
 # ==========================================
-# 💡 파라미터명 앞에 '_'를 붙여 Streamlit이 캐싱 과정에서 API키를 해싱하지 않도록 차단
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
@@ -226,12 +225,14 @@ def get_fundamentals(ticker_code):
         return info.get('trailingPE', 'N/A'), info.get('priceToBook', 'N/A')
     except: return 'N/A', 'N/A'
 
+# 👈 [핵심 수정] 신규 상장주 에러 방지 (60 -> 20일 데이터로 완화)
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
     try:
         df = fdr.DataReader(ticker_code, (datetime.now() - timedelta(days=150)).strftime('%Y-%m-%d'))
-        if len(df) < 60: return None
+        # 데이터가 20일치도 없으면 분석 불가 처리
+        if len(df) < 20: return None
         
         df['MA5'] = df['Close'].rolling(window=5).mean()
         df['MA20'] = df['Close'].rolling(window=20).mean()
@@ -247,26 +248,31 @@ def analyze_technical_pattern(stock_name, ticker_code):
         df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
         
         latest = df.iloc[-1]
-        prev = df.iloc[-2]
+        prev = df.iloc[-2] if len(df) > 1 else latest
         current_price = int(latest['Close'])
         
-        if latest['MA5'] > latest['MA20'] > latest['MA60']: align_status = "🔥 완벽 정배열 (상승 추세)"
-        elif latest['MA5'] < latest['MA20'] < latest['MA60']: align_status = "❄️ 역배열 (하락 추세)"
+        # MA60이 NaN일 수 있으므로(상장 60일 미만) 예외 처리
+        if pd.notna(latest['MA60']) and latest['MA5'] > latest['MA20'] > latest['MA60']: align_status = "🔥 완벽 정배열 (상승 추세)"
+        elif pd.notna(latest['MA60']) and latest['MA5'] < latest['MA20'] < latest['MA60']: align_status = "❄️ 역배열 (하락 추세)"
         elif latest['MA5'] > latest['MA20'] and prev['MA5'] <= prev['MA20']: align_status = "✨ 5-20 골든크로스"
         else: align_status = "🌀 혼조세/횡보"
         
-        if (latest['MA20'] * 0.97) <= current_price <= (latest['MA20'] * 1.03): status = "✅ 타점 근접 (분할 매수)"
-        elif current_price > (latest['MA20'] * 1.03): status = "⚠️ 이격 과다 (눌림목 대기)"
+        ma20_val = latest['MA20']
+        if (ma20_val * 0.97) <= current_price <= (ma20_val * 1.03): status = "✅ 타점 근접 (분할 매수)"
+        elif current_price > (ma20_val * 1.03): status = "⚠️ 이격 과다 (눌림목 대기)"
         else: status = "🛑 20일선 이탈 (관망)"
         
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
         per, pbr = get_fundamentals(ticker_code)
-            
+        
+        target_1 = int(latest['Bollinger_Upper'])
+        recent_high = int(df['Close'].max())
+        
         return {
             "종목명": stock_name, "티커": ticker_code, "현재가": current_price, "상태": status,
-            "진입가_가이드": int(latest['MA20']), "목표가1": int(latest['Bollinger_Upper']), 
-            "목표가2": int(df['Close'].max()) if int(df['Close'].max()) > (int(latest['Bollinger_Upper']) * 1.02) else int(latest['Bollinger_Upper'] * 1.05),
-            "손절가": int(latest['MA20'] * 0.97),
+            "진입가_가이드": int(ma20_val), "목표가1": target_1, 
+            "목표가2": recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05),
+            "손절가": int(ma20_val * 0.97),
             "거래량 급증": "🔥 거래량 터짐" if df.iloc[-10:]['Volume'].max() > (df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, "기관수급": inst_vol, "외인수급": forgn_vol,
             "PER": per, "PBR": pbr, "OBV": df['OBV'].tail(20),
@@ -325,7 +331,6 @@ def get_dividend_portfolio():
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-# 👈 [복구] 지표 설명 박스 함수 (가이드)
 def show_trading_guidelines():
     st.info("""
     **[매매 신호 및 타점 가이드]**
@@ -374,7 +379,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 재무 및 차트를 종합 분석 중입니다..."):
+                with st.spinner("AI가 기업 가치와 현재 타점을 종합 분석 중입니다..."):
                     prompt = f"트레이더 분석 요망. 종목:{tech_result['종목명']}. 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}. 1.가치평가(비싼지/싼지) 2.타점분석(차트위치) 3.최종액션(적극매수/분할매수/관망/매수금지 중 택1 및 이유 1줄)"
                     st.success(ask_gemini(prompt, api_key_str))
         
@@ -447,7 +452,6 @@ with st.sidebar:
     st.divider()
     st.header("🧠 AI 엔진 연결 상태")
     
-    # 💡 API 키를 무조건 순수한 문자열(String)로 추출하여 캐싱 에러를 원천 차단
     api_key_input = ""
     if "GEMINI_API_KEY" in st.secrets:
         val = st.secrets["GEMINI_API_KEY"]
@@ -492,7 +496,6 @@ with tab1:
     
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
-        # 👈 [복구] 지표 설명 가이드 함수 호출
         show_trading_guidelines() 
         if sel_tick != "N/A" and api_key_input:
             sec, ind = sector_dict.get(sel_tick, ("분석 불가", "분석 불가"))
@@ -504,30 +507,40 @@ with tab1:
             with st.spinner('✨ AI가 연관된 한국 수혜주를 샅샅이 검색하고 타점을 계산 중입니다...'):
                 kor_stocks = get_ai_matched_stocks(sel_tick, sec, ind, sel_opt.split(" - ")[0], api_key_input)
                 if kor_stocks:
+                    st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 및 의견 확인)")
                     for i, (name, code) in enumerate(kor_stocks):
                         res = analyze_technical_pattern(name, code)
                         if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t1_{i}")
+                else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
-    # 👈 [복구] 지표 설명 가이드 함수 호출
     show_trading_guidelines() 
     krx_df = get_krx_stocks()
     if not krx_df.empty:
-        opts = ["🔍 검색 종목을 입력하세요."] + (krx_df['Name'] + " (" + krx_df['Code'] + ")").tolist()
+        # 💡 에러 방지를 위해 .astype(str) 적용
+        opts = ["🔍 검색 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
         query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts)
+        
         if query != "🔍 검색 종목을 입력하세요.":
-            with st.spinner(f"📡 타점 분석 중..."):
-                res = analyze_technical_pattern(query.split(" (")[0], query.split("(")[1].replace(")", ""))
-            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t2")
+            # 💡 괄호가 포함된 종목 이름(예: KODEX 200(합성)) 파싱 에러 완벽 해결
+            searched_name = query.rsplit(" (", 1)[0]
+            searched_code = query.rsplit("(", 1)[-1].replace(")", "").strip()
+            
+            with st.spinner(f"📡 증권사 서버에서 '{searched_name}' 타점 분석 중..."):
+                res = analyze_technical_pattern(searched_name, searched_code)
+            
+            if res: 
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t2")
+            else: 
+                st.error("❌ 분석 불가: 20일치 이상의 데이터가 없는 신규 상장주이거나 거래가 정지된 종목입니다.")
     else:
         st.error("종목 목록을 불러오지 못했습니다. 사이드바의 리로드 버튼을 눌러주세요.")
 
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
-    # 👈 [복구] 지표 설명 가이드 함수 호출
     show_trading_guidelines() 
     st.markdown("🔥 **AI가 감지한 오늘의 실시간 주도 테마**")
     
@@ -539,13 +552,16 @@ with tab3:
     for i, theme in enumerate(hot_themes):
         if cols[i].button(theme, use_container_width=True): clicked_theme = theme
     query = st.text_input("🔍 테마 입력:", value=clicked_theme if clicked_theme else "")
+    
     if query and api_key_input:
         with st.spinner(f"✨ '{query}' 관련주 진단 중..."):
             theme_stocks = get_theme_stocks_with_ai(query, api_key_input)
             if theme_stocks:
+                st.success(f"🎯 **'{query}' 관련주 {len(theme_stocks)}개 발굴 및 진단 완료! (아래 종목을 클릭하세요)**")
                 for i, (name, code) in enumerate(theme_stocks):
                     res = analyze_technical_pattern(name, code)
                     if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t3_{i}")
+            else: st.error(f"❌ '{query}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -564,7 +580,6 @@ with tab4:
                 cols = st.columns([6, 1.5, 1])
                 cols[0].markdown(f"**🕒 {news['time']}** | {'🔥 **'+news['title']+'**' if has_kw else news['title']}")
                 if cols[1].button("🤖 AI 뉴스 판독", key=f"n_{i}") and api_key_input:
-                    # 👈 [복구] 디테일한 속보 분석 프롬프트
                     prompt = f"실전 스윙 트레이더입니다. 다음 속보를 분석해주세요.\n[속보]: \"{news['title']}\"\n1. 🔍 팩트 vs 노이즈:\n2. 📉 선반영 여부:\n3. ⚡ 전략:"
                     st.info(ask_gemini(prompt, api_key_input))
                 cols[2].link_button("원문 🔗", news['link'], use_container_width=True)
@@ -590,11 +605,21 @@ with tab5:
         st.plotly_chart(fig_tree, use_container_width=True)
         
         st.markdown("### 🎯 주도주 즉시 타점 진단")
-        opts = ["🔍 종목을 선택하세요."] + (t_kings['Name'] + " (" + t_kings['Code'] + ")").tolist()
+        opts = ["🔍 종목을 선택하세요."] + (t_kings['Name'].astype(str) + " (" + t_kings['Code'].astype(str) + ")").tolist()
         sel_king = st.selectbox("목록에서 타점을 확인할 종목을 고르세요:", opts)
+        
         if sel_king != "🔍 종목을 선택하세요.":
-            res = analyze_technical_pattern(sel_king.split(" (")[0], sel_king.split("(")[1].replace(")", ""))
-            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t5")
+            # 💡 파싱 버그 해결 완료
+            k_name = sel_king.rsplit(" (", 1)[0]
+            k_code = sel_king.rsplit("(", 1)[-1].replace(")", "").strip()
+            
+            with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급 분석 중..."):
+                res = analyze_technical_pattern(k_name, k_code)
+                
+            if res: 
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t5")
+            else:
+                st.error("❌ 분석 불가: 20일치 이상의 데이터가 없는 신규 상장주이거나 거래가 정지된 종목입니다.")
 
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
