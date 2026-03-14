@@ -14,7 +14,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
-import json
 
 # ==========================================
 # 1. 초기 설정 
@@ -55,39 +54,20 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
-# 👈 [수정 1] CNN 공포/탐욕 지수 3중 우회 접속 (서버 차단 해결)
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
-    
-    # 1차 시도: 다이렉트
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
     try:
         res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code != 200: res = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res.status_code == 200:
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    
-    # 2차 시도: corsproxy 우회
-    try:
-        res2 = requests.get(f"https://corsproxy.io/?{urllib.parse.quote(url)}", headers=headers, timeout=5)
-        if res2.status_code == 200:
-            data = res2.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-
-    # 3차 시도: allorigins 우회
-    try:
-        res3 = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    
     return None
 
-# 👈 [수정 2] 야후 파이낸스 HTML 구조 변경 대응 (현재가 None 표기 버그 완벽 해결)
+# 👈 [핵심 수정] 달러 기호($) 추가 및 거래량(Volume) 정상 파싱 로직 적용
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     try:
@@ -101,31 +81,34 @@ def get_us_top_gainers():
             if len(row_vals) >= 3:
                 sym = row_vals[0].split()[0]
                 name = row_vals[1]
-                price_str, change_str, pct_str = "", "", ""
+                price_str, change_str, pct_str, vol_str = "", "", "", "-"
                 
-                # 야후 파이낸스가 현재가, 등락금액, 등락률을 한 칸에 합쳐서 보내는 버그 대응
                 for val in row_vals[2:]:
                     if "%" in val and ("+" in val or "-" in val):
                         parts = val.split()
                         if len(parts) >= 3:
-                            price_str = parts[0]
-                            change_str = parts[1]
-                            pct_str = parts[2].replace("(", "").replace(")", "")
+                            price_str, change_str, pct_str = parts[0], parts[1], parts[2].replace("(", "").replace(")", "")
                             break
                 
-                # 정상적으로 나뉘어져 있을 경우
                 if not price_str:
-                    try:
-                        price_str = str(row.iloc[2])
-                        change_str = str(row.iloc[3])
-                        pct_str = str(row.iloc[4])
+                    try: price_str, change_str, pct_str = str(row.iloc[2]), str(row.iloc[3]), str(row.iloc[4])
                     except: pass
+                
+                # 거래량 파싱 (보통 6번째 열에 존재)
+                try: vol_str = str(row.iloc[5]) if str(row.iloc[5]) != "nan" else "-"
+                except: vol_str = "-"
                 
                 try: pct_val = float(re.sub(r'[^\d\.\+\-]', '', pct_str))
                 except: pct_val = 0.0
                     
-                if pct_val >= 5.0: # 5% 이상 급등주 필터링
-                    result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": "조회완료"})
+                if pct_val >= 5.0:
+                    # 등락금액에 달러($) 표시 추가
+                    if change_str.startswith('+'): change_str = f"+${change_str[1:]}"
+                    elif change_str.startswith('-'): change_str = f"-${change_str[1:]}"
+                    elif change_str and change_str != "nan": change_str = f"${change_str}"
+                    else: change_str = "-"
+
+                    result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": vol_str})
         
         df = pd.DataFrame(result_data)
         if df.empty: return pd.DataFrame(), 1350.0
@@ -452,7 +435,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
-        # 👈 [수정 3] 차트 x축 오류 해결 (영어 달 이름이 나오지 않게 명확한 한글 포맷으로 강제 변경)
+        # 👈 [핵심 수정] 날짜 형식을 '03월 14일' 형태로 명확하게 변경 (2002년으로 착각하는 버그 완벽 차단)
         price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
         vol_df = tech_result["거래량 데이터"].reset_index()
         vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
