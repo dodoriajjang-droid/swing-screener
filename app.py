@@ -14,6 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
+import json
 
 # ==========================================
 # 1. 초기 설정 
@@ -54,17 +55,27 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
-@st.cache_data(ttl=3600)
+# 👈 [복구] CNN 지수 다중 우회망 최적화
+@st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code != 200: res = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    proxies = [
+        url,
+        f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}",
+        f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+    ]
+    for p_url in proxies:
+        try:
+            res = requests.get(p_url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                return {
+                    "score": round(data['fear_and_greed']['score']), 
+                    "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), 
+                    "rating": data['fear_and_greed']['rating'].capitalize()
+                }
+        except: continue
     return None
 
 @st.cache_data(ttl=3600)
@@ -162,7 +173,6 @@ def get_trading_value_kings():
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
     except Exception as e: return pd.DataFrame()
 
-# 👈 [추가] 9번 탭 스캐너를 위한 종목 리스트 추출기 (거래대금 상위 50종목)
 @st.cache_data(ttl=600)
 def get_scan_targets(limit=50):
     try:
@@ -173,10 +183,14 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-@st.cache_data(ttl=300)
+# 👈 [복구] 네이버 뉴스 강제 새로고침 로직 (타임스탬프 추가)
+@st.cache_data(ttl=120)
 def get_latest_naver_news():
     try:
-        res = requests.get("https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258", headers={"User-Agent": "Mozilla/5.0"})
+        # 네이버 내부 캐시를 무시하기 위해 무작위 파라미터(_ts) 추가
+        ts = int(datetime.now().timestamp())
+        url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&_ts={ts}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
         return [{"title": tag.get_text(strip=True), "link": "https://finance.naver.com" + tag['href'] if tag['href'].startswith("/") else tag['href']} for tag in soup.select("dl dd.articleSubject a")]
     except: return []
@@ -280,11 +294,26 @@ def get_investor_trend(code):
         return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak)
     except: return "조회불가", "조회불가"
 
+# 👈 [복구] PER / PBR 네이버 웹 크롤링 도입 (yfinance 블락 차단)
 def get_fundamentals(ticker_code):
-    try:
-        info = yf.Ticker(f"{ticker_code}.KS" if ticker_code.isdigit() else ticker_code).info
-        return info.get('trailingPE', 'N/A'), info.get('priceToBook', 'N/A')
-    except: return 'N/A', 'N/A'
+    # 한국 주식은 네이버에서 정확하게 긁어옴
+    if ticker_code.isdigit():
+        try:
+            url = f"https://finance.naver.com/item/main.naver?code={ticker_code}"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            soup = BeautifulSoup(res.text, 'html.parser')
+            per = soup.select_one('#_per').text if soup.select_one('#_per') else 'N/A'
+            pbr = soup.select_one('#_pbr').text if soup.select_one('#_pbr') else 'N/A'
+            return per, pbr
+        except: return 'N/A', 'N/A'
+    else:
+        # 미국 주식은 야후 파이낸스 이용
+        try:
+            info = yf.Ticker(ticker_code).info
+            per = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
+            pbr = round(info.get('priceToBook', 0), 2) if info.get('priceToBook') else 'N/A'
+            return per, pbr
+        except: return 'N/A', 'N/A'
 
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
@@ -506,7 +535,9 @@ with m_col3:
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
-    if st.button("🔄 증시 데이터 리로드", type="primary", use_container_width=True): st.cache_data.clear()
+    if st.button("🔄 증시 데이터 리로드", type="primary", use_container_width=True): 
+        get_latest_naver_news.clear()
+        st.cache_data.clear()
     st.divider()
     st.header("🧠 AI 엔진 연결 상태")
     
@@ -527,8 +558,7 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 👈 [핵심 추가] 9번 스캐너 탭 신설
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["🔥 🇺🇸 미국 폭등주", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 실시간 조건 검색 스캐너"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["🔥 🇺🇸 미국 폭등주", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너"])
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -624,7 +654,9 @@ with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     cols_top = st.columns([4, 1])
     cols_top[0].subheader("📰 프로 트레이더용 실시간 속보 터미널")
-    if cols_top[1].button("🔄 속보 리로드", use_container_width=True): get_latest_naver_news.clear()
+    if cols_top[1].button("🔄 속보 리로드", use_container_width=True): 
+        get_latest_naver_news.clear()
+        st.rerun()
     
     keywords_input = st.text_input("🎯 핵심 키워드 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
     keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
@@ -799,7 +831,6 @@ with tab8:
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
 
-# 👈 [핵심 추가] 탭 9: 실시간 조건 검색 스캐너 탑재
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너")
@@ -824,7 +855,6 @@ with tab9:
                 status_text = st.empty()
                 found_results = []
                 
-                # 상위 50개 종목을 하나씩 분석하며 조건에 맞는지 필터링
                 for i, (name, code) in enumerate(targets):
                     status_text.text(f"🔍 스캔 중: {name} ({i+1}/{len(targets)})")
                     res = analyze_technical_pattern(name, code)
@@ -849,4 +879,5 @@ with tab9:
                 else:
                     st.success(f"🎯 조건에 부합하는 주도주 {len(found_results)}개를 찾았습니다!")
                     for i, res in enumerate(found_results):
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"t9_{i}")
+                        # 👈 [복구] 스캐너 결과는 닫힌 상태(is_expanded=False)로 출력
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
