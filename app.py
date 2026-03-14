@@ -185,6 +185,7 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
+# 👈 [핵심 수정] 네이버 뉴스에서 '진짜 작성 시간'을 정밀하게 추출하도록 구조 변경
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     try:
@@ -192,15 +193,36 @@ def get_latest_naver_news():
         url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&_ts={ts}"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
-        return [{"title": tag.get_text(strip=True), "link": "https://finance.naver.com" + tag['href'] if tag['href'].startswith("/") else tag['href']} for tag in soup.select("dl dd.articleSubject a")]
+        
+        articles = []
+        for dl in soup.select("dl"):
+            subject = dl.select_one(".articleSubject a")
+            if not subject: continue
+            
+            title = subject.get_text(strip=True)
+            link = "https://finance.naver.com" + subject['href'] if subject['href'].startswith("/") else subject['href']
+            
+            pub_time = ""
+            wdate = dl.select_one(".wdate")
+            if wdate:
+                # "2026-03-14 23:05:00" 형태의 원본 텍스트에서 시간(HH:MM)만 쏙 뽑아냄
+                match = re.search(r'(\d{2}:\d{2})', wdate.get_text(strip=True))
+                if match: pub_time = match.group(1)
+            
+            # 파싱 실패 시에만 현재 시간 할당
+            if not pub_time:
+                pub_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%H:%M")
+                
+            articles.append({"title": title, "link": link, "time": pub_time})
+            
+        return articles
     except: return []
 
 def update_news_state():
     items = get_latest_naver_news()
-    time_str = (datetime.utcnow() + timedelta(hours=9)).strftime("%H:%M")
     for item in reversed(items): 
         if item['link'] not in st.session_state.seen_links and item['title'] not in st.session_state.seen_titles:
-            st.session_state.news_data.insert(0, {"time": time_str, "title": item['title'], "link": item['link']})
+            st.session_state.news_data.insert(0, item)
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
@@ -349,7 +371,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
         per, pbr = get_fundamentals(ticker_code)
         
-        # 👈 [복구 완료] 3차 목표가 (오버슈팅) 계산 로직 추가
         target_1 = int(latest['Bollinger_Upper'])
         recent_high = int(df['Close'].max())
         target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
@@ -881,7 +902,6 @@ with tab9:
 
     st.divider()
 
-    # 스캔 결과 출력 (닫힌 상태로 렌더링)
     if st.session_state.scan_results is not None:
         if len(st.session_state.scan_results) == 0:
             st.info("선택하신 조건에 정확히 일치하는 종목이 없습니다. 조건을 완화하여 다시 검색해보세요.")
