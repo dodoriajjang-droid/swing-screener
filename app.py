@@ -22,7 +22,6 @@ import json
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 👈 [핵심 추가] scan_results 를 세션 상태에 추가하여 검색 결과 증발 방지
 for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
@@ -350,7 +349,7 @@ def analyze_technical_pattern(stock_name, ticker_code):
         inst_vol, forgn_vol = get_investor_trend(ticker_code)
         per, pbr = get_fundamentals(ticker_code)
         
-        # 👈 [복구] 3차 익절가 (슈팅구간 8%) 로직 추가
+        # 👈 [복구 완료] 3차 목표가 (오버슈팅) 계산 로직 추가
         target_1 = int(latest['Bollinger_Upper'])
         recent_high = int(df['Close'].max())
         target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
@@ -454,7 +453,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
             st.rerun()
 
-        # 👈 [복구] 3차 오버슈팅 목표가를 화면에 추가 배치
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
         c1.metric("📌 진입 기준가", f"{tech_result['진입가_가이드']:,}원", f"{tech_result['진입가_가이드'] - curr:,}원 (대비)", delta_color="off")
@@ -463,7 +461,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         c4.metric("🌌 3차 (오버슈팅)", f"{tech_result['목표가3']:,}원", f"+{tech_result['목표가3'] - curr:,}원", delta_color="normal")
         
         st.markdown("---")
-        # 👈 [복구] 손절 라인을 RSI 라인으로 분리 이동 (UI 최적화)
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
@@ -665,7 +662,7 @@ with tab4:
         get_latest_naver_news.clear()
         st.rerun()
     
-    keywords_input = st.text_input("🎯 핵심 키워 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
+    keywords_input = st.text_input("🎯 핵심 키워드 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
     keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
     only_kw = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
     
