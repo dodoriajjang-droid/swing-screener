@@ -22,12 +22,16 @@ import json
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
+# 👈 [핵심 추가] scan_results 를 세션 상태에 추가하여 검색 결과 증발 방지
 for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
         
 if 'quick_analyze_news' not in st.session_state:
     st.session_state.quick_analyze_news = None
+
+if 'scan_results' not in st.session_state:
+    st.session_state.scan_results = None
 
 # ==========================================
 # 2. 통합 AI 호출 엔진
@@ -55,7 +59,6 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
-# 👈 [복구] CNN 지수 다중 우회망 최적화
 @st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
@@ -183,11 +186,9 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-# 👈 [복구] 네이버 뉴스 강제 새로고침 로직 (타임스탬프 추가)
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     try:
-        # 네이버 내부 캐시를 무시하기 위해 무작위 파라미터(_ts) 추가
         ts = int(datetime.now().timestamp())
         url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&_ts={ts}"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -294,9 +295,7 @@ def get_investor_trend(code):
         return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak)
     except: return "조회불가", "조회불가"
 
-# 👈 [복구] PER / PBR 네이버 웹 크롤링 도입 (yfinance 블락 차단)
 def get_fundamentals(ticker_code):
-    # 한국 주식은 네이버에서 정확하게 긁어옴
     if ticker_code.isdigit():
         try:
             url = f"https://finance.naver.com/item/main.naver?code={ticker_code}"
@@ -307,7 +306,6 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
     else:
-        # 미국 주식은 야후 파이낸스 이용
         try:
             info = yf.Ticker(ticker_code).info
             per = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
@@ -538,6 +536,7 @@ with st.sidebar:
     if st.button("🔄 증시 데이터 리로드", type="primary", use_container_width=True): 
         get_latest_naver_news.clear()
         st.cache_data.clear()
+        st.rerun()
     st.divider()
     st.header("🧠 AI 엔진 연결 상태")
     
@@ -872,12 +871,16 @@ with tab9:
                     progress_bar.progress((i + 1) / len(targets))
                     
                 status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
-                st.divider()
-                
-                if not found_results:
-                    st.info("선택하신 조건에 정확히 일치하는 종목이 없습니다. 조건을 완화하여 다시 검색해보세요.")
-                else:
-                    st.success(f"🎯 조건에 부합하는 주도주 {len(found_results)}개를 찾았습니다!")
-                    for i, res in enumerate(found_results):
-                        # 👈 [복구] 스캐너 결과는 닫힌 상태(is_expanded=False)로 출력
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
+                st.session_state.scan_results = found_results
+                st.rerun()
+
+    st.divider()
+
+    # 스캔 결과 출력 (닫힌 상태로 렌더링)
+    if st.session_state.scan_results is not None:
+        if len(st.session_state.scan_results) == 0:
+            st.info("선택하신 조건에 정확히 일치하는 종목이 없습니다. 조건을 완화하여 다시 검색해보세요.")
+        else:
+            st.success(f"🎯 조건에 부합하는 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
+            for i, res in enumerate(st.session_state.scan_results):
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
