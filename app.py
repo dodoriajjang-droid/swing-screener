@@ -14,6 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
+import json
 
 # ==========================================
 # 1. 초기 설정 
@@ -54,20 +55,48 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
+# 👈 [핵심 복구] CNN 공포/탐욕 지수 3중 우회망 및 JSON 파싱 우회 로직 적용
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Origin": "https://edition.cnn.com",
+        "Referer": "https://edition.cnn.com/",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "cors"
+    }
+    
+    # 1. 다이렉트 접속 시도
     try:
         res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code != 200: res = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res.status_code == 200:
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    
+    # 2. AllOrigins 텍스트 래핑 우회 시도 (서버 차단 회피의 핵심)
+    try:
+        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res2.status_code == 200:
+            json_data = res2.json()
+            data = json.loads(json_data['contents']) # 텍스트로 들어온 데이터를 JSON으로 강제 파싱
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+
+    # 3. CodeTabs 프록시 우회 시도
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    
     return None
 
-# 👈 [핵심 수정] 달러 기호($) 추가 및 거래량(Volume) 정상 파싱 로직 적용
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     try:
@@ -94,7 +123,6 @@ def get_us_top_gainers():
                     try: price_str, change_str, pct_str = str(row.iloc[2]), str(row.iloc[3]), str(row.iloc[4])
                     except: pass
                 
-                # 거래량 파싱 (보통 6번째 열에 존재)
                 try: vol_str = str(row.iloc[5]) if str(row.iloc[5]) != "nan" else "-"
                 except: vol_str = "-"
                 
@@ -102,7 +130,6 @@ def get_us_top_gainers():
                 except: pct_val = 0.0
                     
                 if pct_val >= 5.0:
-                    # 등락금액에 달러($) 표시 추가
                     if change_str.startswith('+'): change_str = f"+${change_str[1:]}"
                     elif change_str.startswith('-'): change_str = f"-${change_str[1:]}"
                     elif change_str and change_str != "nan": change_str = f"${change_str}"
@@ -330,23 +357,6 @@ def analyze_technical_pattern(stock_name, ticker_code):
         }
     except: return None
 
-@st.cache_data(ttl=43200)
-def get_naver_calendar_events():
-    try:
-        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
-            events_data = []
-            for cell in soup.select("table.type_cal tbody tr td"):
-                day_tag = cell.select_one("span.t_day")
-                if not day_tag: continue
-                day = day_tag.text.strip()
-                for item in cell.select("ul li"):
-                    if item.text.strip(): events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
-            if events_data: return pd.DataFrame(events_data)
-    except: pass
-    return pd.DataFrame()
-
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
     portfolio = {
@@ -435,7 +445,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
-        # 👈 [핵심 수정] 날짜 형식을 '03월 14일' 형태로 명확하게 변경 (2002년으로 착각하는 버그 완벽 차단)
         price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
         vol_df = tech_result["거래량 데이터"].reset_index()
         vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
