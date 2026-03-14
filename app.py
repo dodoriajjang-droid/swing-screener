@@ -14,6 +14,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
+import json
 
 # ==========================================
 # 1. 초기 설정 
@@ -25,7 +26,6 @@ for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
         
-# 💡 뉴스 종목 즉시 진단을 위한 세션 추가
 if 'quick_analyze_news' not in st.session_state:
     st.session_state.quick_analyze_news = None
 
@@ -55,33 +55,99 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
+# 👈 [수정 1] CNN 공포/탐욕 지수 3중 우회 접속 (서버 차단 해결)
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
+    
+    # 1차 시도: 다이렉트
     try:
         res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code != 200: res = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res.status_code == 200:
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    
+    # 2차 시도: corsproxy 우회
+    try:
+        res2 = requests.get(f"https://corsproxy.io/?{urllib.parse.quote(url)}", headers=headers, timeout=5)
+        if res2.status_code == 200:
+            data = res2.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+
+    # 3차 시도: allorigins 우회
+    try:
+        res3 = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    
     return None
 
+# 👈 [수정 2] 야후 파이낸스 HTML 구조 변경 대응 (현재가 None 표기 버그 완벽 해결)
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     try:
         response = requests.get('https://finance.yahoo.com/gainers', headers={'User-Agent': 'Mozilla/5.0'})
-        df = pd.read_html(StringIO(response.text))[0].iloc[:, :6]
-        df.columns = ['종목코드', '기업명', '현재가', '등락금액', '등락률', '거래량']
-        df['실제등락률'] = df['등락률'].apply(lambda x: float(re.sub(r'[^\d\.\+\-]', '', str(x))) if pd.notnull(x) else 0.0)
-        df = df[df['실제등락률'] >= 10.0].drop(columns=['실제등락률'])
-        df['종목코드'] = df['종목코드'].astype(str).apply(lambda x: x.split()[0])
-        try: ex_rate = yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1]
+        tables = pd.read_html(StringIO(response.text))
+        raw_df = tables[0]
+        
+        result_data = []
+        for _, row in raw_df.iterrows():
+            row_vals = row.dropna().astype(str).tolist()
+            if len(row_vals) >= 3:
+                sym = row_vals[0].split()[0]
+                name = row_vals[1]
+                price_str, change_str, pct_str = "", "", ""
+                
+                # 야후 파이낸스가 현재가, 등락금액, 등락률을 한 칸에 합쳐서 보내는 버그 대응
+                for val in row_vals[2:]:
+                    if "%" in val and ("+" in val or "-" in val):
+                        parts = val.split()
+                        if len(parts) >= 3:
+                            price_str = parts[0]
+                            change_str = parts[1]
+                            pct_str = parts[2].replace("(", "").replace(")", "")
+                            break
+                
+                # 정상적으로 나뉘어져 있을 경우
+                if not price_str:
+                    try:
+                        price_str = str(row.iloc[2])
+                        change_str = str(row.iloc[3])
+                        pct_str = str(row.iloc[4])
+                    except: pass
+                
+                try: pct_val = float(re.sub(r'[^\d\.\+\-]', '', pct_str))
+                except: pct_val = 0.0
+                    
+                if pct_val >= 5.0: # 5% 이상 급등주 필터링
+                    result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": "조회완료"})
+        
+        df = pd.DataFrame(result_data)
+        if df.empty: return pd.DataFrame(), 1350.0
+        df = df.sort_values('등락률', ascending=False).head(15)
+        
+        try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
         except: ex_rate = 1350.0 
-        df['현재가'] = df['현재가'].apply(lambda x: f"${float(str(x).split()[0].replace(',', '')):.2f} (약 {int(float(str(x).split()[0].replace(',', '')) * ex_rate):,}원)" if pd.notnull(x) else x)
+        
+        def get_korean_name(n):
+            try:
+                res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(n)}", timeout=2)
+                ko_name = res.json()[0][0][0]
+                return f"{n} / {ko_name}" if ko_name.lower() != n.lower() else n
+            except: return n
+            
+        df['기업명'] = df['기업명'].apply(get_korean_name)
+        df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f} (약 {int(float(x.replace(',', '')) * ex_rate):,}원)" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
+        df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
+        
         return df, ex_rate
-    except: return pd.DataFrame(), 1350.0
+    except Exception as e: 
+        return pd.DataFrame(), 1350.0
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
@@ -386,9 +452,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         ch1, ch2 = st.columns(2)
         price_df = tech_result["종가 데이터"].reset_index()
-        price_df['Date_Str'] = price_df['Date'].dt.strftime('%m/%d') 
+        # 👈 [수정 3] 차트 x축 오류 해결 (영어 달 이름이 나오지 않게 명확한 한글 포맷으로 강제 변경)
+        price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
         vol_df = tech_result["거래량 데이터"].reset_index()
-        vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m/%d')
+        vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
         
         with ch1:
             st.caption("📈 주가 흐름 (최근 20일)")
@@ -562,9 +629,6 @@ with tab3:
                     if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t3_{i}")
             else: st.error(f"❌ '{query}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
-# ------------------------------------------
-# [탭 4] 완전히 새롭게 업그레이드된 실시간 뉴스 터미널
-# ------------------------------------------
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     cols_top = st.columns([4, 1])
@@ -578,7 +642,6 @@ with tab4:
     update_news_state()
     st.divider()
 
-    # 1. 뉴스에서 특정 종목 진단 버튼을 눌렀을 때 팝업되는 '즉시 진단 패널'
     if st.session_state.quick_analyze_news:
         qa_name, qa_code = st.session_state.quick_analyze_news
         st.success(f"⚡ **{qa_name}** 뉴스 감지! 즉시 타점을 진단합니다.")
@@ -593,13 +656,11 @@ with tab4:
             st.rerun()
         st.divider()
 
-    # 종목 매칭을 위한 국내 주식 딕셔너리화 (글자수 2자 이상만 필터링하여 정확도 상승)
     krx_df = get_krx_stocks()
     krx_dict = {}
     if not krx_df.empty:
         krx_dict = {row['Name']: row['Code'] for _, row in krx_df.iterrows() if len(str(row['Name'])) > 1}
 
-    # 뉴스 리스트 분리: 핀(Pin) 고정용 주요 뉴스 vs 일반 뉴스
     pinned_news = []
     regular_news = []
     
@@ -607,7 +668,6 @@ with tab4:
         has_kw = any(k.lower() in news['title'].lower() for k in keywords)
         if only_kw and not has_kw: continue
         
-        # '단독', '특징주', '상한가' 등 강력한 재료가 포함된 키워드일 경우 Pinned 후보로 승격
         is_urgent = any(kw in news['title'] for kw in ['단독', '특징주', '상한가', '수주', '최대'])
         
         if has_kw and is_urgent and len(pinned_news) < 2:
@@ -615,7 +675,6 @@ with tab4:
         else:
             regular_news.append(news)
 
-    # 2. 최상단 실시간 메인 헤드라인 카드 렌더링
     if pinned_news:
         st.markdown("### 🚨 실시간 메인 헤드라인 (특징주/단독)")
         cols_pin = st.columns(len(pinned_news))
@@ -629,14 +688,12 @@ with tab4:
                     st.link_button("원문 전체 읽기 🔗", p_news['link'], use_container_width=True)
         st.markdown("---")
 
-    # 3. 일반 뉴스 리스트 (호재/악재 뱃지 및 종목 자동 매칭 버튼)
     good_kws = ['돌파', '최대', '흑자', '승인', '급등', '수주', '상한가', '호실적', 'MOU']
     bad_kws = ['하락', '적자', '배임', '블록딜', '급락', '횡령', '상장폐지', '주의']
     
     for i, news in enumerate(regular_news[:40]):
         title = news['title']
         
-        # 라벨링 및 컬러 뱃지 생성
         prefix = ""
         if '단독' in title: prefix += "🚨**[단독]** "
         if '특징주' in title: prefix += "💡**[특징주]** "
@@ -646,7 +703,6 @@ with tab4:
         
         display_title = f"{prefix}{title}"
         
-        # 뉴스 제목에서 상장사 이름 추출 (최대 1개만 매칭하여 UI 깔끔하게 유지)
         found_comps = []
         for name, code in krx_dict.items():
             if name in title:
@@ -658,7 +714,6 @@ with tab4:
             cols[0].markdown(f"**🕒 {news['time']}**")
             cols[1].markdown(display_title)
             
-            # 뉴스에 언급된 종목의 즉시 진단 버튼 렌더링
             with cols[2]:
                 for c_name, c_code in found_comps:
                     if st.button(f"🔍 {c_name} 타점보기", key=f"qa_{c_code}_{i}"):
@@ -694,19 +749,19 @@ with tab5:
         
         st.markdown("### 🎯 주도주 즉시 타점 진단")
         opts = ["🔍 종목을 선택하세요."] + (t_kings['Name'].astype(str) + " (" + t_kings['Code'].astype(str) + ")").tolist()
-        sel_king = st.selectbox("목록에서 타점을 확인할 종목을 고르세요:", opts)
+        sel_king = st.selectbox("목록에서 타점을 확인할 종목 고르기:", opts)
         
         if sel_king != "🔍 종목을 선택하세요.":
             k_name = sel_king.rsplit(" (", 1)[0]
             k_code = sel_king.rsplit("(", 1)[-1].replace(")", "").strip()
             
-            with st.spinner(f"📡 '{k_name}'의 타점 및 메이저 수급 분석 중..."):
+            with st.spinner(f"📡 '{k_name}'의 타점 분석 중..."):
                 res = analyze_technical_pattern(k_name, k_code)
                 
             if res: 
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t5")
             else:
-                st.error("❌ 분석 불가: 20일치 이상의 데이터가 없는 신규 상장주이거나 거래가 정지된 종목입니다.")
+                st.error("❌ 분석 불가: 데이터가 부족하거나 거래 정지된 종목입니다.")
 
 with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
