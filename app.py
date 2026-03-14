@@ -833,7 +833,7 @@ with tab8:
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너")
-    st.write("시장 주도주(당일 거래대금 상위 100개) 중 상승 확률이 높은 타점에 온 종목만 10초 만에 족집게처럼 찾아냅니다.")
+    st.write("시장 주도주(당일 거래대금 상위 50개) 중 상승 확률이 높은 타점에 온 종목만 10초 만에 족집게처럼 찾아냅니다.")
     
     st.markdown("#### 🎯 스캔할 조건 선택 (중복 선택 가능)")
     col_c1, col_c2 = st.columns(2)
@@ -844,9 +844,9 @@ with tab9:
         cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
         cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
         
-    if st.button("🚀 주도주 100종목 쾌속 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner("거래대금 깡패 상위 100개 종목을 필터링 중입니다... (약 10~20초 소요)"):
-            targets = get_scan_targets(100)
+    if st.button("🚀 주도주 50종목 쾌속 스캔 시작", type="primary", use_container_width=True):
+        with st.spinner("거래대금 깡패 상위 50개 종목을 필터링 중입니다... (약 10~20초 소요)"):
+            targets = get_scan_targets(50)
             if not targets:
                 st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
             else:
