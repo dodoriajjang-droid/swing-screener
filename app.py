@@ -14,7 +14,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
-import json
 
 # ==========================================
 # 1. 초기 설정 
@@ -55,46 +54,17 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
-# 👈 [핵심 복구] CNN 공포/탐욕 지수 3중 우회망 및 JSON 파싱 우회 로직 적용
 @st.cache_data(ttl=3600)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Origin": "https://edition.cnn.com",
-        "Referer": "https://edition.cnn.com/",
-        "Sec-Fetch-Site": "cross-site",
-        "Sec-Fetch-Mode": "cors"
-    }
-    
-    # 1. 다이렉트 접속 시도
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"}
     try:
         res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code != 200: res = requests.get(f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res.status_code == 200:
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    
-    # 2. AllOrigins 텍스트 래핑 우회 시도 (서버 차단 회피의 핵심)
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res2.status_code == 200:
-            json_data = res2.json()
-            data = json.loads(json_data['contents']) # 텍스트로 들어온 데이터를 JSON으로 강제 파싱
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-
-    # 3. CodeTabs 프록시 우회 시도
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    
     return None
 
 @st.cache_data(ttl=3600)
@@ -191,6 +161,17 @@ def get_trading_value_kings():
         df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
     except Exception as e: return pd.DataFrame()
+
+# 👈 [추가] 9번 탭 스캐너를 위한 종목 리스트 추출기 (거래대금 상위 50종목)
+@st.cache_data(ttl=600)
+def get_scan_targets(limit=50):
+    try:
+        df = fdr.StockListing('KRX')
+        if df.empty: return []
+        mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지')
+        df = df[~mask].sort_values('Amount', ascending=False).head(limit)
+        return df[['Name', 'Code']].values.tolist()
+    except: return []
 
 @st.cache_data(ttl=300)
 def get_latest_naver_news():
@@ -356,6 +337,23 @@ def analyze_technical_pattern(stock_name, ticker_code):
             "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
         }
     except: return None
+
+@st.cache_data(ttl=43200)
+def get_naver_calendar_events():
+    try:
+        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
+            events_data = []
+            for cell in soup.select("table.type_cal tbody tr td"):
+                day_tag = cell.select_one("span.t_day")
+                if not day_tag: continue
+                day = day_tag.text.strip()
+                for item in cell.select("ul li"):
+                    if item.text.strip(): events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
+            if events_data: return pd.DataFrame(events_data)
+    except: pass
+    return pd.DataFrame()
 
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
@@ -529,7 +527,8 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["🔥 🇺🇸 미국 폭등주", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목"])
+# 👈 [핵심 추가] 9번 스캐너 탭 신설
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["🔥 🇺🇸 미국 폭등주", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 실시간 조건 검색 스캐너"])
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -799,3 +798,55 @@ with tab8:
         for i, item in enumerate(st.session_state.watchlist):
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
+
+# 👈 [핵심 추가] 탭 9: 실시간 조건 검색 스캐너 탑재
+with tab9:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🚀 실시간 조건 검색 스캐너")
+    st.write("시장 주도주(당일 거래대금 상위 50개) 중 상승 확률이 높은 타점에 온 종목만 10초 만에 족집게처럼 찾아냅니다.")
+    
+    st.markdown("#### 🎯 스캔할 조건 선택 (중복 선택 가능)")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        cond_golden = st.checkbox("✨ 5일-20일 골든크로스 또는 정배열 초입")
+        cond_pullback = st.checkbox("✅ 20일선 눌림목 (진입 타점 근접)", value=True)
+    with col_c2:
+        cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
+        cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
+        
+    if st.button("🚀 주도주 50종목 쾌속 스캔 시작", type="primary", use_container_width=True):
+        with st.spinner("거래대금 깡패 상위 50개 종목을 필터링 중입니다... (약 10~20초 소요)"):
+            targets = get_scan_targets(50)
+            if not targets:
+                st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                found_results = []
+                
+                # 상위 50개 종목을 하나씩 분석하며 조건에 맞는지 필터링
+                for i, (name, code) in enumerate(targets):
+                    status_text.text(f"🔍 스캔 중: {name} ({i+1}/{len(targets)})")
+                    res = analyze_technical_pattern(name, code)
+                    
+                    if res:
+                        match = True
+                        if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
+                        if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
+                        if cond_rsi_bottom and res['RSI'] > 30: match = False
+                        if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
+                        
+                        if match: 
+                            found_results.append(res)
+                            
+                    progress_bar.progress((i + 1) / len(targets))
+                    
+                status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
+                st.divider()
+                
+                if not found_results:
+                    st.info("선택하신 조건에 정확히 일치하는 종목이 없습니다. 조건을 완화하여 다시 검색해보세요.")
+                else:
+                    st.success(f"🎯 조건에 부합하는 주도주 {len(found_results)}개를 찾았습니다!")
+                    for i, res in enumerate(found_results):
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"t9_{i}")
