@@ -61,23 +61,36 @@ def get_macro_indicators():
 @st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    proxies = [
-        url,
-        f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}",
-        f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-    ]
-    for p_url in proxies:
-        try:
-            res = requests.get(p_url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                return {
-                    "score": round(data['fear_and_greed']['score']), 
-                    "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), 
-                    "rating": data['fear_and_greed']['rating'].capitalize()
-                }
-        except: continue
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Origin": "https://edition.cnn.com",
+        "Referer": "https://edition.cnn.com/"
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    
+    try:
+        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res2.status_code == 200:
+            data = json.loads(res2.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    
     return None
 
 @st.cache_data(ttl=3600)
@@ -185,7 +198,7 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-# 👈 [핵심 수정] 네이버 뉴스에서 '진짜 작성 시간'을 정밀하게 추출하도록 구조 변경
+# 👈 [핵심 수정] 네이버 뉴스 스마트 날짜 파싱 (과거 기사는 월/일 표기)
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     try:
@@ -205,11 +218,22 @@ def get_latest_naver_news():
             pub_time = ""
             wdate = dl.select_one(".wdate")
             if wdate:
-                # "2026-03-14 23:05:00" 형태의 원본 텍스트에서 시간(HH:MM)만 쏙 뽑아냄
-                match = re.search(r'(\d{2}:\d{2})', wdate.get_text(strip=True))
-                if match: pub_time = match.group(1)
+                raw_date = wdate.get_text(strip=True)
+                match = re.search(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', raw_date)
+                if match:
+                    date_part = match.group(1) # YYYY-MM-DD
+                    time_part = match.group(2) # HH:MM
+                    
+                    # 오늘 날짜 확인 (한국 시간 기준)
+                    today_str = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
+                    if date_part == today_str:
+                        pub_time = time_part # 오늘이면 시간만 표기
+                    else:
+                        pub_time = f"{date_part[5:].replace('-', '/')} {time_part}" # 과거면 'MM/DD HH:MM' 표기
+                else:
+                    match_time = re.search(r'(\d{2}:\d{2})', raw_date)
+                    if match_time: pub_time = match_time.group(1)
             
-            # 파싱 실패 시에만 현재 시간 할당
             if not pub_time:
                 pub_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%H:%M")
                 
@@ -559,9 +583,13 @@ with m_col3:
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
+    # 👈 [복구] 사이드바 리로드 버튼 클릭 시 뉴스 캐시 완벽 초기화
     if st.button("🔄 증시 데이터 리로드", type="primary", use_container_width=True): 
         get_latest_naver_news.clear()
         st.cache_data.clear()
+        st.session_state.news_data = []
+        st.session_state.seen_links = set()
+        st.session_state.seen_titles = set()
         st.rerun()
     st.divider()
     st.header("🧠 AI 엔진 연결 상태")
@@ -679,8 +707,12 @@ with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     cols_top = st.columns([4, 1])
     cols_top[0].subheader("📰 프로 트레이더용 실시간 속보 터미널")
+    # 👈 [복구] 뉴스 속보 리로드 버튼 캐시 완벽 초기화
     if cols_top[1].button("🔄 속보 리로드", use_container_width=True): 
         get_latest_naver_news.clear()
+        st.session_state.news_data = []
+        st.session_state.seen_links = set()
+        st.session_state.seen_titles = set()
         st.rerun()
     
     keywords_input = st.text_input("🎯 핵심 키워드 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
