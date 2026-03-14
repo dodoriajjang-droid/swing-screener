@@ -563,7 +563,7 @@ with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns([1, 1.2], gap="large")
     with col1:
-        st.subheader("🔥 미국장 폭등주 (+10% 이상)")
+        st.subheader("🔥 미국장 폭등주 ")
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             if api_key_input:
