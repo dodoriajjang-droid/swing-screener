@@ -198,7 +198,6 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-# 👈 [핵심 수정] 네이버 뉴스 스마트 날짜 파싱 (과거 기사는 월/일 표기)
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     try:
@@ -221,15 +220,14 @@ def get_latest_naver_news():
                 raw_date = wdate.get_text(strip=True)
                 match = re.search(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', raw_date)
                 if match:
-                    date_part = match.group(1) # YYYY-MM-DD
-                    time_part = match.group(2) # HH:MM
+                    date_part = match.group(1)
+                    time_part = match.group(2)
                     
-                    # 오늘 날짜 확인 (한국 시간 기준)
                     today_str = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
                     if date_part == today_str:
-                        pub_time = time_part # 오늘이면 시간만 표기
+                        pub_time = time_part
                     else:
-                        pub_time = f"{date_part[5:].replace('-', '/')} {time_part}" # 과거면 'MM/DD HH:MM' 표기
+                        pub_time = f"{date_part[5:].replace('-', '/')} {time_part}"
                 else:
                     match_time = re.search(r'(\d{2}:\d{2})', raw_date)
                     if match_time: pub_time = match_time.group(1)
@@ -583,7 +581,6 @@ with m_col3:
 
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
-    # 👈 [복구] 사이드바 리로드 버튼 클릭 시 뉴스 캐시 완벽 초기화
     if st.button("🔄 증시 데이터 리로드", type="primary", use_container_width=True): 
         get_latest_naver_news.clear()
         st.cache_data.clear()
@@ -707,7 +704,6 @@ with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     cols_top = st.columns([4, 1])
     cols_top[0].subheader("📰 프로 트레이더용 실시간 속보 터미널")
-    # 👈 [복구] 뉴스 속보 리로드 버튼 캐시 완벽 초기화
     if cols_top[1].button("🔄 속보 리로드", use_container_width=True): 
         get_latest_naver_news.clear()
         st.session_state.news_data = []
@@ -888,10 +884,28 @@ with tab8:
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
 
+# 👈 [핵심 추가] 탭 9: 스캐너 콤보 가이드 UI 적용 완료
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너")
     st.write("시장 주도주(당일 거래대금 상위 50개) 중 상승 확률이 높은 타점에 온 종목만 10초 만에 족집게처럼 찾아냅니다.")
+    
+    with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
+        st.markdown("""
+        **🔍 1. 개별 조건 가이드**
+        * **✨ 골든크로스/정배열:** 하락/횡보를 끝내고 이제 막 상승 추세로 방향을 튼 종목 (추세 초입).
+        * **✅ 20일선 눌림목:** 강하게 오르던 주식이 숨을 고르며 20일선 근처까지 내려온 안전한 반등 자리 (스윙 매매의 핵심).
+        * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
+        * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
+        
+        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보** (※ 4개를 다 켜면 논리 충돌로 결과가 안 나올 수 있습니다!)
+        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
+          > 최근 대량 거래량으로 급등 후, 조용히 가격만 빠져 20일선에 안착한 종목. 세력이탈 없이 개미만 턴 상태로 N자형 반등(2차 슈팅)을 먹기 가장 좋습니다.
+        * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
+          > 소외받던 주식이 대량 거래량을 터뜨리며 20일선을 뚫고 올라가는 종목. 새로운 테마 대장주 탄생 시 주로 나타나며 단기 랠리에 올라타기 좋습니다.
+        * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
+          > 투매가 나와 RSI가 바닥을 찍었는데 누군가 물량을 쓸어담은 종목(셀링 클라이맥스). 기술적 반등이 강하게 나오는 자리라 짧게 3~5% 수익 내기 좋습니다.
+        """)
     
     st.markdown("#### 🎯 스캔할 조건 선택 (중복 선택 가능)")
     col_c1, col_c2 = st.columns(2)
