@@ -15,6 +15,7 @@ import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 import json
+import time  # 👈 [추가] 서버 차단 방지를 위한 시간 지연 모듈
 
 # ==========================================
 # 1. 초기 설정 
@@ -194,8 +195,7 @@ def get_trading_value_kings():
                 df['Sector'] = '기타/분류불가'
                 
             return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
-    except: 
-        pass
+    except: pass
     
     try:
         df = fdr.StockListing('KRX')
@@ -769,6 +769,7 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
+# 탭 순서
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
@@ -838,7 +839,8 @@ with tab2:
         * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
         * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
         
-        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보** * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
+        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보**
+        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
         * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
         * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
         """)
@@ -871,6 +873,7 @@ with tab2:
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
                         if match: found_results.append(res)
+                    time.sleep(0.1)  # 네이버 차단 방지
                     progress_bar.progress((i + 1) / len(targets))
                 status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
                 st.session_state.scan_results = found_results
@@ -932,6 +935,7 @@ with tab3:
                                 res = analyze_technical_pattern(name, code)
                                 if res: value_results.append(res)
                         except: pass
+                        time.sleep(0.1)  # 네이버 차단 방지
                         progress_bar.progress((i + 1) / len(candidates))
                     status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 발굴")
                     st.session_state.value_scan_results = value_results
@@ -994,7 +998,7 @@ with tab6:
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     st.write("당일 가장 강력한 자금이 몰린 상/하한가 종목을 파악하고, 주도 테마를 AI로 분석합니다.")
     
-    with st.spinner("거래소 실시간 상/하한가 데이터를 수집 중입니다..."):
+    with st.spinner("네이버 금융에서 실시간 상/하한가 데이터를 수집 중입니다..."):
         upper_df, lower_df = get_limit_stocks()
         
     if api_key_input and not upper_df.empty:
@@ -1135,17 +1139,16 @@ with tab8:
         btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
         btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
 
-# 👈 [완벽 해결] 9번 탭 - 핀비즈 스타일 다크 모드 히트맵 & 문자열 강제 처리 
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💸 시장 주도주 & 자금 흐름 히트맵")
-    with st.spinner("📡 거래소 데이터와 섹터 맵을 생성 중입니다..."):
+    with st.spinner("네이버 금융에서 실시간 거래대금 데이터를 긁어옵니다..."):
         t_kings = get_trading_value_kings()
         
     if not t_kings.empty:
         merged_df = t_kings.copy()
         
-        # 텍스트를 파이썬에서 미리 HTML로 합쳐서 만듦 (Plotly 에러 방지)
+        # 텍스트를 파이썬에서 미리 HTML로 합쳐서 만듦 (Plotly 계산 에러 원천 차단)
         merged_df['display_text'] = (
             "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
             "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
@@ -1180,7 +1183,7 @@ with tab9:
         
         fig_tree.update_traces(
             textinfo="text",
-            texttemplate="%{customdata[2]}", # Plotly가 에러내지 않게 우리가 만든 글자를 강제 주입
+            texttemplate="%{customdata[2]}", # Plotly가 자체 계산하지 않게 파이썬에서 만든 HTML 텍스트를 강제 주입
             textfont=dict(color="white"),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
