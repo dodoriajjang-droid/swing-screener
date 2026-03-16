@@ -61,36 +61,23 @@ def get_macro_indicators():
 @st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Origin": "https://edition.cnn.com",
-        "Referer": "https://edition.cnn.com/"
-    }
-    
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res2.status_code == 200:
-            data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    proxies = [
+        url,
+        f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}",
+        f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+    ]
+    for p_url in proxies:
+        try:
+            res = requests.get(p_url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                return {
+                    "score": round(data['fear_and_greed']['score']), 
+                    "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), 
+                    "rating": data['fear_and_greed']['rating'].capitalize()
+                }
+        except: continue
     return None
 
 @st.cache_data(ttl=3600)
@@ -511,9 +498,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
+            # 👈 [핵심 추가] AI 프롬프트를 2가지 관점(단기 트레이딩 vs 스윙/가치)으로 분리하여 질문하도록 개편
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 기업 가치와 현재 타점을 종합 분석 중입니다..."):
-                    prompt = f"트레이더 분석 요망. 종목:{tech_result['종목명']}. 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}. 1.가치평가(비싼지/싼지) 2.타점분석(차트위치) 3.최종액션(적극매수/분할매수/관망/매수금지 중 택1 및 이유 1줄)"
+                with st.spinner("AI가 차트 분석과 가치 평가를 동시에 진행 중입니다..."):
+                    prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 두 가지 시각으로 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
         ch1, ch2 = st.columns(2)
@@ -614,7 +602,7 @@ with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns([1, 1.2], gap="large")
     with col1:
-        st.subheader("🔥 미국장 폭등주 ")
+        st.subheader("🔥 미국장 폭등주 (+10% 이상)")
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             if api_key_input:
@@ -884,7 +872,6 @@ with tab8:
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
 
-# 👈 [핵심 추가] 탭 9: 스캐너 콤보 가이드 UI 적용 완료
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너")
