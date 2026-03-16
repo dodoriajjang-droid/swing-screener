@@ -201,17 +201,13 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-# 👈 [핵심 수정] 상하한가 문자열 에러 원천 차단 강력 로직
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     try:
         df = fdr.StockListing('KRX')
         if df.empty: return pd.DataFrame(), pd.DataFrame()
         
-        # 컬럼 이름 변경 대응
         ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
-        
-        # ⚠️ 여기서 핵심! FDR이 문자열로 주든 뭘로 주든 무조건 숫자로 강제 치환 (안 되면 0)
         df[ratio_col] = pd.to_numeric(df[ratio_col], errors='coerce').fillna(0)
         df['Changes'] = pd.to_numeric(df['Changes'], errors='coerce').fillna(0)
         df['Close'] = pd.to_numeric(df['Close'], errors='coerce').fillna(0)
@@ -220,14 +216,12 @@ def get_limit_stocks():
         mask_exclude = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE')
         df_filtered = df[~mask_exclude]
         
-        # 비율이 0.295 형식인지 29.5 형식인지 방어적 판별
         max_ratio = df_filtered[ratio_col].max()
         threshold = 0.29 if max_ratio <= 1.5 else 29.0
         
         upper_df = df_filtered[df_filtered[ratio_col] >= threshold].copy()
         lower_df = df_filtered[df_filtered[ratio_col] <= -threshold].copy()
         
-        # 11번 탭 통일성을 위해 무조건 퍼센트로 맞춤
         if threshold == 0.29:
             upper_df['ChagesRatio'] = upper_df[ratio_col] * 100
             lower_df['ChagesRatio'] = lower_df[ratio_col] * 100
@@ -986,7 +980,7 @@ with tab8:
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너")
-    st.write("시장 주도주(당일 거래대금 상위 50개) 중 상승 확률이 높은 타점에 온 종목만 10초 만에 족집게처럼 찾아냅니다.")
+    st.write("시장 주도주(당일 거래대금 상위 종목) 중 상승 확률이 높은 타점에 온 종목을 족집게처럼 찾아냅니다.")
     
     with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
         st.markdown("""
@@ -1014,9 +1008,13 @@ with tab9:
         cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
         cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
         
-    if st.button("🚀 주도주 50종목 쾌속 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner("거래대금 깡패 상위 50개 종목을 필터링 중입니다... (약 10~20초 소요)"):
-            targets = get_scan_targets(50)
+    # 👈 [추가] 검색 범위(상위 N개) 선택 UI 추가
+    st.markdown("#### 📊 스캔 범위 선택")
+    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
+        
+    if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
+        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다... (약 {scan_limit//5}초 소요)"):
+            targets = get_scan_targets(scan_limit)
             if not targets:
                 st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
             else:
