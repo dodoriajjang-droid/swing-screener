@@ -201,23 +201,46 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
+# 👈 [핵심 수정] 상하한가 문자열 에러 원천 차단 강력 로직
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     try:
         df = fdr.StockListing('KRX')
         if df.empty: return pd.DataFrame(), pd.DataFrame()
         
+        # 컬럼 이름 변경 대응
+        ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
+        
+        # ⚠️ 여기서 핵심! FDR이 문자열로 주든 뭘로 주든 무조건 숫자로 강제 치환 (안 되면 0)
+        df[ratio_col] = pd.to_numeric(df[ratio_col], errors='coerce').fillna(0)
+        df['Changes'] = pd.to_numeric(df['Changes'], errors='coerce').fillna(0)
+        df['Close'] = pd.to_numeric(df['Close'], errors='coerce').fillna(0)
+        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
+        
         mask_exclude = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE')
         df_filtered = df[~mask_exclude]
         
-        upper_df = df_filtered[df_filtered['ChagesRatio'] >= 29.5].copy()
-        lower_df = df_filtered[df_filtered['ChagesRatio'] <= -29.5].copy()
+        # 비율이 0.295 형식인지 29.5 형식인지 방어적 판별
+        max_ratio = df_filtered[ratio_col].max()
+        threshold = 0.29 if max_ratio <= 1.5 else 29.0
         
+        upper_df = df_filtered[df_filtered[ratio_col] >= threshold].copy()
+        lower_df = df_filtered[df_filtered[ratio_col] <= -threshold].copy()
+        
+        # 11번 탭 통일성을 위해 무조건 퍼센트로 맞춤
+        if threshold == 0.29:
+            upper_df['ChagesRatio'] = upper_df[ratio_col] * 100
+            lower_df['ChagesRatio'] = lower_df[ratio_col] * 100
+        else:
+            upper_df['ChagesRatio'] = upper_df[ratio_col]
+            lower_df['ChagesRatio'] = lower_df[ratio_col]
+            
         if not upper_df.empty: upper_df['Amount_Ouk'] = (upper_df['Amount'] / 100000000).astype(int)
         if not lower_df.empty: lower_df['Amount_Ouk'] = (lower_df['Amount'] / 100000000).astype(int)
         
         return upper_df.sort_values('Amount', ascending=False), lower_df.sort_values('Amount', ascending=False)
-    except: return pd.DataFrame(), pd.DataFrame()
+    except Exception as e: 
+        return pd.DataFrame(), pd.DataFrame()
 
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
@@ -1120,7 +1143,6 @@ with tab10:
             for i, res in enumerate(st.session_state.value_scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
 
-# 👈 [핵심 수정] 11번 탭 상/하한가 전일 대비 가격 변동량 추가
 with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
@@ -1132,11 +1154,13 @@ with tab11:
         
     if not upper_df.empty and not all_krx.empty:
         upper_df = pd.merge(upper_df, all_krx[['Code', 'Sector']], on='Code', how='left')
-        upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
+    if 'Sector' not in upper_df.columns: upper_df['Sector'] = "개별이슈/기타"
+    upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
         
     if not lower_df.empty and not all_krx.empty:
         lower_df = pd.merge(lower_df, all_krx[['Code', 'Sector']], on='Code', how='left')
-        lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
+    if 'Sector' not in lower_df.columns: lower_df['Sector'] = "개별이슈/기타"
+    lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
         
     if api_key_input and not upper_df.empty:
         if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
@@ -1156,11 +1180,9 @@ with tab11:
             st.info("현재 상한가 종목이 없습니다.")
         else:
             display_upper = upper_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
-            # 결측치 방어 코드 추가
             display_upper['Changes'] = pd.to_numeric(display_upper['Changes'], errors='coerce').fillna(0)
             display_upper['PrevClose'] = display_upper['Close'] - display_upper['Changes']
             
-            # 전일 종가 -> 오늘 종가 형태의 문자열 생성
             display_upper['가격 흐름'] = display_upper.apply(
                 lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 (+{row['ChagesRatio']:.2f}%)", axis=1
             )
@@ -1188,7 +1210,6 @@ with tab11:
             display_lower['Changes'] = pd.to_numeric(display_lower['Changes'], errors='coerce').fillna(0)
             display_lower['PrevClose'] = display_lower['Close'] - display_lower['Changes']
             
-            # 하한가는 음수 부호를 달고 오므로 수식 주의
             display_lower['가격 흐름'] = display_lower.apply(
                 lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 ({row['ChagesRatio']:.2f}%)", axis=1
             )
