@@ -368,6 +368,14 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
+# 👈 [추가] 10번 탭의 장기 차트를 즉시 불러오기 위한 초고속 캐싱 함수
+@st.cache_data(ttl=3600)
+def get_historical_data(ticker, days):
+    try:
+        return fdr.DataReader(ticker, (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'))
+    except:
+        return pd.DataFrame()
+
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code):
     if not ticker_code: return None
@@ -495,8 +503,9 @@ def show_trading_guidelines():
 
 # ------------------------------------------
 # UI 컴포넌트: 주식 카드 그리기
+# 👈 [추가] 10번 탭만을 위한 show_longterm_chart 파라미터 추가
 # ------------------------------------------
-def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
+def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
         
@@ -523,35 +532,74 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
-            # 👈 [핵심 추가] AI 프롬프트에 모멘텀/일정 항목 추가
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
                 with st.spinner("AI가 차트, 가치 평가, 그리고 향후 모멘텀 일정을 분석 중입니다..."):
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
-        ch1, ch2 = st.columns(2)
-        price_df = tech_result["종가 데이터"].reset_index()
-        price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
-        vol_df = tech_result["거래량 데이터"].reset_index()
-        vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
-        
-        with ch1:
-            st.caption("📈 주가 흐름 (최근 20일)")
-            fig_price = px.line(price_df, x='Date_Str', y='Close', markers=True)
-            fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type='category'), height=220)
-            fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
-            st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"p_{tech_result['티커']}_{key_suffix}")
+        # 👈 [핵심 추가] 10번 탭인 경우 차트 기간 변경 기능 활성화
+        if show_longterm_chart:
+            tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=2)
+            days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
             
-        with ch2:
-            st.caption("📊 거래량 (막대) & OBV 누적 (꺾은선)")
-            fig_vol = go.Figure()
-            fig_vol.add_trace(go.Bar(x=vol_df['Date_Str'], y=vol_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
-            fig_vol.add_trace(go.Scatter(x=vol_df['Date_Str'], y=tech_result['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
-            fig_vol.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type='category'), hovermode="x unified", height=220, showlegend=False,
-                yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
-            )
-            st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
+            with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
+                long_df = get_historical_data(tech_result['티커'], days_dict[tf])
+                if not long_df.empty:
+                    long_df = long_df.reset_index()
+                    long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
+                    
+                    if tf in ["1개월", "3개월"]:
+                        long_df['Date_Str'] = long_df['Date'].dt.strftime('%m월 %d일')
+                        x_col = 'Date_Str'
+                        x_type = 'category'
+                    else:
+                        x_col = 'Date'
+                        x_type = 'date' 
+                        
+                    ch1, ch2 = st.columns(2)
+                    with ch1:
+                        st.caption(f"📈 주가 흐름 ({tf})")
+                        fig_price = px.line(long_df, x=x_col, y='Close')
+                        fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type=x_type), height=250)
+                        fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
+                        st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
+                        
+                    with ch2:
+                        st.caption(f"📊 거래량 & OBV ({tf})")
+                        fig_vol = go.Figure()
+                        fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
+                        fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
+                        fig_vol.update_layout(
+                            margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), hovermode="x unified", height=250, showlegend=False,
+                            yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
+                        )
+                        st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
+                else:
+                    st.error("데이터를 불러오지 못했습니다.")
+        else:
+            ch1, ch2 = st.columns(2)
+            price_df = tech_result["종가 데이터"].reset_index()
+            price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
+            vol_df = tech_result["거래량 데이터"].reset_index()
+            vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
+            
+            with ch1:
+                st.caption("📈 주가 흐름 (최근 20일)")
+                fig_price = px.line(price_df, x='Date_Str', y='Close', markers=True)
+                fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type='category'), height=220)
+                fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
+                st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"p_{tech_result['티커']}_{key_suffix}")
+                
+            with ch2:
+                st.caption("📊 거래량 (막대) & OBV 누적 (꺾은선)")
+                fig_vol = go.Figure()
+                fig_vol.add_trace(go.Bar(x=vol_df['Date_Str'], y=vol_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
+                fig_vol.add_trace(go.Scatter(x=vol_df['Date_Str'], y=tech_result['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
+                fig_vol.update_layout(
+                    margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type='category'), hovermode="x unified", height=220, showlegend=False,
+                    yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
+                )
+                st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
 
 # ==========================================
 # 4. 사이드바 및 메인 화면 구성
@@ -1055,4 +1103,5 @@ with tab10:
         else:
             st.success(f"💎 독보적 기술을 보유한 동시에 아직 시장에서 덜 오른 유망주 {len(st.session_state.value_scan_results)}개를 찾았습니다!")
             for i, res in enumerate(st.session_state.value_scan_results):
-                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}")
+                # 👈 [핵심 추가] 10번 탭은 show_longterm_chart=True 를 넘겨 장기 차트 토글 활성화
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
