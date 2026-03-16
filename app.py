@@ -32,6 +32,10 @@ if 'quick_analyze_news' not in st.session_state:
 if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 
+# 👈 [추가] 10번 탭 장기 투자 스캐너 결과 저장을 위한 세션 상태
+if 'value_scan_results' not in st.session_state:
+    st.session_state.value_scan_results = None
+
 # ==========================================
 # 2. 통합 AI 호출 엔진
 # ==========================================
@@ -125,7 +129,6 @@ def get_us_top_gainers():
                 try: pct_val = float(re.sub(r'[^\d\.\+\-]', '', pct_str))
                 except: pct_val = 0.0
                     
-                # 내부 로직은 5% 이상 필터링입니다.
                 if pct_val >= 5.0:
                     if change_str.startswith('+'): change_str = f"+${change_str[1:]}"
                     elif change_str.startswith('-'): change_str = f"-${change_str[1:]}"
@@ -293,6 +296,16 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
     if not _api_key: return []
     try:
         response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
+        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
+    except: return []
+
+# 👈 [추가] 10번 탭 장기투자(가치주) 스캔을 위한 특화 AI 호출 함수
+@st.cache_data(ttl=3600)
+def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
+    if not _api_key: return []
+    try:
+        prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 장기 투자 관점입니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
+        response = ask_gemini(prompt, _api_key)
         return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
     except: return []
 
@@ -609,7 +622,8 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["🔥 🇺🇸 미국 급등주 (+5% 이상)", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너"])
+# 👈 [핵심 추가] 탭 10 장기 가치주 스캐너 추가
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(["🔥 🇺🇸 미국 급등주 (+5% 이상)", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너", "💎 장기 가치주 스캐너"])
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -955,3 +969,71 @@ with tab9:
             st.success(f"🎯 조건에 부합하는 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
             for i, res in enumerate(st.session_state.scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
+
+# 👈 [핵심 추가] 탭 10: 장기 투자 가치주 & 텐배거 유망주 스캐너
+with tab10:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
+    st.write("AI가 독보적인 미래 기술을 보유한 핵심 기업을 찾아내고, 재무 지표(PER/PBR)를 바탕으로 아직 시장에서 소외된 '진흙 속의 진주'를 발굴합니다.")
+
+    st.markdown("#### 🎯 1. 미래 유망 기술 / 섹터 및 규모 입력")
+    col_v1, col_v2 = st.columns([2, 1])
+    with col_v1:
+        tech_keyword = st.text_input("핵심 기술이나 메가트렌드를 입력하세요:", value="전고체 배터리", placeholder="예: 전고체 배터리, 온디바이스 AI, 로봇 감속기")
+    with col_v2:
+        cap_size = st.selectbox("기업 규모 선택:", ["상관없음", "대형주 (안전성 중심)", "중소형주 (폭발적 탄력성 중심)"], index=0)
+
+    st.markdown("#### ⚖️ 2. 저평가(가치) 깐깐함 기준 설정")
+    col_v3, col_v4 = st.columns(2)
+    with col_v3:
+        max_per = st.number_input("최대 허용 PER (수익성) - 낮을수록 저평가", min_value=1.0, max_value=100.0, value=15.0, step=1.0, help="업종 평균보다 낮을수록 수익 대비 주가가 싼 기업입니다.")
+    with col_v4:
+        max_pbr = st.number_input("최대 허용 PBR (자산가치) - 낮을수록 저자산평가", min_value=0.1, max_value=10.0, value=1.5, step=0.1, help="1.0 미만이면 회사가 가진 재산보다 주가가 싸다는 의미입니다.")
+
+    if st.button("💎 텐배거 후보 가치주 스캔 시작", type="primary", use_container_width=True):
+        if not api_key_input:
+            st.warning("이 기능은 AI의 강력한 추론 능력이 필요합니다. 왼쪽 사이드바에 API 키를 입력해주세요.")
+        else:
+            with st.spinner(f"'{tech_keyword}' 관련 독보적 기술을 가진 {cap_size} 기업을 AI가 전수 조사 중입니다... (약 10초)"):
+                candidates = get_longterm_value_stocks_with_ai(tech_keyword, cap_size, api_key_input)
+
+                if not candidates:
+                    st.error("관련 기술을 가진 상장 기업을 찾지 못했거나 AI 응답 지연이 발생했습니다.")
+                else:
+                    st.info(f"AI가 기술력을 인정받는 {len(candidates)}개의 후보 기업을 찾았습니다. 즉시 실시간 재무 필터링을 시작합니다...")
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    value_results = []
+
+                    for i, (name, code) in enumerate(candidates):
+                        status_text.text(f"재무제표 및 타점 스캔 중: {name} ({i+1}/{len(candidates)})")
+                        per_str, pbr_str = get_fundamentals(code)
+
+                        try:
+                            # N/A 등 문자열이 섞여 있을 수 있으므로 방어적 파싱
+                            per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
+                            pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
+
+                            # 조건: 흑자 기업이면서(PER>0), 사용자가 설정한 PER/PBR 기준을 통과하는 녀석만 선별
+                            if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
+                                res = analyze_technical_pattern(name, code)
+                                if res:
+                                    value_results.append(res)
+                        except Exception as e:
+                            pass
+
+                        progress_bar.progress((i + 1) / len(candidates))
+
+                    status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 저평가 유망주 발굴 완료")
+                    st.session_state.value_scan_results = value_results
+                    st.rerun()
+
+    st.divider()
+
+    if st.session_state.value_scan_results is not None:
+        if len(st.session_state.value_scan_results) == 0:
+            st.info("선택하신 재무 조건(PER/PBR)을 통과하는 저평가 유망주가 없습니다. 시장에서 기술 프리미엄을 높게 받고 있거나 적자 상태일 수 있으니, 조건을 완화하여 다시 검색해보세요.")
+        else:
+            st.success(f"💎 독보적 기술을 보유한 동시에 아직 시장에서 덜 오른 저평가 우량주 {len(st.session_state.value_scan_results)}개를 찾았습니다!")
+            for i, res in enumerate(st.session_state.value_scan_results):
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}")
