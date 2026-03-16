@@ -201,14 +201,12 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-# 👈 [핵심 추가] 11번 탭을 위한 상/하한가 추출 함수
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     try:
         df = fdr.StockListing('KRX')
         if df.empty: return pd.DataFrame(), pd.DataFrame()
         
-        # 한국 증시 상한가/하한가 기준 (+- 30%) - 실제로는 29.5% 이상을 상하한가로 간주
         mask_exclude = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE')
         df_filtered = df[~mask_exclude]
         
@@ -686,7 +684,6 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 👈 [추가] 탭 11 상/하한가 분석 탭 연결
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(["🔥 🇺🇸 미국 급등주 (+5% 이상)", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너", "💎 장기 가치주 스캐너", "🚨 상/하한가 분석"])
 
 with tab1:
@@ -1123,7 +1120,7 @@ with tab10:
             for i, res in enumerate(st.session_state.value_scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
 
-# 👈 [핵심 추가] 탭 11: 상/하한가 분석 및 테마 자동 추출
+# 👈 [수정 완료] 탭 11: Sector 결측치(KeyError) 방지 코드 추가
 with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
@@ -1131,6 +1128,17 @@ with tab11:
     
     with st.spinner("거래소에서 실시간 상/하한가 데이터를 불러오는 중입니다..."):
         upper_df, lower_df = get_limit_stocks()
+        all_krx = get_krx_stocks() # 섹터 매칭을 위해 전체 목록 불러오기
+        
+    # 상한가 데이터에 섹터 정보 안전하게 병합
+    if not upper_df.empty and not all_krx.empty:
+        upper_df = pd.merge(upper_df, all_krx[['Code', 'Sector']], on='Code', how='left')
+        upper_df['Sector'] = upper_df['Sector'].fillna("기타/분류불가")
+        
+    # 하한가 데이터에 섹터 정보 안전하게 병합
+    if not lower_df.empty and not all_krx.empty:
+        lower_df = pd.merge(lower_df, all_krx[['Code', 'Sector']], on='Code', how='left')
+        lower_df['Sector'] = lower_df['Sector'].fillna("기타/분류불가")
         
     if api_key_input and not upper_df.empty:
         if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
@@ -1149,10 +1157,10 @@ with tab11:
         if upper_df.empty:
             st.info("현재 상한가 종목이 없습니다.")
         else:
+            # 안전하게 Name, Sector, Close, Amount_Ouk 출력
             display_upper = upper_df[['Name', 'Sector', 'Close', 'Amount_Ouk']].copy()
             display_upper.columns = ['종목명', '섹터/테마', '현재가', '거래대금(억)']
             display_upper['현재가'] = display_upper['현재가'].apply(lambda x: f"{x:,}원")
-            display_upper['섹터/테마'] = display_upper['섹터/테마'].fillna("개별이슈/기타")
             st.dataframe(display_upper, use_container_width=True, hide_index=True)
             
             st.markdown("#### 🎯 상한가 종목 즉시 진단")
@@ -1170,8 +1178,8 @@ with tab11:
         if lower_df.empty:
             st.info("현재 하한가 종목이 없습니다.")
         else:
+            # 안전하게 Name, Sector, Close, Amount_Ouk 출력
             display_lower = lower_df[['Name', 'Sector', 'Close', 'Amount_Ouk']].copy()
             display_lower.columns = ['종목명', '섹터/테마', '현재가', '거래대금(억)']
             display_lower['현재가'] = display_lower['현재가'].apply(lambda x: f"{x:,}원")
-            display_lower['섹터/테마'] = display_lower['섹터/테마'].fillna("개별이슈/기타")
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
