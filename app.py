@@ -76,6 +76,7 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    
     try:
         proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
@@ -144,136 +145,158 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-# 👈 [네이버 직결 엔진 1] 히트맵 전용 (거래대금 상위)
+# 👈 [완벽 해결] 네이버 금융에서 거래대금 TOP 20을 직접 뜯어와서 숫자형(float)으로 강제 파싱
 @st.cache_data(ttl=300)
 def get_trading_value_kings():
     try:
-        url = "https://finance.naver.com/sise/sise_quant.naver"
+        # 플랜 A: 네이버 금융 거래대금 상위 직접 크롤링
+        url = "https://finance.naver.com/sise/sise_quant_high.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         html = res.content.decode('euc-kr', errors='replace')
         tables = pd.read_html(StringIO(html))
         
-        target_df = pd.DataFrame()
+        df = pd.DataFrame()
         for t in tables:
             if '종목명' in t.columns and '거래대금' in t.columns:
-                target_df = t.dropna(subset=['종목명', '현재가'])
-                target_df = target_df[target_df['종목명'] != '종목명']
+                df = t.dropna(subset=['종목명']).copy()
                 break
                 
-        if target_df.empty: return pd.DataFrame()
-        
-        mask = target_df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = target_df[~mask].copy()
-        
-        def to_float(x):
-            try: return float(str(x).replace(',', '').replace('%', '').replace('+', '').strip())
-            except: return 0.0
+        if not df.empty:
+            df = df[df['종목명'] != '종목명']
+            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df = df[~mask].copy()
             
-        df['Name'] = df['종목명']
-        df['Close'] = df['현재가'].apply(to_float)
-        df['ChagesRatio'] = df['등락률'].apply(to_float)
-        # 네이버 금융 '거래대금'은 단위가 '백만'이므로 100을 나누면 '억'이 됨
-        df['Amount_Ouk'] = (df['거래대금'].apply(to_float) / 100).astype(int)
-        
-        df = df.sort_values('Amount_Ouk', ascending=False).head(20)
-        
-        krx = get_krx_stocks()
-        df = pd.merge(df, krx[['Name', 'Code']], on='Name', how='left')
-        df['Code'] = df['Code'].fillna('000000')
-        
+            def extract_num(x):
+                val = re.sub(r'[^\d\.\-]', '', str(x))
+                return float(val) if val else 0.0
+                
+            df['Name'] = df['종목명']
+            df['Close'] = df['현재가'].apply(extract_num)
+            df['ChagesRatio'] = df['등락률'].apply(extract_num) # +3.50% 문자열을 완벽히 3.5 float로 변환
+            df['Amount_Ouk'] = (df['거래대금'].apply(extract_num) / 100).astype(int) # 백만원 단위이므로 100으로 나누어 억단위 보정
+            
+            df = df.sort_values('Amount_Ouk', ascending=False).head(20)
+            
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df = pd.merge(df, krx[['Name', 'Code']], on='Name', how='left')
+                df['Code'] = df['Code'].fillna('000000')
+            else:
+                df['Code'] = '000000'
+                
+            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
+    except: pass
+    
+    # 플랜 B: FDR 라이브러리 사용 시 강제 숫자 정제 (백업용)
+    try:
+        df = fdr.StockListing('KRX')
+        if df.empty: return pd.DataFrame()
+        ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
+        df['ChagesRatio'] = pd.to_numeric(df[ratio_col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0.0)
+        if df['ChagesRatio'].max() <= 1.5 and df['ChagesRatio'].max() > 0:
+            df['ChagesRatio'] = df['ChagesRatio'] * 100
+        df['Amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+        df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
+        df['Close'] = pd.to_numeric(df['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+        mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        df = df[~mask].sort_values('Amount_Ouk', ascending=False).head(20)
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
     except: return pd.DataFrame()
 
-# 👈 [네이버 직결 엔진 2] 스캐너 타겟 전용 (거래대금 상위 N개)
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def get_scan_targets(limit=50):
     try:
-        url = "https://finance.naver.com/sise/sise_quant.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        html = res.content.decode('euc-kr', errors='replace')
-        tables = pd.read_html(StringIO(html))
-        
-        target_df = pd.DataFrame()
-        for t in tables:
-            if '종목명' in t.columns and '거래대금' in t.columns:
-                target_df = t.dropna(subset=['종목명', '현재가'])
-                target_df = target_df[target_df['종목명'] != '종목명']
-                break
-                
-        if target_df.empty: return []
-        
-        mask = target_df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = target_df[~mask].copy()
-        
-        def to_float(x):
-            try: return float(str(x).replace(',', '').replace('%', '').replace('+', '').strip())
-            except: return 0.0
-            
-        df['거래대금'] = df['거래대금'].apply(to_float)
-        df = df.sort_values('거래대금', ascending=False).head(limit)
-        
-        krx = get_krx_stocks()
-        df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
-        
+        df = fdr.StockListing('KRX')
+        if df.empty: return []
+        mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        df['Amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+        df = df[~mask].sort_values('Amount', ascending=False).head(limit)
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-# 👈 [네이버 직결 엔진 3] 상하한가 전용
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=300)
 def get_limit_stocks():
-    def fetch_naver_limit(url, is_upper):
-        try:
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            html_str = res.content.decode('euc-kr', errors='replace')
-            tables = pd.read_html(StringIO(html_str))
-            
-            for t in tables:
-                if '종목명' in t.columns and '현재가' in t.columns:
-                    t = t.dropna(subset=['종목명', '현재가'])
-                    t = t[t['종목명'].apply(lambda x: isinstance(x, str))]
-                    t = t[t['종목명'] != '종목명']
-                    t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
-                    
-                    if not t.empty:
-                        res_df = pd.DataFrame()
-                        res_df['Name'] = t['종목명']
-                        
-                        def to_f(x):
-                            try: return float(str(x).replace(',', '').replace('%', '').replace('+', '').strip())
-                            except: return 0.0
-                            
-                        res_df['Close'] = t['현재가'].apply(to_f)
-                        chg = t['전일비'].apply(to_f)
-                        res_df['Changes'] = chg if is_upper else -chg
-                        
-                        rat = t['등락률'].apply(to_f)
-                        res_df['ChagesRatio'] = rat if is_upper else -rat
-                        
-                        vol = t['거래량'].apply(to_f)
-                        # 거래량 * 현재가 / 1억
-                        res_df['Amount_Ouk'] = (res_df['Close'] * vol / 100000000).astype(int)
-                        res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
-                        return res_df
-        except: pass
-        return pd.DataFrame()
-
-    upper_df = fetch_naver_limit("https://finance.naver.com/sise/sise_upper.naver", True)
-    lower_df = fetch_naver_limit("https://finance.naver.com/sise/sise_lower.naver", False)
+    upper_df = pd.DataFrame()
+    lower_df = pd.DataFrame()
     
+    try:
+        df = fdr.StockListing('KRX')
+        if not df.empty:
+            ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
+            df['ChagesRatio'] = pd.to_numeric(df[ratio_col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0.0)
+            df['Changes'] = pd.to_numeric(df['Changes'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0.0)
+            df['Close'] = pd.to_numeric(df['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+            df['Amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+            
+            mask = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE', na=False)
+            df = df[~mask]
+            
+            if df['ChagesRatio'].max() <= 1.5 and df['ChagesRatio'].max() > 0:
+                df['ChagesRatio'] = df['ChagesRatio'] * 100
+                
+            u_df = df[df['ChagesRatio'] >= 29.5].copy()
+            l_df = df[df['ChagesRatio'] <= -29.5].copy()
+            
+            if not u_df.empty:
+                u_df['Amount_Ouk'] = (u_df['Amount'] / 100000000).astype(int)
+                u_df['PrevClose'] = u_df['Close'] - u_df['Changes']
+                upper_df = u_df[['Name', 'Code', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose']]
+            
+            if not l_df.empty:
+                l_df['Amount_Ouk'] = (l_df['Amount'] / 100000000).astype(int)
+                l_df['PrevClose'] = l_df['Close'] - l_df['Changes']
+                lower_df = l_df[['Name', 'Code', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose']]
+    except: pass
+    
+    if upper_df.empty and lower_df.empty:
+        def fetch_naver_limit(url, is_upper):
+            try:
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+                soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
+                tables = pd.read_html(StringIO(str(soup)))
+                for t in tables:
+                    if '종목명' in t.columns and '현재가' in t.columns:
+                        t = t.dropna(subset=['종목명', '현재가'])
+                        t = t[t['종목명'].apply(lambda x: isinstance(x, str))]
+                        t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
+                        if not t.empty:
+                            res_df = pd.DataFrame()
+                            res_df['Name'] = t['종목명']
+                            res_df['Close'] = pd.to_numeric(t['현재가'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+                            chg = pd.to_numeric(t['전일비'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+                            res_df['Changes'] = chg if is_upper else -chg
+                            rat = pd.to_numeric(t['등락률'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+                            res_df['ChagesRatio'] = rat if is_upper else -rat
+                            vol = pd.to_numeric(t['거래량'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+                            res_df['Amount_Ouk'] = (res_df['Close'] * vol / 100000000).astype(int)
+                            res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
+                            res_df['Code'] = ""
+                            return res_df
+            except: pass
+            return pd.DataFrame()
+
+        if upper_df.empty: upper_df = fetch_naver_limit("https://finance.naver.com/sise/sise_upper.naver", True)
+        if lower_df.empty: lower_df = fetch_naver_limit("https://finance.naver.com/sise/sise_lower.naver", False)
+
     krx = get_krx_stocks()
     if not upper_df.empty and not krx.empty:
-        upper_df = pd.merge(upper_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
-        upper_df['Sector'] = upper_df['Sector'].fillna('개별이슈/기타')
-        
+        upper_df = pd.merge(upper_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left', suffixes=('', '_krx'))
+        if 'Code_krx' in upper_df.columns: upper_df['Code'] = upper_df['Code'].replace('', np.nan).fillna(upper_df['Code_krx'])
     if not lower_df.empty and not krx.empty:
-        lower_df = pd.merge(lower_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
-        lower_df['Sector'] = lower_df['Sector'].fillna('개별이슈/기타')
+        lower_df = pd.merge(lower_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left', suffixes=('', '_krx'))
+        if 'Code_krx' in lower_df.columns: lower_df['Code'] = lower_df['Code'].replace('', np.nan).fillna(lower_df['Code_krx'])
 
     for col in ['Code', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose', 'Name']:
         if col not in upper_df.columns: upper_df[col] = "기타" if col == 'Sector' else 0
         if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
         
-    return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
+    upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
+    lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
+
+    if not upper_df.empty: upper_df = upper_df.sort_values('Amount_Ouk', ascending=False)
+    if not lower_df.empty: lower_df = lower_df.sort_values('Amount_Ouk', ascending=False)
+
+    return upper_df, lower_df
 
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
@@ -563,6 +586,9 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
+# ------------------------------------------
+# UI 컴포넌트: 주식 카드 그리기
+# ------------------------------------------
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
@@ -726,7 +752,7 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 탭 순서 전면 재배치
+# 탭 순서
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
@@ -810,7 +836,7 @@ with tab2:
         cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
         cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
         
-    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1)
+    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
         
     if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
         with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다..."):
