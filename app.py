@@ -76,7 +76,6 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    
     try:
         proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
@@ -145,11 +144,10 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-# 👈 [완벽 해결] 네이버 금융에서 거래대금 TOP 20을 직접 뜯어와서 숫자형(float)으로 강제 파싱
-@st.cache_data(ttl=300)
+# 👈 [핵심 개선] 숫자 강제 치환 로직 강화 (NaN 절대 차단)
+@st.cache_data(ttl=600)
 def get_trading_value_kings():
     try:
-        # 플랜 A: 네이버 금융 거래대금 상위 직접 크롤링
         url = "https://finance.naver.com/sise/sise_quant_high.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         html = res.content.decode('euc-kr', errors='replace')
@@ -167,27 +165,33 @@ def get_trading_value_kings():
             df = df[~mask].copy()
             
             def extract_num(x):
-                val = re.sub(r'[^\d\.\-]', '', str(x))
-                return float(val) if val else 0.0
+                try:
+                    val = re.sub(r'[^\d\.\-]', '', str(x))
+                    if val == '' or val == '-': return 0.0
+                    return float(val)
+                except: return 0.0
                 
             df['Name'] = df['종목명']
             df['Close'] = df['현재가'].apply(extract_num)
-            df['ChagesRatio'] = df['등락률'].apply(extract_num) # +3.50% 문자열을 완벽히 3.5 float로 변환
-            df['Amount_Ouk'] = (df['거래대금'].apply(extract_num) / 100).astype(int) # 백만원 단위이므로 100으로 나누어 억단위 보정
+            df['ChagesRatio'] = df['등락률'].apply(extract_num) 
+            df['Amount_Ouk'] = (df['거래대금'].apply(extract_num) / 100).astype(int)
             
             df = df.sort_values('Amount_Ouk', ascending=False).head(20)
             
             krx = get_krx_stocks()
             if not krx.empty:
-                df = pd.merge(df, krx[['Name', 'Code']], on='Name', how='left')
+                df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
                 df['Code'] = df['Code'].fillna('000000')
+                df['Sector'] = df['Sector'].fillna('기타/분류불가')
             else:
                 df['Code'] = '000000'
+                df['Sector'] = '기타/분류불가'
                 
-            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
-    except: pass
+            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except: 
+        pass
     
-    # 플랜 B: FDR 라이브러리 사용 시 강제 숫자 정제 (백업용)
+    # 플랜 B: FDR 라이브러리 사용 
     try:
         df = fdr.StockListing('KRX')
         if df.empty: return pd.DataFrame()
@@ -200,7 +204,8 @@ def get_trading_value_kings():
         df['Close'] = pd.to_numeric(df['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
         mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
         df = df[~mask].sort_values('Amount_Ouk', ascending=False).head(20)
-        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk']]
+        df['Sector'] = df['Sector'].fillna('기타/분류불가') if 'Sector' in df.columns else '기타/분류불가'
+        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=600)
@@ -258,16 +263,26 @@ def get_limit_stocks():
                     if '종목명' in t.columns and '현재가' in t.columns:
                         t = t.dropna(subset=['종목명', '현재가'])
                         t = t[t['종목명'].apply(lambda x: isinstance(x, str))]
+                        t = t[t['종목명'] != '종목명']
                         t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
+                        
                         if not t.empty:
                             res_df = pd.DataFrame()
                             res_df['Name'] = t['종목명']
-                            res_df['Close'] = pd.to_numeric(t['현재가'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-                            chg = pd.to_numeric(t['전일비'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+                            
+                            def extract_num(x):
+                                try:
+                                    val = re.sub(r'[^\d\.\-]', '', str(x))
+                                    if val == '' or val == '-': return 0.0
+                                    return float(val)
+                                except: return 0.0
+                                
+                            res_df['Close'] = t['현재가'].apply(extract_num)
+                            chg = t['전일비'].apply(extract_num)
                             res_df['Changes'] = chg if is_upper else -chg
-                            rat = pd.to_numeric(t['등락률'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+                            rat = t['등락률'].apply(extract_num)
                             res_df['ChagesRatio'] = rat if is_upper else -rat
-                            vol = pd.to_numeric(t['거래량'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
+                            vol = t['거래량'].apply(extract_num)
                             res_df['Amount_Ouk'] = (res_df['Close'] * vol / 100000000).astype(int)
                             res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
                             res_df['Code'] = ""
@@ -586,9 +601,6 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
-# ------------------------------------------
-# UI 컴포넌트: 주식 카드 그리기
-# ------------------------------------------
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
@@ -1131,11 +1143,18 @@ with tab9:
         merged_df = pd.merge(t_kings, all_krx[['Code', 'Sector']], on='Code', how='left')
         merged_df['Sector'] = merged_df['Sector'].fillna("기타/분류불가")
         
+        # Plotly NaN 버그를 원천 차단하기 위해 텍스트를 파이썬에서 미리 HTML로 합쳐서 만듦
+        merged_df['display_text'] = (
+            "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
+            "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
+            "<span style='font-size:13px'>" + merged_df['Amount_Ouk'].map("{:,}억".format) + "</span>"
+        )
+        
         finviz_colors = [
             (0.0, '#f63538'),  
-            (0.4, '#802f2f'),  
+            (0.45, '#802f2f'),  
             (0.5, '#414554'),  
-            (0.6, '#31693d'),  
+            (0.55, '#31693d'),  
             (1.0, '#30cc5a')   
         ]
         
@@ -1146,7 +1165,8 @@ with tab9:
             color='ChagesRatio', 
             color_continuous_scale=finviz_colors, 
             color_continuous_midpoint=0,
-            custom_data=['ChagesRatio', 'Amount_Ouk']
+            range_color=[-30, 30], # 한국 증시 상/하한가인 -30 ~ 30 고정으로 완벽한 색상 스케일 구현
+            custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text']
         )
         
         fig_tree.update_layout(
@@ -1157,10 +1177,10 @@ with tab9:
         )
         
         fig_tree.update_traces(
-            textinfo="label+text",
+            textinfo="text",
+            texttemplate="%{customdata[2]}", # Plotly가 에러내지 않게 우리가 만든 글자를 강제 주입
             textfont=dict(color="white"),
-            texttemplate="<span style='font-size:18px; font-weight:bold;'>%{label}</span><br><span style='font-size:14px'>%{color:.2f}%</span><br><span style='font-size:13px'>%{value:,}억</span>",
-            hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
+            hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
         st.plotly_chart(fig_tree, use_container_width=True)
