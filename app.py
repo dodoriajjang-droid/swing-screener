@@ -1120,7 +1120,7 @@ with tab10:
             for i, res in enumerate(st.session_state.value_scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
 
-# 👈 [수정 완료] 탭 11: Sector 결측치(KeyError) 방지 코드 추가
+# 👈 [핵심 수정] 11번 탭 상/하한가 전일 대비 가격 변동량 추가
 with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
@@ -1128,17 +1128,15 @@ with tab11:
     
     with st.spinner("거래소에서 실시간 상/하한가 데이터를 불러오는 중입니다..."):
         upper_df, lower_df = get_limit_stocks()
-        all_krx = get_krx_stocks() # 섹터 매칭을 위해 전체 목록 불러오기
+        all_krx = get_krx_stocks() 
         
-    # 상한가 데이터에 섹터 정보 안전하게 병합
     if not upper_df.empty and not all_krx.empty:
         upper_df = pd.merge(upper_df, all_krx[['Code', 'Sector']], on='Code', how='left')
-        upper_df['Sector'] = upper_df['Sector'].fillna("기타/분류불가")
+        upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
         
-    # 하한가 데이터에 섹터 정보 안전하게 병합
     if not lower_df.empty and not all_krx.empty:
         lower_df = pd.merge(lower_df, all_krx[['Code', 'Sector']], on='Code', how='left')
-        lower_df['Sector'] = lower_df['Sector'].fillna("기타/분류불가")
+        lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
         
     if api_key_input and not upper_df.empty:
         if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
@@ -1157,10 +1155,18 @@ with tab11:
         if upper_df.empty:
             st.info("현재 상한가 종목이 없습니다.")
         else:
-            # 안전하게 Name, Sector, Close, Amount_Ouk 출력
-            display_upper = upper_df[['Name', 'Sector', 'Close', 'Amount_Ouk']].copy()
-            display_upper.columns = ['종목명', '섹터/테마', '현재가', '거래대금(억)']
-            display_upper['현재가'] = display_upper['현재가'].apply(lambda x: f"{x:,}원")
+            display_upper = upper_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
+            # 결측치 방어 코드 추가
+            display_upper['Changes'] = pd.to_numeric(display_upper['Changes'], errors='coerce').fillna(0)
+            display_upper['PrevClose'] = display_upper['Close'] - display_upper['Changes']
+            
+            # 전일 종가 -> 오늘 종가 형태의 문자열 생성
+            display_upper['가격 흐름'] = display_upper.apply(
+                lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 (+{row['ChagesRatio']:.2f}%)", axis=1
+            )
+            
+            display_upper = display_upper[['Name', 'Sector', '가격 흐름', 'Amount_Ouk']]
+            display_upper.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
             st.dataframe(display_upper, use_container_width=True, hide_index=True)
             
             st.markdown("#### 🎯 상한가 종목 즉시 진단")
@@ -1178,8 +1184,15 @@ with tab11:
         if lower_df.empty:
             st.info("현재 하한가 종목이 없습니다.")
         else:
-            # 안전하게 Name, Sector, Close, Amount_Ouk 출력
-            display_lower = lower_df[['Name', 'Sector', 'Close', 'Amount_Ouk']].copy()
-            display_lower.columns = ['종목명', '섹터/테마', '현재가', '거래대금(억)']
-            display_lower['현재가'] = display_lower['현재가'].apply(lambda x: f"{x:,}원")
+            display_lower = lower_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
+            display_lower['Changes'] = pd.to_numeric(display_lower['Changes'], errors='coerce').fillna(0)
+            display_lower['PrevClose'] = display_lower['Close'] - display_lower['Changes']
+            
+            # 하한가는 음수 부호를 달고 오므로 수식 주의
+            display_lower['가격 흐름'] = display_lower.apply(
+                lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 ({row['ChagesRatio']:.2f}%)", axis=1
+            )
+            
+            display_lower = display_lower[['Name', 'Sector', '가격 흐름', 'Amount_Ouk']]
+            display_lower.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
