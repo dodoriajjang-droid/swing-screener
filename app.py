@@ -1210,7 +1210,7 @@ with tab8:
         btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
         btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
 
-# 👈 [강력 수정] 9번 탭 한국형 빨강/파랑 색상표 & 가독성 대폭 향상
+# 👈 [핵심 업데이트] 9번 탭: 핀비즈(Finviz) 스타일 서양식 다크 테마 & 컬러 스케일 전면 적용
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💸 시장 주도주 & 자금 흐름 히트맵")
@@ -1222,13 +1222,13 @@ with tab9:
         merged_df = pd.merge(t_kings, all_krx[['Code', 'Sector']], on='Code', how='left')
         merged_df['Sector'] = merged_df['Sector'].fillna("기타/분류불가")
         
-        # 한국 증시 기준 직관적인 색상표 (파랑(-) -> 회색(0) -> 빨강(+))
-        kr_colors = [
-            (0.0, '#114cb8'),  # 강한 하락 (파란색)
-            (0.45, '#8baed8'), # 약한 하락
-            (0.5, '#e0e0e0'),  # 보합 (회색)
-            (0.55, '#f4a582'), # 약한 상승
-            (1.0, '#d1181b')   # 강한 상승 (빨간색)
+        # 핀비즈(Finviz) 스타일 글로벌 색상표 (하락: 빨강, 보합: 어두운 회색, 상승: 초록)
+        finviz_colors = [
+            (0.0, '#f63538'),  # 강한 하락 (밝은 빨강)
+            (0.4, '#802f2f'),  # 약한 하락 (어두운 빨강)
+            (0.5, '#414554'),  # 보합 (어두운 회색/검정)
+            (0.6, '#31693d'),  # 약한 상승 (어두운 초록)
+            (1.0, '#30cc5a')   # 강한 상승 (밝은 초록)
         ]
         
         fig_tree = px.treemap(
@@ -1236,23 +1236,26 @@ with tab9:
             path=[px.Constant("🔥 당일 거래대금 TOP 20"), 'Sector', 'Name'], 
             values='Amount_Ouk', 
             color='ChagesRatio', 
-            color_continuous_scale=kr_colors, 
+            color_continuous_scale=finviz_colors, 
             color_continuous_midpoint=0,
             custom_data=['ChagesRatio', 'Amount_Ouk']
         )
         
+        # 다크 모드 위젯 스타일 적용
         fig_tree.update_layout(
             margin=dict(t=30, l=10, r=10, b=10), 
             height=650,
-            paper_bgcolor="white",
-            plot_bgcolor="white"
+            paper_bgcolor="#111111", 
+            plot_bgcolor="#111111"
         )
         
+        # 가독성을 위해 흰색 텍스트 강제 고정 및 테두리 조정
         fig_tree.update_traces(
             textinfo="label+text",
+            textfont=dict(color="white"),
             texttemplate="<span style='font-size:18px; font-weight:bold;'>%{label}</span><br><span style='font-size:14px'>%{color:.2f}%</span><br><span style='font-size:13px'>%{value:,}억</span>",
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
-            marker=dict(line=dict(width=2, color='white')) # 흰색 두꺼운 테두리로 블록 구분을 깔끔하게
+            marker=dict(line=dict(width=1.5, color='#111111')) # 다크 테두리로 구분선 깔끔하게
         )
         st.plotly_chart(fig_tree, use_container_width=True)
         
