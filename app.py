@@ -83,6 +83,13 @@ def get_fear_and_greed():
             data = json.loads(res2.json()['contents'])
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
     return None
 
 @st.cache_data(ttl=3600)
@@ -144,7 +151,6 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-# 👈 [핵심 개선] 숫자 강제 치환 로직 강화 (NaN 절대 차단)
 @st.cache_data(ttl=600)
 def get_trading_value_kings():
     try:
@@ -191,7 +197,6 @@ def get_trading_value_kings():
     except: 
         pass
     
-    # 플랜 B: FDR 라이브러리 사용 
     try:
         df = fdr.StockListing('KRX')
         if df.empty: return pd.DataFrame()
@@ -764,7 +769,6 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 탭 순서
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
@@ -834,8 +838,7 @@ with tab2:
         * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
         * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
         
-        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보**
-        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
+        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보** * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
         * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
         * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
         """)
@@ -1132,18 +1135,17 @@ with tab8:
         btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
         btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
 
+# 👈 [완벽 해결] 9번 탭 - 핀비즈 스타일 다크 모드 히트맵 & 문자열 강제 처리 
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💸 시장 주도주 & 자금 흐름 히트맵")
     with st.spinner("📡 거래소 데이터와 섹터 맵을 생성 중입니다..."):
         t_kings = get_trading_value_kings()
-        all_krx = get_krx_stocks() 
         
-    if not t_kings.empty and not all_krx.empty:
-        merged_df = pd.merge(t_kings, all_krx[['Code', 'Sector']], on='Code', how='left')
-        merged_df['Sector'] = merged_df['Sector'].fillna("기타/분류불가")
+    if not t_kings.empty:
+        merged_df = t_kings.copy()
         
-        # Plotly NaN 버그를 원천 차단하기 위해 텍스트를 파이썬에서 미리 HTML로 합쳐서 만듦
+        # 텍스트를 파이썬에서 미리 HTML로 합쳐서 만듦 (Plotly 에러 방지)
         merged_df['display_text'] = (
             "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
             "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
