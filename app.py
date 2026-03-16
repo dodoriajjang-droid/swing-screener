@@ -32,7 +32,6 @@ if 'quick_analyze_news' not in st.session_state:
 if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 
-# 10번 탭 스캐너 결과를 유지하기 위한 세션 상태
 if 'value_scan_results' not in st.session_state:
     st.session_state.value_scan_results = None
 
@@ -309,7 +308,6 @@ def get_trending_themes_with_ai(_api_key):
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except Exception: return default_themes
 
-# 👈 [핵심 추가] 10번 탭 장기투자(가치주) 스캔을 위한 특화 AI 호출 함수
 @st.cache_data(ttl=3600)
 def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
     if not _api_key: return []
@@ -525,9 +523,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
+            # 👈 [핵심 추가] AI 프롬프트에 모멘텀/일정 항목 추가
             if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 차트 분석과 가치 평가를 동시에 진행 중입니다..."):
-                    prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 두 가지 시각으로 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 🎯 종합 요약 (1줄):"
+                with st.spinner("AI가 차트, 가치 평가, 그리고 향후 모멘텀 일정을 분석 중입니다..."):
+                    prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
         ch1, ch2 = st.columns(2)
@@ -969,7 +968,6 @@ with tab9:
             for i, res in enumerate(st.session_state.scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
 
-# 👈 [핵심 추가] 탭 10: 장기 투자 가치주 & 텐배거 유망주 스캐너
 with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
@@ -977,11 +975,8 @@ with tab10:
 
     st.markdown("#### 🎯 1. 시장 주도 메가트렌드 (AI 추천)")
     
-    # AI 추천 테마와 기본 유망 기술 혼합
     hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
     mega_trends = ["전고체 배터리", "온디바이스 AI", "자율주행/로봇", "양자컴퓨팅", "비만/치매 치료제", "우주항공(UAM)"]
-    
-    # 중복 제거 후 리스트 병합
     all_themes = list(dict.fromkeys(hot_themes + mega_trends))
     
     col_v1, col_v2 = st.columns([2, 1])
@@ -1007,13 +1002,12 @@ with tab10:
         ]
     )
     
-    # 선택된 라디오 버튼에 따라 내부적으로 PER/PBR 수치를 자동 맵핑
     if "진주" in val_strictness:
         max_per, max_pbr = 15.0, 1.5
     elif "성장" in val_strictness:
         max_per, max_pbr = 40.0, 4.0
     else:
-        max_per, max_pbr = 9999.0, 9999.0 # 무제한 (재무 무시)
+        max_per, max_pbr = 9999.0, 9999.0 
 
     if st.button("💎 텐배거 후보 가치주 스캔 시작", type="primary", use_container_width=True):
         if not api_key_input:
@@ -1037,11 +1031,9 @@ with tab10:
                         per_str, pbr_str = get_fundamentals(code)
 
                         try:
-                            # N/A 등 문자열이 섞여 있을 수 있으므로 방어적 파싱
                             per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
                             pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
 
-                            # 조건: 흑자 기업이면서(PER>0), 사용자가 설정한 PER/PBR 기준을 통과하는 녀석만 선별
                             if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
                                 res = analyze_technical_pattern(name, code)
                                 if res:
