@@ -1010,7 +1010,7 @@ with tab9:
         
     # 👈 [추가] 검색 범위(상위 N개) 선택 UI 추가
     st.markdown("#### 📊 스캔 범위 선택")
-    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
+    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
         
     if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
         with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다... (약 {scan_limit//5}초 소요)"):
