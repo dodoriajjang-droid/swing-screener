@@ -201,39 +201,62 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
-@st.cache_data(ttl=300)
+# 👈 [강력한 버그 수정] 네이버 금융에서 상/하한가 표를 '직접' 뜯어와서 무조건 숫자로 강제 변환하는 장갑차 엔진
+@st.cache_data(ttl=120)
 def get_limit_stocks():
     try:
-        df = fdr.StockListing('KRX')
-        if df.empty: return pd.DataFrame(), pd.DataFrame()
-        
-        ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
-        df[ratio_col] = pd.to_numeric(df[ratio_col], errors='coerce').fillna(0)
-        df['Changes'] = pd.to_numeric(df['Changes'], errors='coerce').fillna(0)
-        df['Close'] = pd.to_numeric(df['Close'], errors='coerce').fillna(0)
-        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
-        
-        mask_exclude = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE')
-        df_filtered = df[~mask_exclude]
-        
-        max_ratio = df_filtered[ratio_col].max()
-        threshold = 0.29 if max_ratio <= 1.5 else 29.0
-        
-        upper_df = df_filtered[df_filtered[ratio_col] >= threshold].copy()
-        lower_df = df_filtered[df_filtered[ratio_col] <= -threshold].copy()
-        
-        if threshold == 0.29:
-            upper_df['ChagesRatio'] = upper_df[ratio_col] * 100
-            lower_df['ChagesRatio'] = lower_df[ratio_col] * 100
-        else:
-            upper_df['ChagesRatio'] = upper_df[ratio_col]
-            lower_df['ChagesRatio'] = lower_df[ratio_col]
+        def fetch_naver_limit(url):
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+            tables = pd.read_html(StringIO(res.text), encoding='euc-kr')
+            for t in tables:
+                if '종목명' in t.columns and '현재가' in t.columns:
+                    t = t.dropna(subset=['종목명'])
+                    t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
+                    if not t.empty:
+                        return t
+            return pd.DataFrame()
+
+        upper_raw = fetch_naver_limit("https://finance.naver.com/sise/sise_upper.naver")
+        lower_raw = fetch_naver_limit("https://finance.naver.com/sise/sise_lower.naver")
+
+        def process_df(df, is_upper=True):
+            if df.empty: return pd.DataFrame()
+            res = pd.DataFrame()
+            res['Name'] = df['종목명']
             
-        if not upper_df.empty: upper_df['Amount_Ouk'] = (upper_df['Amount'] / 100000000).astype(int)
-        if not lower_df.empty: lower_df['Amount_Ouk'] = (lower_df['Amount'] / 100000000).astype(int)
+            # 숫자와 소수점만 남기고 모든 화살표, 기호, 텍스트를 제거하는 강력한 정제 함수
+            def clean_num(x):
+                return re.sub(r'[^\d\.]', '', str(x))
+
+            res['Close'] = pd.to_numeric(df['현재가'].apply(clean_num), errors='coerce').fillna(0)
+            
+            changes_raw = pd.to_numeric(df['전일비'].apply(clean_num), errors='coerce').fillna(0)
+            res['Changes'] = changes_raw if is_upper else -changes_raw
+            
+            ratio_raw = pd.to_numeric(df['등락률'].apply(clean_num), errors='coerce').fillna(0)
+            res['ChagesRatio'] = ratio_raw if is_upper else -ratio_raw
+
+            res['Volume'] = pd.to_numeric(df['거래량'].apply(clean_num), errors='coerce').fillna(0)
+            res['Amount_Ouk'] = (res['Close'] * res['Volume'] / 100000000).astype(int)
+            res['PrevClose'] = res['Close'] - res['Changes']
+            
+            return res
+
+        upper_df = process_df(upper_raw, is_upper=True)
+        lower_df = process_df(lower_raw, is_upper=False)
         
-        return upper_df.sort_values('Amount', ascending=False), lower_df.sort_values('Amount', ascending=False)
-    except Exception as e: 
+        # 한국거래소(KRX) 전체 목록과 조인하여 Code 정보 가져오기
+        krx = get_krx_stocks()
+        if not upper_df.empty and not krx.empty:
+            upper_df = pd.merge(upper_df, krx[['Name', 'Code']], on='Name', how='left')
+        if not lower_df.empty and not krx.empty:
+            lower_df = pd.merge(lower_df, krx[['Name', 'Code']], on='Name', how='left')
+
+        if 'Code' not in upper_df.columns: upper_df['Code'] = ""
+        if 'Code' not in lower_df.columns: lower_df['Code'] = ""
+
+        return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
+    except Exception as e:
         return pd.DataFrame(), pd.DataFrame()
 
 @st.cache_data(ttl=120)
@@ -701,8 +724,22 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(["🔥 🇺🇸 미국 급등주 (+5% 이상)", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너", "💎 장기 가치주 스캐너", "🚨 상/하한가 분석"])
+# 👈 [요청 반영] 11개 탭의 순서를 완벽하게 재배치했습니다.
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
+    "🚀 조건 검색 스캐너", 
+    "💎 장기 가치주 스캐너", 
+    "🎯 국내 타점 진단", 
+    "💡 AI 테마 검색", 
+    "🚨 상/하한가 분석", 
+    "📰 실시간 뉴스 터미널", 
+    "📅 증시 캘린더", 
+    "💸 자금 흐름(히트맵)", 
+    "💰 배당주(TOP 60)", 
+    "⭐ 내 관심종목"
+])
 
+# 1. 미국 급등주
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns([1, 1.2], gap="large")
@@ -745,7 +782,173 @@ with tab1:
                         if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t1_{i}")
                 else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
+# 2. 조건 검색 스캐너 (기존 9번)
 with tab2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🚀 실시간 조건 검색 스캐너")
+    st.write("시장 주도주(당일 거래대금 상위 종목) 중 상승 확률이 높은 타점에 온 종목을 족집게처럼 찾아냅니다.")
+    
+    with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
+        st.markdown("""
+        **🔍 1. 개별 조건 가이드**
+        * **✨ 골든크로스/정배열:** 하락/횡보를 끝내고 이제 막 상승 추세로 방향을 튼 종목 (추세 초입).
+        * **✅ 20일선 눌림목:** 강하게 오르던 주식이 숨을 고르며 20일선 근처까지 내려온 안전한 반등 자리 (스윙 매매의 핵심).
+        * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
+        * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
+        
+        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보** (※ 4개를 다 켜면 논리 충돌로 결과가 안 나올 수 있습니다!)
+        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
+          > 최근 대량 거래량으로 급등 후, 조용히 가격만 빠져 20일선에 안착한 종목. 세력이탈 없이 개미만 턴 상태로 N자형 반등(2차 슈팅)을 먹기 가장 좋습니다.
+        * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
+          > 소외받던 주식이 대량 거래량을 터뜨리며 20일선을 뚫고 올라가는 종목. 새로운 테마 대장주 탄생 시 주로 나타나며 단기 랠리에 올라타기 좋습니다.
+        * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
+          > 투매가 나와 RSI가 바닥을 찍었는데 누군가 물량을 쓸어담은 종목(셀링 클라이맥스). 기술적 반등이 강하게 나오는 자리라 짧게 3~5% 수익 내기 좋습니다.
+        """)
+    
+    st.markdown("#### 🎯 스캔할 조건 선택 (중복 선택 가능)")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        cond_golden = st.checkbox("✨ 5일-20일 골든크로스 또는 정배열 초입")
+        cond_pullback = st.checkbox("✅ 20일선 눌림목 (진입 타점 근접)", value=True)
+    with col_c2:
+        cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
+        cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
+        
+    st.markdown("#### 📊 스캔 범위 선택")
+    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
+        
+    if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
+        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다... (약 {scan_limit//5}초 소요)"):
+            targets = get_scan_targets(scan_limit)
+            if not targets:
+                st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                found_results = []
+                
+                for i, (name, code) in enumerate(targets):
+                    status_text.text(f"🔍 스캔 중: {name} ({i+1}/{len(targets)})")
+                    res = analyze_technical_pattern(name, code)
+                    
+                    if res:
+                        match = True
+                        if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
+                        if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
+                        if cond_rsi_bottom and res['RSI'] > 30: match = False
+                        if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
+                        
+                        if match: 
+                            found_results.append(res)
+                            
+                    progress_bar.progress((i + 1) / len(targets))
+                    
+                status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
+                st.session_state.scan_results = found_results
+                st.rerun()
+
+    st.divider()
+
+    if st.session_state.scan_results is not None:
+        if len(st.session_state.scan_results) == 0:
+            st.info("선택하신 조건에 정확히 일치하는 종목이 없습니다. 조건을 완화하여 다시 검색해보세요.")
+        else:
+            st.success(f"🎯 조건에 부합하는 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
+            for i, res in enumerate(st.session_state.scan_results):
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
+
+# 3. 장기 가치주 스캐너 (기존 10번)
+with tab3:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
+    st.write("AI가 독보적인 미래 기술을 보유한 핵심 기업을 찾아내고, 재무 지표를 바탕으로 아직 시장에서 소외된 '진흙 속의 진주'를 발굴합니다.")
+
+    st.markdown("#### 🎯 1. 시장 주도 메가트렌드 (AI 추천)")
+    
+    hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
+    mega_trends = ["전고체 배터리", "온디바이스 AI", "자율주행/로봇", "양자컴퓨팅", "비만/치매 치료제", "우주항공(UAM)"]
+    all_themes = list(dict.fromkeys(hot_themes + mega_trends))
+    
+    col_v1, col_v2 = st.columns([2, 1])
+    with col_v1:
+        selected_theme = st.selectbox("💡 AI가 감지한 미래 유망 기술을 선택하세요:", all_themes + ["✏️ 직접 입력..."])
+        if selected_theme == "✏️ 직접 입력...":
+            tech_keyword = st.text_input("핵심 기술이나 메가트렌드를 직접 입력하세요:", placeholder="예: 6G 통신, 해저케이블")
+        else:
+            tech_keyword = selected_theme
+            
+    with col_v2:
+        cap_size = st.selectbox("🏢 기업 규모 선택:", ["상관없음 (모두 스캔)", "안정적인 대형주", "폭발력 있는 중소형주"], index=0)
+
+    st.markdown("#### ⚖️ 2. 재무 깐깐함 (저평가 기준) 설정")
+    st.write("어려운 PER/PBR 숫자를 직접 입력할 필요 없이, 원하시는 **투자 성향**만 선택해 주세요.")
+    
+    val_strictness = st.radio(
+        "어떤 스타일로 종목을 고를까요?",
+        [
+            "💎 **[흙 속의 진주]** 수익도 잘 내고 자산도 많은데 주가는 바닥인 초우량 가치주 (강력 추천)", 
+            "🚀 **[성장 프리미엄]** 약간 비싸도 기술력이 압도적이라 더 오를 여지가 있는 주식",
+            "🔥 **[오직 기술력만]** 현재 적자여도 미래 기술력 하나만 보고 투자하는 야수의 심장"
+        ]
+    )
+    
+    if "진주" in val_strictness:
+        max_per, max_pbr = 15.0, 1.5
+    elif "성장" in val_strictness:
+        max_per, max_pbr = 40.0, 4.0
+    else:
+        max_per, max_pbr = 9999.0, 9999.0 
+
+    if st.button("💎 텐배거 후보 가치주 스캔 시작", type="primary", use_container_width=True):
+        if not api_key_input:
+            st.warning("이 기능은 AI의 강력한 추론 능력이 필요합니다. 왼쪽 사이드바에 API 키를 입력해주세요.")
+        elif not tech_keyword:
+            st.warning("테마를 선택하거나 직접 입력해 주세요.")
+        else:
+            with st.spinner(f"'{tech_keyword}' 관련 독보적 기술을 가진 {cap_size} 기업을 AI가 전수 조사 중입니다... (약 10초)"):
+                candidates = get_longterm_value_stocks_with_ai(tech_keyword, cap_size, api_key_input)
+
+                if not candidates:
+                    st.error("관련 기술을 가진 상장 기업을 찾지 못했거나 AI 응답 지연이 발생했습니다.")
+                else:
+                    st.info(f"AI가 기술력을 인정받는 {len(candidates)}개의 후보 기업을 찾았습니다. 즉시 실시간 재무 필터링을 시작합니다...")
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    value_results = []
+
+                    for i, (name, code) in enumerate(candidates):
+                        status_text.text(f"재무제표 및 타점 스캔 중: {name} ({i+1}/{len(candidates)})")
+                        per_str, pbr_str = get_fundamentals(code)
+
+                        try:
+                            per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
+                            pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
+
+                            if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
+                                res = analyze_technical_pattern(name, code)
+                                if res:
+                                    value_results.append(res)
+                        except Exception as e:
+                            pass
+
+                        progress_bar.progress((i + 1) / len(candidates))
+
+                    status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 저평가 유망주 발굴 완료")
+                    st.session_state.value_scan_results = value_results
+                    st.rerun()
+
+    st.divider()
+
+    if st.session_state.value_scan_results is not None:
+        if len(st.session_state.value_scan_results) == 0:
+            st.info("선택하신 투자 성향에 완벽히 부합하는 유망주가 없습니다. 시장에서 기술 프리미엄을 너무 높게 받고 있거나 적자 상태일 수 있으니, 조건을 완화하여 다시 검색해보세요.")
+        else:
+            st.success(f"💎 독보적 기술을 보유한 동시에 아직 시장에서 덜 오른 유망주 {len(st.session_state.value_scan_results)}개를 찾았습니다!")
+            for i, res in enumerate(st.session_state.value_scan_results):
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
+
+# 4. 국내 타점 진단 (기존 2번)
+with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
     show_trading_guidelines() 
@@ -768,7 +971,8 @@ with tab2:
     else:
         st.error("종목 목록을 불러오지 못했습니다. 사이드바의 리로드 버튼을 눌러주세요.")
 
-with tab3:
+# 5. AI 테마 검색 (기존 3번)
+with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
     show_trading_guidelines() 
@@ -793,7 +997,82 @@ with tab3:
                     if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t3_{i}")
             else: st.error(f"❌ '{query}' 테마에 대한 관련주를 찾지 못했거나 AI 응답 지연이 발생했습니다.")
 
-with tab4:
+# 6. 상/하한가 분석 (기존 11번 -> 강력한 네이버 크롤링 적용 완료)
+with tab6:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
+    st.write("당일 가장 강력한 자금이 몰린 상한가 종목과 하한가 종목을 한눈에 파악하고, 주도 테마를 AI로 분석합니다.")
+    
+    with st.spinner("거래소에서 실시간 상/하한가 데이터를 불러오는 중입니다..."):
+        upper_df, lower_df = get_limit_stocks()
+        all_krx = get_krx_stocks() 
+        
+    if not upper_df.empty and not all_krx.empty:
+        upper_df = pd.merge(upper_df, all_krx[['Name', 'Sector']], on='Name', how='left')
+    if 'Sector' not in upper_df.columns: upper_df['Sector'] = "개별이슈/기타"
+    upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
+        
+    if not lower_df.empty and not all_krx.empty:
+        lower_df = pd.merge(lower_df, all_krx[['Name', 'Sector']], on='Name', how='left')
+    if 'Sector' not in lower_df.columns: lower_df['Sector'] = "개별이슈/기타"
+    lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
+        
+    if api_key_input and not upper_df.empty:
+        if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
+            with st.spinner("AI가 오늘 상한가 종목들의 공통 테마와 이슈를 낱낱이 분석 중입니다..."):
+                stock_list = upper_df['Name'].tolist()
+                prompt = f"오늘 한국 증시에서 상한가를 기록한 종목들입니다: {stock_list}\n이 종목들이 어떤 공통된 테마나 개별 이슈로 묶여서 상한가를 기록했는지, 오늘 시장의 가장 핵심적인 주도 테마가 무엇인지 전문 트레이더 관점에서 3~4줄로 명확하게 요약 분석해 주세요."
+                st.success(ask_gemini(prompt, api_key_input))
+    elif not api_key_input:
+        st.info("💡 사이드바에 API 키를 입력하시면 'AI 상한가 테마 즉시 분석' 기능을 사용할 수 있습니다.")
+        
+    st.divider()
+    
+    col_u, col_l = st.columns(2)
+    with col_u:
+        st.markdown("### 🔴 오늘 상한가 종목")
+        if upper_df.empty:
+            st.info("현재 상한가 종목이 없습니다.")
+        else:
+            display_upper = upper_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
+            display_upper['가격 흐름'] = display_upper.apply(
+                lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 (+{row['ChagesRatio']:.2f}%)" if 'PrevClose' in row else f"{int(row['Close']):,}원 (+{row['ChagesRatio']:.2f}%)", axis=1
+            )
+            
+            display_upper = display_upper[['Name', 'Sector', '가격 흐름', 'Amount_Ouk']]
+            display_upper.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
+            st.dataframe(display_upper, use_container_width=True, hide_index=True)
+            
+            st.markdown("#### 🎯 상한가 종목 즉시 진단")
+            # Code 정보가 없을 수 있으므로 Name으로 검색 가능하게 조정
+            opts_u = ["🔍 종목을 선택하세요."] + upper_df['Name'].tolist()
+            sel_u = st.selectbox("상한가 안착 종목의 타점 확인:", opts_u, key="sel_u")
+            if sel_u != "🔍 종목을 선택하세요.":
+                with st.spinner(f"📡 '{sel_u}' 분석 중..."):
+                    # Name으로 Code 역추적
+                    k_code = all_krx[all_krx['Name'] == sel_u]['Code'].iloc[0] if not all_krx[all_krx['Name'] == sel_u].empty else ""
+                    if k_code:
+                        res = analyze_technical_pattern(sel_u, k_code)
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t11_u")
+                    else:
+                        st.error("종목 코드를 찾을 수 없습니다.")
+                
+    with col_l:
+        st.markdown("### 🔵 오늘 하한가 종목")
+        if lower_df.empty:
+            st.info("현재 하한가 종목이 없습니다.")
+        else:
+            display_lower = lower_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
+            display_lower['가격 흐름'] = display_lower.apply(
+                lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 ({row['ChagesRatio']:.2f}%)" if 'PrevClose' in row else f"{int(row['Close']):,}원 ({row['ChagesRatio']:.2f}%)", axis=1
+            )
+            
+            display_lower = display_lower[['Name', 'Sector', '가격 흐름', 'Amount_Ouk']]
+            display_lower.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
+            st.dataframe(display_lower, use_container_width=True, hide_index=True)
+
+# 7. 실시간 뉴스 터미널 (기존 4번)
+with tab7:
     st.markdown("<br>", unsafe_allow_html=True)
     cols_top = st.columns([4, 1])
     cols_top[0].subheader("📰 프로 트레이더용 실시간 속보 터미널")
@@ -896,7 +1175,30 @@ with tab4:
                 else: st.warning("API 키를 입력해주세요.")
             cols[4].link_button("원문🔗", news['link'], use_container_width=True)
 
-with tab5:
+# 8. 증시 캘린더 (기존 6번)
+with tab8:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("📅 핵심 증시 일정 모니터링")
+    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 주요 증시 일정 (Naver)"])
+    with cal_tab1:
+        components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
+    with cal_tab2:
+        st.info("💡 **[IPO 일정]** 이번 달 수급에 가장 직접적인 영향을 주는 국내 주식 신규상장(IPO) 표입니다.")
+        try:
+            res = requests.get("https://finance.naver.com/sise/ipo.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr')))
+            for t in tables:
+                if '종목명' in t.columns and '상장일' in t.columns:
+                    t = t.dropna(subset=['종목명', '상장일'])
+                    if not t.empty: st.dataframe(t[['종목명', '현재가', '공모가', '청약일', '상장일']].head(15), use_container_width=True, hide_index=True); break
+        except: st.warning("⚠️ 자동 표 가져오기가 제한되었습니다. 아래 버튼을 이용해 주세요.")
+        st.divider()
+        btn_c1, btn_c2 = st.columns(2)
+        btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
+        btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
+
+# 9. 자금 흐름(히트맵) (기존 5번)
+with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💸 시장 주도주 & 자금 흐름 히트맵")
     with st.spinner("📡 거래소 데이터와 섹터 맵을 생성 중입니다..."):
@@ -932,28 +1234,8 @@ with tab5:
             else:
                 st.error("❌ 분석 불가: 데이터가 부족하거나 거래 정지된 종목입니다.")
 
-with tab6:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📅 핵심 증시 일정 모니터링")
-    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 주요 증시 일정 (Naver)"])
-    with cal_tab1:
-        components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
-    with cal_tab2:
-        st.info("💡 **[IPO 일정]** 이번 달 수급에 가장 직접적인 영향을 주는 국내 주식 신규상장(IPO) 표입니다.")
-        try:
-            res = requests.get("https://finance.naver.com/sise/ipo.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-            tables = pd.read_html(StringIO(res.content.decode('euc-kr')))
-            for t in tables:
-                if '종목명' in t.columns and '상장일' in t.columns:
-                    t = t.dropna(subset=['종목명', '상장일'])
-                    if not t.empty: st.dataframe(t[['종목명', '현재가', '공모가', '청약일', '상장일']].head(15), use_container_width=True, hide_index=True); break
-        except: st.warning("⚠️ 자동 표 가져오기가 제한되었습니다. 아래 버튼을 이용해 주세요.")
-        st.divider()
-        btn_c1, btn_c2 = st.columns(2)
-        btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
-        btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
-
-with tab7:
+# 10. 배당주 (기존 7번)
+with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 60)")
     with st.spinner("야후 파이낸스에서 60개 종목의 최신 실시간 데이터를 다운로드 중입니다..."):
@@ -963,7 +1245,8 @@ with tab7:
     with dt2: st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
     with dt3: st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
 
-with tab8:
+# 11. 내 관심종목 (기존 8번)
+with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⭐ 나만의 관심종목 (Watchlist)")
     if st.button("🗑️ 관심종목 모두 지우기"):
@@ -976,242 +1259,3 @@ with tab8:
         for i, item in enumerate(st.session_state.watchlist):
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
-
-with tab9:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🚀 실시간 조건 검색 스캐너")
-    st.write("시장 주도주(당일 거래대금 상위 종목) 중 상승 확률이 높은 타점에 온 종목을 족집게처럼 찾아냅니다.")
-    
-    with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
-        st.markdown("""
-        **🔍 1. 개별 조건 가이드**
-        * **✨ 골든크로스/정배열:** 하락/횡보를 끝내고 이제 막 상승 추세로 방향을 튼 종목 (추세 초입).
-        * **✅ 20일선 눌림목:** 강하게 오르던 주식이 숨을 고르며 20일선 근처까지 내려온 안전한 반등 자리 (스윙 매매의 핵심).
-        * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
-        * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
-        
-        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보** (※ 4개를 다 켜면 논리 충돌로 결과가 안 나올 수 있습니다!)
-        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
-          > 최근 대량 거래량으로 급등 후, 조용히 가격만 빠져 20일선에 안착한 종목. 세력이탈 없이 개미만 턴 상태로 N자형 반등(2차 슈팅)을 먹기 가장 좋습니다.
-        * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
-          > 소외받던 주식이 대량 거래량을 터뜨리며 20일선을 뚫고 올라가는 종목. 새로운 테마 대장주 탄생 시 주로 나타나며 단기 랠리에 올라타기 좋습니다.
-        * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
-          > 투매가 나와 RSI가 바닥을 찍었는데 누군가 물량을 쓸어담은 종목(셀링 클라이맥스). 기술적 반등이 강하게 나오는 자리라 짧게 3~5% 수익 내기 좋습니다.
-        """)
-    
-    st.markdown("#### 🎯 스캔할 조건 선택 (중복 선택 가능)")
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        cond_golden = st.checkbox("✨ 5일-20일 골든크로스 또는 정배열 초입")
-        cond_pullback = st.checkbox("✅ 20일선 눌림목 (진입 타점 근접)", value=True)
-    with col_c2:
-        cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
-        cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
-        
-    # 👈 [추가] 검색 범위(상위 N개) 선택 UI 추가
-    st.markdown("#### 📊 스캔 범위 선택")
-    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
-        
-    if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다... (약 {scan_limit//5}초 소요)"):
-            targets = get_scan_targets(scan_limit)
-            if not targets:
-                st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                found_results = []
-                
-                for i, (name, code) in enumerate(targets):
-                    status_text.text(f"🔍 스캔 중: {name} ({i+1}/{len(targets)})")
-                    res = analyze_technical_pattern(name, code)
-                    
-                    if res:
-                        match = True
-                        if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
-                        if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
-                        if cond_rsi_bottom and res['RSI'] > 30: match = False
-                        if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
-                        
-                        if match: 
-                            found_results.append(res)
-                            
-                    progress_bar.progress((i + 1) / len(targets))
-                    
-                status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
-                st.session_state.scan_results = found_results
-                st.rerun()
-
-    st.divider()
-
-    if st.session_state.scan_results is not None:
-        if len(st.session_state.scan_results) == 0:
-            st.info("선택하신 조건에 정확히 일치하는 종목이 없습니다. 조건을 완화하여 다시 검색해보세요.")
-        else:
-            st.success(f"🎯 조건에 부합하는 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
-            for i, res in enumerate(st.session_state.scan_results):
-                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t9_{i}")
-
-with tab10:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
-    st.write("AI가 독보적인 미래 기술을 보유한 핵심 기업을 찾아내고, 재무 지표를 바탕으로 아직 시장에서 소외된 '진흙 속의 진주'를 발굴합니다.")
-
-    st.markdown("#### 🎯 1. 시장 주도 메가트렌드 (AI 추천)")
-    
-    hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
-    mega_trends = ["전고체 배터리", "온디바이스 AI", "자율주행/로봇", "양자컴퓨팅", "비만/치매 치료제", "우주항공(UAM)"]
-    all_themes = list(dict.fromkeys(hot_themes + mega_trends))
-    
-    col_v1, col_v2 = st.columns([2, 1])
-    with col_v1:
-        selected_theme = st.selectbox("💡 AI가 감지한 미래 유망 기술을 선택하세요:", all_themes + ["✏️ 직접 입력..."])
-        if selected_theme == "✏️ 직접 입력...":
-            tech_keyword = st.text_input("핵심 기술이나 메가트렌드를 직접 입력하세요:", placeholder="예: 6G 통신, 해저케이블")
-        else:
-            tech_keyword = selected_theme
-            
-    with col_v2:
-        cap_size = st.selectbox("🏢 기업 규모 선택:", ["상관없음 (모두 스캔)", "안정적인 대형주", "폭발력 있는 중소형주"], index=0)
-
-    st.markdown("#### ⚖️ 2. 재무 깐깐함 (저평가 기준) 설정")
-    st.write("어려운 PER/PBR 숫자를 직접 입력할 필요 없이, 원하시는 **투자 성향**만 선택해 주세요.")
-    
-    val_strictness = st.radio(
-        "어떤 스타일로 종목을 고를까요?",
-        [
-            "💎 **[흙 속의 진주]** 수익도 잘 내고 자산도 많은데 주가는 바닥인 초우량 가치주 (강력 추천)", 
-            "🚀 **[성장 프리미엄]** 약간 비싸도 기술력이 압도적이라 더 오를 여지가 있는 주식",
-            "🔥 **[오직 기술력만]** 현재 적자여도 미래 기술력 하나만 보고 투자하는 야수의 심장"
-        ]
-    )
-    
-    if "진주" in val_strictness:
-        max_per, max_pbr = 15.0, 1.5
-    elif "성장" in val_strictness:
-        max_per, max_pbr = 40.0, 4.0
-    else:
-        max_per, max_pbr = 9999.0, 9999.0 
-
-    if st.button("💎 텐배거 후보 가치주 스캔 시작", type="primary", use_container_width=True):
-        if not api_key_input:
-            st.warning("이 기능은 AI의 강력한 추론 능력이 필요합니다. 왼쪽 사이드바에 API 키를 입력해주세요.")
-        elif not tech_keyword:
-            st.warning("테마를 선택하거나 직접 입력해 주세요.")
-        else:
-            with st.spinner(f"'{tech_keyword}' 관련 독보적 기술을 가진 {cap_size} 기업을 AI가 전수 조사 중입니다... (약 10초)"):
-                candidates = get_longterm_value_stocks_with_ai(tech_keyword, cap_size, api_key_input)
-
-                if not candidates:
-                    st.error("관련 기술을 가진 상장 기업을 찾지 못했거나 AI 응답 지연이 발생했습니다.")
-                else:
-                    st.info(f"AI가 기술력을 인정받는 {len(candidates)}개의 후보 기업을 찾았습니다. 즉시 실시간 재무 필터링을 시작합니다...")
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    value_results = []
-
-                    for i, (name, code) in enumerate(candidates):
-                        status_text.text(f"재무제표 및 타점 스캔 중: {name} ({i+1}/{len(candidates)})")
-                        per_str, pbr_str = get_fundamentals(code)
-
-                        try:
-                            per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
-                            pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
-
-                            if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
-                                res = analyze_technical_pattern(name, code)
-                                if res:
-                                    value_results.append(res)
-                        except Exception as e:
-                            pass
-
-                        progress_bar.progress((i + 1) / len(candidates))
-
-                    status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 저평가 유망주 발굴 완료")
-                    st.session_state.value_scan_results = value_results
-                    st.rerun()
-
-    st.divider()
-
-    if st.session_state.value_scan_results is not None:
-        if len(st.session_state.value_scan_results) == 0:
-            st.info("선택하신 투자 성향에 완벽히 부합하는 유망주가 없습니다. 시장에서 기술 프리미엄을 너무 높게 받고 있거나 적자 상태일 수 있으니, 조건을 완화하여 다시 검색해보세요.")
-        else:
-            st.success(f"💎 독보적 기술을 보유한 동시에 아직 시장에서 덜 오른 유망주 {len(st.session_state.value_scan_results)}개를 찾았습니다!")
-            for i, res in enumerate(st.session_state.value_scan_results):
-                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
-
-with tab11:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
-    st.write("당일 가장 강력한 자금이 몰린 상한가 종목과 하한가 종목을 한눈에 파악하고, 주도 테마를 AI로 분석합니다.")
-    
-    with st.spinner("거래소에서 실시간 상/하한가 데이터를 불러오는 중입니다..."):
-        upper_df, lower_df = get_limit_stocks()
-        all_krx = get_krx_stocks() 
-        
-    if not upper_df.empty and not all_krx.empty:
-        upper_df = pd.merge(upper_df, all_krx[['Code', 'Sector']], on='Code', how='left')
-    if 'Sector' not in upper_df.columns: upper_df['Sector'] = "개별이슈/기타"
-    upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
-        
-    if not lower_df.empty and not all_krx.empty:
-        lower_df = pd.merge(lower_df, all_krx[['Code', 'Sector']], on='Code', how='left')
-    if 'Sector' not in lower_df.columns: lower_df['Sector'] = "개별이슈/기타"
-    lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
-        
-    if api_key_input and not upper_df.empty:
-        if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
-            with st.spinner("AI가 오늘 상한가 종목들의 공통 테마와 이슈를 낱낱이 분석 중입니다..."):
-                stock_list = upper_df['Name'].tolist()
-                prompt = f"오늘 한국 증시에서 상한가를 기록한 종목들입니다: {stock_list}\n이 종목들이 어떤 공통된 테마나 개별 이슈로 묶여서 상한가를 기록했는지, 오늘 시장의 가장 핵심적인 주도 테마가 무엇인지 전문 트레이더 관점에서 3~4줄로 명확하게 요약 분석해 주세요."
-                st.success(ask_gemini(prompt, api_key_input))
-    elif not api_key_input:
-        st.info("💡 사이드바에 API 키를 입력하시면 'AI 상한가 테마 즉시 분석' 기능을 사용할 수 있습니다.")
-        
-    st.divider()
-    
-    col_u, col_l = st.columns(2)
-    with col_u:
-        st.markdown("### 🔴 오늘 상한가 종목")
-        if upper_df.empty:
-            st.info("현재 상한가 종목이 없습니다.")
-        else:
-            display_upper = upper_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
-            display_upper['Changes'] = pd.to_numeric(display_upper['Changes'], errors='coerce').fillna(0)
-            display_upper['PrevClose'] = display_upper['Close'] - display_upper['Changes']
-            
-            display_upper['가격 흐름'] = display_upper.apply(
-                lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 (+{row['ChagesRatio']:.2f}%)", axis=1
-            )
-            
-            display_upper = display_upper[['Name', 'Sector', '가격 흐름', 'Amount_Ouk']]
-            display_upper.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
-            st.dataframe(display_upper, use_container_width=True, hide_index=True)
-            
-            st.markdown("#### 🎯 상한가 종목 즉시 진단")
-            opts_u = ["🔍 종목을 선택하세요."] + (upper_df['Name'].astype(str) + " (" + upper_df['Code'].astype(str) + ")").tolist()
-            sel_u = st.selectbox("상한가 안착 종목의 타점 확인:", opts_u, key="sel_u")
-            if sel_u != "🔍 종목을 선택하세요.":
-                k_name = sel_u.rsplit(" (", 1)[0]
-                k_code = sel_u.rsplit("(", 1)[-1].replace(")", "").strip()
-                with st.spinner(f"📡 '{k_name}' 분석 중..."):
-                    res = analyze_technical_pattern(k_name, k_code)
-                if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t11_u")
-                
-    with col_l:
-        st.markdown("### 🔵 오늘 하한가 종목")
-        if lower_df.empty:
-            st.info("현재 하한가 종목이 없습니다.")
-        else:
-            display_lower = lower_df[['Name', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk']].copy()
-            display_lower['Changes'] = pd.to_numeric(display_lower['Changes'], errors='coerce').fillna(0)
-            display_lower['PrevClose'] = display_lower['Close'] - display_lower['Changes']
-            
-            display_lower['가격 흐름'] = display_lower.apply(
-                lambda row: f"{int(row['PrevClose']):,}원 ➡️ {int(row['Close']):,}원 ({row['ChagesRatio']:.2f}%)", axis=1
-            )
-            
-            display_lower = display_lower[['Name', 'Sector', '가격 흐름', 'Amount_Ouk']]
-            display_lower.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
-            st.dataframe(display_lower, use_container_width=True, hide_index=True)
