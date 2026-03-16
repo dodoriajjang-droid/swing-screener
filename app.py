@@ -201,6 +201,26 @@ def get_scan_targets(limit=50):
         return df[['Name', 'Code']].values.tolist()
     except: return []
 
+# 👈 [핵심 추가] 11번 탭을 위한 상/하한가 추출 함수
+@st.cache_data(ttl=300)
+def get_limit_stocks():
+    try:
+        df = fdr.StockListing('KRX')
+        if df.empty: return pd.DataFrame(), pd.DataFrame()
+        
+        # 한국 증시 상한가/하한가 기준 (+- 30%) - 실제로는 29.5% 이상을 상하한가로 간주
+        mask_exclude = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE')
+        df_filtered = df[~mask_exclude]
+        
+        upper_df = df_filtered[df_filtered['ChagesRatio'] >= 29.5].copy()
+        lower_df = df_filtered[df_filtered['ChagesRatio'] <= -29.5].copy()
+        
+        if not upper_df.empty: upper_df['Amount_Ouk'] = (upper_df['Amount'] / 100000000).astype(int)
+        if not lower_df.empty: lower_df['Amount_Ouk'] = (lower_df['Amount'] / 100000000).astype(int)
+        
+        return upper_df.sort_values('Amount', ascending=False), lower_df.sort_values('Amount', ascending=False)
+    except: return pd.DataFrame(), pd.DataFrame()
+
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     try:
@@ -368,7 +388,6 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
-# 👈 [추가] 10번 탭의 장기 차트를 즉시 불러오기 위한 초고속 캐싱 함수
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker, days):
     try:
@@ -503,7 +522,6 @@ def show_trading_guidelines():
 
 # ------------------------------------------
 # UI 컴포넌트: 주식 카드 그리기
-# 👈 [추가] 10번 탭만을 위한 show_longterm_chart 파라미터 추가
 # ------------------------------------------
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
@@ -537,7 +555,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
-        # 👈 [핵심 추가] 10번 탭인 경우 차트 기간 변경 기능 활성화
         if show_longterm_chart:
             tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=2)
             days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
@@ -669,7 +686,8 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs(["🔥 🇺🇸 미국 급등주 (+5% 이상)", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너", "💎 장기 가치주 스캐너"])
+# 👈 [추가] 탭 11 상/하한가 분석 탭 연결
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(["🔥 🇺🇸 미국 급등주 (+5% 이상)", "🎯 국내 타점 진단", "💡 AI 테마 검색", "📰 실시간 뉴스 터미널", "💸 자금 흐름(히트맵)", "📅 증시 캘린더", "💰 배당주(TOP 60)", "⭐ 내 관심종목", "🚀 조건 검색 스캐너", "💎 장기 가치주 스캐너", "🚨 상/하한가 분석"])
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1103,5 +1121,57 @@ with tab10:
         else:
             st.success(f"💎 독보적 기술을 보유한 동시에 아직 시장에서 덜 오른 유망주 {len(st.session_state.value_scan_results)}개를 찾았습니다!")
             for i, res in enumerate(st.session_state.value_scan_results):
-                # 👈 [핵심 추가] 10번 탭은 show_longterm_chart=True 를 넘겨 장기 차트 토글 활성화
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t10_{i}", show_longterm_chart=True)
+
+# 👈 [핵심 추가] 탭 11: 상/하한가 분석 및 테마 자동 추출
+with tab11:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
+    st.write("당일 가장 강력한 자금이 몰린 상한가 종목과 하한가 종목을 한눈에 파악하고, 주도 테마를 AI로 분석합니다.")
+    
+    with st.spinner("거래소에서 실시간 상/하한가 데이터를 불러오는 중입니다..."):
+        upper_df, lower_df = get_limit_stocks()
+        
+    if api_key_input and not upper_df.empty:
+        if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
+            with st.spinner("AI가 오늘 상한가 종목들의 공통 테마와 이슈를 낱낱이 분석 중입니다..."):
+                stock_list = upper_df['Name'].tolist()
+                prompt = f"오늘 한국 증시에서 상한가를 기록한 종목들입니다: {stock_list}\n이 종목들이 어떤 공통된 테마나 개별 이슈로 묶여서 상한가를 기록했는지, 오늘 시장의 가장 핵심적인 주도 테마가 무엇인지 전문 트레이더 관점에서 3~4줄로 명확하게 요약 분석해 주세요."
+                st.success(ask_gemini(prompt, api_key_input))
+    elif not api_key_input:
+        st.info("💡 사이드바에 API 키를 입력하시면 'AI 상한가 테마 즉시 분석' 기능을 사용할 수 있습니다.")
+        
+    st.divider()
+    
+    col_u, col_l = st.columns(2)
+    with col_u:
+        st.markdown("### 🔴 오늘 상한가 종목")
+        if upper_df.empty:
+            st.info("현재 상한가 종목이 없습니다.")
+        else:
+            display_upper = upper_df[['Name', 'Sector', 'Close', 'Amount_Ouk']].copy()
+            display_upper.columns = ['종목명', '섹터/테마', '현재가', '거래대금(억)']
+            display_upper['현재가'] = display_upper['현재가'].apply(lambda x: f"{x:,}원")
+            display_upper['섹터/테마'] = display_upper['섹터/테마'].fillna("개별이슈/기타")
+            st.dataframe(display_upper, use_container_width=True, hide_index=True)
+            
+            st.markdown("#### 🎯 상한가 종목 즉시 진단")
+            opts_u = ["🔍 종목을 선택하세요."] + (upper_df['Name'].astype(str) + " (" + upper_df['Code'].astype(str) + ")").tolist()
+            sel_u = st.selectbox("상한가 안착 종목의 타점 확인:", opts_u, key="sel_u")
+            if sel_u != "🔍 종목을 선택하세요.":
+                k_name = sel_u.rsplit(" (", 1)[0]
+                k_code = sel_u.rsplit("(", 1)[-1].replace(")", "").strip()
+                with st.spinner(f"📡 '{k_name}' 분석 중..."):
+                    res = analyze_technical_pattern(k_name, k_code)
+                if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t11_u")
+                
+    with col_l:
+        st.markdown("### 🔵 오늘 하한가 종목")
+        if lower_df.empty:
+            st.info("현재 하한가 종목이 없습니다.")
+        else:
+            display_lower = lower_df[['Name', 'Sector', 'Close', 'Amount_Ouk']].copy()
+            display_lower.columns = ['종목명', '섹터/테마', '현재가', '거래대금(억)']
+            display_lower['현재가'] = display_lower['현재가'].apply(lambda x: f"{x:,}원")
+            display_lower['섹터/테마'] = display_lower['섹터/테마'].fillna("개별이슈/기타")
+            st.dataframe(display_lower, use_container_width=True, hide_index=True)
