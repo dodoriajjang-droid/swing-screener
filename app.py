@@ -16,6 +16,7 @@ from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 import json
 import time
+import concurrent.futures  # 👈 [핵심 추가] 병렬 처리를 위한 멀티스레딩 모듈
 
 # ==========================================
 # 1. 초기 설정 
@@ -152,18 +153,22 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-def fetch_naver_volume(sosok, page=1):
+def fetch_naver_volume(sosok, pages=1):
+    df_list = []
     try:
-        url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}&page={page}"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        html = res.content.decode('euc-kr', errors='replace')
-        tables = pd.read_html(StringIO(html))
-        for t in tables:
-            if '종목명' in t.columns and '현재가' in t.columns and '거래량' in t.columns:
-                df = t.dropna(subset=['종목명']).copy()
-                df = df[df['종목명'] != '종목명']
-                return df
+        for page in range(1, pages + 1):
+            url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}&page={page}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            html = res.content.decode('euc-kr', errors='replace')
+            tables = pd.read_html(StringIO(html))
+            for t in tables:
+                if '종목명' in t.columns and '현재가' in t.columns and '거래량' in t.columns:
+                    df = t.dropna(subset=['종목명']).copy()
+                    df = df[df['종목명'] != '종목명']
+                    df_list.append(df)
+                    break
     except: pass
+    if df_list: return pd.concat(df_list, ignore_index=True)
     return pd.DataFrame()
 
 @st.cache_data(ttl=300)
@@ -206,20 +211,25 @@ def get_trading_value_kings():
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: return pd.DataFrame()
 
-# 👈 [핵심 업데이트 1] 300개를 가져오기 위해 네이버 금융 1, 2페이지를 모두 긁어오도록 강화
 @st.cache_data(ttl=300)
-def get_scan_targets(limit=100):
+def get_scan_targets(limit=50):
     try:
-        dfs = []
-        for sosok in [0, 1]:  # 코스피, 코스닥
-            for page in [1, 2]: # 각각 1~2페이지 (총 400개) 스캔
-                temp_df = fetch_naver_volume(sosok, page)
-                if not temp_df.empty:
-                    dfs.append(temp_df)
-                    
-        if not dfs: return []
-        df = pd.concat(dfs, ignore_index=True)
-        df = df.drop_duplicates(subset=['종목명'])
+        df_fdr = fdr.StockListing('KRX')
+        if not df_fdr.empty:
+            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+            if df_fdr['Amount'].max() > 0:
+                mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+                df_fdr = df_fdr[~mask].sort_values('Amount', ascending=False)
+                targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
+                if len(targets) >= limit or len(targets) > 100:
+                    return targets
+    except: pass
+    
+    try:
+        df_kpi = fetch_naver_volume(0, pages=3) 
+        df_kdq = fetch_naver_volume(1, pages=3)
+        df = pd.concat([df_kpi, df_kdq], ignore_index=True)
+        if df.empty: return []
         
         mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
         df = df[~mask].copy()
@@ -251,25 +261,21 @@ def get_limit_stocks():
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
             html_str = res.content.decode('euc-kr', errors='replace')
             tables = pd.read_html(StringIO(html_str))
-            
             for t in tables:
                 if '종목명' in t.columns and '현재가' in t.columns:
                     t = t.dropna(subset=['종목명', '현재가'])
                     t = t[t['종목명'].apply(lambda x: isinstance(x, str))]
                     t = t[t['종목명'] != '종목명']
                     t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
-                    
                     if not t.empty:
                         res_df = pd.DataFrame()
                         res_df['Name'] = t['종목명']
-                        
                         def to_f(x):
                             try:
                                 s = str(x).replace(',', '').replace('%', '').replace('+', '').strip()
                                 if s in ['', 'nan', 'NaN', '-']: return 0.0
                                 return float(s)
                             except: return 0.0
-                            
                         res_df['Close'] = t['현재가'].apply(to_f)
                         chg = t['전일비'].apply(to_f)
                         res_df['Changes'] = chg if is_upper else -chg
@@ -377,30 +383,24 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
     try:
         response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
-        
         krx_df = get_krx_stocks()
         if krx_df.empty: return raw_list[:20]
-        
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
-        
         validated = []
         seen = set()
         for name, code in raw_list:
             clean_name = name.replace('(주)', '').strip()
             final_name, final_code = None, None
-            
             if clean_name in name_to_code:
                 final_name = clean_name
                 final_code = name_to_code[clean_name]
             elif code in code_to_name:
                 final_name = code_to_name[code]
                 final_code = code
-                
             if final_name and final_code and final_code not in seen:
                 seen.add(final_code)
                 validated.append((final_name, final_code))
-                
         return validated[:20]
     except: return []
 
@@ -410,30 +410,24 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
     try:
         response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
-        
         krx_df = get_krx_stocks()
         if krx_df.empty: return raw_list[:20]
-        
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
-        
         validated = []
         seen = set()
         for name, code in raw_list:
             clean_name = name.replace('(주)', '').strip()
             final_name, final_code = None, None
-            
             if clean_name in name_to_code:
                 final_name = clean_name
                 final_code = name_to_code[clean_name]
             elif code in code_to_name:
                 final_name = code_to_name[code]
                 final_code = code
-                
             if final_name and final_code and final_code not in seen:
                 seen.add(final_code)
                 validated.append((final_name, final_code))
-                
         return validated[:20]
     except: return []
 
@@ -454,30 +448,24 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
         prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 테마주가 아닌 실제 기술을 개발하거나 관련 사업을 영위하는 장기 투자 관점의 종목이어야 합니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
         response = ask_gemini(prompt, _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
-        
         krx_df = get_krx_stocks()
         if krx_df.empty: return raw_list[:20]
-        
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
-        
         validated = []
         seen = set()
         for name, code in raw_list:
             clean_name = name.replace('(주)', '').strip()
             final_name, final_code = None, None
-            
             if clean_name in name_to_code:
                 final_name = clean_name
                 final_code = name_to_code[clean_name]
             elif code in code_to_name:
                 final_name = code_to_name[code]
                 final_code = code
-                
             if final_name and final_code and final_code not in seen:
                 seen.add(final_code)
                 validated.append((final_name, final_code))
-                
         return validated[:20]
     except: return []
 
@@ -587,7 +575,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
         target_3 = int(target_2 * 1.08)
         
-        pnl_pct = ((today_close - current_price) / current_price) * 100 if offset_days > 0 else 0.0
+        pnl_pct = ((today_close - current_price) / current_price) * 100 if offset_days > 0 and current_price > 0 else 0.0
         
         return {
             "종목명": stock_name, "티커": ticker_code, "현재가": current_price, "상태": status,
@@ -673,7 +661,7 @@ def show_trading_guidelines():
 
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
-    with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
+    with st.expander(f"{status_emoji} {tech_result['종목명']} (기준가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
         
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
@@ -893,11 +881,11 @@ with tab1:
                         if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t1_{i}")
                 else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
-# 👈 [핵심 개선] 스캐너 UI 트래픽 최적화 및 봇 차단 방지 적용
+# 👈 [핵심 업데이트] ThreadPoolExecutor (멀티스레딩) 전면 도입!
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너 & 과거 타점 검증기")
-    st.write("시장 주도주(당일 거래대금 상위 종목) 중 상승 확률이 높은 타점에 온 종목을 찾아내고, 과거 타점의 수익률을 검증할 수 있습니다.")
+    st.write("시장 주도주 중 상승 확률이 높은 타점에 온 종목을 초고속 스레드로 찾아내고, 과거 타점의 수익률을 검증할 수 있습니다.")
     
     with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
         st.markdown("""
@@ -926,31 +914,47 @@ with tab2:
         selected_offset_label = st.selectbox("⏰ 타임머신 검증 모드 (당시 타점과 오늘 가격 비교)", list(offset_options.keys()))
         offset_days = offset_options[selected_offset_label]
         
-    if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 스캔 중입니다... (과부하 방지를 위해 약 10~30초 소요됩니다)"):
+    if st.button(f"🚀 쾌속 병렬 스캔 시작 (상위 {scan_limit}종목)", type="primary", use_container_width=True):
+        with st.spinner(f"⚡ 멀티스레드 엔진을 가동하여 {scan_limit}개 종목을 고속 필터링 중입니다..."):
             targets = get_scan_targets(scan_limit)
-            if not targets: st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+            if not targets: st.error("종목 데이터를 불러오지 못했습니다.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 found_results = []
-                for i, (name, code) in enumerate(targets):
-                    # 💡 Streamlit UI가 멈추는 걸 방지하기 위해 텍스트 업데이트를 3번에 한 번씩만 합니다.
-                    if i % 3 == 0 or i == len(targets) - 1:
-                        status_text.text(f"🔍 스캔 중: {name} 외 ({i+1}/{len(targets)}) ... 현재 {len(found_results)}개 포착")
-                        progress_bar.progress((i + 1) / len(targets))
-                        
-                    res = analyze_technical_pattern(name, code, offset_days=offset_days)
-                    if res:
-                        match = True
-                        if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
-                        if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
-                        if cond_rsi_bottom and res['RSI'] > 30: match = False
-                        if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
-                        if match: found_results.append(res)
-                    time.sleep(0.05)  # 네이버 봇 차단 방지를 위한 스텔스 딜레이
+                total = len(targets)
+                completed = 0
+                
+                # 병렬 스레드 안에서 돌아갈 독립적인 함수
+                def process_stock(target):
+                    name, code = target
+                    # 봇 차단 방지를 위해 스레드 내부에서 0.1초씩 쉬어줌
+                    time.sleep(0.1) 
+                    return analyze_technical_pattern(name, code, offset_days=offset_days)
+                
+                # ⚠️ max_workers=5 설정으로 네이버에 무리를 주지 않는 안전한 병렬 처리 구현
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    # 모든 종목을 스레드 풀에 던져넣기
+                    future_to_target = {executor.submit(process_stock, t): t for t in targets}
                     
-                status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
+                    # 스레드가 계산을 끝낼 때마다(as_completed) 실시간으로 진행률 바 업데이트
+                    for future in concurrent.futures.as_completed(future_to_target):
+                        res = future.result()
+                        completed += 1
+                        
+                        if res:
+                            match = True
+                            if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
+                            if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
+                            if cond_rsi_bottom and res['RSI'] > 30: match = False
+                            if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
+                            if match: found_results.append(res)
+                            
+                        # 메인 UI는 스레드가 끝나는 대로 갱신
+                        progress_bar.progress(completed / total)
+                        status_text.text(f"⚡ 병렬 스캔 진행 중... ({completed}/{total}) - 현재 {len(found_results)}개 포착")
+
+                status_text.text(f"✅ 초고속 스캔 완료! 총 {len(found_results)}개 종목 포착")
                 st.session_state.scan_results = found_results
                 st.rerun()
 
@@ -962,10 +966,11 @@ with tab2:
             for i, res in enumerate(st.session_state.scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t2_{i}")
 
+# 👈 [핵심 업데이트] 장기 가치주 탭에도 ThreadPoolExecutor (멀티스레딩) 탑재!
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
-    st.write("AI가 독보적인 미래 기술을 보유한 핵심 기업을 찾아내고, 재무 지표를 바탕으로 '진흙 속의 진주'를 발굴합니다.")
+    st.write("AI가 미래 핵심 기업을 찾아내고, 병렬 재무 스캔을 통해 '진흙 속의 진주'를 초고속으로 발굴합니다.")
     
     hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
     mega_trends = ["전고체 배터리", "온디바이스 AI", "자율주행/로봇", "양자컴퓨팅", "비만/치매 치료제", "우주항공(UAM)"]
@@ -989,7 +994,7 @@ with tab3:
     elif "성장" in val_strictness: max_per, max_pbr = 40.0, 4.0
     else: max_per, max_pbr = 9999.0, 9999.0 
 
-    if st.button("💎 가치주 스캔 시작", type="primary", use_container_width=True):
+    if st.button("💎 병렬 가치주 스캔 시작", type="primary", use_container_width=True):
         if not api_key_input: st.warning("API 키를 입력해주세요.")
         elif not tech_keyword: st.warning("테마를 입력해 주세요.")
         else:
@@ -997,24 +1002,36 @@ with tab3:
                 candidates = get_longterm_value_stocks_with_ai(tech_keyword, cap_size, api_key_input)
                 if not candidates: st.error("관련 기업을 찾지 못했습니다.")
                 else:
+                    st.info(f"AI가 {len(candidates)}개의 후보를 찾았습니다. ⚡멀티스레드로 재무제표를 스캔합니다.")
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     value_results = []
-                    for i, (name, code) in enumerate(candidates):
-                        if i % 2 == 0 or i == len(candidates) - 1:
-                            status_text.text(f"재무 스캔 중: {name} 외 ({i+1}/{len(candidates)})")
-                            progress_bar.progress((i + 1) / len(candidates))
-                        
+                    total = len(candidates)
+                    completed = 0
+                    
+                    def process_fundamental(target):
+                        name, code = target
+                        time.sleep(0.1) # 봇 방지
                         per_str, pbr_str = get_fundamentals(code)
                         try:
                             per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
                             pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
                             if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
-                                res = analyze_technical_pattern(name, code)
-                                if res: value_results.append(res)
+                                return analyze_technical_pattern(name, code)
                         except: pass
-                        time.sleep(0.05)
+                        return None
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                        future_to_cand = {executor.submit(process_fundamental, c): c for c in candidates}
                         
+                        for future in concurrent.futures.as_completed(future_to_cand):
+                            res = future.result()
+                            completed += 1
+                            if res: value_results.append(res)
+                            
+                            progress_bar.progress(completed / total)
+                            status_text.text(f"⚡ 병렬 재무 스캔 중... ({completed}/{total})")
+
                     status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 발굴")
                     st.session_state.value_scan_results = value_results
                     st.rerun()
@@ -1227,9 +1244,9 @@ with tab9:
         merged_df = t_kings.copy()
         
         merged_df['display_text'] = (
-            "<b>" + merged_df['Name'] + "</b><br>" +
-            merged_df['ChagesRatio'].map("{:+.2f}%".format) + "<br>" +
-            merged_df['Amount_Ouk'].map("{:,}억".format)
+            "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
+            "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
+            "<span style='font-size:13px'>" + merged_df['Amount_Ouk'].map("{:,}억".format) + "</span>"
         )
         
         finviz_colors = [
@@ -1261,7 +1278,7 @@ with tab9:
         fig_tree.update_traces(
             textinfo="text",
             texttemplate="%{customdata[2]}", 
-            textfont=dict(color="white", size=15),
+            textfont=dict(color="white"),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
