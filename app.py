@@ -114,12 +114,27 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    try:
+        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res2.status_code == 200:
+            data = json.loads(res2.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
     return None
 
-# 👈 [업데이트] 표 가독성 극대화를 위한 데이터 클렌징
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+    empty_df = pd.DataFrame(columns=['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액', '거래량'])
+    
     try:
         response = requests.get('https://finance.yahoo.com/gainers', headers={'User-Agent': 'Mozilla/5.0'})
         tables = pd.read_html(StringIO(response.text))
@@ -149,7 +164,8 @@ def get_us_top_gainers():
                     else: change_str = "-"
                     result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": vol_str})
         df = pd.DataFrame(result_data)
-        if df.empty: return pd.DataFrame(), 1350.0, fetch_time
+        if df.empty: return empty_df, 1350.0, fetch_time
+        
         df = df.sort_values('등락률', ascending=False).head(15)
         try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
         except: ex_rate = 1350.0 
@@ -158,19 +174,16 @@ def get_us_top_gainers():
             try:
                 res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(n)}", timeout=2)
                 ko_name = res.json()[0][0][0]
-                # 거추장스러운 영문 꼬리표 싹둑!
                 ko_name = re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|\(주\))', '', ko_name).strip()
                 return ko_name
             except: return n
             
         df['기업명'] = df['기업명'].apply(get_clean_korean_name)
-        
-        # 가격을 USD와 KRW 열로 분리하기 위해 원본 가격 데이터 가공
         df['환산(원)'] = df['현재가'].apply(lambda x: f"{int(float(x.replace(',', '')) * ex_rate):,}원" if x and x.replace('.', '', 1).replace(',', '').isdigit() else "-")
         df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f}" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
         df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
         return df, ex_rate, fetch_time
-    except: return pd.DataFrame(), 1350.0, fetch_time
+    except: return empty_df, 1350.0, fetch_time
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
@@ -658,12 +671,67 @@ def get_naver_calendar_events():
     except: pass
     return pd.DataFrame()
 
+# 👈 [업데이트] 고배당주 150개 목록으로 완전 확장
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
     portfolio = {
-        "KRX": [("088980.KS", "맥쿼리인프라", "반기", "6.0~6.5%"),("024110.KS", "기업은행", "결산", "7.5~8.5%"),("316140.KS", "우리금융지주", "분기", "8.0~9.0%"),("033780.KS", "KT&G", "반기/결산", "6.0~7.0%"),("017670.KS", "SK텔레콤", "분기", "6.5~7.0%"),("055550.KS", "신한지주", "분기", "5.5~6.5%"),("086790.KS", "하나금융지주", "분기/결산", "6.0~7.5%"),("105560.KS", "KB금융", "분기", "5.0~6.0%"),("138040.KS", "메리츠금융지주", "결산", "4.5~5.5%"),("139130.KS", "DGB금융지주", "결산", "8.0~9.0%"),("175330.KS", "JB금융지주", "반기/결산", "8.0~9.0%"),("138930.KS", "BNK금융지주", "결산", "8.0~9.0%"),("016360.KS", "삼성증권", "결산", "7.0~8.0%"),("005940.KS", "NH투자증권", "결산", "7.0~8.0%"),("051600.KS", "한전KPS", "결산", "5.5~6.5%"),("030200.KS", "KT", "분기", "5.5~6.5%"),("000815.KS", "삼성화재우", "결산", "6.5~7.5%"),("053800.KS", "현대차2우B", "분기/결산", "6.0~7.5%"),("030000.KS", "제일기획", "결산", "5.5~6.5%"),("040420.KS", "정상제이엘에스", "결산", "6.0~7.0%")],
-        "US": [("O", "Realty Income", "월배당", "5.5~6.0%"),("MO", "Altria Group", "분기", "9.0~9.5%"),("VZ", "Verizon", "분기", "6.0~6.5%"),("T", "AT&T", "분기", "6.0~6.5%"),("PM", "Philip Morris", "분기", "5.0~5.5%"),("KO", "Coca-Cola", "분기", "3.0~3.5%"),("PEP", "PepsiCo", "분기", "2.8~3.2%"),("JNJ", "Johnson & Johnson", "분기", "3.0~3.5%"),("PG", "Procter & Gamble", "분기", "2.3~2.8%"),("ABBV", "AbbVie", "분기", "3.8~4.2%"),("PFE", "Pfizer", "분기", "5.5~6.0%"),("CVX", "Chevron", "분기", "4.0~4.5%"),("XOM", "Exxon Mobil", "분기", "3.0~3.5%"),("MMM", "3M", "분기", "5.5~6.5%"),("IBM", "IBM", "분기", "3.5~4.0%"),("ENB", "Enbridge", "분기", "7.0~7.5%"),("WPC", "W. P. Carey", "분기", "6.0~6.5%"),("MAIN", "Main Street", "월배당", "6.0~6.5%"),("ARCC", "Ares Capital", "분기", "9.0~9.5%"),("KMI", "Kinder Morgan", "분기", "6.0~6.5%")],
-        "ETF": [("SCHD", "미국 SCHD (고배당)", "분기", "3.4~3.8%"),("JEPI", "미국 JEPI (S&P 프리미엄)", "월배당", "7.0~8.0%"),("JEPQ", "미국 JEPQ (나스닥 프리미엄)", "월배당", "8.5~9.5%"),("VYM", "미국 VYM (고배당)", "분기", "2.8~3.2%"),("SPYD", "미국 SPYD (S&P500 고배당)", "분기", "4.5~5.0%"),("DGRO", "미국 DGRO (배당성장)", "분기", "2.2~2.6%"),("QYLD", "미국 QYLD (커버드콜)", "월배당", "11.0~12.0%"),("XYLD", "미국 XYLD (S&P 커버드콜)", "월배당", "9.0~10.0%"),("DIVO", "미국 DIVO (배당+옵션)", "월배당", "4.5~5.0%"),("VNQ", "미국 VNQ (리츠)", "분기", "4.0~4.5%"),("458730.KS", "TIGER 미국배당다우존스", "월배당", "3.5~4.0%"),("161510.KS", "ARIRANG 고배당주", "결산", "6.0~7.0%"),("458760.KS", "TIGER 미국배당+7%", "월배당", "10.0~11.0%"),("448550.KS", "ACE 미국배당다우존스", "월배당", "3.5~4.0%"),("466950.KS", "KODEX 미국배당프리미엄", "월배당", "7.0~8.0%"),("329200.KS", "TIGER 부동산인프라", "분기", "6.5~7.5%"),("091220.KS", "KODEX 은행", "결산", "6.0~7.0%"),("211560.KS", "TIGER 배당성장", "분기", "4.0~5.0%"),("271560.KS", "ARIRANG 미국고배당", "분기", "3.5~4.5%"),("433330.KS", "TIMEFOLIO 코리아플러스", "월배당", "5.0~6.0%")]
+        "KRX": [
+            ("088980.KS", "맥쿼리인프라", "반기", "6.0~6.5%"), ("024110.KS", "기업은행", "결산", "7.5~8.5%"), ("316140.KS", "우리금융지주", "분기", "8.0~9.0%"), 
+            ("033780.KS", "KT&G", "반기/결산", "6.0~7.0%"), ("017670.KS", "SK텔레콤", "분기", "6.5~7.0%"), ("055550.KS", "신한지주", "분기", "5.5~6.5%"), 
+            ("086790.KS", "하나금융지주", "분기/결산", "6.0~7.5%"), ("105560.KS", "KB금융", "분기", "5.0~6.0%"), ("138040.KS", "메리츠금융지주", "결산", "4.5~5.5%"), 
+            ("139130.KS", "DGB금융지주", "결산", "8.0~9.0%"), ("175330.KS", "JB금융지주", "반기/결산", "8.0~9.0%"), ("138930.KS", "BNK금융지주", "결산", "8.0~9.0%"), 
+            ("016360.KS", "삼성증권", "결산", "7.0~8.0%"), ("005940.KS", "NH투자증권", "결산", "7.0~8.0%"), ("051600.KS", "한전KPS", "결산", "5.5~6.5%"), 
+            ("030200.KS", "KT", "분기", "5.5~6.5%"), ("000815.KS", "삼성화재우", "결산", "6.5~7.5%"), ("053800.KS", "현대차2우B", "분기/결산", "6.0~7.5%"), 
+            ("030000.KS", "제일기획", "결산", "5.5~6.5%"), ("040420.KS", "정상제이엘에스", "결산", "6.0~7.0%"),
+            ("010950.KS", "S-Oil", "결산", "5.0~6.0%"), ("005935.KS", "삼성전자우", "분기", "2.5~3.0%"), ("005490.KS", "POSCO홀딩스", "분기", "4.5~5.0%"), 
+            ("071050.KS", "한국금융지주", "결산", "5.5~6.5%"), ("003540.KS", "대신증권", "결산", "7.5~8.5%"), ("039490.KS", "키움증권", "결산", "4.0~5.0%"), 
+            ("005830.KS", "DB손해보험", "결산", "5.0~6.0%"), ("001450.KS", "현대해상", "결산", "5.5~6.5%"), ("000810.KS", "삼성생명", "결산", "4.5~5.5%"), 
+            ("003690.KS", "코리안리", "결산", "5.0~6.0%"), ("108670.KS", "LX인터내셔널", "결산", "6.5~7.5%"), ("078930.KS", "GS", "결산", "5.5~6.5%"), 
+            ("004800.KS", "효성", "결산", "6.0~7.0%"), ("011500.KS", "E1", "결산", "5.0~6.0%"), ("004020.KS", "고려아연", "결산", "3.5~4.5%"), 
+            ("001230.KS", "동국제강", "결산", "5.5~6.5%"), ("001430.KS", "세아베스틸지주", "결산", "5.0~6.0%"), ("267250.KS", "HD현대", "결산", "5.0~6.0%"), 
+            ("002960.KS", "한국쉘석유", "결산", "6.0~7.0%"), ("001720.KS", "신영증권", "결산", "6.5~7.5%"), ("000060.KS", "동양생명", "결산", "6.0~7.0%"), 
+            ("036530.KS", "LS", "결산", "3.0~4.0%"), ("034730.KS", "SK", "결산", "3.5~4.5%"), ("000880.KS", "한화", "결산", "3.0~4.0%"), 
+            ("069260.KS", "TKG휴켐스", "결산", "5.0~6.0%"), ("001040.KS", "영원무역", "결산", "3.0~4.0%"), ("010780.KS", "아이에스동서", "결산", "4.0~5.0%"), 
+            ("002380.KS", "KCC", "결산", "2.0~3.0%"), ("039130.KS", "하나투어", "결산", "3.0~4.0%"), ("003410.KS", "쌍용C&E", "분기", "6.5~7.5%")
+        ],
+        "US": [
+            ("O", "Realty Income", "월배당", "5.5~6.0%"), ("MO", "Altria Group", "분기", "9.0~9.5%"), ("VZ", "Verizon", "분기", "6.0~6.5%"), 
+            ("T", "AT&T", "분기", "6.0~6.5%"), ("PM", "Philip Morris", "분기", "5.0~5.5%"), ("KO", "Coca-Cola", "분기", "3.0~3.5%"), 
+            ("PEP", "PepsiCo", "분기", "2.8~3.2%"), ("JNJ", "Johnson & Johnson", "분기", "3.0~3.5%"), ("PG", "Procter & Gamble", "분기", "2.3~2.8%"), 
+            ("ABBV", "AbbVie", "분기", "3.8~4.2%"), ("PFE", "Pfizer", "분기", "5.5~6.0%"), ("CVX", "Chevron", "분기", "4.0~4.5%"), 
+            ("XOM", "Exxon Mobil", "분기", "3.0~3.5%"), ("MMM", "3M", "분기", "5.5~6.5%"), ("IBM", "IBM", "분기", "3.5~4.0%"), 
+            ("ENB", "Enbridge", "분기", "7.0~7.5%"), ("WPC", "W. P. Carey", "분기", "6.0~6.5%"), ("MAIN", "Main Street", "월배당", "6.0~6.5%"), 
+            ("ARCC", "Ares Capital", "분기", "9.0~9.5%"), ("KMI", "Kinder Morgan", "분기", "6.0~6.5%"),
+            ("CSCO", "Cisco Systems", "분기", "3.0~3.5%"), ("HD", "Home Depot", "분기", "2.5~3.0%"), ("MRK", "Merck", "분기", "2.5~3.0%"), 
+            ("MCD", "McDonald's", "분기", "2.0~2.5%"), ("WMT", "Walmart", "분기", "1.5~2.0%"), ("TGT", "Target", "분기", "2.5~3.0%"), 
+            ("CAT", "Caterpillar", "분기", "1.5~2.0%"), ("LOW", "Lowe's", "분기", "1.5~2.0%"), ("SBUX", "Starbucks", "분기", "2.5~3.0%"), 
+            ("CL", "Colgate-Palmolive", "분기", "2.0~2.5%"), ("K", "Kellanova", "분기", "3.5~4.0%"), ("GIS", "General Mills", "분기", "3.0~3.5%"), 
+            ("HSY", "Hershey", "분기", "2.5~3.0%"), ("KMB", "Kimberly-Clark", "분기", "3.5~4.0%"), ("GPC", "Genuine Parts", "분기", "2.5~3.0%"), 
+            ("ED", "Consolidated Edison", "분기", "3.5~4.0%"), ("SO", "Southern Company", "분기", "3.5~4.0%"), ("DUK", "Duke Energy", "분기", "4.0~4.5%"), 
+            ("NEE", "NextEra Energy", "분기", "2.5~3.0%"), ("D", "Dominion Energy", "분기", "5.0~5.5%"), ("EPD", "Enterprise Products", "분기", "7.0~7.5%"), 
+            ("PRU", "Prudential Financial", "분기", "4.5~5.0%"), ("MET", "MetLife", "분기", "3.0~3.5%"), ("AFL", "Aflac", "분기", "2.0~2.5%"), 
+            ("GILD", "Gilead Sciences", "분기", "4.0~4.5%"), ("BMY", "Bristol-Myers Squibb", "분기", "4.5~5.0%"), ("AMGN", "Amgen", "분기", "3.0~3.5%"), 
+            ("TXN", "Texas Instruments", "분기", "2.5~3.0%"), ("LMT", "Lockheed Martin", "분기", "2.5~3.0%"), ("UPS", "United Parcel Service", "분기", "4.0~4.5%")
+        ],
+        "ETF": [
+            ("SCHD", "미국 SCHD (고배당)", "분기", "3.4~3.8%"), ("JEPI", "미국 JEPI (S&P 프리미엄)", "월배당", "7.0~8.0%"), ("JEPQ", "미국 JEPQ (나스닥 프리미엄)", "월배당", "8.5~9.5%"), 
+            ("VYM", "미국 VYM (고배당)", "분기", "2.8~3.2%"), ("SPYD", "미국 SPYD (S&P500 고배당)", "분기", "4.5~5.0%"), ("DGRO", "미국 DGRO (배당성장)", "분기", "2.2~2.6%"), 
+            ("QYLD", "미국 QYLD (커버드콜)", "월배당", "11.0~12.0%"), ("XYLD", "미국 XYLD (S&P 커버드콜)", "월배당", "9.0~10.0%"), ("DIVO", "미국 DIVO (배당+옵션)", "월배당", "4.5~5.0%"), 
+            ("VNQ", "미국 VNQ (리츠)", "분기", "4.0~4.5%"), ("458730.KS", "TIGER 미국배당다우존스", "월배당", "3.5~4.0%"), ("161510.KS", "ARIRANG 고배당주", "결산", "6.0~7.0%"), 
+            ("458760.KS", "TIGER 미국배당+7%", "월배당", "10.0~11.0%"), ("448550.KS", "ACE 미국배당다우존스", "월배당", "3.5~4.0%"), ("466950.KS", "KODEX 미국배당프리미엄", "월배당", "7.0~8.0%"), 
+            ("329200.KS", "TIGER 부동산인프라", "분기", "6.5~7.5%"), ("091220.KS", "KODEX 은행", "결산", "6.0~7.0%"), ("211560.KS", "TIGER 배당성장", "분기", "4.0~5.0%"), 
+            ("271560.KS", "ARIRANG 미국고배당", "분기", "3.5~4.5%"), ("433330.KS", "TIMEFOLIO 코리아플러스", "월배당", "5.0~6.0%"),
+            ("VIG", "미국 VIG (배당성장)", "분기", "1.8~2.2%"), ("NOBL", "미국 NOBL (배당귀족)", "분기", "2.0~2.5%"), ("SDY", "미국 SDY (배당귀족)", "분기", "2.5~3.0%"), 
+            ("HDV", "미국 HDV (핵심배당)", "분기", "3.5~4.0%"), ("PEY", "미국 PEY (고배당)", "월배당", "4.5~5.0%"), ("DHS", "미국 DHS (고배당)", "월배당", "3.5~4.0%"), 
+            ("DVY", "미국 DVY (우량배당)", "분기", "3.5~4.0%"), ("FVD", "미국 FVD (가치배당)", "분기", "2.0~2.5%"), ("SPHD", "미국 SPHD (저변동성 고배당)", "월배당", "4.0~4.5%"), 
+            ("DIV", "미국 DIV (글로벌 고배당)", "월배당", "6.0~6.5%"), ("RDIV", "미국 RDIV (리스크가중 배당)", "분기", "4.0~4.5%"), ("ALTY", "미국 ALTY (대안수익)", "월배당", "7.0~8.0%"), 
+            ("VPU", "미국 VPU (유틸리티)", "분기", "3.0~3.5%"), ("XLU", "미국 XLU (유틸리티)", "분기", "3.0~3.5%"), ("PFF", "미국 PFF (우선주)", "월배당", "6.0~6.5%"), 
+            ("460330.KS", "SOL 미국배당다우존스", "월배당", "3.5~4.0%"), ("276970.KS", "KODEX 배당가치", "결산", "5.0~6.0%"), ("213610.KS", "TIGER 코스피고배당", "결산", "5.5~6.5%"), 
+            ("379800.KS", "KODEX 미국배당프리미엄액티브", "월배당", "7.0~8.0%"), ("104530.KS", "KODEX 고배당", "결산", "5.0~6.0%"), ("266140.KS", "TIGER 글로벌배당", "분기", "3.0~4.0%"), 
+            ("415920.KS", "TIGER 글로벌멀티에셋", "월배당", "4.0~5.0%"), ("402970.KS", "TIGER 미국배당+3%프리미엄", "월배당", "6.0~7.0%"), ("368590.KS", "KBSTAR 200고배당커버드콜", "월배당", "7.0~8.0%"), 
+            ("222170.KS", "ARIRANG 고배당저변동", "결산", "5.0~6.0%"), ("148020.KS", "KBSTAR 200고배당", "결산", "5.0~6.0%"), ("232080.KS", "TIGER 코스닥150", "결산", "1.0~2.0%"), 
+            ("256450.KS", "ARIRANG 퀄리티", "결산", "4.0~5.0%"), ("433320.KS", "TIGER 글로벌리츠", "분기", "4.0~5.0%"), ("357870.KS", "TIGER 부동산인프라고배당", "분기", "6.0~7.0%")
+        ]
     }
     
     all_tickers = [t for cat in portfolio.values() for t, n, p, y in cat]
@@ -944,7 +1012,7 @@ with st.sidebar:
             api_key_input = str(api_key_input)
             st.success("✅ 시스템 연동 완료 (정상)")
 
-if "gainers_df" not in st.session_state:
+if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state.gainers_df.columns:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
         df, ex_rate, fetch_time = get_us_top_gainers()
         st.session_state.gainers_df = df
@@ -961,14 +1029,13 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "📰 실시간 뉴스 터미널", 
     "📅 증시 캘린더", 
     "💸 자금 흐름(히트맵)", 
-    "💰 배당주(TOP 60)", 
+    "💰 배당주(TOP 150)", 
     "⭐ 내 관심종목"
 ])
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 👈 [업데이트] 표를 그리기 전에, 버튼이 돋보이도록 전체 너비(Full Width) 영역에 AI 미장 테마 분석기 탑재
     if api_key_input and not st.session_state.gainers_df.empty:
         if st.button("🤖 AI 미국 급등주 주도 테마 분석 (국장 파급효과 예측)", type="primary", use_container_width=True):
             with st.spinner("AI가 오늘 미국장을 이끈 핵심 테마와 한국 증시 파급 효과를 분석 중입니다..."):
@@ -1439,10 +1506,10 @@ with tab9:
 
 with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 60)")
-    with st.spinner("야후 파이낸스에서 60개 종목의 최신 실시간 데이터를 다운로드 중입니다..."):
+    st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 150)")
+    with st.spinner("야후 파이낸스에서 150개 종목의 최신 실시간 데이터를 다운로드 중입니다..."):
         div_dfs = get_dividend_portfolio()
-    dt1, dt2, dt3 = st.tabs(["🇰🇷 국장 (배당주 TOP 20)", "🇺🇸 미장 (배당주 TOP 20)", "📈 배당 ETF (국내/해외 TOP 20)"])
+    dt1, dt2, dt3 = st.tabs(["🇰🇷 국장 (배당주 TOP 50)", "🇺🇸 미장 (배당주 TOP 50)", "📈 배당 ETF (국내/해외 TOP 50)"])
     with dt1: st.dataframe(div_dfs["KRX"], use_container_width=True, hide_index=True)
     with dt2: st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
     with dt3: st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
