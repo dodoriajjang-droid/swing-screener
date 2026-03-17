@@ -116,8 +116,10 @@ def get_fear_and_greed():
     except: pass
     return None
 
+# 👈 [업데이트] 데이터 기준 시간(fetch_time)을 함께 반환하도록 수정
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
+    fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
     try:
         response = requests.get('https://finance.yahoo.com/gainers', headers={'User-Agent': 'Mozilla/5.0'})
         tables = pd.read_html(StringIO(response.text))
@@ -147,7 +149,7 @@ def get_us_top_gainers():
                     else: change_str = "-"
                     result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": vol_str})
         df = pd.DataFrame(result_data)
-        if df.empty: return pd.DataFrame(), 1350.0
+        if df.empty: return pd.DataFrame(), 1350.0, fetch_time
         df = df.sort_values('등락률', ascending=False).head(15)
         try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
         except: ex_rate = 1350.0 
@@ -160,8 +162,8 @@ def get_us_top_gainers():
         df['기업명'] = df['기업명'].apply(get_korean_name)
         df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f} (약 {int(float(x.replace(',', '')) * ex_rate):,}원)" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
         df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
-        return df, ex_rate
-    except: return pd.DataFrame(), 1350.0
+        return df, ex_rate, fetch_time
+    except: return pd.DataFrame(), 1350.0, fetch_time
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
@@ -627,6 +629,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "RSI": latest['RSI'], "배열상태": align_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol, "개인수급": ind_vol,
             "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
+            "차트 데이터": analysis_df.tail(20), 
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except: return None
@@ -730,8 +733,7 @@ def show_trading_guidelines():
         * 🛑 **손절:** 손절 라인(20일선) 이탈 시 가차 없이 칼손절!
         """)
 
-# 👈 [핵심 업데이트] 모든 차트에 기간 선택 라디오 버튼 기본 탑재
-def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
+def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
     def get_short_trend(trend_text):
@@ -801,7 +803,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
-        # 👈 [적용] 무조건 차트 기간 선택기를 노출하고 동적으로 캔들 차트를 로딩
         tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=0)
         days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
         with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
@@ -843,7 +844,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
             else: st.error("데이터를 불러오지 못했습니다.")
 
-# 👈 토글 버튼 완전 삭제. 정렬 라디오 버튼만 렌더링
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -917,11 +917,11 @@ with m_col3:
 with st.sidebar:
     st.header("⚙️ 대시보드 컨트롤")
     if st.button("🔄 증시 데이터 리로드", type="primary", use_container_width=True): 
-        get_latest_naver_news.clear()
         st.cache_data.clear()
         st.session_state.news_data = []
         st.session_state.seen_links = set()
         st.session_state.seen_titles = set()
+        if 'gainers_df' in st.session_state: del st.session_state['gainers_df']
         st.rerun()
     st.divider()
     st.header("🧠 AI 엔진 연결 상태")
@@ -939,9 +939,10 @@ with st.sidebar:
 
 if "gainers_df" not in st.session_state:
     with st.spinner('📡 글로벌 증시 데이터를 수집하는 중입니다...'):
-        df, ex_rate = get_us_top_gainers()
+        df, ex_rate, fetch_time = get_us_top_gainers()
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
+        st.session_state.us_fetch_time = fetch_time
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
@@ -962,6 +963,8 @@ with tab1:
     col1, col2 = st.columns([1, 1.2], gap="large")
     with col1:
         st.subheader("🔥 미국장 급등주 (+5% 이상)")
+        if 'us_fetch_time' in st.session_state:
+            st.caption(f"⏱️ 데이터 기준 시간: {st.session_state.us_fetch_time} (한국시간)")
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             if api_key_input:
