@@ -17,6 +17,27 @@ import streamlit.components.v1 as components
 import json
 import time
 import concurrent.futures
+import os
+
+# ==========================================
+# 0. 로컬 영구 저장소 (관심종목 유지용)
+# ==========================================
+WATCHLIST_FILE = "watchlist.json"
+
+def load_watchlist():
+    if os.path.exists(WATCHLIST_FILE):
+        try:
+            with open(WATCHLIST_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except: return []
+    return []
+
+def save_watchlist(wl):
+    try:
+        with open(WATCHLIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(wl, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
 # 1. 초기 설정 
@@ -24,9 +45,13 @@ import concurrent.futures
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-for key in ['seen_links', 'seen_titles', 'news_data', 'watchlist']:
+for key in ['seen_links', 'seen_titles', 'news_data']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
+
+# 👈 파일에서 관심종목 불러오기
+if 'watchlist' not in st.session_state:
+    st.session_state.watchlist = load_watchlist()
         
 if 'quick_analyze_news' not in st.session_state:
     st.session_state.quick_analyze_news = None
@@ -95,6 +120,13 @@ def get_fear_and_greed():
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
             data = json.loads(res2.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return None
@@ -532,7 +564,6 @@ def get_historical_data(ticker, days):
         return fdr.DataReader(ticker, (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'))
     except: return pd.DataFrame()
 
-# 👈 [핵심 업데이트 1] 캔들 차트를 위한 Open, High, Low 값 포함하여 전체 데이터프레임 반환
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
@@ -592,7 +623,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, "기관수급": inst_vol, "외인수급": forgn_vol,
             "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
-            "차트 데이터": analysis_df.tail(20), # 캔들 차트를 위해 전체 OHLCV 반환
+            "차트 데이터": analysis_df.tail(20), 
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except: return None
@@ -666,11 +697,15 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
-# 👈 [업데이트 적용] HTS급 캔들차트 오버레이 및 타이틀 정리 반영
+# 👈 [업데이트 적용] 제목표시줄에 수급 누적 표시 추가 완료!
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    base_info = f"(진단: {tech_result['상태']} ｜ 수급: {tech_result['거래량 급증']} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
+    # 외인/기관 수급 문자열에서 핵심 부호/숫자/이모지만 깔끔하게 추출
+    f_trend = tech_result['외인수급'].split(' ')[0] if ' ' in tech_result['외인수급'] else tech_result['외인수급']
+    i_trend = tech_result['기관수급'].split(' ')[0] if ' ' in tech_result['기관수급'] else tech_result['기관수급']
+    
+    base_info = f"(진단: {tech_result['상태']} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
     
     if 'AI단기' in tech_result:
         ai_op = tech_result['AI단기']
@@ -699,6 +734,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if col_btn2.button("⭐ 관심종목 추가" if not is_in_wl else "🌟 추가됨", disabled=is_in_wl, key=f"star_{tech_result['티커']}_{key_suffix}"):
             st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
+            save_watchlist(st.session_state.watchlist) # 👈 파일에 영구 저장
             st.rerun()
 
         c1, c2, c3, c4 = st.columns(4)
@@ -721,7 +757,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
-        # 👈 [기능 1 적용] HTS급 캔들스틱 + 20일선 + 볼밴 오버레이 차트
         if show_longterm_chart:
             tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=2)
             days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
@@ -731,7 +766,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     long_df = long_df.reset_index()
                     long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
                     
-                    # 장기 차트에서도 20일선과 볼밴 상단을 계산하여 오버레이
                     long_df['MA20'] = long_df['Close'].rolling(window=20).mean()
                     long_df['Std_20'] = long_df['Close'].rolling(window=20).std()
                     long_df['Bollinger_Upper'] = long_df['MA20'] + (long_df['Std_20'] * 2)
@@ -928,7 +962,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
     "🎯 국내 타점 진단", 
-    "⚡ 딥테크 & 테마 주도주", # 👈 이름 변경 완료
+    "⚡ 딥테크 & 테마 주도주", 
     "🚨 상/하한가 분석", 
     "📰 실시간 뉴스 터미널", 
     "📅 증시 캘린더", 
@@ -996,7 +1030,6 @@ with tab2:
         * **🐋 외인/기관 쌍끌이 매집:** 주가는 조용한데 외국인과 기관이 바닥에서 몰래 대량으로 사들이는 종목.
         """)
     
-    # 👈 [기능 2 탑재] 스마트머니(쌍끌이) 체크박스 신규 추가
     col_c1, col_c2, col_c3 = st.columns(3)
     with col_c1:
         cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입")
@@ -1038,8 +1071,6 @@ with tab2:
                         if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
-                        
-                        # 👈 쌍끌이 매수 필터 적용 (둘 다 순매수(+) 일 때만 통과)
                         if cond_twin_buy and ("+" not in str(res['기관수급']) or "+" not in str(res['외인수급'])): match = False
                         
                         if match: return res
@@ -1152,7 +1183,6 @@ with tab4:
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
             else: st.error("❌ 분석 불가: 데이터가 없습니다.")
 
-# 👈 [기능 3 탑재] 핵심 인프라 & 딥테크 전용 주도주 추적 패널로 개편
 with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
@@ -1373,7 +1403,7 @@ with tab9:
         fig_tree.update_traces(
             textinfo="text",
             texttemplate="%{customdata[2]}", 
-            textfont=dict(color="white"),
+            textfont=dict(color="white", size=15),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
@@ -1403,13 +1433,17 @@ with tab10:
 with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⭐ 나만의 관심종목 (Watchlist)")
-    if st.button("🗑️ 관심종목 모두 지우기"):
-        st.session_state.watchlist = []
-        st.rerun()
-        
+    
     if not st.session_state.watchlist:
         st.info("아직 추가된 관심종목이 없습니다. 다른 탭에서 타점을 분석하고 '⭐ 관심종목 추가' 버튼을 눌러주세요.")
     else:
+        # 관심종목 모두 지우기 버튼을 오른쪽으로 정렬
+        col1, col2 = st.columns([8, 2])
+        if col2.button("🗑️ 관심종목 모두 지우기", use_container_width=True):
+            st.session_state.watchlist = []
+            save_watchlist([])
+            st.rerun()
+            
         for i, item in enumerate(st.session_state.watchlist):
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
