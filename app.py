@@ -114,22 +114,9 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res2.status_code == 200:
-            data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
     return None
 
+# 👈 [업데이트] 표 가독성 극대화를 위한 데이터 클렌징
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
@@ -166,14 +153,21 @@ def get_us_top_gainers():
         df = df.sort_values('등락률', ascending=False).head(15)
         try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
         except: ex_rate = 1350.0 
-        def get_korean_name(n):
+        
+        def get_clean_korean_name(n):
             try:
                 res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(n)}", timeout=2)
                 ko_name = res.json()[0][0][0]
-                return f"{n} / {ko_name}" if ko_name.lower() != n.lower() else n
+                # 거추장스러운 영문 꼬리표 싹둑!
+                ko_name = re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|\(주\))', '', ko_name).strip()
+                return ko_name
             except: return n
-        df['기업명'] = df['기업명'].apply(get_korean_name)
-        df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f} (약 {int(float(x.replace(',', '')) * ex_rate):,}원)" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
+            
+        df['기업명'] = df['기업명'].apply(get_clean_korean_name)
+        
+        # 가격을 USD와 KRW 열로 분리하기 위해 원본 가격 데이터 가공
+        df['환산(원)'] = df['현재가'].apply(lambda x: f"{int(float(x.replace(',', '')) * ex_rate):,}원" if x and x.replace('.', '', 1).replace(',', '').isdigit() else "-")
+        df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f}" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
         df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
         return df, ex_rate, fetch_time
     except: return pd.DataFrame(), 1350.0, fetch_time
@@ -974,9 +968,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 👈 [핵심 업데이트] AI 미국장 테마 분석 버튼 추가 (전체 너비 사용)
+    # 👈 [업데이트] 표를 그리기 전에, 버튼이 돋보이도록 전체 너비(Full Width) 영역에 AI 미장 테마 분석기 탑재
     if api_key_input and not st.session_state.gainers_df.empty:
-        if st.button("🤖 AI 미국 급등주 주도 테마 분석", type="primary", use_container_width=True):
+        if st.button("🤖 AI 미국 급등주 주도 테마 분석 (국장 파급효과 예측)", type="primary", use_container_width=True):
             with st.spinner("AI가 오늘 미국장을 이끈 핵심 테마와 한국 증시 파급 효과를 분석 중입니다..."):
                 us_stock_list = st.session_state.gainers_df['기업명'].tolist()
                 prompt = f"오늘 미국 증시에서 5% 이상 급등한 주요 종목들입니다: {us_stock_list}\n이 종목들이 어떤 공통된 테마, 이슈 또는 섹터 호재로 인해 급등했는지 3줄로 요약 분석해 주세요. 마지막 줄에는 이로 인해 오늘 한국 증시에서 주목해야 할 관련 테마를 제시해 주세요."
@@ -996,12 +990,26 @@ with tab1:
             else:
                 sector_dict = {t: ("분석 대기", "분석 대기") for t in tickers_list}
                 
-            display_df = st.session_state.gainers_df.copy()
+            display_df = st.session_state.gainers_df[['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액']].copy()
             opts = ["🔍 종목 선택"]
             for i, row in display_df.iterrows():
                 sec, ind = sector_dict.get(row['종목코드'], ("분석 불가", "분석 불가"))
-                opts.append(f"{row['종목코드']} ({row['기업명'].split(' / ')[-1] if ' / ' in row['기업명'] else row['기업명']}) - ({sec} / {ind})")
-            st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
+                opts.append(f"{row['종목코드']} ({row['기업명']}) - ({sec} / {ind})")
+                
+            st.dataframe(
+                display_df, 
+                use_container_width=True, 
+                hide_index=True, 
+                height=400,
+                column_config={
+                    "종목코드": st.column_config.TextColumn("티커", width="small"),
+                    "기업명": st.column_config.TextColumn("기업명", width="medium"),
+                    "현재가": st.column_config.TextColumn("USD", width="small"),
+                    "환산(원)": st.column_config.TextColumn("KRW", width="small"),
+                    "등락률": st.column_config.TextColumn("상승률", width="small"),
+                    "등락금액": st.column_config.TextColumn("등락금액", width="small"),
+                }
+            )
             sel_opt = st.selectbox("#### 🔍 분석 대상 종목 선택", opts)
             sel_tick = "N/A" if sel_opt == "🔍 종목 선택" else sel_opt.split(" ")[0]
         else: sel_tick = "N/A"; st.info("현재 +5% 이상 급등한 종목이 없습니다.")
