@@ -114,20 +114,6 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res2.status_code == 200:
-            data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
     return None
 
 @st.cache_data(ttl=3600)
@@ -506,14 +492,16 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
         return validated[:20]
     except: return []
 
+# 👈 [핵심 추가 4] '개인 수급' 데이터 수집 로직 추가
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
         res = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         rows = soup.select('table.type2')[1].select('tr')
-        inst_sum, forgn_sum, inst_streak, forgn_streak = 0, 0, 0, 0
-        inst_break, forgn_break = False, False
+        inst_sum, forgn_sum, ind_sum = 0, 0, 0
+        inst_streak, forgn_streak, ind_streak = 0, 0, 0
+        inst_break, forgn_break, ind_break = False, False, False
         count = 0
         for row in rows:
             tds = row.select('td')
@@ -521,12 +509,21 @@ def get_investor_trend(code):
             try:
                 i_val = int(tds[5].text.strip().replace(',', '').replace('+', ''))
                 f_val = int(tds[6].text.strip().replace(',', '').replace('+', ''))
+                p_val = -(i_val + f_val) # 개미 수급 근사치 (외인+기관 물량의 반대)
+                
                 inst_sum += i_val
                 forgn_sum += f_val
+                ind_sum += p_val
+                
                 if i_val > 0 and not inst_break: inst_streak += 1
                 elif i_val <= 0: inst_break = True
+                
                 if f_val > 0 and not forgn_break: forgn_streak += 1
                 elif f_val <= 0: forgn_break = True
+                
+                if p_val > 0 and not ind_break: ind_streak += 1
+                elif p_val <= 0: ind_break = True
+                
                 count += 1
             except: pass
             if count >= 5: break 
@@ -536,8 +533,8 @@ def get_investor_trend(code):
             if streak >= 3: return f"{base} (🔥{streak}일 연속 매집)"
             return f"{base} ({'🔥매집' if v>0 else '💧매도' if v<0 else '➖중립'})"
             
-        return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak)
-    except: return "조회불가", "조회불가"
+        return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak), fmt(ind_sum, ind_streak)
+    except: return "조회불가", "조회불가", "조회불가"
 
 def get_fundamentals(ticker_code):
     if ticker_code.isdigit():
@@ -604,7 +601,8 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         elif current_price > (ma20_val * 1.03): status = "⚠️ 이격 과다 (눌림목 대기)"
         else: status = "🛑 20일선 이탈 (관망)"
         
-        inst_vol, forgn_vol = get_investor_trend(ticker_code)
+        # 👈 수급 3종(기관, 외인, 개인)을 받아옴
+        inst_vol, forgn_vol, ind_vol = get_investor_trend(ticker_code)
         per, pbr = get_fundamentals(ticker_code)
         
         target_1 = int(latest['Bollinger_Upper'])
@@ -620,7 +618,8 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "목표가1": target_1, "목표가2": target_2, "목표가3": target_3,
             "손절가": int(ma20_val * 0.97),
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
-            "RSI": latest['RSI'], "배열상태": align_status, "기관수급": inst_vol, "외인수급": forgn_vol,
+            "RSI": latest['RSI'], "배열상태": align_status, 
+            "기관수급": inst_vol, "외인수급": forgn_vol, "개인수급": ind_vol, # 👈 개인 수급 추가
             "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
             "차트 데이터": analysis_df.tail(20), 
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
@@ -678,38 +677,47 @@ def get_dividend_portfolio():
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-def show_trading_guidelines():
-    st.info("""
-    **[매매 신호 및 타점 가이드]**
-    * ✅ **타점 근접:** 주가가 20일선 근처에 위치 **(분할 매수 권장)**
-    * ⚠️ **관심 집중:** 급등으로 인한 단기 이격 발생 **(눌림목 대기)**
-    * 🛑 **추세 이탈:** 20일선 하향 이탈 **(손절 또는 접근 금지)**
-    
-    **[🎯 3단계 분할 익절 가이드]**
-    * **1차 (단기 저항):** 볼린저 밴드 상단 도달 시 **절반 수익 실현**
-    * **2차 (스윙 저항):** 전고점 부근 도달 시 **추가 비중 축소**
-    * **3차 (오버슈팅):** 광기장 추세 연장 구간, **전량 익절** 목표
-    
-    **[RSI (상대강도지수) 활용 가이드]**
-    * 🔴 **과열 (70 이상):** 매수세가 과도하게 몰려 단기 고점일 확률이 높습니다. **(추격 매수 자제)**
-    * 🔵 **바닥 (30 이하):** 매도세가 과도하여 저평가된 상태입니다. **(과대 낙폭 줍줍 찬스)**
-    * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
-    """)
+# 👈 [업데이트 1] 주린이를 위한 완벽하고 친절한 용어 가이드
+def show_beginner_guide():
+    with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
+        st.markdown("""
+        ### 1. 📊 차트 상태 (배열 & 이평선)
+        * **이동평균선(이평선):** 일정 기간 동안의 주가 평균을 이은 선입니다. (5일선=1주일, 20일선=1달)
+        * **🔥 정배열:** 주가가 오르면서 단기선(5일) > 중기선(20일) > 장기선(60일) 순서로 예쁘게 놓인 상태. (가장 좋은 상승 추세)
+        * **❄️ 역배열:** 정배열의 반대. (하락 추세)
+        * **✨ 골든크로스:** 단기선(5일)이 중기선(20일)을 아래에서 위로 뚫고 올라가는 긍정적 매수 신호!
 
-# 👈 [완벽 해결] 수급에 이모티콘(🔥, 💧, ➖)을 찰떡같이 복원한 확장 타이틀
+        ### 2. 🎯 진단 & 매매 타점 (20일선 기준)
+        * **✅ 타점 근접 (눌림목):** 강하게 오르던 주가가 잠시 쉬어가며 **20일선(생명선)** 근처까지 내려온 상태. 이때가 가장 안전한 매수(줍줍) 타이밍입니다!
+        * **⚠️ 이격 과다:** 주가가 20일선에서 너무 멀리 높게 솟아오른 상태. 언제 뚝 떨어질지 모르니 **추격 매수 절대 금지!** (눌림목이 올 때까지 기다리세요)
+        * **🛑 추세 이탈:** 주가가 20일선 아래로 깨진 상태. 하락 추세로 접어들었으니 손절이나 관망을 고려해야 합니다.
+
+        ### 3. 🌡️ 보조 지표 (RSI & OBV & 수급)
+        * **🔴 RSI 과열 (70 이상):** 사람들이 너무 흥분해서 비싸게 사고 있는 상태. (곧 떨어질 확률이 높으니 매수 자제)
+        * **🔵 RSI 바닥 (30 이하):** 사람들이 공포에 질려 너무 싸게 던진 상태. (반등을 노려볼 만한 자리)
+        * **수급 (외인/기관/개인):** 주식을 누가 사고파는지 보여줍니다. 외국인과 기관이 동시에 사는(쌍끌이) 종목이 크게 오를 확률이 높습니다. (🔥매집 = 사고 있음, 💧매도 = 팔고 있음)
+        * **OBV:** 주가가 오를 때의 거래량은 더하고 내릴 때의 거래량은 뺀 지표. 주가는 제자리인데 OBV 선이 우상향하면 세력이 몰래 매집 중이라는 뜻입니다.
+
+        ### 4. 🏢 재무 지표 (PER & PBR)
+        * **PER:** 기업이 버는 돈(수익) 대비 주가가 얼마나 비싼지. (낮을수록 저평가)
+        * **PBR:** 기업이 가진 재산(자산) 대비 주가가 얼마나 비싼지. (보통 1보다 낮으면 저평가)
+        """)
+
+# 👈 [업데이트 4] 타이틀에 개인 수급 추가 및 이모티콘 완벽 보존
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
     def get_short_trend(trend_text):
-        val = trend_text.split(' ')[0]
-        if "🔥" in trend_text: return f"🔥{val}"
-        if "💧" in trend_text: return f"💧{val}"
+        val = str(trend_text).split(' ')[0]
+        if "🔥" in str(trend_text): return f"🔥{val}"
+        if "💧" in str(trend_text): return f"💧{val}"
         return f"➖{val}"
         
     f_trend = get_short_trend(tech_result['외인수급'])
     i_trend = get_short_trend(tech_result['기관수급'])
+    p_trend = get_short_trend(tech_result.get('개인수급', '0'))
     
-    base_info = f"(진단: {tech_result['상태']} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
+    base_info = f"(진단: {tech_result['상태']} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ 개인: {p_trend} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
     
     if 'AI단기' in tech_result:
         ai_op = tech_result['AI단기']
@@ -752,7 +760,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
-        with c7: st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
+        with c7: st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -828,6 +836,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 )
                 st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
 
+# 👈 [업데이트 3] 토글 이름 직관적으로 수정
 def display_sorted_results(results_list, tab_key, show_longterm=False, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -840,7 +849,7 @@ def display_sorted_results(results_list, tab_key, show_longterm=False, api_key="
         sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본", "RSI 낮은순", "RSI 높은순", "PER 낮은순", "PBR 낮은순"], horizontal=True, key=f"sort_radio_{tab_key}")
     with col2:
         st.write("") 
-        mech_filter = st.toggle("🎯 기계적 타점(20일선)만", key=f"mech_filter_{tab_key}")
+        mech_filter = st.toggle("🎯 수학적 매수타점(20일선)만", key=f"mech_filter_{tab_key}")
     with col3:
         st.write("")
         ai_filter = st.toggle("🤖 AI 매수 추천만 (시간소요)", key=f"ai_filter_{tab_key}")
@@ -1000,7 +1009,7 @@ with tab1:
     
     with col2:
         st.subheader("🎯 연관 테마 매칭 및 타점 진단")
-        show_trading_guidelines() 
+        show_beginner_guide() # 👈 모든 탭에 주린이 완벽 가이드 적용 완료
         if sel_tick != "N/A" and api_key_input:
             sec, ind = sector_dict.get(sel_tick, ("분석 불가", "분석 불가"))
             st.markdown(f"**🏷️ 섹터 정보:** `{sec}` / `{ind}`")
@@ -1024,6 +1033,7 @@ with tab2:
     st.subheader("🚀 실시간 조건 검색 스캐너 & 과거 타점 검증기")
     st.write("시장 주도주 중 상승 확률이 높은 타점에 온 종목을 초고속 스레드로 찾아내고, 과거 타점의 수익률을 검증할 수 있습니다.")
     
+    # 👈 [업데이트 2] 쌍끌이를 포함한 4대 황금 콤보 설명 추가
     with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
         st.markdown("""
         **🔍 1. 개별 조건 가이드**
@@ -1031,7 +1041,13 @@ with tab2:
         * **✅ 20일선 눌림목:** 강하게 오르던 주식이 숨을 고르며 20일선 근처까지 내려온 안전한 반등 자리 (스윙 매매의 핵심).
         * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
         * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
-        * **🐋 외인/기관 쌍끌이 매집:** 주가는 조용한데 외국인과 기관이 바닥에서 몰래 대량으로 사들이는 종목.
+        * **🐋 외인/기관 쌍끌이 매집:** 주가는 조용한데 외국인과 기관이 바닥에서 몰래 대량으로 사들이는 스마트머니 포착.
+        
+        **🚀 2. 여의도 프랍 트레이더의 4대 황금 콤보**
+        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
+        * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
+        * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
+        * 🐋 **콤보 D (스마트머니 편승 - 세력 매집주):** `[✅ 눌림목]` OR `[🔵 RSI 30 이하]` + `[🐋 쌍끌이 순매수]`
         """)
     
     col_c1, col_c2, col_c3 = st.columns(3)
@@ -1171,7 +1187,7 @@ with tab3:
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
-    show_trading_guidelines() 
+    show_beginner_guide() 
     krx_df = get_krx_stocks()
     if not krx_df.empty:
         opts = ["🔍 검색 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
@@ -1191,7 +1207,7 @@ with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     st.write("글로벌 메가트렌드와 직결되는 핵심 인프라 및 딥테크 섹터의 진짜 대장주를 AI가 발굴합니다.")
-    show_trading_guidelines() 
+    show_beginner_guide() 
     
     st.markdown("#### 🎯 1. 시장을 움직이는 핵심 인프라 스캔")
     col_d1, col_d2, col_d3, col_d4 = st.columns(4)
@@ -1221,6 +1237,7 @@ with tab6:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     st.write("당일 가장 강력한 자금이 몰린 상/하한가 종목을 파악하고, 주도 테마를 AI로 분석합니다.")
+    show_beginner_guide()
     
     with st.spinner("거래소 실시간 상/하한가 데이터를 수집 중입니다..."):
         upper_df, lower_df = get_limit_stocks()
@@ -1366,6 +1383,7 @@ with tab8:
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💸 시장 주도주 & 자금 흐름 히트맵")
+    show_beginner_guide()
     with st.spinner("네이버 금융에서 실시간 거래대금 데이터를 긁어옵니다..."):
         t_kings = get_trading_value_kings()
         
