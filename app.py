@@ -48,7 +48,6 @@ def ask_gemini(prompt, _api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception as e: return f"AI 분석 오류: {str(e)}"
 
-# 👈 [복구 완료] AI 퀵 진단 모듈 다시 탑재!
 @st.cache_data(ttl=3600)
 def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
     if not _api_key: return "AI미연동"
@@ -96,13 +95,6 @@ def get_fear_and_greed():
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
             data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return None
@@ -540,6 +532,7 @@ def get_historical_data(ticker, days):
         return fdr.DataReader(ticker, (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'))
     except: return pd.DataFrame()
 
+# 👈 [핵심 업데이트 1] 캔들 차트를 위한 Open, High, Low 값 포함하여 전체 데이터프레임 반환
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
@@ -599,7 +592,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, "기관수급": inst_vol, "외인수급": forgn_vol,
             "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
-            "종가 데이터": analysis_df['Close'].tail(20), "거래량 데이터": analysis_df['Volume'].tail(20),
+            "차트 데이터": analysis_df.tail(20), # 캔들 차트를 위해 전체 OHLCV 반환
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except: return None
@@ -673,14 +666,12 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
-# 👈 [개선 1 & 2] 타이틀에 AI 호출 제거 및 텍스트 템플릿 직관화
+# 👈 [업데이트 적용] HTS급 캔들차트 오버레이 및 타이틀 정리 반영
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    # 기본 타이틀 템플릿
     base_info = f"(진단: {tech_result['상태']} ｜ 수급: {tech_result['거래량 급증']} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
     
-    # AI 퀵 진단 결과가 들어왔다면 뱃지를 추가해서 그려줌
     if 'AI단기' in tech_result:
         ai_op = tech_result['AI단기']
         ai_icon = "🔥" if "매수" in ai_op else "❄️" if "금지" in ai_op else "👀"
@@ -689,6 +680,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         expander_title = f"{status_emoji} {tech_result['종목명']} ({tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {base_info}"
     
     with st.expander(expander_title, expanded=is_expanded):
+        
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
             color = "#ff4b4b" if pnl > 0 else "#1f77b4"
@@ -729,6 +721,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
+        # 👈 [기능 1 적용] HTS급 캔들스틱 + 20일선 + 볼밴 오버레이 차트
         if show_longterm_chart:
             tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=2)
             days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
@@ -737,17 +730,28 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 if not long_df.empty:
                     long_df = long_df.reset_index()
                     long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
+                    
+                    # 장기 차트에서도 20일선과 볼밴 상단을 계산하여 오버레이
+                    long_df['MA20'] = long_df['Close'].rolling(window=20).mean()
+                    long_df['Std_20'] = long_df['Close'].rolling(window=20).std()
+                    long_df['Bollinger_Upper'] = long_df['MA20'] + (long_df['Std_20'] * 2)
+                    
                     if tf in ["1개월", "3개월"]:
                         long_df['Date_Str'] = long_df['Date'].dt.strftime('%m월 %d일')
                         x_col, x_type = 'Date_Str', 'category'
                     else:
                         x_col, x_type = 'Date', 'date' 
+                        
                     ch1, ch2 = st.columns(2)
                     with ch1:
-                        st.caption(f"📈 주가 흐름 ({tf})")
-                        fig_price = px.line(long_df, x=x_col, y='Close')
-                        fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type=x_type), height=250)
-                        fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
+                        st.caption(f"📈 캔들 주가 흐름 ({tf})")
+                        fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col],
+                            open=long_df['Open'], high=long_df['High'],
+                            low=long_df['Low'], close=long_df['Close'],
+                            increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
+                        fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
+                        fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
+                        fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis_title="", yaxis_title="", hovermode="x unified", height=250)
                         st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
                     with ch2:
                         st.caption(f"📊 거래량 & OBV ({tf})")
@@ -762,28 +766,30 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 else: st.error("데이터를 불러오지 못했습니다.")
         else:
             ch1, ch2 = st.columns(2)
-            price_df = tech_result["종가 데이터"].reset_index()
+            price_df = tech_result["차트 데이터"].reset_index()
             price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
-            vol_df = tech_result["거래량 데이터"].reset_index()
-            vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
+            
             with ch1:
-                st.caption("📈 주가 흐름 (최근 20일)")
-                fig_price = px.line(price_df, x='Date_Str', y='Close', markers=True)
-                fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type='category'), height=220)
-                fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
+                st.caption("📈 단기 캔들 흐름 (최근 20일)")
+                fig_price = go.Figure(data=[go.Candlestick(x=price_df['Date_Str'],
+                            open=price_df['Open'], high=price_df['High'],
+                            low=price_df['Low'], close=price_df['Close'],
+                            increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
+                fig_price.add_trace(go.Scatter(x=price_df['Date_Str'], y=price_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
+                fig_price.add_trace(go.Scatter(x=price_df['Date_Str'], y=price_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
+                fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis=dict(showgrid=False, type='category'), yaxis_title="", hovermode="x unified", height=220)
                 st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"p_{tech_result['티커']}_{key_suffix}")
             with ch2:
                 st.caption("📊 거래량 (막대) & OBV 누적 (꺾은선)")
                 fig_vol = go.Figure()
-                fig_vol.add_trace(go.Bar(x=vol_df['Date_Str'], y=vol_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
-                fig_vol.add_trace(go.Scatter(x=vol_df['Date_Str'], y=tech_result['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
+                fig_vol.add_trace(go.Bar(x=price_df['Date_Str'], y=price_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
+                fig_vol.add_trace(go.Scatter(x=price_df['Date_Str'], y=tech_result['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
                 fig_vol.update_layout(
                     margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type='category'), hovermode="x unified", height=220, showlegend=False,
                     yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
                 )
                 st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
 
-# 👈 [개선 3] 기계적 필터(즉시) + AI 의견 필터(동적 호출) + 정렬 통합 시스템
 def display_sorted_results(results_list, tab_key, show_longterm=False, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -809,7 +815,6 @@ def display_sorted_results(results_list, tab_key, show_longterm=False, api_key="
             st.warning("현재 20일선(매수 타점)에 근접한 종목이 없습니다.")
             return
             
-    # AI 필터를 켰을 때만 작동 (켜는 순간 AI 호출)
     if ai_filter:
         if not api_key:
             st.warning("API 키를 먼저 입력해주세요.")
@@ -818,7 +823,6 @@ def display_sorted_results(results_list, tab_key, show_longterm=False, api_key="
             with st.spinner("🤖 AI가 종목별 매수 의견을 판독 중입니다..."):
                 filtered = []
                 for res in display_list:
-                    # 한 번도 안 물어본 종목만 물어봄
                     if 'AI단기' not in res:
                         res['AI단기'] = get_quick_ai_opinion(res['종목명'], res['현재가'], res['진입가_가이드'], res['RSI'], api_key)
                     if "매수" in res['AI단기']:
@@ -924,7 +928,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
     "🎯 국내 타점 진단", 
-    "💡 AI 테마 검색", 
+    "⚡ 딥테크 & 테마 주도주", # 👈 이름 변경 완료
     "🚨 상/하한가 분석", 
     "📰 실시간 뉴스 터미널", 
     "📅 증시 캘린더", 
@@ -989,15 +993,19 @@ with tab2:
         * **✅ 20일선 눌림목:** 강하게 오르던 주식이 숨을 고르며 20일선 근처까지 내려온 안전한 반등 자리 (스윙 매매의 핵심).
         * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
         * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
+        * **🐋 외인/기관 쌍끌이 매집:** 주가는 조용한데 외국인과 기관이 바닥에서 몰래 대량으로 사들이는 종목.
         """)
     
-    col_c1, col_c2 = st.columns(2)
+    # 👈 [기능 2 탑재] 스마트머니(쌍끌이) 체크박스 신규 추가
+    col_c1, col_c2, col_c3 = st.columns(3)
     with col_c1:
-        cond_golden = st.checkbox("✨ 5일-20일 골든크로스 또는 정배열 초입")
-        cond_pullback = st.checkbox("✅ 20일선 눌림목 (진입 타점 근접)", value=True)
+        cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입")
+        cond_pullback = st.checkbox("✅ 20일선 눌림목 (타점 근접)", value=True)
     with col_c2:
-        cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
-        cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
+        cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (낙폭과대)")
+        cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 의심)")
+    with col_c3:
+        cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수")
         
     st.markdown("#### 📊 스캔 범위 및 검증 시점 선택")
     scan_c1, scan_c2 = st.columns(2)
@@ -1009,7 +1017,6 @@ with tab2:
         selected_offset_label = st.selectbox("⏰ 타임머신 검증 모드 (당시 타점과 오늘 가격 비교)", list(offset_options.keys()))
         offset_days = offset_options[selected_offset_label]
         
-    # 👈 AI 묻는 로직 제거 (100% 쾌속 스캔)
     if st.button(f"🚀 쾌속 병렬 스캔 시작 (상위 {scan_limit}종목)", type="primary", use_container_width=True):
         with st.spinner(f"⚡ 멀티스레드 엔진을 가동하여 {scan_limit}개 종목을 고속 필터링 중입니다..."):
             targets = get_scan_targets(scan_limit)
@@ -1031,6 +1038,10 @@ with tab2:
                         if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
+                        
+                        # 👈 쌍끌이 매수 필터 적용 (둘 다 순매수(+) 일 때만 통과)
+                        if cond_twin_buy and ("+" not in str(res['기관수급']) or "+" not in str(res['외인수급'])): match = False
+                        
                         if match: return res
                     return None
                 
@@ -1141,26 +1152,30 @@ with tab4:
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
             else: st.error("❌ 분석 불가: 데이터가 없습니다.")
 
+# 👈 [기능 3 탑재] 핵심 인프라 & 딥테크 전용 주도주 추적 패널로 개편
 with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("💡 테마 및 관련주 실시간 AI 발굴기")
+    st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
+    st.write("글로벌 메가트렌드와 직결되는 핵심 인프라 및 딥테크 섹터의 진짜 대장주를 AI가 발굴합니다.")
     show_trading_guidelines() 
-    st.markdown("🔥 **AI가 감지한 오늘의 실시간 주도 테마**")
     
-    with st.spinner("📡 핫 테마를 스캔 중입니다..."):
-        hot_themes = get_trending_themes_with_ai(api_key_input)
-        
-    cols = st.columns(len(hot_themes))
-    clicked_theme = None
-    for i, theme in enumerate(hot_themes):
-        if cols[i].button(theme, use_container_width=True): clicked_theme = theme
-    query = st.text_input("🔍 테마 입력:", value=clicked_theme if clicked_theme else "")
+    st.markdown("#### 🎯 1. 시장을 움직이는 핵심 인프라 스캔")
+    col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+    deep_tech_query = None
+    if col_d1.button("🤖 AI / 반도체 대장주", use_container_width=True): deep_tech_query = "AI 반도체 HBM CXL"
+    if col_d2.button("🔌 데이터센터 / 전력기기", use_container_width=True): deep_tech_query = "데이터센터 전력 인프라 냉각"
+    if col_d3.button("☢️ 원자력 / SMR 관련주", use_container_width=True): deep_tech_query = "원전 SMR 소형모듈원전"
+    if col_d4.button("🦾 로봇 / 공장 자동화", use_container_width=True): deep_tech_query = "로봇 스마트팩토리 자동화"
     
-    if query and api_key_input:
-        with st.spinner(f"✨ '{query}' 관련주 진단 중..."):
-            theme_stocks = get_theme_stocks_with_ai(query, api_key_input)
+    st.markdown("#### 🔍 2. 자유 테마 검색")
+    custom_query = st.text_input("직접 테마 입력 (예: 비만치료제, 저PBR):", value="")
+    final_query = deep_tech_query if deep_tech_query else custom_query
+    
+    if final_query and api_key_input:
+        with st.spinner(f"✨ '{final_query}' 핵심 수혜주 진단 중..."):
+            theme_stocks = get_theme_stocks_with_ai(final_query, api_key_input)
             if theme_stocks:
-                st.success(f"🎯 '{query}' 관련주 진단 완료!")
+                st.success(f"🎯 '{final_query}' 주도주 진단 완료!")
                 theme_res_list = []
                 for i, (name, code) in enumerate(theme_stocks):
                     res = analyze_technical_pattern(name, code)
