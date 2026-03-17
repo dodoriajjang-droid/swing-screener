@@ -114,9 +114,23 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    try:
+        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res2.status_code == 200:
+            data = json.loads(res2.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
     return None
 
-# 👈 [업데이트] 데이터 기준 시간(fetch_time)을 함께 반환하도록 수정
+# 👈 [업데이트] 스캔 시간 반환
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
@@ -844,6 +858,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
             else: st.error("데이터를 불러오지 못했습니다.")
 
+# 👈 불필요한 토글 제거 후 군더더기 없는 정렬 함수
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -964,7 +979,7 @@ with tab1:
     with col1:
         st.subheader("🔥 미국장 급등주 (+5% 이상)")
         if 'us_fetch_time' in st.session_state:
-            st.caption(f"⏱️ 데이터 기준 시간: {st.session_state.us_fetch_time} (한국시간)")
+            st.caption(f"⏱️ 데이터 기준 시간: {st.session_state.us_fetch_time} (한국시간) ｜ 🇺🇸 **정규장 종가/실시간 기준 (프리장 미포함)**")
         if not st.session_state.gainers_df.empty:
             tickers_list = st.session_state.gainers_df['종목코드'].tolist()
             if api_key_input:
