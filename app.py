@@ -114,20 +114,6 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res2.status_code == 200:
-            data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
     return None
 
 @st.cache_data(ttl=3600)
@@ -641,7 +627,6 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "RSI": latest['RSI'], "배열상태": align_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol, "개인수급": ind_vol,
             "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
-            "차트 데이터": analysis_df.tail(20), 
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except: return None
@@ -745,7 +730,8 @@ def show_trading_guidelines():
         * 🛑 **손절:** 손절 라인(20일선) 이탈 시 가차 없이 칼손절!
         """)
 
-def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
+# 👈 [핵심 업데이트] 모든 차트에 기간 선택 라디오 버튼 기본 탑재
+def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
     status_emoji = tech_result['상태'].split(' ')[0]
     
     def get_short_trend(trend_text):
@@ -815,75 +801,50 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
         
-        if show_longterm_chart:
-            tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=2)
-            days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
-            with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
-                long_df = get_historical_data(tech_result['티커'], days_dict[tf])
-                if not long_df.empty:
-                    long_df = long_df.reset_index()
-                    long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
+        # 👈 [적용] 무조건 차트 기간 선택기를 노출하고 동적으로 캔들 차트를 로딩
+        tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=0)
+        days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
+        with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
+            long_df = get_historical_data(tech_result['티커'], days_dict[tf])
+            if not long_df.empty:
+                long_df = long_df.reset_index()
+                long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
+                
+                long_df['MA20'] = long_df['Close'].rolling(window=20).mean()
+                long_df['Std_20'] = long_df['Close'].rolling(window=20).std()
+                long_df['Bollinger_Upper'] = long_df['MA20'] + (long_df['Std_20'] * 2)
+                
+                if tf in ["1개월", "3개월"]:
+                    long_df['Date_Str'] = long_df['Date'].dt.strftime('%m월 %d일')
+                    x_col, x_type = 'Date_Str', 'category'
+                else:
+                    x_col, x_type = 'Date', 'date' 
                     
-                    long_df['MA20'] = long_df['Close'].rolling(window=20).mean()
-                    long_df['Std_20'] = long_df['Close'].rolling(window=20).std()
-                    long_df['Bollinger_Upper'] = long_df['MA20'] + (long_df['Std_20'] * 2)
-                    
-                    if tf in ["1개월", "3개월"]:
-                        long_df['Date_Str'] = long_df['Date'].dt.strftime('%m월 %d일')
-                        x_col, x_type = 'Date_Str', 'category'
-                    else:
-                        x_col, x_type = 'Date', 'date' 
-                        
-                    ch1, ch2 = st.columns(2)
-                    with ch1:
-                        st.caption(f"📈 캔들 주가 흐름 ({tf})")
-                        fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col],
-                            open=long_df['Open'], high=long_df['High'],
-                            low=long_df['Low'], close=long_df['Close'],
-                            increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
-                        fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
-                        fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
-                        fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis_title="", yaxis_title="", hovermode="x unified", xaxis=dict(showgrid=False, type=x_type), height=250)
-                        st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
-                    with ch2:
-                        st.caption(f"📊 거래량 & OBV ({tf})")
-                        fig_vol = go.Figure()
-                        fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
-                        fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
-                        fig_vol.update_layout(
-                            margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), hovermode="x unified", height=250, showlegend=False,
-                            yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
-                        )
-                        st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
-                else: st.error("데이터를 불러오지 못했습니다.")
-        else:
-            ch1, ch2 = st.columns(2)
-            price_df = tech_result["차트 데이터"].reset_index()
-            price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
-            
-            with ch1:
-                st.caption("📈 단기 캔들 흐름 (최근 20일)")
-                fig_price = go.Figure(data=[go.Candlestick(x=price_df['Date_Str'],
-                            open=price_df['Open'], high=price_df['High'],
-                            low=price_df['Low'], close=price_df['Close'],
-                            increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
-                fig_price.add_trace(go.Scatter(x=price_df['Date_Str'], y=price_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
-                fig_price.add_trace(go.Scatter(x=price_df['Date_Str'], y=price_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
-                fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis=dict(showgrid=False, type='category'), yaxis_title="", hovermode="x unified", height=220)
-                st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"p_{tech_result['티커']}_{key_suffix}")
-            with ch2:
-                st.caption("📊 거래량 (막대) & OBV 누적 (꺾은선)")
-                fig_vol = go.Figure()
-                fig_vol.add_trace(go.Bar(x=price_df['Date_Str'], y=price_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
-                fig_vol.add_trace(go.Scatter(x=price_df['Date_Str'], y=tech_result['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
-                fig_vol.update_layout(
-                    margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type='category'), hovermode="x unified", height=220, showlegend=False,
-                    yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
-                )
-                st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
+                ch1, ch2 = st.columns(2)
+                with ch1:
+                    st.caption(f"📈 캔들 주가 흐름 ({tf})")
+                    fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col],
+                        open=long_df['Open'], high=long_df['High'],
+                        low=long_df['Low'], close=long_df['Close'],
+                        increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
+                    fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
+                    fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
+                    fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis_title="", yaxis_title="", hovermode="x unified", xaxis=dict(showgrid=False, type=x_type), height=250)
+                    st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
+                with ch2:
+                    st.caption(f"📊 거래량 & OBV ({tf})")
+                    fig_vol = go.Figure()
+                    fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#1f77b4", hovertemplate="<b>%{y:,}주</b>"))
+                    fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
+                    fig_vol.update_layout(
+                        margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), hovermode="x unified", height=250, showlegend=False,
+                        yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
+                    )
+                    st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
+            else: st.error("데이터를 불러오지 못했습니다.")
 
-# 👈 [업데이트] 토글 버튼을 지우고 렌더링 함수 다이어트 완료
-def display_sorted_results(results_list, tab_key, show_longterm=False, api_key=""):
+# 👈 토글 버튼 완전 삭제. 정렬 라디오 버튼만 렌더링
+def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
         return
@@ -912,7 +873,7 @@ def display_sorted_results(results_list, tab_key, show_longterm=False, api_key="
         sorted_res = display_list
 
     for i, res in enumerate(sorted_res):
-        draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}", show_longterm_chart=show_longterm)
+        draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
 
 # ==========================================
 # 4. 메인 화면 시작
@@ -1038,7 +999,7 @@ with tab1:
                     for i, (name, code) in enumerate(kor_stocks):
                         res = analyze_technical_pattern(name, code)
                         if res: theme_res_list.append(res)
-                    display_sorted_results(theme_res_list, tab_key="t1", show_longterm=False, api_key=api_key_input)
+                    display_sorted_results(theme_res_list, tab_key="t1", api_key=api_key_input)
                 else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
 with tab2:
@@ -1110,7 +1071,7 @@ with tab2:
 
     st.divider()
     if st.session_state.scan_results is not None:
-        display_sorted_results(st.session_state.scan_results, tab_key="t2", show_longterm=False, api_key=api_key_input)
+        display_sorted_results(st.session_state.scan_results, tab_key="t2", api_key=api_key_input)
 
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1182,7 +1143,7 @@ with tab3:
 
     st.divider()
     if st.session_state.value_scan_results is not None:
-        display_sorted_results(st.session_state.value_scan_results, tab_key="t3", show_longterm=True, api_key=api_key_input)
+        display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1230,7 +1191,7 @@ with tab5:
                 for i, (name, code) in enumerate(theme_stocks):
                     res = analyze_technical_pattern(name, code)
                     if res: theme_res_list.append(res)
-                display_sorted_results(theme_res_list, tab_key="t5", show_longterm=False, api_key=api_key_input)
+                display_sorted_results(theme_res_list, tab_key="t5", api_key=api_key_input)
             else: st.error("❌ 관련주를 찾지 못했습니다.")
 
 with tab6:
