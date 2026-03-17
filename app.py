@@ -40,10 +40,25 @@ def save_watchlist(wl):
         st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 
+# 1. 초기 설정 및 UI 패치
 # ==========================================
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
+
+# 👈 [업데이트 3] 13개의 탭을 2줄로 예쁘게 접어주는(Wrap) 마법의 CSS 코드
+st.markdown("""
+<style>
+div[data-testid="stTabs"] > div[role="tablist"] {
+    flex-wrap: wrap;
+    gap: 4px;
+}
+div[data-testid="stTabs"] > div[role="tablist"] > button {
+    flex-grow: 1;
+    padding: 10px 16px;
+    font-weight: 600;
+}
+</style>
+""", unsafe_allow_html=True)
 
 for key in ['seen_links', 'seen_titles', 'news_data']:
     if key not in st.session_state:
@@ -575,23 +590,29 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
+# 👈 [오류 철벽 방어] FDR과 YFinance 듀얼 엔진 탑재 완벽 구현
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     df = pd.DataFrame()
     
-    if not ticker_code.isdigit():
+    # 1단계: 가장 빠르고 안정적인 FinanceDataReader 우선 시도
+    try:
+        df = fdr.DataReader(ticker_code, start_date)
+    except:
+        pass
+        
+    # 2단계: 만약 실패했거나 데이터가 비어있다면, YFinance로 우회 (미국 주식/ETF의 경우 .KS 제거)
+    if df is None or df.empty:
         try:
-            df = yf.Ticker(ticker_code).history(start=start_date)
+            # 한국 주식이면 .KS를 붙여서 시도, 아니면 그대로
+            yf_ticker = ticker_code + ".KS" if ticker_code.isdigit() else ticker_code
+            df = yf.Ticker(yf_ticker).history(start=start_date)
             if not df.empty:
-                df.index = df.index.tz_localize(None)
-        except: pass
-        
-    if df.empty:
-        try:
-            df = fdr.DataReader(ticker_code, start_date)
-        except: pass
-        
+                df.index = df.index.tz_localize(None) # 시간대 차이로 인한 에러 방지
+        except:
+            pass
+            
     return df
 
 @st.cache_data(ttl=3600)
@@ -667,6 +688,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         }
     except: return None
 
+# 👈 [핵심 기능 패치] 6개월치 데이터가 0으로 나오던 버그 수정 (250일 넉넉하게 조회)
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
     theme_proxies = {
@@ -690,15 +712,19 @@ def analyze_theme_trends():
     results = []
     for theme_name, ticker in theme_proxies.items():
         try:
-            df = get_historical_data(ticker, 180)
+            # 기존 180일 -> 250일로 넉넉하게 수정 (휴일 제외 120거래일 확보 목적)
+            df = get_historical_data(ticker, 250)
             if df.empty or len(df) < 20: continue
             
             current_price = float(df['Close'].iloc[-1])
             
             def get_stats(days):
-                if len(df) < days: return 0, 0
-                period_df = df.iloc[-days:]
+                # 데이터가 실제보다 살짝 모자라도 에러 안 나게 방어 코드
+                slice_len = min(days, len(df))
+                period_df = df.iloc[-slice_len:]
                 start_price = float(period_df['Close'].iloc[0])
+                if start_price == 0: return 0, 0
+                
                 ret = ((current_price - start_price) / start_price) * 100
                 vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
                 return ret, vol_sum
@@ -1113,7 +1139,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13
     "📰 실시간 뉴스 터미널", 
     "📅 증시 캘린더", 
     "💸 자금 흐름(히트맵)", 
-    "👑 기간별 테마 트렌드 (1M/3M/6M)",
+    "👑 기간별 테마 트렌드",
     "💰 배당주(TOP 150)", 
     "📊 글로벌 핵심 ETF 분석", 
     "⭐ 내 관심종목"
@@ -1618,15 +1644,18 @@ with tab10:
         results = []
         for theme_name, ticker in theme_proxies.items():
             try:
-                df = get_historical_data(ticker, 180)
+                # 6개월(약 120거래일)을 완벽히 보장하기 위해 250일치 조회로 변경
+                df = get_historical_data(ticker, 250) 
                 if df.empty or len(df) < 20: continue
                 
                 current_price = float(df['Close'].iloc[-1])
                 
                 def get_stats(days):
-                    if len(df) < days: return 0, 0
-                    period_df = df.iloc[-days:]
+                    slice_len = min(days, len(df)) # 데이터가 부족해도 에러 안 나게 방어
+                    period_df = df.iloc[-slice_len:]
                     start_price = float(period_df['Close'].iloc[0])
+                    if start_price == 0: return 0, 0
+                    
                     ret = ((current_price - start_price) / start_price) * 100
                     vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
                     return ret, vol_sum
@@ -1769,7 +1798,7 @@ with tab12:
             else:
                 st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
         else:
-            st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
+            st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 증시 데이터 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
 
 with tab13:
     st.markdown("<br>", unsafe_allow_html=True)
