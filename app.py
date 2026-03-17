@@ -152,9 +152,9 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-def fetch_naver_volume(sosok):
+def fetch_naver_volume(sosok, page=1):
     try:
-        url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}"
+        url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}&page={page}"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         html = res.content.decode('euc-kr', errors='replace')
         tables = pd.read_html(StringIO(html))
@@ -169,8 +169,8 @@ def fetch_naver_volume(sosok):
 @st.cache_data(ttl=300)
 def get_trading_value_kings():
     try:
-        df_kpi = fetch_naver_volume(0)
-        df_kdq = fetch_naver_volume(1)
+        df_kpi = fetch_naver_volume(0, 1)
+        df_kdq = fetch_naver_volume(1, 1)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
         if df.empty: return pd.DataFrame()
         
@@ -206,13 +206,20 @@ def get_trading_value_kings():
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: return pd.DataFrame()
 
+# 👈 [핵심 업데이트 1] 300개를 가져오기 위해 네이버 금융 1, 2페이지를 모두 긁어오도록 강화
 @st.cache_data(ttl=300)
-def get_scan_targets(limit=50):
+def get_scan_targets(limit=100):
     try:
-        df_kpi = fetch_naver_volume(0)
-        df_kdq = fetch_naver_volume(1)
-        df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if df.empty: return []
+        dfs = []
+        for sosok in [0, 1]:  # 코스피, 코스닥
+            for page in [1, 2]: # 각각 1~2페이지 (총 400개) 스캔
+                temp_df = fetch_naver_volume(sosok, page)
+                if not temp_df.empty:
+                    dfs.append(temp_df)
+                    
+        if not dfs: return []
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.drop_duplicates(subset=['종목명'])
         
         mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
         df = df[~mask].copy()
@@ -333,7 +340,37 @@ def update_news_state():
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
-# 👈 [강력 버그 픽스] AI가 코드를 지어내는 할루시네이션 완벽 방어 교차 검증 로직 탑재
+@st.cache_data(ttl=3600)
+def get_all_sector_info(tickers, _api_key):
+    results = {t: ("분석 대기", "분석 대기") for t in tickers}
+    if not _api_key: return results
+    try:
+        response = ask_gemini(f"당신은 월스트리트 주식 전문가입니다.\n다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.\n반드시 '티커|섹터|산업' 형태로만 답변하세요.\n[티커 목록]\n{chr(10).join(tickers)}", _api_key)
+        for line in response.strip().split('\n'):
+            parts = line.split('|')
+            if len(parts) >= 3 and parts[0].strip().replace('*', '').replace('-', '') in results:
+                results[parts[0].strip().replace('*', '').replace('-', '')] = (parts[1].strip(), parts[2].strip())
+        return results
+    except: return results
+
+@st.cache_data(ttl=3600)
+def get_company_summary(ticker, _api_key):
+    try:
+        biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
+        prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}" if biz_summary else f"미국 주식 '{ticker}' 핵심 비즈니스 모델을 한국어로 2~3줄 요약해 주세요."
+        return ask_gemini(prompt, _api_key)
+    except: return "기업 정보를 요약하는 중 오류가 발생했습니다."
+
+@st.cache_data(ttl=3600)
+def analyze_news_with_gemini(ticker, _api_key):
+    try:
+        news_list = yf.Ticker(ticker).news
+        if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
+        news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
+        prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
+        return ask_gemini(prompt, _api_key)
+    except: return "뉴스 분석 중 오류가 발생했습니다."
+
 @st.cache_data(ttl=3600)
 def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
     if not _api_key: return []
@@ -353,11 +390,9 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
             clean_name = name.replace('(주)', '').strip()
             final_name, final_code = None, None
             
-            # 1. AI가 준 이름을 KRX 공식 목록에서 검색 (우선)
             if clean_name in name_to_code:
                 final_name = clean_name
                 final_code = name_to_code[clean_name]
-            # 2. 이름이 약간 다를 경우 코드로 역추적
             elif code in code_to_name:
                 final_name = code_to_name[code]
                 final_code = code
@@ -402,6 +437,16 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
         return validated[:20]
     except: return []
 
+@st.cache_data(ttl=10800)
+def get_trending_themes_with_ai(_api_key):
+    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
+    if not _api_key: return default_themes
+    try:
+        response = ask_gemini("최근 한국 증시 가장 핫한 주도 테마 5개만 쉼표로 구분해서 1줄로 출력하세요. 번호/부연설명 절대 금지.", _api_key)
+        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').split(',')]
+        return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
+    except: return default_themes
+
 @st.cache_data(ttl=3600)
 def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
     if not _api_key: return []
@@ -435,47 +480,6 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
                 
         return validated[:20]
     except: return []
-
-@st.cache_data(ttl=3600)
-def get_all_sector_info(tickers, _api_key):
-    results = {t: ("분석 대기", "분석 대기") for t in tickers}
-    if not _api_key: return results
-    try:
-        response = ask_gemini(f"당신은 월스트리트 주식 전문가입니다.\n다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.\n반드시 '티커|섹터|산업' 형태로만 답변하세요.\n[티커 목록]\n{chr(10).join(tickers)}", _api_key)
-        for line in response.strip().split('\n'):
-            parts = line.split('|')
-            if len(parts) >= 3 and parts[0].strip().replace('*', '').replace('-', '') in results:
-                results[parts[0].strip().replace('*', '').replace('-', '')] = (parts[1].strip(), parts[2].strip())
-        return results
-    except: return results
-
-@st.cache_data(ttl=3600)
-def get_company_summary(ticker, _api_key):
-    try:
-        biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
-        prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}" if biz_summary else f"미국 주식 '{ticker}' 핵심 비즈니스 모델을 한국어로 2~3줄 요약해 주세요."
-        return ask_gemini(prompt, _api_key)
-    except: return "기업 정보를 요약하는 중 오류가 발생했습니다."
-
-@st.cache_data(ttl=3600)
-def analyze_news_with_gemini(ticker, _api_key):
-    try:
-        news_list = yf.Ticker(ticker).news
-        if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
-        news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
-        prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
-        return ask_gemini(prompt, _api_key)
-    except: return "뉴스 분석 중 오류가 발생했습니다."
-
-@st.cache_data(ttl=10800)
-def get_trending_themes_with_ai(_api_key):
-    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
-    if not _api_key: return default_themes
-    try:
-        response = ask_gemini("최근 한국 증시 가장 핫한 주도 테마 5개만 쉼표로 구분해서 1줄로 출력하세요. 번호/부연설명 절대 금지.", _api_key)
-        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').split(',')]
-        return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
-    except: return default_themes
 
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
@@ -889,6 +893,7 @@ with tab1:
                         if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t1_{i}")
                 else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
+# 👈 [핵심 개선] 스캐너 UI 트래픽 최적화 및 봇 차단 방지 적용
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너 & 과거 타점 검증기")
@@ -915,21 +920,26 @@ with tab2:
     scan_c1, scan_c2 = st.columns(2)
     with scan_c1:
         scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1)
+    
     with scan_c2:
         offset_options = {"현재 (실시간 스캔)": 0, "3일 전 (타임머신 검증)": 3, "5일 전 (타임머신 검증)": 5, "10일 전 (타임머신 검증)": 10}
         selected_offset_label = st.selectbox("⏰ 타임머신 검증 모드 (당시 타점과 오늘 가격 비교)", list(offset_options.keys()))
         offset_days = offset_options[selected_offset_label]
         
     if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다... (네이버 봇 차단 방지 적용중)"):
+        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 스캔 중입니다... (과부하 방지를 위해 약 10~30초 소요됩니다)"):
             targets = get_scan_targets(scan_limit)
-            if not targets: st.error("종목 데이터를 불러오지 못했습니다.")
+            if not targets: st.error("종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 found_results = []
                 for i, (name, code) in enumerate(targets):
-                    status_text.text(f"🔍 스캔 중: {name} ({i+1}/{len(targets)})")
+                    # 💡 Streamlit UI가 멈추는 걸 방지하기 위해 텍스트 업데이트를 3번에 한 번씩만 합니다.
+                    if i % 3 == 0 or i == len(targets) - 1:
+                        status_text.text(f"🔍 스캔 중: {name} 외 ({i+1}/{len(targets)}) ... 현재 {len(found_results)}개 포착")
+                        progress_bar.progress((i + 1) / len(targets))
+                        
                     res = analyze_technical_pattern(name, code, offset_days=offset_days)
                     if res:
                         match = True
@@ -938,8 +948,8 @@ with tab2:
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
                         if match: found_results.append(res)
-                    time.sleep(0.1)
-                    progress_bar.progress((i + 1) / len(targets))
+                    time.sleep(0.05)  # 네이버 봇 차단 방지를 위한 스텔스 딜레이
+                    
                 status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
                 st.session_state.scan_results = found_results
                 st.rerun()
@@ -991,7 +1001,10 @@ with tab3:
                     status_text = st.empty()
                     value_results = []
                     for i, (name, code) in enumerate(candidates):
-                        status_text.text(f"재무 스캔 중: {name} ({i+1}/{len(candidates)})")
+                        if i % 2 == 0 or i == len(candidates) - 1:
+                            status_text.text(f"재무 스캔 중: {name} 외 ({i+1}/{len(candidates)})")
+                            progress_bar.progress((i + 1) / len(candidates))
+                        
                         per_str, pbr_str = get_fundamentals(code)
                         try:
                             per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
@@ -1001,7 +1014,7 @@ with tab3:
                                 if res: value_results.append(res)
                         except: pass
                         time.sleep(0.05)
-                        progress_bar.progress((i + 1) / len(candidates))
+                        
                     status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 발굴")
                     st.session_state.value_scan_results = value_results
                     st.rerun()
@@ -1214,9 +1227,9 @@ with tab9:
         merged_df = t_kings.copy()
         
         merged_df['display_text'] = (
-            "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
-            "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
-            "<span style='font-size:13px'>" + merged_df['Amount_Ouk'].map("{:,}억".format) + "</span>"
+            "<b>" + merged_df['Name'] + "</b><br>" +
+            merged_df['ChagesRatio'].map("{:+.2f}%".format) + "<br>" +
+            merged_df['Amount_Ouk'].map("{:,}억".format)
         )
         
         finviz_colors = [
@@ -1248,7 +1261,7 @@ with tab9:
         fig_tree.update_traces(
             textinfo="text",
             texttemplate="%{customdata[2]}", 
-            textfont=dict(color="white"),
+            textfont=dict(color="white", size=15),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
