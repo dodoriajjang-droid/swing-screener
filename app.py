@@ -45,7 +45,7 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 👈 [업데이트 1] 스트림릿 강제 스크롤을 무력화하고 탭을 2~3줄로 예쁘게 펼쳐주는 초강력 CSS
+# 13개의 탭을 모바일/PC 상관없이 2~3줄로 예쁘게 펼쳐주는 강제 CSS
 st.markdown("""
 <style>
     div[data-testid="stTabs"] [data-baseweb="tab-list"] {
@@ -56,7 +56,7 @@ st.markdown("""
     }
     div[data-testid="stTabs"] [data-baseweb="tab-list"] button {
         flex-grow: 1 !important;
-        flex-basis: calc(14% - 5px) !important; /* 탭 개수에 맞춰 한 줄에 적당히 배치 */
+        flex-basis: calc(14% - 5px) !important;
         min-width: 140px !important;
         margin: 0 !important;
     }
@@ -234,88 +234,124 @@ def fetch_naver_volume(sosok, pages=1):
     if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
     return pd.DataFrame()
 
+# 👈 [업데이트] 히트맵(Tab 9)에서도 통신장애 발생 시 FDR로 우회하는 3중 방어막 추가
 @st.cache_data(ttl=300)
 def get_trading_value_kings():
+    # 1. FDR을 통한 빠르고 안전한 수집 시도
+    try:
+        df_fdr = fdr.StockListing('KRX')
+        if not df_fdr.empty and 'Amount' in df_fdr.columns:
+            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df_fdr = df_fdr[~mask].copy()
+            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr['Close'] = pd.to_numeric(df_fdr['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr['ChagesRatio'] = pd.to_numeric(df_fdr['ChagesRatio'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
+            
+            df_fdr = df_fdr.sort_values('Amount', ascending=False).head(20)
+            df_fdr['Amount_Ouk'] = (df_fdr['Amount'] / 100000000).astype(int)
+            df_fdr['Amount_Ouk'] = df_fdr['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
+            
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df_fdr = pd.merge(df_fdr, krx[['Name', 'Sector']], on='Name', how='left')
+                df_fdr['Sector'] = df_fdr['Sector'].fillna('기타/분류불가')
+            else:
+                df_fdr['Sector'] = '기타/분류불가'
+            return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except: pass
+
+    # 2. FDR 실패 시 네이버 크롤링
     try:
         df_kpi = fetch_naver_volume(0, 1)
         df_kdq = fetch_naver_volume(1, 1)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if df.empty: return pd.DataFrame()
-        
-        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = df[~mask].copy()
-        
-        def extract_num(x):
-            try:
-                val = re.sub(r'[^\d\.\-]', '', str(x))
-                if val in ['', '-']: return 0.0
-                return float(val)
-            except: return 0.0
+        if not df.empty:
+            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df = df[~mask].copy()
             
-        df['Name'] = df['종목명']
-        df['Close'] = df['현재가'].apply(extract_num)
-        df['ChagesRatio'] = df['등락률'].apply(extract_num)
-        df['Volume'] = df['거래량'].apply(extract_num)
-        
-        df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
-        df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
-        
-        df = df.sort_values('Amount_Ouk', ascending=False).head(20)
-        
-        krx = get_krx_stocks()
-        if not krx.empty:
-            df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
-            df['Code'] = df['Code'].fillna('000000')
-            df['Sector'] = df['Sector'].fillna('기타/분류불가')
-        else:
-            df['Code'] = '000000'
-            df['Sector'] = '기타/분류불가'
+            def extract_num(x):
+                try:
+                    val = re.sub(r'[^\d\.\-]', '', str(x))
+                    if val in ['', '-']: return 0.0
+                    return float(val)
+                except: return 0.0
+                
+            df['Name'] = df['종목명']
+            df['Close'] = df['현재가'].apply(extract_num)
+            df['ChagesRatio'] = df['등락률'].apply(extract_num)
+            df['Volume'] = df['거래량'].apply(extract_num)
+            df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
+            df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
             
-        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
-    except: return pd.DataFrame()
+            df = df.sort_values('Amount_Ouk', ascending=False).head(20)
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
+                df['Code'] = df['Code'].fillna('000000')
+                df['Sector'] = df['Sector'].fillna('기타/분류불가')
+            else:
+                df['Code'] = '000000'
+                df['Sector'] = '기타/분류불가'
+            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except: pass
+    return pd.DataFrame()
 
+# 👈 [오류 철벽 방어] 스캐너에서 데이터를 못 불러오는 버그 원천 차단 (3단계 폴백)
 @st.cache_data(ttl=300)
 def get_scan_targets(limit=50):
+    # 1. 1순위: 한국거래소 직결 데이터 (가장 안정적)
     try:
         df_fdr = fdr.StockListing('KRX')
         if not df_fdr.empty:
-            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-            if df_fdr['Amount'].max() > 0:
-                mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-                df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name']).sort_values('Amount', ascending=False)
-                targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
-                if len(targets) >= limit or len(targets) > 100:
-                    return targets
+            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name'])
+            
+            if 'Amount' in df_fdr.columns:
+                df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+                df_fdr = df_fdr.sort_values('Amount', ascending=False)
+            elif 'Marcap' in df_fdr.columns: # 거래대금이 없으면 시가총액순으로 대체
+                df_fdr['Marcap'] = pd.to_numeric(df_fdr['Marcap'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+                df_fdr = df_fdr.sort_values('Marcap', ascending=False)
+                
+            targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
+            if targets: return targets
     except: pass
     
+    # 2. 2순위: 네이버 스크래핑 우회
     try:
         df_kpi = fetch_naver_volume(0, pages=3) 
         df_kdq = fetch_naver_volume(1, pages=3)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if df.empty: return []
-        
-        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = df[~mask].drop_duplicates(subset=['종목명']).copy()
-        
-        def extract_num(x):
-            try:
-                val = re.sub(r'[^\d\.\-]', '', str(x))
-                if val in ['', '-']: return 0.0
-                return float(val)
-            except: return 0.0
+        if not df.empty:
+            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df = df[~mask].drop_duplicates(subset=['종목명']).copy()
             
-        df['Close'] = df['현재가'].apply(extract_num)
-        df['Volume'] = df['거래량'].apply(extract_num)
-        df['Amount'] = df['Close'] * df['Volume']
-        
-        df = df.sort_values('Amount', ascending=False).head(limit)
-        
+            def extract_num(x):
+                try:
+                    val = re.sub(r'[^\d\.\-]', '', str(x))
+                    return float(val) if val not in ['', '-'] else 0.0
+                except: return 0.0
+                
+            df['Close'] = df['현재가'].apply(extract_num)
+            df['Volume'] = df['거래량'].apply(extract_num)
+            df['Amount'] = df['Close'] * df['Volume']
+            df = df.sort_values('Amount', ascending=False).head(limit)
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
+                targets = df[['Name', 'Code']].values.tolist()
+                if targets: return targets
+    except: pass
+    
+    # 3. 3순위 (최후의 보루): 모든 통신이 막혀도 에러 없이 기본 상장사 목록 상위 반환
+    try:
         krx = get_krx_stocks()
         if not krx.empty:
-            df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
-            return df[['Name', 'Code']].values.tolist()
-        return []
-    except: return []
+            mask = krx['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            krx = krx[~mask].drop_duplicates(subset=['Name'])
+            return krx.head(limit)[['Name', 'Code']].values.tolist()
+    except: pass
+    return []
 
 @st.cache_data(ttl=300)
 def get_limit_stocks():
@@ -499,9 +535,10 @@ def get_trending_themes_with_ai(_api_key):
     default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
     if not _api_key: return default_themes
     try:
-        response = ask_gemini("최근 한국 증시 가장 핫한 주도 테마 5개만 쉼표로 구분해서 1줄로 출력하세요. 번호/부연설명 절대 금지.", _api_key)
-        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').split(',')]
-        return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
+        prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 반도체장비, 2차전지, 제약바이오, 원자력"
+        response = ask_gemini(prompt, _api_key)
+        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
+        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
     except: return default_themes
 
 @st.cache_data(ttl=3600)
@@ -687,60 +724,6 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         }
     except: return None
 
-# 👈 [업데이트 2] Plotly 소수점 렌더링 버그 방지를 위해 아예 텍스트 데이터 열(Column)을 강제로 만들어서 차트에 던져줌
-@st.cache_data(ttl=3600)
-def analyze_theme_trends():
-    theme_proxies = {
-        "반도체": "091160",
-        "2차전지": "305720",
-        "바이오/헬스케어": "244580",
-        "인터넷/플랫폼": "157490",
-        "자동차/모빌리티": "091230",
-        "금융/지주": "091220",
-        "미디어/엔터": "266360",
-        "로봇/AI": "417270",
-        "K-방산": "449450",
-        "조선/중공업": "139240",
-        "원자력/전력기기": "102960",
-        "화장품/미용": "228790",
-        "게임": "300610",
-        "건설/인프라": "117700",
-        "철강/소재": "117680"
-    }
-    
-    results = []
-    for theme_name, ticker in theme_proxies.items():
-        try:
-            df = get_historical_data(ticker, 300) 
-            if df.empty or len(df) < 20: continue
-            
-            current_price = float(df['Close'].iloc[-1])
-            
-            def get_stats(days):
-                slice_len = min(days, len(df))
-                period_df = df.iloc[-slice_len:]
-                start_price = float(period_df['Close'].iloc[0])
-                if start_price == 0: return 0, 0
-                
-                ret = ((current_price - start_price) / start_price) * 100
-                vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
-                return ret, vol_sum
-
-            r_1m, v_1m = get_stats(20)   
-            r_3m, v_3m = get_stats(60)   
-            r_6m, v_6m = get_stats(120)  
-            
-            results.append({
-                "테마": theme_name,
-                "1M수익률": r_1m, "1M거래대금": v_1m,
-                "3M수익률": r_3m, "3M거래대금": v_3m,
-                "6M수익률": r_6m, "6M거래대금": v_6m,
-            })
-        except: pass
-        
-    return pd.DataFrame(results)
-
-@st.cache_data(ttl=43200)
 def get_naver_calendar_events():
     try:
         res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
@@ -1243,7 +1226,7 @@ with tab2:
     if st.button(f"🚀 쾌속 병렬 스캔 시작 (상위 {scan_limit}종목)", type="primary", use_container_width=True):
         with st.spinner(f"⚡ 멀티스레드 엔진을 가동하여 {scan_limit}개 종목을 고속 필터링 중입니다..."):
             targets = get_scan_targets(scan_limit)
-            if not targets: st.error("종목 데이터를 불러오지 못했습니다.")
+            if not targets: st.error("종목 데이터를 불러오지 못했습니다. '🔄 증시 데이터 리로드' 버튼을 눌러주세요.")
             else:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -1380,13 +1363,16 @@ with tab5:
     st.write("글로벌 메가트렌드와 직결되는 핵심 인프라 및 딥테크 섹터의 진짜 대장주를 AI가 발굴합니다.")
     show_beginner_guide() 
     
-    st.markdown("#### 🎯 1. 시장을 움직이는 핵심 인프라 스캔")
-    col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+    st.markdown("#### 🎯 1. 실시간 AI 포착 주도 테마 스캔")
+    hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터/전력", "제약/바이오", "로봇/자동화"]
+    
+    display_themes = hot_themes_tab5[:4]
+    cols_d = st.columns(len(display_themes))
     deep_tech_query = None
-    if col_d1.button("🤖 AI / 반도체 대장주", use_container_width=True): deep_tech_query = "AI 반도체 HBM CXL"
-    if col_d2.button("🔌 데이터센터 / 전력기기", use_container_width=True): deep_tech_query = "데이터센터 전력 인프라 냉각"
-    if col_d3.button("☢️ 원자력 / SMR 관련주", use_container_width=True): deep_tech_query = "원전 SMR 소형모듈원전"
-    if col_d4.button("🦾 로봇 / 공장 자동화", use_container_width=True): deep_tech_query = "로봇 스마트팩토리 자동화"
+    
+    for idx, theme in enumerate(display_themes):
+        if cols_d[idx].button(f"🔥 {theme}", use_container_width=True):
+            deep_tech_query = theme
     
     st.markdown("#### 🔍 2. 자유 테마 검색")
     custom_query = st.text_input("직접 테마 입력 (예: 비만치료제, 저PBR):", value="")
@@ -1613,7 +1599,6 @@ with tab9:
                 res = analyze_technical_pattern(k_name, k_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t9_map")
 
-# 👈 [업데이트 2 & 3] 6개월 버그 픽스 + 수익률 소수점 완전 제거 패치
 with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
@@ -1630,7 +1615,7 @@ with tab10:
             "금융/지주": "091220",
             "미디어/엔터": "266360",
             "로봇/AI": "417270",
-            "K-방산": "449450",  # PLUS K방산 (안전한 데이터)
+            "K-방산": "449450",  
             "조선/중공업": "139240",
             "원자력/전력기기": "102960",
             "화장품/미용": "228790",
@@ -1642,7 +1627,6 @@ with tab10:
         results = []
         for theme_name, ticker in theme_proxies.items():
             try:
-                # 6개월(120거래일) 보장을 위해 250일 여유롭게 조회
                 df = get_historical_data(ticker, 250) 
                 if df.empty or len(df) < 20: continue
                 
@@ -1693,7 +1677,6 @@ with tab10:
         with col_c1:
             st.markdown(f"#### 💸 {chart_title} 거래대금 TOP 테마")
             vol_df = trend_df.sort_values(vol_col, ascending=True).tail(10).copy()
-            # 소수점 제거 텍스트 직접 주입
             vol_df['text_label'] = vol_df[vol_col].apply(lambda x: f"{int(round(x)):,}억")
             
             fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text='text_label')
@@ -1704,7 +1687,6 @@ with tab10:
         with col_c2:
             st.markdown(f"#### 🚀 {chart_title} 수익률 TOP 테마")
             ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10).copy()
-            # 소수점 제거 텍스트 직접 주입 (Plotly 버그 차단)
             ret_df['text_label'] = ret_df[ret_col].apply(lambda x: f"+{int(round(x))}%" if x > 0 else f"{int(round(x))}%")
             colors = ['#ff4b4b' if val > 0 else '#1f77b4' for val in ret_df[ret_col]]
             
