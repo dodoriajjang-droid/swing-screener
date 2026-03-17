@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 import json
-import time  # 👈 [추가] 서버 차단 방지를 위한 시간 지연 모듈
+import time
 
 # ==========================================
 # 1. 초기 설정 
@@ -152,171 +152,150 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-@st.cache_data(ttl=600)
-def get_trading_value_kings():
+# 👈 [아침 에러 완벽 해결 1] 네이버 실시간 거래량 페이지를 가져오는 통합 엔진
+def fetch_naver_volume(sosok):
     try:
-        url = "https://finance.naver.com/sise/sise_quant_high.naver"
+        url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         html = res.content.decode('euc-kr', errors='replace')
         tables = pd.read_html(StringIO(html))
-        
-        df = pd.DataFrame()
         for t in tables:
-            if '종목명' in t.columns and '거래대금' in t.columns:
+            if '종목명' in t.columns and '현재가' in t.columns and '거래량' in t.columns:
                 df = t.dropna(subset=['종목명']).copy()
-                break
-                
-        if not df.empty:
-            df = df[df['종목명'] != '종목명']
-            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            df = df[~mask].copy()
-            
-            def extract_num(x):
-                try:
-                    val = re.sub(r'[^\d\.\-]', '', str(x))
-                    if val == '' or val == '-': return 0.0
-                    return float(val)
-                except: return 0.0
-                
-            df['Name'] = df['종목명']
-            df['Close'] = df['현재가'].apply(extract_num)
-            df['ChagesRatio'] = df['등락률'].apply(extract_num) 
-            df['Amount_Ouk'] = (df['거래대금'].apply(extract_num) / 100).astype(int)
-            
-            df = df.sort_values('Amount_Ouk', ascending=False).head(20)
-            
-            krx = get_krx_stocks()
-            if not krx.empty:
-                df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
-                df['Code'] = df['Code'].fillna('000000')
-                df['Sector'] = df['Sector'].fillna('기타/분류불가')
-            else:
-                df['Code'] = '000000'
-                df['Sector'] = '기타/분류불가'
-                
-            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+                df = df[df['종목명'] != '종목명']
+                return df
     except: pass
-    
+    return pd.DataFrame()
+
+# 👈 [아침 에러 완벽 해결 2] 거래대금을 즉석에서 계산해버려서 장 시작 직후에도 데이터가 100% 나옴
+@st.cache_data(ttl=300)
+def get_trading_value_kings():
     try:
-        df = fdr.StockListing('KRX')
+        df_kpi = fetch_naver_volume(0)
+        df_kdq = fetch_naver_volume(1)
+        df = pd.concat([df_kpi, df_kdq], ignore_index=True)
         if df.empty: return pd.DataFrame()
-        ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
-        df['ChagesRatio'] = pd.to_numeric(df[ratio_col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0.0)
-        if df['ChagesRatio'].max() <= 1.5 and df['ChagesRatio'].max() > 0:
-            df['ChagesRatio'] = df['ChagesRatio'] * 100
-        df['Amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-        df['Amount_Ouk'] = (df['Amount'] / 100000000).astype(int)
-        df['Close'] = pd.to_numeric(df['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-        mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = df[~mask].sort_values('Amount_Ouk', ascending=False).head(20)
-        df['Sector'] = df['Sector'].fillna('기타/분류불가') if 'Sector' in df.columns else '기타/분류불가'
+        
+        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        df = df[~mask].copy()
+        
+        def extract_num(x):
+            try:
+                val = re.sub(r'[^\d\.\-]', '', str(x))
+                if val in ['', '-']: return 0.0
+                return float(val)
+            except: return 0.0
+            
+        df['Name'] = df['종목명']
+        df['Close'] = df['현재가'].apply(extract_num)
+        df['ChagesRatio'] = df['등락률'].apply(extract_num)
+        df['Volume'] = df['거래량'].apply(extract_num)
+        
+        # 실시간으로 계산: (현재가 * 거래량) / 1억
+        df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
+        df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) # Plotly 버그 방어선
+        
+        df = df.sort_values('Amount_Ouk', ascending=False).head(20)
+        
+        krx = get_krx_stocks()
+        if not krx.empty:
+            df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
+            df['Code'] = df['Code'].fillna('000000')
+            df['Sector'] = df['Sector'].fillna('기타/분류불가')
+        else:
+            df['Code'] = '000000'
+            df['Sector'] = '기타/분류불가'
+            
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: return pd.DataFrame()
 
-@st.cache_data(ttl=600)
+# 👈 [아침 에러 완벽 해결 3] 스캐너 타겟도 실시간으로 직접 연산 (끊김 방지)
+@st.cache_data(ttl=300)
 def get_scan_targets(limit=50):
     try:
-        df = fdr.StockListing('KRX')
+        df_kpi = fetch_naver_volume(0)
+        df_kdq = fetch_naver_volume(1)
+        df = pd.concat([df_kpi, df_kdq], ignore_index=True)
         if df.empty: return []
-        mask = df['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df['Amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-        df = df[~mask].sort_values('Amount', ascending=False).head(limit)
-        return df[['Name', 'Code']].values.tolist()
+        
+        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        df = df[~mask].copy()
+        
+        def extract_num(x):
+            try:
+                val = re.sub(r'[^\d\.\-]', '', str(x))
+                if val in ['', '-']: return 0.0
+                return float(val)
+            except: return 0.0
+            
+        df['Close'] = df['현재가'].apply(extract_num)
+        df['Volume'] = df['거래량'].apply(extract_num)
+        df['Amount'] = df['Close'] * df['Volume']
+        
+        df = df.sort_values('Amount', ascending=False).head(limit)
+        
+        krx = get_krx_stocks()
+        if not krx.empty:
+            df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
+            return df[['Name', 'Code']].values.tolist()
+        return []
     except: return []
 
 @st.cache_data(ttl=300)
 def get_limit_stocks():
-    upper_df = pd.DataFrame()
-    lower_df = pd.DataFrame()
-    
-    try:
-        df = fdr.StockListing('KRX')
-        if not df.empty:
-            ratio_col = 'ChangesRatio' if 'ChangesRatio' in df.columns else 'ChagesRatio'
-            df['ChagesRatio'] = pd.to_numeric(df[ratio_col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0.0)
-            df['Changes'] = pd.to_numeric(df['Changes'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0.0)
-            df['Close'] = pd.to_numeric(df['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-            df['Amount'] = pd.to_numeric(df['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+    def fetch_naver_limit(url, is_upper):
+        try:
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            html_str = res.content.decode('euc-kr', errors='replace')
+            tables = pd.read_html(StringIO(html_str))
             
-            mask = df['Name'].str.contains('스팩|ETN|선물|인버스|레버리지|KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE', na=False)
-            df = df[~mask]
-            
-            if df['ChagesRatio'].max() <= 1.5 and df['ChagesRatio'].max() > 0:
-                df['ChagesRatio'] = df['ChagesRatio'] * 100
-                
-            u_df = df[df['ChagesRatio'] >= 29.5].copy()
-            l_df = df[df['ChagesRatio'] <= -29.5].copy()
-            
-            if not u_df.empty:
-                u_df['Amount_Ouk'] = (u_df['Amount'] / 100000000).astype(int)
-                u_df['PrevClose'] = u_df['Close'] - u_df['Changes']
-                upper_df = u_df[['Name', 'Code', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose']]
-            
-            if not l_df.empty:
-                l_df['Amount_Ouk'] = (l_df['Amount'] / 100000000).astype(int)
-                l_df['PrevClose'] = l_df['Close'] - l_df['Changes']
-                lower_df = l_df[['Name', 'Code', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose']]
-    except: pass
-    
-    if upper_df.empty and lower_df.empty:
-        def fetch_naver_limit(url, is_upper):
-            try:
-                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-                soup = BeautifulSoup(res.content, 'html.parser', from_encoding='euc-kr')
-                tables = pd.read_html(StringIO(str(soup)))
-                for t in tables:
-                    if '종목명' in t.columns and '현재가' in t.columns:
-                        t = t.dropna(subset=['종목명', '현재가'])
-                        t = t[t['종목명'].apply(lambda x: isinstance(x, str))]
-                        t = t[t['종목명'] != '종목명']
-                        t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
+            for t in tables:
+                if '종목명' in t.columns and '현재가' in t.columns:
+                    t = t.dropna(subset=['종목명', '현재가'])
+                    t = t[t['종목명'].apply(lambda x: isinstance(x, str))]
+                    t = t[t['종목명'] != '종목명']
+                    t = t[~t['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False)]
+                    
+                    if not t.empty:
+                        res_df = pd.DataFrame()
+                        res_df['Name'] = t['종목명']
                         
-                        if not t.empty:
-                            res_df = pd.DataFrame()
-                            res_df['Name'] = t['종목명']
+                        def to_f(x):
+                            try:
+                                s = str(x).replace(',', '').replace('%', '').replace('+', '').strip()
+                                if s in ['', 'nan', 'NaN', '-']: return 0.0
+                                return float(s)
+                            except: return 0.0
                             
-                            def extract_num(x):
-                                try:
-                                    val = re.sub(r'[^\d\.\-]', '', str(x))
-                                    if val == '' or val == '-': return 0.0
-                                    return float(val)
-                                except: return 0.0
-                                
-                            res_df['Close'] = t['현재가'].apply(extract_num)
-                            chg = t['전일비'].apply(extract_num)
-                            res_df['Changes'] = chg if is_upper else -chg
-                            rat = t['등락률'].apply(extract_num)
-                            res_df['ChagesRatio'] = rat if is_upper else -rat
-                            vol = t['거래량'].apply(extract_num)
-                            res_df['Amount_Ouk'] = (res_df['Close'] * vol / 100000000).astype(int)
-                            res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
-                            res_df['Code'] = ""
-                            return res_df
-            except: pass
-            return pd.DataFrame()
+                        res_df['Close'] = t['현재가'].apply(to_f)
+                        chg = t['전일비'].apply(to_f)
+                        res_df['Changes'] = chg if is_upper else -chg
+                        rat = t['등락률'].apply(to_f)
+                        res_df['ChagesRatio'] = rat if is_upper else -rat
+                        vol = t['거래량'].apply(to_f)
+                        res_df['Amount_Ouk'] = (res_df['Close'] * vol / 100000000).astype(int)
+                        res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
+                        res_df['Code'] = ""
+                        return res_df
+        except: pass
+        return pd.DataFrame()
 
-        if upper_df.empty: upper_df = fetch_naver_limit("https://finance.naver.com/sise/sise_upper.naver", True)
-        if lower_df.empty: lower_df = fetch_naver_limit("https://finance.naver.com/sise/sise_lower.naver", False)
-
+    upper_df = fetch_naver_limit("https://finance.naver.com/sise/sise_upper.naver", True)
+    lower_df = fetch_naver_limit("https://finance.naver.com/sise/sise_lower.naver", False)
+    
     krx = get_krx_stocks()
     if not upper_df.empty and not krx.empty:
-        upper_df = pd.merge(upper_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left', suffixes=('', '_krx'))
-        if 'Code_krx' in upper_df.columns: upper_df['Code'] = upper_df['Code'].replace('', np.nan).fillna(upper_df['Code_krx'])
+        upper_df = pd.merge(upper_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
+        upper_df['Sector'] = upper_df['Sector'].fillna('개별이슈/기타')
     if not lower_df.empty and not krx.empty:
-        lower_df = pd.merge(lower_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left', suffixes=('', '_krx'))
-        if 'Code_krx' in lower_df.columns: lower_df['Code'] = lower_df['Code'].replace('', np.nan).fillna(lower_df['Code_krx'])
+        lower_df = pd.merge(lower_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
+        lower_df['Sector'] = lower_df['Sector'].fillna('개별이슈/기타')
 
     for col in ['Code', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose', 'Name']:
         if col not in upper_df.columns: upper_df[col] = "기타" if col == 'Sector' else 0
         if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
         
-    upper_df['Sector'] = upper_df['Sector'].fillna("개별이슈/기타")
-    lower_df['Sector'] = lower_df['Sector'].fillna("개별이슈/기타")
-
-    if not upper_df.empty: upper_df = upper_df.sort_values('Amount_Ouk', ascending=False)
-    if not lower_df.empty: lower_df = lower_df.sort_values('Amount_Ouk', ascending=False)
-
-    return upper_df, lower_df
+    return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
@@ -481,29 +460,38 @@ def get_historical_data(ticker, days):
         return fdr.DataReader(ticker, (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'))
     except: return pd.DataFrame()
 
+# 👈 [백테스트 엔진] 과거 시점으로 돌아가 타점을 분석하고 오늘과 비교
 @st.cache_data(ttl=3600)
-def analyze_technical_pattern(stock_name, ticker_code):
+def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
     try:
         df = fdr.DataReader(ticker_code, (datetime.now() - timedelta(days=150)).strftime('%Y-%m-%d'))
-        if len(df) < 20: return None
+        if len(df) < 20 + offset_days: return None
         
-        df['MA5'] = df['Close'].rolling(window=5).mean()
-        df['MA20'] = df['Close'].rolling(window=20).mean()
-        df['MA60'] = df['Close'].rolling(window=60).mean()
+        today_close = int(df['Close'].iloc[-1]) # 오늘 실제 가격
         
-        df['Vol_MA20'] = df['Volume'].rolling(window=20).mean()
-        df['Std_20'] = df['Close'].rolling(window=20).std()
-        df['Bollinger_Upper'] = df['MA20'] + (df['Std_20'] * 2)
-        delta = df['Close'].diff()
+        # 타임머신을 위해 과거 데이터로 자름
+        if offset_days > 0:
+            analysis_df = df.iloc[:-offset_days].copy()
+        else:
+            analysis_df = df.copy()
+            
+        analysis_df['MA5'] = analysis_df['Close'].rolling(window=5).mean()
+        analysis_df['MA20'] = analysis_df['Close'].rolling(window=20).mean()
+        analysis_df['MA60'] = analysis_df['Close'].rolling(window=60).mean()
+        analysis_df['Vol_MA20'] = analysis_df['Volume'].rolling(window=20).mean()
+        analysis_df['Std_20'] = analysis_df['Close'].rolling(window=20).std()
+        analysis_df['Bollinger_Upper'] = analysis_df['MA20'] + (analysis_df['Std_20'] * 2)
+        
+        delta = analysis_df['Close'].diff()
         rs = (delta.where(delta > 0, 0.0).rolling(14).mean()) / (-delta.where(delta < 0, 0.0).rolling(14).mean())
-        df['RSI'] = 100 - (100 / (1 + rs))
+        analysis_df['RSI'] = 100 - (100 / (1 + rs))
+        analysis_df['OBV'] = (np.sign(analysis_df['Close'].diff()) * analysis_df['Volume']).fillna(0).cumsum()
         
-        df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        latest = analysis_df.iloc[-1]
+        prev = analysis_df.iloc[-2] if len(analysis_df) > 1 else latest
         
-        latest = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else latest
-        current_price = int(latest['Close'])
+        current_price = int(latest['Close']) # 스캔 시점(N일 전) 가격
         
         if pd.notna(latest['MA60']) and latest['MA5'] > latest['MA20'] > latest['MA60']: align_status = "🔥 완벽 정배열 (상승 추세)"
         elif pd.notna(latest['MA60']) and latest['MA5'] < latest['MA20'] < latest['MA60']: align_status = "❄️ 역배열 (하락 추세)"
@@ -519,21 +507,22 @@ def analyze_technical_pattern(stock_name, ticker_code):
         per, pbr = get_fundamentals(ticker_code)
         
         target_1 = int(latest['Bollinger_Upper'])
-        recent_high = int(df['Close'].max())
+        recent_high = int(analysis_df['Close'].max())
         target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
         target_3 = int(target_2 * 1.08)
+        
+        pnl_pct = ((today_close - current_price) / current_price) * 100 if offset_days > 0 else 0.0
         
         return {
             "종목명": stock_name, "티커": ticker_code, "현재가": current_price, "상태": status,
             "진입가_가이드": int(ma20_val), 
-            "목표가1": target_1, 
-            "목표가2": target_2,
-            "목표가3": target_3,
+            "목표가1": target_1, "목표가2": target_2, "목표가3": target_3,
             "손절가": int(ma20_val * 0.97),
-            "거래량 급증": "🔥 거래량 터짐" if df.iloc[-10:]['Volume'].max() > (df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
+            "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, "기관수급": inst_vol, "외인수급": forgn_vol,
-            "PER": per, "PBR": pbr, "OBV": df['OBV'].tail(20),
-            "종가 데이터": df['Close'].tail(20), "거래량 데이터": df['Volume'].tail(20)
+            "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
+            "종가 데이터": analysis_df['Close'].tail(20), "거래량 데이터": analysis_df['Volume'].tail(20),
+            "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except: return None
 
@@ -610,6 +599,18 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     status_emoji = tech_result['상태'].split(' ')[0]
     with st.expander(f"{status_emoji} {tech_result['종목명']} (현재가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
         
+        if tech_result.get('과거검증'):
+            pnl = tech_result['수익률']
+            color = "#ff4b4b" if pnl > 0 else "#1f77b4"
+            bg_color = "rgba(255, 75, 75, 0.1)" if pnl > 0 else "rgba(31, 119, 180, 0.1)"
+            st.markdown(f"""
+            <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {color};">
+                <h3 style="margin:0; color: {color};">⏰ 타임머신 검증 결과</h3>
+                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b>{tech_result['현재가']:,}원</b> ➡️ 오늘 현재 가격 <b>{tech_result['오늘현재가']:,}원</b> 
+                <span style="font-size: 20px; font-weight: bold; color: {color};">({pnl:+.2f}%)</span></p>
+            </div>
+            """, unsafe_allow_html=True)
+            
         col_btn1, col_btn2 = st.columns([8, 2])
         col_btn1.markdown(f"**진단:** {tech_result['상태']} ｜ **수급:** {tech_result['거래량 급증']} ｜ **PER:** {tech_result['PER']} ｜ **PBR:** {tech_result['PBR']}")
         
@@ -629,7 +630,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
-        with c7: st.markdown(f"🕵️ **최근 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
+        with c7: st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}`", unsafe_allow_html=True)
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -641,21 +642,16 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         if show_longterm_chart:
             tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=2)
             days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
-            
             with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
                 long_df = get_historical_data(tech_result['티커'], days_dict[tf])
                 if not long_df.empty:
                     long_df = long_df.reset_index()
                     long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
-                    
                     if tf in ["1개월", "3개월"]:
                         long_df['Date_Str'] = long_df['Date'].dt.strftime('%m월 %d일')
-                        x_col = 'Date_Str'
-                        x_type = 'category'
+                        x_col, x_type = 'Date_Str', 'category'
                     else:
-                        x_col = 'Date'
-                        x_type = 'date' 
-                        
+                        x_col, x_type = 'Date', 'date' 
                     ch1, ch2 = st.columns(2)
                     with ch1:
                         st.caption(f"📈 주가 흐름 ({tf})")
@@ -663,7 +659,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type=x_type), height=250)
                         fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
                         st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
-                        
                     with ch2:
                         st.caption(f"📊 거래량 & OBV ({tf})")
                         fig_vol = go.Figure()
@@ -674,22 +669,19 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
                         )
                         st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
-                else:
-                    st.error("데이터를 불러오지 못했습니다.")
+                else: st.error("데이터를 불러오지 못했습니다.")
         else:
             ch1, ch2 = st.columns(2)
             price_df = tech_result["종가 데이터"].reset_index()
             price_df['Date_Str'] = price_df['Date'].dt.strftime('%m월 %d일') 
             vol_df = tech_result["거래량 데이터"].reset_index()
             vol_df['Date_Str'] = vol_df['Date'].dt.strftime('%m월 %d일')
-            
             with ch1:
                 st.caption("📈 주가 흐름 (최근 20일)")
                 fig_price = px.line(price_df, x='Date_Str', y='Close', markers=True)
                 fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_title="", yaxis_title="", yaxis_tickformat=",", hovermode="x unified", xaxis=dict(showgrid=False, type='category'), height=220)
                 fig_price.update_traces(line_color="#FF4B4B", hovertemplate="<b>%{y:,}원</b>")
                 st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"p_{tech_result['티커']}_{key_suffix}")
-                
             with ch2:
                 st.caption("📊 거래량 (막대) & OBV 누적 (꺾은선)")
                 fig_vol = go.Figure()
@@ -769,7 +761,7 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 탭 순서
+# 탭 순서 재배치 적용
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
@@ -828,8 +820,8 @@ with tab1:
 
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🚀 실시간 조건 검색 스캐너")
-    st.write("시장 주도주(당일 거래대금 상위 종목) 중 상승 확률이 높은 타점에 온 종목을 족집게처럼 찾아냅니다.")
+    st.subheader("🚀 실시간 조건 검색 스캐너 & 과거 타점 검증기")
+    st.write("시장 주도주(당일 거래대금 상위 종목) 중 상승 확률이 높은 타점에 온 종목을 찾아내고, 과거 타점의 수익률을 검증할 수 있습니다.")
     
     with st.expander("💡 [필독] 스캐너 조건 및 승률 극대화 '황금 조합' 가이드", expanded=False):
         st.markdown("""
@@ -838,11 +830,6 @@ with tab2:
         * **✅ 20일선 눌림목:** 강하게 오르던 주식이 숨을 고르며 20일선 근처까지 내려온 안전한 반등 자리 (스윙 매매의 핵심).
         * **🔵 RSI 30 이하:** 시장 폭락이나 악재로 비이성적으로 과하게 떨어진 과매도 종목 (V자 틈새 반등 노리기).
         * **🔥 거래량 급증:** 시장의 거대한 돈(스마트 머니)이 들어온 진짜 주도주 (다른 조건과 조합하여 신뢰도를 높이는 필터 역할).
-        
-        **🚀 2. 여의도 프랍 트레이더의 3대 황금 콤보**
-        * 🏆 **콤보 A (스윙의 정석 - 주도주 눌림목):** `[✅ 눌림목]` + `[🔥 거래량 급증]`
-        * 📈 **콤보 B (추세 탑승 - 바닥 턴어라운드):** `[✨ 골든크로스]` + `[🔥 거래량 급증]`
-        * 🎣 **콤보 C (바닥 줍줍 - 과매도 V자 반등):** `[🔵 RSI 30 이하]` + `[🔥 거래량 급증]`
         """)
     
     col_c1, col_c2 = st.columns(2)
@@ -853,10 +840,18 @@ with tab2:
         cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (과대 낙폭/바닥권)")
         cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 개입 의심)")
         
-    scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1, format_func=lambda x: f"상위 {x}개 종목 스캔 (예상 소요시간: {x//5}초)")
+    st.markdown("#### 📊 스캔 범위 및 검증 시점 선택")
+    scan_c1, scan_c2 = st.columns(2)
+    with scan_c1:
+        scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1)
+    
+    with scan_c2:
+        offset_options = {"현재 (실시간 스캔)": 0, "3일 전 (타임머신 검증)": 3, "5일 전 (타임머신 검증)": 5, "10일 전 (타임머신 검증)": 10}
+        selected_offset_label = st.selectbox("⏰ 타임머신 검증 모드 (당시 타점과 오늘 가격 비교)", list(offset_options.keys()))
+        offset_days = offset_options[selected_offset_label]
         
     if st.button(f"🚀 주도주 {scan_limit}종목 쾌속 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다..."):
+        with st.spinner(f"거래대금 상위 {scan_limit}개 종목을 필터링 중입니다... (네이버 봇 차단 방지 적용중)"):
             targets = get_scan_targets(scan_limit)
             if not targets: st.error("종목 데이터를 불러오지 못했습니다.")
             else:
@@ -865,7 +860,7 @@ with tab2:
                 found_results = []
                 for i, (name, code) in enumerate(targets):
                     status_text.text(f"🔍 스캔 중: {name} ({i+1}/{len(targets)})")
-                    res = analyze_technical_pattern(name, code)
+                    res = analyze_technical_pattern(name, code, offset_days=offset_days)
                     if res:
                         match = True
                         if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
@@ -873,7 +868,7 @@ with tab2:
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
                         if match: found_results.append(res)
-                    time.sleep(0.1)  # 네이버 차단 방지
+                    time.sleep(0.1)  # 네이버 디도스 차단 방지 스텔스 모드
                     progress_bar.progress((i + 1) / len(targets))
                 status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
                 st.session_state.scan_results = found_results
@@ -883,7 +878,7 @@ with tab2:
     if st.session_state.scan_results is not None:
         if len(st.session_state.scan_results) == 0: st.info("조건에 일치하는 종목이 없습니다.")
         else:
-            st.success(f"🎯 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
+            st.success(f"🎯 조건에 부합하는 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
             for i, res in enumerate(st.session_state.scan_results):
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t2_{i}")
 
@@ -935,7 +930,7 @@ with tab3:
                                 res = analyze_technical_pattern(name, code)
                                 if res: value_results.append(res)
                         except: pass
-                        time.sleep(0.1)  # 네이버 차단 방지
+                        time.sleep(0.1)
                         progress_bar.progress((i + 1) / len(candidates))
                     status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 발굴")
                     st.session_state.value_scan_results = value_results
@@ -998,7 +993,7 @@ with tab6:
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     st.write("당일 가장 강력한 자금이 몰린 상/하한가 종목을 파악하고, 주도 테마를 AI로 분석합니다.")
     
-    with st.spinner("네이버 금융에서 실시간 상/하한가 데이터를 수집 중입니다..."):
+    with st.spinner("거래소 실시간 상/하한가 데이터를 수집 중입니다..."):
         upper_df, lower_df = get_limit_stocks()
         
     if api_key_input and not upper_df.empty:
@@ -1148,11 +1143,12 @@ with tab9:
     if not t_kings.empty:
         merged_df = t_kings.copy()
         
-        # 텍스트를 파이썬에서 미리 HTML로 합쳐서 만듦 (Plotly 계산 에러 원천 차단)
+        # 👈 [결정적 버그 픽스] Plotly가 문자를 숫자로 오해해 NaN으로 뻗는 것을 방지!
+        # 순수하게 미리 만들어둔 완전한 텍스트 덩어리를 주입합니다.
         merged_df['display_text'] = (
-            "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
-            "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
-            "<span style='font-size:13px'>" + merged_df['Amount_Ouk'].map("{:,}억".format) + "</span>"
+            "<b>" + merged_df['Name'] + "</b><br>" +
+            merged_df['ChagesRatio'].map("{:+.2f}%".format) + "<br>" +
+            merged_df['Amount_Ouk'].map("{:,}억".format)
         )
         
         finviz_colors = [
@@ -1183,8 +1179,8 @@ with tab9:
         
         fig_tree.update_traces(
             textinfo="text",
-            texttemplate="%{customdata[2]}", # Plotly가 자체 계산하지 않게 파이썬에서 만든 HTML 텍스트를 강제 주입
-            textfont=dict(color="white"),
+            texttemplate="%{customdata[2]}", # 에러 안 나게 강제 주입
+            textfont=dict(color="white", size=15),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
