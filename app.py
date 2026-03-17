@@ -114,20 +114,6 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res2.status_code == 200:
-            data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
     return None
 
 @st.cache_data(ttl=3600)
@@ -671,7 +657,6 @@ def get_naver_calendar_events():
     except: pass
     return pd.DataFrame()
 
-# 👈 [업데이트] 고배당주 150개 목록으로 완전 확장
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio():
     portfolio = {
@@ -1019,7 +1004,8 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+# 👈 [핵심 업데이트] 11번 탭을 "글로벌 핵심 ETF 분석"으로 신설, 12번 탭으로 관심종목 이동
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
@@ -1030,6 +1016,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "📅 증시 캘린더", 
     "💸 자금 흐름(히트맵)", 
     "💰 배당주(TOP 150)", 
+    "📊 글로벌 핵심 ETF 분석", # 👈 신설된 ETF 탭
     "⭐ 내 관심종목"
 ])
 
@@ -1514,7 +1501,58 @@ with tab10:
     with dt2: st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
     with dt3: st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
 
+# 👈 [핵심 업데이트] 11번 탭 신설: 글로벌 핵심 ETF & 포트폴리오 분석
 with tab11:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("📊 글로벌 핵심 ETF & 포트폴리오 분석")
+    st.write("미국 시장을 주도하는 핵심 ETF의 기술적 타점과 상위 구성 종목(포트폴리오)을 AI로 정밀 진단합니다.")
+    
+    etf_categories = {
+        "📈 지수 & 시장 대표": [("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ Trust (나스닥)"), ("DIA", "SPDR Dow Jones"), ("379800.KS", "KODEX 미국나스닥100TR")],
+        "🚀 반도체 & 딥테크": [("SOXX", "iShares Semiconductor"), ("SMH", "VanEck Semiconductor"), ("XLK", "Technology Select Sector"), ("ARKK", "ARK Innovation")],
+        "💰 고배당 & 인컴": [("SCHD", "Schwab US Dividend Equity"), ("JEPI", "JPMorgan Equity Premium Income"), ("VYM", "Vanguard High Dividend Yield")],
+        "🛡️ 채권 & 안전자산": [("TLT", "iShares 20+ Year Treasury Bond"), ("GLD", "SPDR Gold Shares")]
+    }
+    
+    c_cat, c_etf = st.columns(2)
+    selected_category = c_cat.selectbox("📂 ETF 카테고리 선택:", list(etf_categories.keys()))
+    
+    etf_opts = [f"{ticker} ({name})" for ticker, name in etf_categories[selected_category]]
+    selected_etf_str = c_etf.selectbox("🔍 분석할 ETF 선택:", etf_opts)
+    selected_ticker = selected_etf_str.split(" ")[0]
+    
+    st.divider()
+    
+    with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
+        res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), selected_ticker)
+        if res:
+            draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t11_etf", show_longterm_chart=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            if api_key_input:
+                if st.button(f"🤖 '{selected_ticker}' AI 포트폴리오 & 매매 전략 분석", type="primary", use_container_width=True):
+                    with st.spinner("AI가 해당 ETF의 상위 종목 포트폴리오와 거시경제 상황을 분석하여 전략을 수립 중입니다..."):
+                        etf_prompt = f"""
+                        당신은 월스트리트의 퀀트 애널리스트이자 ETF 전문가입니다. 
+                        현재 사용자가 분석을 요청한 ETF는 '{selected_etf_str}' 입니다.
+                        
+                        [현재 기술적 지표]
+                        - 현재가: {res['현재가']}
+                        - 20일선: {res['진입가_가이드']} (상태: {res['상태']})
+                        - RSI: {res['RSI']:.1f}
+                        
+                        위 정보를 바탕으로 다음 내용을 분석해 주세요:
+                        1. 🏢 **핵심 포트폴리오 분석**: 이 ETF가 주로 담고 있는 상위 5~10개 종목의 특성과 현재 시장(매크로) 환경에서의 강점/약점을 설명해 주세요.
+                        2. 🎯 **단기/중기 매매 의견**: 현재 기술적 타점(이격도, RSI)을 고려할 때 지금 진입하는 것이 좋은지 (적극매수/분할매수/관망 중 택 1) 명확히 제시하고 그 이유를 설명해 주세요.
+                        3. 💡 **투자 주의사항**: 현재 거시경제 상황(금리, 인플레이션 등)에서 이 ETF 투자 시 겪을 수 있는 리스크 1가지를 경고해 주세요.
+                        """
+                        st.info(ask_gemini(etf_prompt, api_key_input))
+            else:
+                st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
+        else:
+            st.error("데이터를 불러오지 못했습니다. 올바른 티커인지 확인해 주세요.")
+
+with tab12:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⭐ 나만의 관심종목 (Watchlist)")
     
