@@ -40,23 +40,26 @@ def save_watchlist(wl):
         st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 및 UI 패치
+# 1. 초기 설정 및 UI 탭 강제 줄바꿈 패치
 # ==========================================
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 👈 [업데이트 3] 13개의 탭을 2줄로 예쁘게 묶어주는(Wrap) 마법의 CSS 코드
+# 👈 [업데이트 1] 스트림릿 강제 스크롤을 무력화하고 탭을 2~3줄로 예쁘게 펼쳐주는 초강력 CSS
 st.markdown("""
 <style>
-div[data-testid="stTabs"] > div[role="tablist"] {
-    flex-wrap: wrap;
-    gap: 4px;
-}
-div[data-testid="stTabs"] > div[role="tablist"] > button {
-    flex-grow: 1;
-    padding: 10px 16px;
-    font-weight: 600;
-}
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+        gap: 4px !important;
+        flex-wrap: wrap !important;
+        overflow-x: visible !important;
+        padding-bottom: 5px !important;
+    }
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] button {
+        flex-grow: 1 !important;
+        flex-basis: calc(14% - 5px) !important; /* 탭 개수에 맞춰 한 줄에 적당히 배치 */
+        min-width: 140px !important;
+        margin: 0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -595,18 +598,20 @@ def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     df = pd.DataFrame()
     
-    if not ticker_code.isdigit():
+    try:
+        df = fdr.DataReader(ticker_code, start_date)
+    except:
+        pass
+        
+    if df is None or df.empty:
         try:
-            df = yf.Ticker(ticker_code).history(start=start_date)
+            yf_ticker = ticker_code + ".KS" if ticker_code.isdigit() else ticker_code
+            df = yf.Ticker(yf_ticker).history(start=start_date)
             if not df.empty:
-                df.index = df.index.tz_localize(None)
-        except: pass
-        
-    if df.empty:
-        try:
-            df = fdr.DataReader(ticker_code, start_date)
-        except: pass
-        
+                df.index = df.index.tz_localize(None) 
+        except:
+            pass
+            
     return df
 
 @st.cache_data(ttl=3600)
@@ -682,38 +687,36 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         }
     except: return None
 
-# 👈 [업데이트 1 & 2] 6개월 데이터 버그 수정 및 국내 대장 ETF 티커 완벽 교체
+# 👈 [업데이트 2] Plotly 소수점 렌더링 버그 방지를 위해 아예 텍스트 데이터 열(Column)을 강제로 만들어서 차트에 던져줌
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
     theme_proxies = {
-        "반도체": "091160",         # KODEX 반도체
-        "2차전지": "305720",        # KODEX 2차전지산업
-        "바이오/헬스케어": "244580", # KODEX 바이오
-        "인터넷/플랫폼": "157490",   # TIGER 소프트웨어
-        "자동차/모빌리티": "091230", # KODEX 자동차
-        "금융/지주": "091220",       # KODEX 은행
-        "미디어/엔터": "266360",     # KODEX 미디어&엔터
-        "로봇/AI": "417270",         # KODEX K-로봇액티브
-        "K-방산": "449450",          # PLUS K방산 (데이터 확실한 최신 대장)
-        "조선/중공업": "139240",     # TIGER 200 중공업
-        "원자력/전력기기": "102960", # KODEX 기계장비
-        "화장품/미용": "228790",     # TIGER 화장품
-        "게임": "300610",            # TIGER K게임
-        "건설/인프라": "117700",     # KODEX 건설
-        "철강/소재": "117680"        # KODEX 철강
+        "반도체": "091160",
+        "2차전지": "305720",
+        "바이오/헬스케어": "244580",
+        "인터넷/플랫폼": "157490",
+        "자동차/모빌리티": "091230",
+        "금융/지주": "091220",
+        "미디어/엔터": "266360",
+        "로봇/AI": "417270",
+        "K-방산": "449450",
+        "조선/중공업": "139240",
+        "원자력/전력기기": "102960",
+        "화장품/미용": "228790",
+        "게임": "300610",
+        "건설/인프라": "117700",
+        "철강/소재": "117680"
     }
     
     results = []
     for theme_name, ticker in theme_proxies.items():
         try:
-            # 6개월(120거래일) 분량을 충분히 커버하기 위해 300일로 늘림
             df = get_historical_data(ticker, 300) 
             if df.empty or len(df) < 20: continue
             
             current_price = float(df['Close'].iloc[-1])
             
             def get_stats(days):
-                # 데이터가 갓 상장해서 모자라더라도 에러 없이 가능한 일수만큼 계산되도록 방어
                 slice_len = min(days, len(df))
                 period_df = df.iloc[-slice_len:]
                 start_price = float(period_df['Close'].iloc[0])
@@ -1610,12 +1613,12 @@ with tab9:
                 res = analyze_technical_pattern(k_name, k_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t9_map")
 
+# 👈 [업데이트 2 & 3] 6개월 버그 픽스 + 수익률 소수점 완전 제거 패치
 with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
     st.write("국내 대표 테마 ETF의 거래대금과 수익률을 역산하여, 최근 시장의 핵심 자금이 어디로 이동했는지 추적합니다.")
     
-    # 👈 [업데이트 1] 데이터 오류 완벽 해결 (조회일수 300일로 연장 및 방어 로직 추가)
     @st.cache_data(ttl=3600)
     def analyze_theme_trends():
         theme_proxies = {
@@ -1639,8 +1642,8 @@ with tab10:
         results = []
         for theme_name, ticker in theme_proxies.items():
             try:
-                # 6개월(120거래일) 보장을 위해 300일 여유롭게 조회
-                df = get_historical_data(ticker, 300) 
+                # 6개월(120거래일) 보장을 위해 250일 여유롭게 조회
+                df = get_historical_data(ticker, 250) 
                 if df.empty or len(df) < 20: continue
                 
                 current_price = float(df['Close'].iloc[-1])
@@ -1689,20 +1692,24 @@ with tab10:
         
         with col_c1:
             st.markdown(f"#### 💸 {chart_title} 거래대금 TOP 테마")
-            vol_df = trend_df.sort_values(vol_col, ascending=True).tail(10) 
-            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text_auto='.0s')
-            # 👈 [업데이트 2] 거래대금 소수점 제거 (.0f)
-            fig_vol.update_traces(marker_color='#1f77b4', texttemplate='%{x:,.0f}억')
+            vol_df = trend_df.sort_values(vol_col, ascending=True).tail(10).copy()
+            # 소수점 제거 텍스트 직접 주입
+            vol_df['text_label'] = vol_df[vol_col].apply(lambda x: f"{int(round(x)):,}억")
+            
+            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text='text_label')
+            fig_vol.update_traces(marker_color='#1f77b4', textposition='outside')
             fig_vol.update_layout(xaxis_title="누적 거래대금 (억원)", yaxis_title="", height=400, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
             
         with col_c2:
             st.markdown(f"#### 🚀 {chart_title} 수익률 TOP 테마")
-            ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10)
+            ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10).copy()
+            # 소수점 제거 텍스트 직접 주입 (Plotly 버그 차단)
+            ret_df['text_label'] = ret_df[ret_col].apply(lambda x: f"+{int(round(x))}%" if x > 0 else f"{int(round(x))}%")
             colors = ['#ff4b4b' if val > 0 else '#1f77b4' for val in ret_df[ret_col]]
-            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h')
-            # 👈 [업데이트 2] 수익률 퍼센트 소수점 완전히 제거 (+.0f)
-            fig_ret.update_traces(marker_color=colors, texttemplate='%{x:+.0f}%', textposition='outside')
+            
+            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text='text_label')
+            fig_ret.update_traces(marker_color=colors, textposition='outside')
             fig_ret.update_layout(xaxis_title="누적 수익률 (%)", yaxis_title="", height=400, margin=dict(l=0, r=0, t=10, b=0))
             st.plotly_chart(fig_ret, use_container_width=True, config={'displayModeBar': False})
             
@@ -1710,7 +1717,6 @@ with tab10:
         st.markdown("#### 📋 기간별 상세 데이터 (전체)")
         display_trend_df = trend_df.copy()
         for c in ['1M', '3M', '6M']:
-            # 표에서도 소수점 2자리까지만 예쁘게 보이도록
             display_trend_df[f'{c}수익률'] = display_trend_df[f'{c}수익률'].apply(lambda x: f"{x:+.2f}%")
             display_trend_df[f'{c}거래대금'] = display_trend_df[f'{c}거래대금'].apply(lambda x: f"{x:,.0f}억")
         
