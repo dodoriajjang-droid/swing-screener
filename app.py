@@ -575,18 +575,35 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
+# 👈 [오류 철벽 방어] FDR과 YFinance 듀얼 엔진 탑재
 @st.cache_data(ttl=3600)
-def get_historical_data(ticker, days):
-    try:
-        return fdr.DataReader(ticker, (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'))
-    except: return pd.DataFrame()
+def get_historical_data(ticker_code, days):
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    df = pd.DataFrame()
+    
+    # 1. 미국 티커(알파벳 포함)면 무조건 YFinance 먼저 시도 (FDR 에러 방지)
+    if not ticker_code.isdigit():
+        try:
+            df = yf.Ticker(ticker_code).history(start=start_date)
+            if not df.empty:
+                df.index = df.index.tz_localize(None)
+        except: pass
+        
+    # 2. 한국 티커(숫자)거나, 위에서 YFinance가 실패했다면 FDR 엔진 출동
+    if df.empty:
+        try:
+            df = fdr.DataReader(ticker_code, start_date)
+        except: pass
+        
+    return df
 
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
     try:
-        df = fdr.DataReader(ticker_code, (datetime.now() - timedelta(days=150)).strftime('%Y-%m-%d'))
-        if len(df) < 20 + offset_days: return None
+        # 새로 개선된 듀얼 엔진 함수 호출
+        df = get_historical_data(ticker_code, 150)
+        if df.empty or len(df) < 20 + offset_days: return None
         
         today_close = int(df['Close'].iloc[-1]) 
         
@@ -633,7 +650,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         pnl_pct = ((today_close - current_price) / current_price) * 100 if offset_days > 0 and current_price > 0 else 0.0
         
         krx_df = get_krx_stocks()
-        sector_val = "분류없음"
+        sector_val = "ETF/분류없음"
         if not krx_df.empty:
             match_sec = krx_df[krx_df['Code'] == ticker_code]['Sector']
             if not match_sec.empty and pd.notna(match_sec.iloc[0]):
@@ -671,7 +688,6 @@ def get_naver_calendar_events():
     except: pass
     return pd.DataFrame()
 
-# 👈 [업데이트] 배당 포트폴리오 원화 자동 변환 + 퍼센트/원화 병기
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
     portfolio = {
@@ -759,7 +775,6 @@ def get_dividend_portfolio(ex_rate=1350.0):
             div_str = est_yield
             
             if p_val:
-                # KRX 종목은 원화, US/ETF(미국상장)는 달러 환산
                 if ".KS" in t_code:
                     p_str = f"{int(p_val):,}원"
                     krw_price = p_val
@@ -767,7 +782,6 @@ def get_dividend_portfolio(ex_rate=1350.0):
                     p_str = f"${p_val:,.2f}"
                     krw_price = p_val * ex_rate
                     
-                # 퍼센트 문자열을 분석하여 예상 배당금 원화 계산 로직 적용
                 try:
                     pcts = [float(x) for x in re.findall(r"[\d\.]+", est_yield)]
                     if len(pcts) >= 2:
@@ -1542,14 +1556,34 @@ with tab10:
 
 with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📊 글로벌 핵심 ETF & 포트폴리오 분석")
-    st.write("미국 시장을 주도하는 핵심 ETF의 기술적 타점과 상위 구성 종목(포트폴리오)을 AI로 정밀 진단합니다.")
+    st.subheader("📊 글로벌/국내 핵심 ETF & 포트폴리오 분석")
+    st.write("주도 섹터와 대표 지수를 추종하는 국내외 핵심 ETF의 타점을 진단하고 AI 분석을 받아보세요.")
     
+    # 👈 [업데이트] KODEX, TIGER, KBSTAR 등 한국 시장 대표 ETF 대거 편입
     etf_categories = {
-        "📈 지수 & 시장 대표": [("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ Trust (나스닥)"), ("DIA", "SPDR Dow Jones"), ("379800.KS", "KODEX 미국나스닥100TR")],
-        "🚀 반도체 & 딥테크": [("SOXX", "iShares Semiconductor"), ("SMH", "VanEck Semiconductor"), ("XLK", "Technology Select Sector"), ("ARKK", "ARK Innovation")],
-        "💰 고배당 & 인컴": [("SCHD", "Schwab US Dividend Equity"), ("JEPI", "JPMorgan Equity Premium Income"), ("VYM", "Vanguard High Dividend Yield")],
-        "🛡️ 채권 & 안전자산": [("TLT", "iShares 20+ Year Treasury Bond"), ("GLD", "SPDR Gold Shares")]
+        "📈 글로벌/국내 지수 대표": [
+            ("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ (나스닥)"),
+            ("069500", "KODEX 200"), ("232080", "TIGER 코스닥150"),
+            ("360750", "TIGER 미국S&P500"), ("379800", "KODEX 미국나스닥100TR")
+        ],
+        "🚀 반도체 & 딥테크": [
+            ("SOXX", "iShares Semiconductor"), ("XLK", "Technology Select Sector"),
+            ("091160", "KODEX 반도체"), ("381180", "TIGER 미국필라델피아반도체나스닥"),
+            ("446770", "TIGER 글로벌AI액티브")
+        ],
+        "💰 고배당 & 커버드콜": [
+            ("SCHD", "Schwab US Dividend Equity"), ("JEPI", "JPMorgan Equity Premium Income"),
+            ("458730", "TIGER 미국배당다우존스"), ("161510", "ARIRANG 고배당주"),
+            ("466950", "KODEX 미국배당프리미엄액티브")
+        ],
+        "🛡️ 채권 & 방어주": [
+            ("TLT", "iShares 20+ Year Treasury Bond"), ("GLD", "SPDR Gold Shares"),
+            ("304660", "KODEX 미국채울트라30년선물(H)"), ("329200", "TIGER 부동산인프라고배당")
+        ],
+        "🧬 2차전지 & 바이오": [
+            ("XLV", "Health Care Select Sector"),
+            ("305720", "KODEX 2차전지산업"), ("244580", "KODEX 바이오")
+        ]
     }
     
     c_cat, c_etf = st.columns(2)
@@ -1562,9 +1596,12 @@ with tab11:
     st.divider()
     
     with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
-        res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), selected_ticker)
+        # 한국 ETF(숫자 6자리)는 yfinance 오류 방지를 위해 뒤에 .KS 같은 꼬리를 떼고 보냄
+        clean_ticker = selected_ticker.replace(".KS", "")
+        res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
+        
         if res:
-            draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t11_etf", show_longterm_chart=True)
+            draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t11_etf")
             
             st.markdown("<br>", unsafe_allow_html=True)
             if api_key_input:
@@ -1588,7 +1625,7 @@ with tab11:
             else:
                 st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
         else:
-            st.error("데이터를 불러오지 못했습니다. 올바른 티커인지 확인해 주세요.")
+            st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
 
 with tab12:
     st.markdown("<br>", unsafe_allow_html=True)
