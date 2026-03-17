@@ -152,7 +152,6 @@ def get_krx_stocks():
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-# 👈 [아침 에러 완벽 해결 1] 네이버 실시간 거래량 페이지를 가져오는 통합 엔진
 def fetch_naver_volume(sosok):
     try:
         url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}"
@@ -167,7 +166,6 @@ def fetch_naver_volume(sosok):
     except: pass
     return pd.DataFrame()
 
-# 👈 [아침 에러 완벽 해결 2] 거래대금을 즉석에서 계산해버려서 장 시작 직후에도 데이터가 100% 나옴
 @st.cache_data(ttl=300)
 def get_trading_value_kings():
     try:
@@ -191,9 +189,8 @@ def get_trading_value_kings():
         df['ChagesRatio'] = df['등락률'].apply(extract_num)
         df['Volume'] = df['거래량'].apply(extract_num)
         
-        # 실시간으로 계산: (현재가 * 거래량) / 1억
         df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
-        df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) # Plotly 버그 방어선
+        df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
         
         df = df.sort_values('Amount_Ouk', ascending=False).head(20)
         
@@ -209,7 +206,6 @@ def get_trading_value_kings():
         return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: return pd.DataFrame()
 
-# 👈 [아침 에러 완벽 해결 3] 스캐너 타겟도 실시간으로 직접 연산 (끊김 방지)
 @st.cache_data(ttl=300)
 def get_scan_targets(limit=50):
     try:
@@ -337,6 +333,109 @@ def update_news_state():
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
+# 👈 [강력 버그 픽스] AI가 코드를 지어내는 할루시네이션 완벽 방어 교차 검증 로직 탑재
+@st.cache_data(ttl=3600)
+def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
+    if not _api_key: return []
+    try:
+        response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return raw_list[:20]
+        
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            
+            # 1. AI가 준 이름을 KRX 공식 목록에서 검색 (우선)
+            if clean_name in name_to_code:
+                final_name = clean_name
+                final_code = name_to_code[clean_name]
+            # 2. 이름이 약간 다를 경우 코드로 역추적
+            elif code in code_to_name:
+                final_name = code_to_name[code]
+                final_code = code
+                
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+                
+        return validated[:20]
+    except: return []
+
+@st.cache_data(ttl=3600)
+def get_theme_stocks_with_ai(theme_keyword, _api_key):
+    if not _api_key: return []
+    try:
+        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return raw_list[:20]
+        
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            
+            if clean_name in name_to_code:
+                final_name = clean_name
+                final_code = name_to_code[clean_name]
+            elif code in code_to_name:
+                final_name = code_to_name[code]
+                final_code = code
+                
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+                
+        return validated[:20]
+    except: return []
+
+@st.cache_data(ttl=3600)
+def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
+    if not _api_key: return []
+    try:
+        prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 테마주가 아닌 실제 기술을 개발하거나 관련 사업을 영위하는 장기 투자 관점의 종목이어야 합니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
+        response = ask_gemini(prompt, _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return raw_list[:20]
+        
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            
+            if clean_name in name_to_code:
+                final_name = clean_name
+                final_code = name_to_code[clean_name]
+            elif code in code_to_name:
+                final_name = code_to_name[code]
+                final_code = code
+                
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+                
+        return validated[:20]
+    except: return []
+
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
@@ -368,22 +467,6 @@ def analyze_news_with_gemini(ticker, _api_key):
         return ask_gemini(prompt, _api_key)
     except: return "뉴스 분석 중 오류가 발생했습니다."
 
-@st.cache_data(ttl=3600)
-def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
-    if not _api_key: return []
-    try:
-        response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
-        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
-    except: return []
-
-@st.cache_data(ttl=3600)
-def get_theme_stocks_with_ai(theme_keyword, _api_key):
-    if not _api_key: return []
-    try:
-        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
-        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
-    except: return []
-
 @st.cache_data(ttl=10800)
 def get_trending_themes_with_ai(_api_key):
     default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
@@ -393,15 +476,6 @@ def get_trending_themes_with_ai(_api_key):
         valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').split(',')]
         return valid_themes[:5] if len(valid_themes) >= 5 else default_themes
     except: return default_themes
-
-@st.cache_data(ttl=3600)
-def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
-    if not _api_key: return []
-    try:
-        prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 테마주가 아닌 실제 기술을 개발하거나 관련 사업을 영위하는 장기 투자 관점의 종목이어야 합니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
-        response = ask_gemini(prompt, _api_key)
-        return re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)[:20]
-    except: return []
 
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
@@ -460,7 +534,6 @@ def get_historical_data(ticker, days):
         return fdr.DataReader(ticker, (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'))
     except: return pd.DataFrame()
 
-# 👈 [백테스트 엔진] 과거 시점으로 돌아가 타점을 분석하고 오늘과 비교
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
@@ -468,9 +541,8 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         df = fdr.DataReader(ticker_code, (datetime.now() - timedelta(days=150)).strftime('%Y-%m-%d'))
         if len(df) < 20 + offset_days: return None
         
-        today_close = int(df['Close'].iloc[-1]) # 오늘 실제 가격
+        today_close = int(df['Close'].iloc[-1]) 
         
-        # 타임머신을 위해 과거 데이터로 자름
         if offset_days > 0:
             analysis_df = df.iloc[:-offset_days].copy()
         else:
@@ -491,7 +563,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         latest = analysis_df.iloc[-1]
         prev = analysis_df.iloc[-2] if len(analysis_df) > 1 else latest
         
-        current_price = int(latest['Close']) # 스캔 시점(N일 전) 가격
+        current_price = int(latest['Close']) 
         
         if pd.notna(latest['MA60']) and latest['MA5'] > latest['MA20'] > latest['MA60']: align_status = "🔥 완벽 정배열 (상승 추세)"
         elif pd.notna(latest['MA60']) and latest['MA5'] < latest['MA20'] < latest['MA60']: align_status = "❄️ 역배열 (하락 추세)"
@@ -761,7 +833,6 @@ if "gainers_df" not in st.session_state:
         st.session_state.gainers_df = df
         st.session_state.ex_rate = ex_rate
 
-# 탭 순서 재배치 적용
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
@@ -844,7 +915,6 @@ with tab2:
     scan_c1, scan_c2 = st.columns(2)
     with scan_c1:
         scan_limit = st.selectbox("거래대금이 많이 터진 상위 몇 개의 종목을 스캔할까요?", [50, 100, 200, 300], index=1)
-    
     with scan_c2:
         offset_options = {"현재 (실시간 스캔)": 0, "3일 전 (타임머신 검증)": 3, "5일 전 (타임머신 검증)": 5, "10일 전 (타임머신 검증)": 10}
         selected_offset_label = st.selectbox("⏰ 타임머신 검증 모드 (당시 타점과 오늘 가격 비교)", list(offset_options.keys()))
@@ -868,7 +938,7 @@ with tab2:
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
                         if match: found_results.append(res)
-                    time.sleep(0.1)  # 네이버 디도스 차단 방지 스텔스 모드
+                    time.sleep(0.1)
                     progress_bar.progress((i + 1) / len(targets))
                 status_text.text(f"✅ 스캔 완료! 총 {len(found_results)}개 종목 포착")
                 st.session_state.scan_results = found_results
@@ -930,7 +1000,7 @@ with tab3:
                                 res = analyze_technical_pattern(name, code)
                                 if res: value_results.append(res)
                         except: pass
-                        time.sleep(0.1)
+                        time.sleep(0.05)
                         progress_bar.progress((i + 1) / len(candidates))
                     status_text.text(f"✅ 필터링 완료! 최종 {len(value_results)}개 발굴")
                     st.session_state.value_scan_results = value_results
@@ -1143,12 +1213,10 @@ with tab9:
     if not t_kings.empty:
         merged_df = t_kings.copy()
         
-        # 👈 [결정적 버그 픽스] Plotly가 문자를 숫자로 오해해 NaN으로 뻗는 것을 방지!
-        # 순수하게 미리 만들어둔 완전한 텍스트 덩어리를 주입합니다.
         merged_df['display_text'] = (
-            "<b>" + merged_df['Name'] + "</b><br>" +
-            merged_df['ChagesRatio'].map("{:+.2f}%".format) + "<br>" +
-            merged_df['Amount_Ouk'].map("{:,}억".format)
+            "<span style='font-size:18px; font-weight:bold;'>" + merged_df['Name'] + "</span><br>" +
+            "<span style='font-size:14px'>" + merged_df['ChagesRatio'].map("{:+.2f}%".format) + "</span><br>" +
+            "<span style='font-size:13px'>" + merged_df['Amount_Ouk'].map("{:,}억".format) + "</span>"
         )
         
         finviz_colors = [
@@ -1166,7 +1234,7 @@ with tab9:
             color='ChagesRatio', 
             color_continuous_scale=finviz_colors, 
             color_continuous_midpoint=0,
-            range_color=[-30, 30], # 한국 증시 상/하한가인 -30 ~ 30 고정으로 완벽한 색상 스케일 구현
+            range_color=[-30, 30], 
             custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text']
         )
         
@@ -1179,8 +1247,8 @@ with tab9:
         
         fig_tree.update_traces(
             textinfo="text",
-            texttemplate="%{customdata[2]}", # 에러 안 나게 강제 주입
-            textfont=dict(color="white", size=15),
+            texttemplate="%{customdata[2]}", 
+            textfont=dict(color="white"),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
