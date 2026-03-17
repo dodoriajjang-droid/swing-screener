@@ -16,7 +16,7 @@ from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 import json
 import time
-import concurrent.futures  # 👈 [핵심 추가] 병렬 처리를 위한 멀티스레딩 모듈
+import concurrent.futures
 
 # ==========================================
 # 1. 초기 설정 
@@ -141,6 +141,7 @@ def get_us_top_gainers():
         return df, ex_rate
     except: return pd.DataFrame(), 1350.0
 
+# 👈 [버그 픽스 완료] 중복(3개씩) 출력을 원천 차단하기 위한 Name 기준 중복 제거
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
@@ -150,6 +151,7 @@ def get_krx_stocks():
         df = df[['회사명', '종목코드', '업종']]
         df.columns = ['Name', 'Code', 'Sector']
         df['Code'] = df['Code'].astype(str).str.zfill(6)
+        df = df.drop_duplicates(subset=['Name']).reset_index(drop=True) # 여기서 중복을 날려버립니다.
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
@@ -168,7 +170,7 @@ def fetch_naver_volume(sosok, pages=1):
                     df_list.append(df)
                     break
     except: pass
-    if df_list: return pd.concat(df_list, ignore_index=True)
+    if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
     return pd.DataFrame()
 
 @st.cache_data(ttl=300)
@@ -219,7 +221,7 @@ def get_scan_targets(limit=50):
             df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
             if df_fdr['Amount'].max() > 0:
                 mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-                df_fdr = df_fdr[~mask].sort_values('Amount', ascending=False)
+                df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name']).sort_values('Amount', ascending=False)
                 targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
                 if len(targets) >= limit or len(targets) > 100:
                     return targets
@@ -232,7 +234,7 @@ def get_scan_targets(limit=50):
         if df.empty: return []
         
         mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = df[~mask].copy()
+        df = df[~mask].drop_duplicates(subset=['종목명']).copy()
         
         def extract_num(x):
             try:
@@ -285,7 +287,7 @@ def get_limit_stocks():
                         res_df['Amount_Ouk'] = (res_df['Close'] * vol / 100000000).astype(int)
                         res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
                         res_df['Code'] = ""
-                        return res_df
+                        return res_df.drop_duplicates(subset=['Name'])
         except: pass
         return pd.DataFrame()
 
@@ -384,7 +386,7 @@ def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
         response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
-        if krx_df.empty: return raw_list[:20]
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
         validated = []
@@ -411,7 +413,7 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
         response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
-        if krx_df.empty: return raw_list[:20]
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
         validated = []
@@ -449,7 +451,7 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
         response = ask_gemini(prompt, _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
-        if krx_df.empty: return raw_list[:20]
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
         validated = []
@@ -659,9 +661,14 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
+# 👈 [핵심 업데이트 1] 밖에서 한눈에 보이는 완벽한 요약 타이틀 적용
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
-    with st.expander(f"{status_emoji} {tech_result['종목명']} (기준가: {tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ {tech_result['배열상태']}", expanded=is_expanded):
+    
+    # 요청하신 완벽한 포맷으로 타이틀 변경!
+    expander_title = f"{status_emoji} {tech_result['종목명']} ({tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ (진단: {tech_result['상태']} ｜ 수급: {tech_result['거래량 급증']} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
+    
+    with st.expander(expander_title, expanded=is_expanded):
         
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
@@ -676,7 +683,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             """, unsafe_allow_html=True)
             
         col_btn1, col_btn2 = st.columns([8, 2])
-        col_btn1.markdown(f"**진단:** {tech_result['상태']} ｜ **수급:** {tech_result['거래량 급증']} ｜ **PER:** {tech_result['PER']} ｜ **PBR:** {tech_result['PBR']}")
+        col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
         
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if col_btn2.button("⭐ 관심종목 추가" if not is_in_wl else "🌟 추가됨", disabled=is_in_wl, key=f"star_{tech_result['티커']}_{key_suffix}"):
@@ -756,6 +763,37 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
                 )
                 st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
+
+# 👈 [핵심 업데이트 2] 공통 결과 출력 및 '원클릭 정렬(Sort)' 모듈
+def display_sorted_results(results_list, tab_key, show_longterm=False, api_key=""):
+    if not results_list:
+        st.info("조건에 부합하는 종목이 없습니다.")
+        return
+
+    st.success(f"🎯 총 {len(results_list)}개 종목 포착 완료!")
+    
+    # 직관적인 정렬 라디오 버튼 추가
+    sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본 (검색순)", "RSI 낮은순", "RSI 높은순", "PER 낮은순", "PBR 낮은순"], horizontal=True, key=f"sort_radio_{tab_key}")
+    
+    def get_safe_float(val, default=9999.0):
+        try:
+            if pd.isna(val) or str(val).strip() in ['N/A', 'None', '', '-']: return default
+            return float(str(val).replace(',', ''))
+        except: return default
+
+    if sort_opt == "RSI 낮은순":
+        sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['RSI'], 100))
+    elif sort_opt == "RSI 높은순":
+        sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['RSI'], 0), reverse=True)
+    elif sort_opt == "PER 낮은순":
+        sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['PER'], 9999))
+    elif sort_opt == "PBR 낮은순":
+        sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['PBR'], 9999))
+    else:
+        sorted_res = results_list
+
+    for i, res in enumerate(sorted_res):
+        draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}", show_longterm_chart=show_longterm)
 
 # ==========================================
 # 4. 메인 화면 시작
@@ -881,7 +919,6 @@ with tab1:
                         if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t1_{i}")
                 else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
-# 👈 [핵심 업데이트] ThreadPoolExecutor (멀티스레딩) 전면 도입!
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🚀 실시간 조건 검색 스캐너 & 과거 타점 검증기")
@@ -925,19 +962,13 @@ with tab2:
                 total = len(targets)
                 completed = 0
                 
-                # 병렬 스레드 안에서 돌아갈 독립적인 함수
                 def process_stock(target):
                     name, code = target
-                    # 봇 차단 방지를 위해 스레드 내부에서 0.1초씩 쉬어줌
                     time.sleep(0.1) 
                     return analyze_technical_pattern(name, code, offset_days=offset_days)
                 
-                # ⚠️ max_workers=5 설정으로 네이버에 무리를 주지 않는 안전한 병렬 처리 구현
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    # 모든 종목을 스레드 풀에 던져넣기
                     future_to_target = {executor.submit(process_stock, t): t for t in targets}
-                    
-                    # 스레드가 계산을 끝낼 때마다(as_completed) 실시간으로 진행률 바 업데이트
                     for future in concurrent.futures.as_completed(future_to_target):
                         res = future.result()
                         completed += 1
@@ -950,7 +981,6 @@ with tab2:
                             if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
                             if match: found_results.append(res)
                             
-                        # 메인 UI는 스레드가 끝나는 대로 갱신
                         progress_bar.progress(completed / total)
                         status_text.text(f"⚡ 병렬 스캔 진행 중... ({completed}/{total}) - 현재 {len(found_results)}개 포착")
 
@@ -960,13 +990,9 @@ with tab2:
 
     st.divider()
     if st.session_state.scan_results is not None:
-        if len(st.session_state.scan_results) == 0: st.info("조건에 일치하는 종목이 없습니다.")
-        else:
-            st.success(f"🎯 조건에 부합하는 주도주 {len(st.session_state.scan_results)}개를 찾았습니다!")
-            for i, res in enumerate(st.session_state.scan_results):
-                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t2_{i}")
+        # 👈 정렬을 포함한 렌더링 호출
+        display_sorted_results(st.session_state.scan_results, tab_key="t2", show_longterm=False, api_key=api_key_input)
 
-# 👈 [핵심 업데이트] 장기 가치주 탭에도 ThreadPoolExecutor (멀티스레딩) 탑재!
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
@@ -1011,7 +1037,7 @@ with tab3:
                     
                     def process_fundamental(target):
                         name, code = target
-                        time.sleep(0.1) # 봇 방지
+                        time.sleep(0.1) 
                         per_str, pbr_str = get_fundamentals(code)
                         try:
                             per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
@@ -1023,12 +1049,10 @@ with tab3:
 
                     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                         future_to_cand = {executor.submit(process_fundamental, c): c for c in candidates}
-                        
                         for future in concurrent.futures.as_completed(future_to_cand):
                             res = future.result()
                             completed += 1
                             if res: value_results.append(res)
-                            
                             progress_bar.progress(completed / total)
                             status_text.text(f"⚡ 병렬 재무 스캔 중... ({completed}/{total})")
 
@@ -1038,11 +1062,8 @@ with tab3:
 
     st.divider()
     if st.session_state.value_scan_results is not None:
-        if len(st.session_state.value_scan_results) == 0: st.info("조건에 부합하는 종목이 없습니다.")
-        else:
-            st.success(f"💎 저평가 유망주 {len(st.session_state.value_scan_results)}개 발견!")
-            for i, res in enumerate(st.session_state.value_scan_results):
-                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"t3_{i}", show_longterm_chart=True)
+        # 👈 정렬을 포함한 렌더링 호출
+        display_sorted_results(st.session_state.value_scan_results, tab_key="t3", show_longterm=True, api_key=api_key_input)
 
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1083,9 +1104,15 @@ with tab5:
             theme_stocks = get_theme_stocks_with_ai(query, api_key_input)
             if theme_stocks:
                 st.success(f"🎯 '{query}' 관련주 진단 완료!")
+                
+                # 👈 테마 검색 결과에도 정렬 적용을 위해 임시 리스트에 담기
+                theme_results = []
                 for i, (name, code) in enumerate(theme_stocks):
                     res = analyze_technical_pattern(name, code)
-                    if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t5_{i}")
+                    if res: theme_results.append(res)
+                
+                # 정렬 및 렌더링 호출
+                display_sorted_results(theme_results, tab_key="t5", show_longterm=False, api_key=api_key_input)
             else: st.error("❌ 관련주를 찾지 못했습니다.")
 
 with tab6:
@@ -1278,7 +1305,7 @@ with tab9:
         fig_tree.update_traces(
             textinfo="text",
             texttemplate="%{customdata[2]}", 
-            textfont=dict(color="white"),
+            textfont=dict(color="white", size=15),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
