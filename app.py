@@ -49,7 +49,6 @@ for key in ['seen_links', 'seen_titles', 'news_data']:
     if key not in st.session_state:
         st.session_state[key] = set() if 'seen' in key else []
 
-# 👈 파일에서 관심종목 불러오기
 if 'watchlist' not in st.session_state:
     st.session_state.watchlist = load_watchlist()
         
@@ -697,13 +696,18 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
-# 👈 [업데이트 적용] 제목표시줄에 수급 누적 표시 추가 완료!
+# 👈 [완벽 해결] 수급에 이모티콘(🔥, 💧, ➖)을 찰떡같이 복원한 확장 타이틀
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    # 외인/기관 수급 문자열에서 핵심 부호/숫자/이모지만 깔끔하게 추출
-    f_trend = tech_result['외인수급'].split(' ')[0] if ' ' in tech_result['외인수급'] else tech_result['외인수급']
-    i_trend = tech_result['기관수급'].split(' ')[0] if ' ' in tech_result['기관수급'] else tech_result['기관수급']
+    def get_short_trend(trend_text):
+        val = trend_text.split(' ')[0]
+        if "🔥" in trend_text: return f"🔥{val}"
+        if "💧" in trend_text: return f"💧{val}"
+        return f"➖{val}"
+        
+    f_trend = get_short_trend(tech_result['외인수급'])
+    i_trend = get_short_trend(tech_result['기관수급'])
     
     base_info = f"(진단: {tech_result['상태']} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
     
@@ -734,7 +738,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if col_btn2.button("⭐ 관심종목 추가" if not is_in_wl else "🌟 추가됨", disabled=is_in_wl, key=f"star_{tech_result['티커']}_{key_suffix}"):
             st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
-            save_watchlist(st.session_state.watchlist) # 👈 파일에 영구 저장
+            save_watchlist(st.session_state.watchlist)
             st.rerun()
 
         c1, c2, c3, c4 = st.columns(4)
@@ -785,7 +789,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
                         fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
                         fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
-                        fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis_title="", yaxis_title="", hovermode="x unified", height=250)
+                        fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis_title="", yaxis_title="", hovermode="x unified", xaxis=dict(showgrid=False, type=x_type), height=250)
                         st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
                     with ch2:
                         st.caption(f"📊 거래량 & OBV ({tf})")
@@ -1403,7 +1407,7 @@ with tab9:
         fig_tree.update_traces(
             textinfo="text",
             texttemplate="%{customdata[2]}", 
-            textfont=dict(color="white", size=15),
+            textfont=dict(color="white"),
             hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억원<extra></extra>",
             marker=dict(line=dict(width=1.5, color='#111111'))
         )
@@ -1437,7 +1441,6 @@ with tab11:
     if not st.session_state.watchlist:
         st.info("아직 추가된 관심종목이 없습니다. 다른 탭에서 타점을 분석하고 '⭐ 관심종목 추가' 버튼을 눌러주세요.")
     else:
-        # 관심종목 모두 지우기 버튼을 오른쪽으로 정렬
         col1, col2 = st.columns([8, 2])
         if col2.button("🗑️ 관심종목 모두 지우기", use_container_width=True):
             st.session_state.watchlist = []
