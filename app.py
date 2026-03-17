@@ -48,6 +48,19 @@ def ask_gemini(prompt, _api_key):
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
     except Exception as e: return f"AI 분석 오류: {str(e)}"
 
+# 👈 [핵심 추가] AI에게 단기 의견 딱 1단어로만 빠르게 물어보는 퀵 모듈
+@st.cache_data(ttl=3600)
+def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
+    if not _api_key: return "AI미연동"
+    try:
+        prompt = f"당신은 실전 스윙 트레이더입니다. '{stock_name}'의 단기 매매 의견을 다음 4개 중 딱 1개로만 답변하세요: [적극매수, 분할매수, 관망, 매수금지]. 다른 부연 설명은 절대 금지.\n데이터: 현재가 {curr}원, 20일선 {ma20}원, RSI {rsi:.1f}"
+        res = ask_gemini(prompt, _api_key).replace(".", "").replace("\n", "").strip()
+        for kw in ["적극매수", "분할매수", "관망", "매수금지"]:
+            if kw in res: return kw
+        return "관망"
+    except:
+        return "오류"
+
 # ==========================================
 # 3. 데이터 수집 및 분석 함수들
 # ==========================================
@@ -141,7 +154,6 @@ def get_us_top_gainers():
         return df, ex_rate
     except: return pd.DataFrame(), 1350.0
 
-# 👈 [버그 픽스 완료] 중복(3개씩) 출력을 원천 차단하기 위한 Name 기준 중복 제거
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
@@ -151,7 +163,7 @@ def get_krx_stocks():
         df = df[['회사명', '종목코드', '업종']]
         df.columns = ['Name', 'Code', 'Sector']
         df['Code'] = df['Code'].astype(str).str.zfill(6)
-        df = df.drop_duplicates(subset=['Name']).reset_index(drop=True) # 여기서 중복을 날려버립니다.
+        df = df.drop_duplicates(subset=['Name']).reset_index(drop=True)
         return df
     except: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
@@ -661,12 +673,19 @@ def show_trading_guidelines():
     * ⚪ **보통 (30 ~ 70):** 일반적인 추세 구간입니다.
     """)
 
-# 👈 [핵심 업데이트 1] 밖에서 한눈에 보이는 완벽한 요약 타이틀 적용
+# 👈 [핵심 업데이트 1] 카드 제목에 AI 단기 의견과 핵심 정보를 모두 통합 노출!
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
-    # 요청하신 완벽한 포맷으로 타이틀 변경!
-    expander_title = f"{status_emoji} {tech_result['종목명']} ({tech_result['현재가']:,}원) ｜ RSI: {tech_result['RSI']:.1f} ｜ (진단: {tech_result['상태']} ｜ 수급: {tech_result['거래량 급증']} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
+    # AI 퀵 의견이 계산되어 있지 않다면 실시간으로 호출 (단일 검색용 안전장치)
+    if 'AI단기' not in tech_result:
+        tech_result['AI단기'] = get_quick_ai_opinion(tech_result['종목명'], tech_result['현재가'], tech_result['진입가_가이드'], tech_result['RSI'], api_key_str)
+        
+    ai_op = tech_result['AI단기']
+    ai_icon = "🔥" if "매수" in ai_op else "❄️" if "금지" in ai_op else "👀"
+    
+    # 요청하신 완벽한 직관성 타이틀 포맷
+    expander_title = f"{status_emoji} {tech_result['종목명']} ({tech_result['현재가']:,}원) ｜ AI단기: {ai_icon}{ai_op} ｜ RSI: {tech_result['RSI']:.1f} ｜ (진단: {tech_result['상태']} ｜ 수급: {tech_result['거래량 급증']} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
     
     with st.expander(expander_title, expanded=is_expanded):
         
@@ -705,7 +724,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"🤖 '{tech_result['종목명']}' AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
+            if st.button(f"🤖 '{tech_result['종목명']}' 상세 AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
                 with st.spinner("AI가 차트, 가치 평가, 그리고 향후 모멘텀 일정을 분석 중입니다..."):
                     prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
                     st.success(ask_gemini(prompt, api_key_str))
@@ -764,7 +783,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 )
                 st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"v_{tech_result['티커']}_{key_suffix}")
 
-# 👈 [핵심 업데이트 2] 공통 결과 출력 및 '원클릭 정렬(Sort)' 모듈
+# 👈 [핵심 업데이트 2] 정렬(Sorting) 및 통합 렌더링 모듈
 def display_sorted_results(results_list, tab_key, show_longterm=False, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -773,7 +792,7 @@ def display_sorted_results(results_list, tab_key, show_longterm=False, api_key="
     st.success(f"🎯 총 {len(results_list)}개 종목 포착 완료!")
     
     # 직관적인 정렬 라디오 버튼 추가
-    sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본 (검색순)", "RSI 낮은순", "RSI 높은순", "PER 낮은순", "PBR 낮은순"], horizontal=True, key=f"sort_radio_{tab_key}")
+    sort_opt = st.radio("⬇️ 결과 정렬 방식 선택", ["기본 (검색순)", "RSI 낮은순 (바닥줍기)", "RSI 높은순 (과열/돌파)", "PER 낮은순 (저평가)", "PBR 낮은순 (자산가치)"], horizontal=True, key=f"sort_radio_{tab_key}")
     
     def get_safe_float(val, default=9999.0):
         try:
@@ -781,13 +800,13 @@ def display_sorted_results(results_list, tab_key, show_longterm=False, api_key="
             return float(str(val).replace(',', ''))
         except: return default
 
-    if sort_opt == "RSI 낮은순":
+    if "RSI 낮은순" in sort_opt:
         sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['RSI'], 100))
-    elif sort_opt == "RSI 높은순":
+    elif "RSI 높은순" in sort_opt:
         sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['RSI'], 0), reverse=True)
-    elif sort_opt == "PER 낮은순":
+    elif "PER 낮은순" in sort_opt:
         sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['PER'], 9999))
-    elif sort_opt == "PBR 낮은순":
+    elif "PBR 낮은순" in sort_opt:
         sorted_res = sorted(results_list, key=lambda x: get_safe_float(x['PBR'], 9999))
     else:
         sorted_res = results_list
@@ -914,9 +933,12 @@ with tab1:
                 kor_stocks = get_ai_matched_stocks(sel_tick, sec, ind, sel_opt.split(" - ")[0], api_key_input)
                 if kor_stocks:
                     st.markdown("### ✨ AI 추천 국내 수혜주 (클릭하여 타점 및 의견 확인)")
+                    # 테마 매칭 결과도 정렬 패널을 통해 렌더링
+                    theme_res_list = []
                     for i, (name, code) in enumerate(kor_stocks):
                         res = analyze_technical_pattern(name, code)
-                        if res: draw_stock_card(res, api_key_str=api_key_input, key_suffix=f"t1_{i}")
+                        if res: theme_res_list.append(res)
+                    display_sorted_results(theme_res_list, tab_key="t1", show_longterm=False, api_key=api_key_input)
                 else: st.error("❌ 연관된 국내 주식을 찾는 데 실패했습니다. 서버 연결 상태를 확인해 주세요.")
 
 with tab2:
@@ -965,22 +987,26 @@ with tab2:
                 def process_stock(target):
                     name, code = target
                     time.sleep(0.1) 
-                    return analyze_technical_pattern(name, code, offset_days=offset_days)
+                    res = analyze_technical_pattern(name, code, offset_days=offset_days)
+                    if res:
+                        match = True
+                        if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
+                        if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
+                        if cond_rsi_bottom and res['RSI'] > 30: match = False
+                        if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
+                        
+                        if match:
+                            # 통과한 녀석만 스레드 내부에서 AI 퀵 진단 실시!
+                            res['AI단기'] = get_quick_ai_opinion(name, res['현재가'], res['진입가_가이드'], res['RSI'], api_key_input)
+                            return res
+                    return None
                 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     future_to_target = {executor.submit(process_stock, t): t for t in targets}
                     for future in concurrent.futures.as_completed(future_to_target):
                         res = future.result()
                         completed += 1
-                        
-                        if res:
-                            match = True
-                            if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
-                            if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
-                            if cond_rsi_bottom and res['RSI'] > 30: match = False
-                            if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
-                            if match: found_results.append(res)
-                            
+                        if res: found_results.append(res)
                         progress_bar.progress(completed / total)
                         status_text.text(f"⚡ 병렬 스캔 진행 중... ({completed}/{total}) - 현재 {len(found_results)}개 포착")
 
@@ -990,7 +1016,6 @@ with tab2:
 
     st.divider()
     if st.session_state.scan_results is not None:
-        # 👈 정렬을 포함한 렌더링 호출
         display_sorted_results(st.session_state.scan_results, tab_key="t2", show_longterm=False, api_key=api_key_input)
 
 with tab3:
@@ -1043,7 +1068,10 @@ with tab3:
                             per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
                             pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
                             if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
-                                return analyze_technical_pattern(name, code)
+                                res = analyze_technical_pattern(name, code)
+                                if res:
+                                    res['AI단기'] = get_quick_ai_opinion(name, res['현재가'], res['진입가_가이드'], res['RSI'], api_key_input)
+                                    return res
                         except: pass
                         return None
 
@@ -1062,7 +1090,6 @@ with tab3:
 
     st.divider()
     if st.session_state.value_scan_results is not None:
-        # 👈 정렬을 포함한 렌더링 호출
         display_sorted_results(st.session_state.value_scan_results, tab_key="t3", show_longterm=True, api_key=api_key_input)
 
 with tab4:
@@ -1104,15 +1131,11 @@ with tab5:
             theme_stocks = get_theme_stocks_with_ai(query, api_key_input)
             if theme_stocks:
                 st.success(f"🎯 '{query}' 관련주 진단 완료!")
-                
-                # 👈 테마 검색 결과에도 정렬 적용을 위해 임시 리스트에 담기
-                theme_results = []
+                theme_res_list = []
                 for i, (name, code) in enumerate(theme_stocks):
                     res = analyze_technical_pattern(name, code)
-                    if res: theme_results.append(res)
-                
-                # 정렬 및 렌더링 호출
-                display_sorted_results(theme_results, tab_key="t5", show_longterm=False, api_key=api_key_input)
+                    if res: theme_res_list.append(res)
+                display_sorted_results(theme_res_list, tab_key="t5", show_longterm=False, api_key=api_key_input)
             else: st.error("❌ 관련주를 찾지 못했습니다.")
 
 with tab6:
