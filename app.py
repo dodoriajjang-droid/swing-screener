@@ -114,6 +114,20 @@ def get_fear_and_greed():
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    try:
+        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res2.status_code == 200:
+            data = json.loads(res2.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
     return None
 
 @st.cache_data(ttl=3600)
@@ -657,8 +671,9 @@ def get_naver_calendar_events():
     except: pass
     return pd.DataFrame()
 
+# 👈 [업데이트] 배당 포트폴리오 원화 자동 변환 + 퍼센트/원화 병기
 @st.cache_data(ttl=43200) 
-def get_dividend_portfolio():
+def get_dividend_portfolio(ex_rate=1350.0):
     portfolio = {
         "KRX": [
             ("088980.KS", "맥쿼리인프라", "반기", "6.0~6.5%"), ("024110.KS", "기업은행", "결산", "7.5~8.5%"), ("316140.KS", "우리금융지주", "분기", "8.0~9.0%"), 
@@ -740,8 +755,32 @@ def get_dividend_portfolio():
     for category, stocks in portfolio.items():
         for t_code, name, period, est_yield in stocks:
             p_val = price_dict.get(t_code)
-            p_str = f"{int(p_val):,}원" if p_val and ".KS" in t_code else f"${p_val:,.2f}" if p_val else "조회 지연"
-            results[category].append({"티커/코드": t_code.replace(".KS", ""), "종목명": name, "현재가": p_str, "배당수익률(예상)": est_yield, "배당주기": period})
+            p_str = "조회 지연"
+            div_str = est_yield
+            
+            if p_val:
+                # KRX 종목은 원화, US/ETF(미국상장)는 달러 환산
+                if ".KS" in t_code:
+                    p_str = f"{int(p_val):,}원"
+                    krw_price = p_val
+                else:
+                    p_str = f"${p_val:,.2f}"
+                    krw_price = p_val * ex_rate
+                    
+                # 퍼센트 문자열을 분석하여 예상 배당금 원화 계산 로직 적용
+                try:
+                    pcts = [float(x) for x in re.findall(r"[\d\.]+", est_yield)]
+                    if len(pcts) >= 2:
+                        min_div = int(krw_price * (pcts[0] / 100))
+                        max_div = int(krw_price * (pcts[1] / 100))
+                        div_str = f"{est_yield} (약 {min_div:,}~{max_div:,}원)"
+                    elif len(pcts) == 1:
+                        div = int(krw_price * (pcts[0] / 100))
+                        div_str = f"{est_yield} (약 {div:,}원)"
+                except:
+                    pass
+                    
+            results[category].append({"티커/코드": t_code.replace(".KS", ""), "종목명": name, "현재가": p_str, "배당수익률(예상)": div_str, "배당주기": period})
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
@@ -1004,7 +1043,6 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-# 👈 [핵심 업데이트] 11번 탭을 "글로벌 핵심 ETF 분석"으로 신설, 12번 탭으로 관심종목 이동
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
@@ -1016,7 +1054,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.t
     "📅 증시 캘린더", 
     "💸 자금 흐름(히트맵)", 
     "💰 배당주(TOP 150)", 
-    "📊 글로벌 핵심 ETF 분석", # 👈 신설된 ETF 탭
+    "📊 글로벌 핵심 ETF 분석", 
     "⭐ 내 관심종목"
 ])
 
@@ -1495,13 +1533,13 @@ with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 150)")
     with st.spinner("야후 파이낸스에서 150개 종목의 최신 실시간 데이터를 다운로드 중입니다..."):
-        div_dfs = get_dividend_portfolio()
+        ex_rate = st.session_state.get('ex_rate', 1350.0)
+        div_dfs = get_dividend_portfolio(ex_rate)
     dt1, dt2, dt3 = st.tabs(["🇰🇷 국장 (배당주 TOP 50)", "🇺🇸 미장 (배당주 TOP 50)", "📈 배당 ETF (국내/해외 TOP 50)"])
     with dt1: st.dataframe(div_dfs["KRX"], use_container_width=True, hide_index=True)
     with dt2: st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
     with dt3: st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
 
-# 👈 [핵심 업데이트] 11번 탭 신설: 글로벌 핵심 ETF & 포트폴리오 분석
 with tab11:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📊 글로벌 핵심 ETF & 포트폴리오 분석")
