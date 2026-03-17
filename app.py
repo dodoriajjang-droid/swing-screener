@@ -130,7 +130,6 @@ def get_fear_and_greed():
     except: pass
     return None
 
-# 👈 [업데이트] 스캔 시간 반환
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
@@ -858,7 +857,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
             else: st.error("데이터를 불러오지 못했습니다.")
 
-# 👈 불필요한 토글 제거 후 군더더기 없는 정렬 함수
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -975,6 +973,16 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
 
 with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    # 👈 [핵심 업데이트] AI 미국장 테마 분석 버튼 추가 (전체 너비 사용)
+    if api_key_input and not st.session_state.gainers_df.empty:
+        if st.button("🤖 AI 미국 급등주 주도 테마 분석", type="primary", use_container_width=True):
+            with st.spinner("AI가 오늘 미국장을 이끈 핵심 테마와 한국 증시 파급 효과를 분석 중입니다..."):
+                us_stock_list = st.session_state.gainers_df['기업명'].tolist()
+                prompt = f"오늘 미국 증시에서 5% 이상 급등한 주요 종목들입니다: {us_stock_list}\n이 종목들이 어떤 공통된 테마, 이슈 또는 섹터 호재로 인해 급등했는지 3줄로 요약 분석해 주세요. 마지막 줄에는 이로 인해 오늘 한국 증시에서 주목해야 할 관련 테마를 제시해 주세요."
+                st.success(ask_gemini(prompt, api_key_input))
+    st.divider()
+
     col1, col2 = st.columns([1, 1.2], gap="large")
     with col1:
         st.subheader("🔥 미국장 급등주 (+5% 이상)")
