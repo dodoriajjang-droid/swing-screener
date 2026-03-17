@@ -575,13 +575,11 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
-# 👈 [오류 철벽 방어] FDR과 YFinance 듀얼 엔진 탑재
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     df = pd.DataFrame()
     
-    # 1. 미국 티커(알파벳 포함)면 무조건 YFinance 먼저 시도 (FDR 에러 방지)
     if not ticker_code.isdigit():
         try:
             df = yf.Ticker(ticker_code).history(start=start_date)
@@ -589,7 +587,6 @@ def get_historical_data(ticker_code, days):
                 df.index = df.index.tz_localize(None)
         except: pass
         
-    # 2. 한국 티커(숫자)거나, 위에서 YFinance가 실패했다면 FDR 엔진 출동
     if df.empty:
         try:
             df = fdr.DataReader(ticker_code, start_date)
@@ -601,7 +598,6 @@ def get_historical_data(ticker_code, days):
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
     try:
-        # 새로 개선된 듀얼 엔진 함수 호출
         df = get_historical_data(ticker_code, 150)
         if df.empty or len(df) < 20 + offset_days: return None
         
@@ -670,6 +666,56 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except: return None
+
+@st.cache_data(ttl=3600)
+def analyze_theme_trends():
+    theme_proxies = {
+        "반도체": "091160",
+        "2차전지": "305720",
+        "바이오/헬스케어": "244580",
+        "인터넷/IT": "157490",
+        "자동차/모빌리티": "091230",
+        "금융/은행 (저PBR)": "091220",
+        "미디어/엔터": "266360",
+        "로봇/AI": "417270",
+        "K-방산": "419890",
+        "우주항공/조선": "453950",
+        "원자력/전력": "438560",
+        "화장품/미용": "228790",
+        "게임": "300610",
+        "건설/기계": "117700",
+        "철강": "117680"
+    }
+    
+    results = []
+    for theme_name, ticker in theme_proxies.items():
+        try:
+            df = get_historical_data(ticker, 180)
+            if df.empty or len(df) < 20: continue
+            
+            current_price = float(df['Close'].iloc[-1])
+            
+            def get_stats(days):
+                if len(df) < days: return 0, 0
+                period_df = df.iloc[-days:]
+                start_price = float(period_df['Close'].iloc[0])
+                ret = ((current_price - start_price) / start_price) * 100
+                vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
+                return ret, vol_sum
+
+            r_1m, v_1m = get_stats(20)   
+            r_3m, v_3m = get_stats(60)   
+            r_6m, v_6m = get_stats(120)  
+            
+            results.append({
+                "테마": theme_name,
+                "1M수익률": r_1m, "1M거래대금": v_1m,
+                "3M수익률": r_3m, "3M거래대금": v_3m,
+                "6M수익률": r_6m, "6M거래대금": v_6m,
+            })
+        except: pass
+        
+    return pd.DataFrame(results)
 
 @st.cache_data(ttl=43200)
 def get_naver_calendar_events():
@@ -1057,7 +1103,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
     "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
@@ -1067,6 +1113,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.t
     "📰 실시간 뉴스 터미널", 
     "📅 증시 캘린더", 
     "💸 자금 흐름(히트맵)", 
+    "👑 기간별 테마 트렌드 (1M/3M/6M)",
     "💰 배당주(TOP 150)", 
     "📊 글로벌 핵심 ETF 분석", 
     "⭐ 내 관심종목"
@@ -1545,6 +1592,105 @@ with tab9:
 
 with tab10:
     st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
+    st.write("국내 대표 테마 ETF의 거래대금과 수익률을 역산하여, 최근 시장의 핵심 자금이 어디로 이동했는지 추적합니다.")
+    
+    @st.cache_data(ttl=3600)
+    def analyze_theme_trends():
+        theme_proxies = {
+            "반도체": "091160",
+            "2차전지": "305720",
+            "바이오/헬스케어": "244580",
+            "인터넷/IT": "157490",
+            "자동차/모빌리티": "091230",
+            "금융/은행 (저PBR)": "091220",
+            "미디어/엔터": "266360",
+            "로봇/AI": "417270",
+            "K-방산": "419890",
+            "우주항공/조선": "453950",
+            "원자력/전력": "438560",
+            "화장품/미용": "228790",
+            "게임": "300610",
+            "건설/기계": "117700",
+            "철강": "117680"
+        }
+        
+        results = []
+        for theme_name, ticker in theme_proxies.items():
+            try:
+                df = get_historical_data(ticker, 180)
+                if df.empty or len(df) < 20: continue
+                
+                current_price = float(df['Close'].iloc[-1])
+                
+                def get_stats(days):
+                    if len(df) < days: return 0, 0
+                    period_df = df.iloc[-days:]
+                    start_price = float(period_df['Close'].iloc[0])
+                    ret = ((current_price - start_price) / start_price) * 100
+                    vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
+                    return ret, vol_sum
+
+                r_1m, v_1m = get_stats(20)   
+                r_3m, v_3m = get_stats(60)   
+                r_6m, v_6m = get_stats(120)  
+                
+                results.append({
+                    "테마": theme_name,
+                    "1M수익률": r_1m, "1M거래대금": v_1m,
+                    "3M수익률": r_3m, "3M거래대금": v_3m,
+                    "6M수익률": r_6m, "6M거래대금": v_6m,
+                })
+            except: pass
+            
+        return pd.DataFrame(results)
+
+    with st.spinner("과거 6개월 치 테마별 자금 유입 데이터를 역산 중입니다..."):
+        trend_df = analyze_theme_trends()
+        
+    if not trend_df.empty:
+        selected_period = st.radio("📅 조회 기간 선택", ["1개월 (단기 트렌드)", "3개월 (스윙 트렌드)", "6개월 (중장기 트렌드)"], horizontal=True)
+        
+        if "1개월" in selected_period:
+            vol_col, ret_col = "1M거래대금", "1M수익률"
+            chart_title = "최근 1개월"
+        elif "3개월" in selected_period:
+            vol_col, ret_col = "3M거래대금", "3M수익률"
+            chart_title = "최근 3개월"
+        else:
+            vol_col, ret_col = "6M거래대금", "6M수익률"
+            chart_title = "최근 6개월"
+            
+        col_c1, col_c2 = st.columns(2)
+        
+        with col_c1:
+            st.markdown(f"#### 💸 {chart_title} 거래대금 TOP 테마")
+            vol_df = trend_df.sort_values(vol_col, ascending=True).tail(10) 
+            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text_auto='.0s')
+            fig_vol.update_traces(marker_color='#1f77b4', texttemplate='%{x:,.0f}억')
+            fig_vol.update_layout(xaxis_title="누적 거래대금 (억원)", yaxis_title="", height=400, margin=dict(l=0, r=0, t=10, b=0))
+            st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
+            
+        with col_c2:
+            st.markdown(f"#### 🚀 {chart_title} 수익률 TOP 테마")
+            ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10)
+            colors = ['#ff4b4b' if val > 0 else '#1f77b4' for val in ret_df[ret_col]]
+            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text_auto='.2f')
+            fig_ret.update_traces(marker_color=colors, texttemplate='%{x:+.2f}%')
+            fig_ret.update_layout(xaxis_title="누적 수익률 (%)", yaxis_title="", height=400, margin=dict(l=0, r=0, t=10, b=0))
+            st.plotly_chart(fig_ret, use_container_width=True, config={'displayModeBar': False})
+            
+        st.divider()
+        st.markdown("#### 📋 기간별 상세 데이터 (전체)")
+        display_trend_df = trend_df.copy()
+        for c in ['1M', '3M', '6M']:
+            display_trend_df[f'{c}수익률'] = display_trend_df[f'{c}수익률'].apply(lambda x: f"{x:+.2f}%")
+            display_trend_df[f'{c}거래대금'] = display_trend_df[f'{c}거래대금'].apply(lambda x: f"{x:,.0f}억")
+        
+        st.dataframe(display_trend_df.sort_values(vol_col, ascending=False).set_index('테마'), use_container_width=True)
+
+with tab11:
+    st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 150)")
     with st.spinner("야후 파이낸스에서 150개 종목의 최신 실시간 데이터를 다운로드 중입니다..."):
         ex_rate = st.session_state.get('ex_rate', 1350.0)
@@ -1554,12 +1700,11 @@ with tab10:
     with dt2: st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
     with dt3: st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
 
-with tab11:
+with tab12:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📊 글로벌/국내 핵심 ETF & 포트폴리오 분석")
     st.write("주도 섹터와 대표 지수를 추종하는 국내외 핵심 ETF의 타점을 진단하고 AI 분석을 받아보세요.")
     
-    # 👈 [업데이트] KODEX, TIGER, KBSTAR 등 한국 시장 대표 ETF 대거 편입
     etf_categories = {
         "📈 글로벌/국내 지수 대표": [
             ("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ (나스닥)"),
@@ -1596,12 +1741,11 @@ with tab11:
     st.divider()
     
     with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
-        # 한국 ETF(숫자 6자리)는 yfinance 오류 방지를 위해 뒤에 .KS 같은 꼬리를 떼고 보냄
         clean_ticker = selected_ticker.replace(".KS", "")
         res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
         
         if res:
-            draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t11_etf")
+            draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t12_etf")
             
             st.markdown("<br>", unsafe_allow_html=True)
             if api_key_input:
@@ -1627,7 +1771,7 @@ with tab11:
         else:
             st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
 
-with tab12:
+with tab13:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("⭐ 나만의 관심종목 (Watchlist)")
     
