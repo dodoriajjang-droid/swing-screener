@@ -40,41 +40,24 @@ def save_watchlist(wl):
         st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 및 UI 탭 강제 2줄 패치
+# 1. 초기 설정 및 UI 탭 강제 줄바꿈 패치
 # ==========================================
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 👈 [업데이트 1] 13개의 탭을 강제로 2줄 버튼 형태로 바꿔주는 최강력 CSS
 st.markdown("""
 <style>
-    /* 탭 리스트 영역을 flex 래핑 허용 */
-    div[role="tablist"] {
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+        gap: 4px !important;
         flex-wrap: wrap !important;
-        gap: 6px !important;
-        padding-bottom: 10px !important;
+        overflow-x: visible !important;
+        padding-bottom: 5px !important;
     }
-    /* 개별 탭 버튼을 보기 좋은 블록 형태로 강제 지정 */
-    button[role="tab"] {
-        flex: 1 1 12% !important; /* 한 줄에 약 6~7개씩 배치되어 2줄로 생성됨 */
-        min-width: 130px !important;
-        background-color: #f1f3f6 !important;
-        border: 1px solid #d1d5db !important;
-        border-radius: 8px !important;
-        padding: 8px 5px !important;
+    div[data-testid="stTabs"] [data-baseweb="tab-list"] button {
+        flex-grow: 1 !important;
+        flex-basis: calc(14% - 5px) !important;
+        min-width: 140px !important;
         margin: 0 !important;
-        display: flex !important;
-        justify-content: center !important;
-    }
-    /* 선택된 탭 스타일 */
-    button[role="tab"][aria-selected="true"] {
-        background-color: #ff4b4b !important;
-        color: white !important;
-        border-color: #ff4b4b !important;
-        font-weight: bold !important;
-    }
-    button[role="tab"][aria-selected="true"] p {
-        color: white !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -157,6 +140,13 @@ def get_fear_and_greed():
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
             data = json.loads(res2.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return None
@@ -662,6 +652,7 @@ def get_historical_data(ticker_code, days):
             
     return df
 
+# 👈 [업데이트] 상세 진단 결과에 이평선 판별 기준(💡) 텍스트 명시적으로 추가
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
@@ -693,10 +684,14 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         
         current_price = int(latest['Close']) 
         
-        if pd.notna(latest['MA60']) and latest['MA5'] > latest['MA20'] > latest['MA60']: align_status = "🔥 완벽 정배열 (상승 추세)"
-        elif pd.notna(latest['MA60']) and latest['MA5'] < latest['MA20'] < latest['MA60']: align_status = "❄️ 역배열 (하락 추세)"
-        elif latest['MA5'] > latest['MA20'] and prev['MA5'] <= prev['MA20']: align_status = "✨ 5-20 골든크로스"
-        else: align_status = "🌀 혼조세/횡보"
+        if pd.notna(latest['MA60']) and latest['MA5'] > latest['MA20'] > latest['MA60']: 
+            align_status = "🔥 완벽 정배열 (상승 추세) ｜ 💡 기준: 5일선 > 20일선 > 60일선"
+        elif pd.notna(latest['MA60']) and latest['MA5'] < latest['MA20'] < latest['MA60']: 
+            align_status = "❄️ 역배열 (하락 추세) ｜ 💡 기준: 5일선 < 20일선 < 60일선"
+        elif latest['MA5'] > latest['MA20'] and prev['MA5'] <= prev['MA20']: 
+            align_status = "✨ 5-20 골든크로스 ｜ 💡 기준: 5일선이 20일선을 상향 돌파"
+        else: 
+            align_status = "🌀 혼조세/횡보 ｜ 💡 기준: 이평선 얽힘 (방향 탐색중)"
         
         ma20_val = latest['MA20']
         if (ma20_val * 0.97) <= current_price <= (ma20_val * 1.03): status = "✅ 타점 근접 (분할 매수)"
@@ -787,18 +782,18 @@ def analyze_theme_trends():
         
     return pd.DataFrame(results)
 
-# 👈 [업데이트 2] 네이버 신규상장(IPO) 일정표 직접 파싱 로직 추가
 @st.cache_data(ttl=10800)
-def get_naver_ipo():
+def get_naver_ipo_data():
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
         table = soup.find('table', {'class': 'type_2'})
         df = pd.read_html(StringIO(str(table)))[0]
-        df = df.dropna(subset=['종목명'])
+        df = df.dropna(how='all')
+        df = df[df['종목명'].notna()]
         df = df[df['종목명'] != '종목명']
-        return df.head(15)
+        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
     except:
         return pd.DataFrame()
 
@@ -912,14 +907,16 @@ def get_dividend_portfolio(ex_rate=1350.0):
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
+# 👈 [업데이트] 주린이 가이드에 명확한 진단 기준 추가
 def show_beginner_guide():
     with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
         st.markdown("""
-        ### 1. 📊 차트 상태 (배열 & 이평선)
-        * **이동평균선(이평선):** 일정 기간 동안의 주가 평균을 이은 선입니다. (5일선=1주일, 20일선=1달)
-        * **🔥 정배열:** 주가가 오르면서 단기선(5일) > 중기선(20일) > 장기선(60일) 순서로 예쁘게 놓인 상태. (가장 좋은 상승 추세)
-        * **❄️ 역배열:** 정배열의 반대. (하락 추세)
-        * **✨ 골든크로스:** 단기선(5일)이 중기선(20일)을 아래에서 위로 뚫고 올라가는 긍정적 매수 신호!
+        ### 1. 📊 차트 상태 (상세 진단 기준 & 이평선)
+        * **이동평균선(이평선):** 일정 기간 동안의 주가 평균을 이은 선입니다. (5일선=1주일, 20일선=1달, 60일선=3달)
+        * **🔥 완벽 정배열 (상승 추세):** `5일선 > 20일선 > 60일선` 순서로 주가 아래에 예쁘게 깔려 있는 가장 이상적인 상승 구간입니다.
+        * **❄️ 역배열 (하락 추세):** `5일선 < 20일선 < 60일선` 순서로 주가 위에서 짓누르고 있는 하락 구간입니다. (매물대가 두터움)
+        * **✨ 5-20 골든크로스:** 어제까지 아래에 있던 단기선(5일)이 중기선(20일)을 **오늘 뚫고 위로 올라온** 긍정적 턴어라운드 신호입니다.
+        * **🌀 혼조세/횡보:** 위 조건들에 해당하지 않고 선들이 뒤엉켜 방향을 탐색하는 박스권 상태입니다.
 
         ### 2. 🎯 진단 & 매매 타점 (20일선 기준)
         * **✅ 타점 근접 (눌림목):** 강하게 오르던 주가가 잠시 쉬어가며 **20일선(생명선)** 근처까지 내려온 상태. 이때가 가장 안전한 매수(줍줍) 타이밍입니다!
@@ -937,19 +934,24 @@ def show_beginner_guide():
         * **PBR:** 기업이 가진 재산(자산) 대비 주가가 얼마나 비싼지. (보통 1보다 낮으면 저평가)
         """)
 
+# 👈 [업데이트] A급 타점 선별 꿀팁 명시
 def show_trading_guidelines():
     with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=True):
         st.markdown("""
         *💡 본 시나리오는 장중 계속 호가창만 볼 수 없는 환경에 최적화된 **'단기 스윙(며칠~1, 2주 보유)'** 전략입니다. 스캐너로 타점을 찾아 미리 지정가로 매수/매도/손절을 걸어두고 기계적으로 대응하십시오.*
 
         **1️⃣ 숲을 본다 (09:00~09:30) : 주도 테마 선점**
-        * **[9번 탭] 히트맵 & [1번 탭] 미장 & [7번 탭] 뉴스**를 통해 오늘 돈이 몰리는 주도 섹터 파악
+        * **[10번 탭] 테마 트렌드 & [1번 탭] 미장 & [7번 탭] 뉴스**를 통해 오늘 돈이 몰리는 주도 섹터 파악
         
         **2️⃣ 나무를 고른다 (09:30~) : 스캐너 황금 콤보 적용 및 보유 기간**
         * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증` (세력 이탈 없는 N자 반등을 느긋하게 기다리는 정석 매매)
         * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` (돌파 대장주에 올라타는 가장 빠른 템포의 단기 매매)
         * ©️ **바닥 줍줍 (목표 1일~3일):** `🔵RSI 30이하` + `🔥거래량 급증` (과대낙폭 시 3~5% 기술적 반등만 짧게 먹고 빠지는 전략)
         * 🐋 **스마트머니 편승 (목표 3일~1주):** `[✅ 눌림목]` OR `[🔵 RSI 30이하]` + `[🐋 쌍끌이 순매수]` (세력 매집주 포착)
+        
+        **💡 [핵심 꿀팁] 스캐너 & 상세 진단 콤보 활용법**
+        * 스캐너에서 `[✅ 20일선 눌림목]` 타점을 찾았더라도, 상세 진단이 **❄️역배열**이라면 '떨어지는 칼날(세력 이탈)'일 확률이 높으니 과감히 패스하세요!
+        * 반대로 눌림목 타점인데 **🔥완벽 정배열**이나 **✨골든크로스** 상태라면 승률이 비약적으로 올라가는 **진짜 'A급 황금 타점'**입니다.
         
         **3️⃣ 더블 체크 : 3단 필터링으로 종목 압축**
         * 스캔 결과에서 **정렬(A는 PER, C는 RSI 낮은순 등)**을 활용해 최종 매수 종목 압축
@@ -1302,7 +1304,7 @@ with tab2:
                     res = analyze_technical_pattern(name, code, offset_days=offset_days)
                     if res:
                         match = True
-                        if cond_golden and res['배열상태'] not in ["🔥 완벽 정배열 (상승 추세)", "✨ 5-20 골든크로스"]: match = False
+                        if cond_golden and res['배열상태'].startswith("🔥 완벽 정배열") is False and res['배열상태'].startswith("✨ 5-20 골든크로스") is False: match = False
                         if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": match = False
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
@@ -1578,22 +1580,6 @@ with tab7:
                 if api_key_input: st.info(ask_gemini(f"속보 분석: {title}\n1. 팩트\n2. 선반영\n3. 전략", api_key_input))
             cols[4].link_button("원문🔗", news['link'], use_container_width=True)
 
-# 👈 [업데이트 1] 네이버 IPO 데이터 직접 크롤링 및 AI 분석 탑재
-@st.cache_data(ttl=10800)
-def get_naver_ipo_data():
-    try:
-        url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        table = soup.find('table', {'class': 'type_2'})
-        df = pd.read_html(StringIO(str(table)))[0]
-        df = df.dropna(how='all')
-        df = df[df['종목명'].notna()]
-        df = df[df['종목명'] != '종목명']
-        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
-    except:
-        return pd.DataFrame()
-
 with tab8:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📅 핵심 증시 일정 모니터링")
@@ -1761,23 +1747,21 @@ with tab10:
         with col_c1:
             st.markdown(f"#### 💸 {chart_title} 거래대금 TOP 테마")
             vol_df = trend_df.sort_values(vol_col, ascending=True).tail(10).copy()
-            # 👈 [업데이트 2] 파이썬 단에서 소수점을 완전히 제거하고 정수로 변환
-            vol_df[vol_col] = vol_df[vol_col].round().astype(int)
+            vol_df['text_label'] = vol_df[vol_col].apply(lambda x: f"{int(round(x)):,}억")
             
-            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text=vol_col)
-            fig_vol.update_traces(marker_color='#1f77b4', texttemplate='%{text:,}억', textposition='outside', textfont=dict(size=13))
+            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text='text_label')
+            fig_vol.update_traces(marker_color='#1f77b4', textposition='outside', textfont=dict(size=13))
             fig_vol.update_layout(xaxis_title="누적 거래대금 (억원)", yaxis_title="", height=450, margin=dict(l=0, r=40, t=10, b=0))
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
             
         with col_c2:
             st.markdown(f"#### 🚀 {chart_title} 수익률 TOP 테마")
             ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10).copy()
-            # 👈 [업데이트 2] 수익률 퍼센트도 파이썬에서 강제 정수형(Int)으로 클렌징
-            ret_df[ret_col] = ret_df[ret_col].round().astype(int)
+            ret_df['text_label'] = ret_df[ret_col].apply(lambda x: f"+{int(round(x))}%" if x > 0 else f"{int(round(x))}%")
             colors = ['#ff4b4b' if val > 0 else '#1f77b4' for val in ret_df[ret_col]]
             
-            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text=ret_col)
-            fig_ret.update_traces(marker_color=colors, texttemplate='%{text:+}%', textposition='outside', textfont=dict(size=13))
+            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text='text_label')
+            fig_ret.update_traces(marker_color=colors, textposition='outside', textfont=dict(size=13))
             fig_ret.update_layout(xaxis_title="누적 수익률 (%)", yaxis_title="", height=450, margin=dict(l=0, r=40, t=10, b=0))
             st.plotly_chart(fig_ret, use_container_width=True, config={'displayModeBar': False})
             
