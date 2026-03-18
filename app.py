@@ -40,24 +40,41 @@ def save_watchlist(wl):
         st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 및 UI 탭 강제 줄바꿈 패치
+# 1. 초기 설정 및 UI 탭 강제 2줄 패치
 # ==========================================
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
+# 👈 [업데이트 1] 13개의 탭을 강제로 2줄 버튼 형태로 바꿔주는 최강력 CSS
 st.markdown("""
 <style>
-    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-        gap: 4px !important;
+    /* 탭 리스트 영역을 flex 래핑 허용 */
+    div[role="tablist"] {
         flex-wrap: wrap !important;
-        overflow-x: visible !important;
-        padding-bottom: 5px !important;
+        gap: 6px !important;
+        padding-bottom: 10px !important;
     }
-    div[data-testid="stTabs"] [data-baseweb="tab-list"] button {
-        flex-grow: 1 !important;
-        flex-basis: calc(14% - 5px) !important;
-        min-width: 140px !important;
+    /* 개별 탭 버튼을 보기 좋은 블록 형태로 강제 지정 */
+    button[role="tab"] {
+        flex: 1 1 12% !important; /* 한 줄에 약 6~7개씩 배치되어 2줄로 생성됨 */
+        min-width: 130px !important;
+        background-color: #f1f3f6 !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 8px !important;
+        padding: 8px 5px !important;
         margin: 0 !important;
+        display: flex !important;
+        justify-content: center !important;
+    }
+    /* 선택된 탭 스타일 */
+    button[role="tab"][aria-selected="true"] {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border-color: #ff4b4b !important;
+        font-weight: bold !important;
+    }
+    button[role="tab"][aria-selected="true"] p {
+        color: white !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -79,7 +96,7 @@ if 'value_scan_results' not in st.session_state:
     st.session_state.value_scan_results = None
 
 # ==========================================
-# 2. 통합 AI 호출 엔진 (API 한도 초과 에러 친절하게 안내)
+# 2. 통합 AI 호출 엔진
 # ==========================================
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -140,13 +157,6 @@ def get_fear_and_greed():
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
             data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return None
@@ -240,85 +250,114 @@ def fetch_naver_volume(sosok, pages=1):
 @st.cache_data(ttl=300)
 def get_trading_value_kings():
     try:
+        df_fdr = fdr.StockListing('KRX')
+        if not df_fdr.empty and 'Amount' in df_fdr.columns:
+            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df_fdr = df_fdr[~mask].copy()
+            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr['Close'] = pd.to_numeric(df_fdr['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr['ChagesRatio'] = pd.to_numeric(df_fdr['ChagesRatio'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
+            
+            df_fdr = df_fdr.sort_values('Amount', ascending=False).head(20)
+            df_fdr['Amount_Ouk'] = (df_fdr['Amount'] / 100000000).astype(int)
+            df_fdr['Amount_Ouk'] = df_fdr['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
+            
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df_fdr = pd.merge(df_fdr, krx[['Name', 'Sector']], on='Name', how='left')
+                df_fdr['Sector'] = df_fdr['Sector'].fillna('기타/분류불가')
+            else:
+                df_fdr['Sector'] = '기타/분류불가'
+            return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except: pass
+
+    try:
         df_kpi = fetch_naver_volume(0, 1)
         df_kdq = fetch_naver_volume(1, 1)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if df.empty: return pd.DataFrame()
-        
-        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = df[~mask].copy()
-        
-        def extract_num(x):
-            try:
-                val = re.sub(r'[^\d\.\-]', '', str(x))
-                if val in ['', '-']: return 0.0
-                return float(val)
-            except: return 0.0
+        if not df.empty:
+            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df = df[~mask].copy()
             
-        df['Name'] = df['종목명']
-        df['Close'] = df['현재가'].apply(extract_num)
-        df['ChagesRatio'] = df['등락률'].apply(extract_num)
-        df['Volume'] = df['거래량'].apply(extract_num)
-        
-        df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
-        df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
-        
-        df = df.sort_values('Amount_Ouk', ascending=False).head(20)
-        
-        krx = get_krx_stocks()
-        if not krx.empty:
-            df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
-            df['Code'] = df['Code'].fillna('000000')
-            df['Sector'] = df['Sector'].fillna('기타/분류불가')
-        else:
-            df['Code'] = '000000'
-            df['Sector'] = '기타/분류불가'
+            def extract_num(x):
+                try:
+                    val = re.sub(r'[^\d\.\-]', '', str(x))
+                    if val in ['', '-']: return 0.0
+                    return float(val)
+                except: return 0.0
+                
+            df['Name'] = df['종목명']
+            df['Close'] = df['현재가'].apply(extract_num)
+            df['ChagesRatio'] = df['등락률'].apply(extract_num)
+            df['Volume'] = df['거래량'].apply(extract_num)
+            df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
+            df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
             
-        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
-    except: return pd.DataFrame()
+            df = df.sort_values('Amount_Ouk', ascending=False).head(20)
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
+                df['Code'] = df['Code'].fillna('000000')
+                df['Sector'] = df['Sector'].fillna('기타/분류불가')
+            else:
+                df['Code'] = '000000'
+                df['Sector'] = '기타/분류불가'
+            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except: pass
+    return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def get_scan_targets(limit=50):
     try:
         df_fdr = fdr.StockListing('KRX')
         if not df_fdr.empty:
-            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-            if df_fdr['Amount'].max() > 0:
-                mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-                df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name']).sort_values('Amount', ascending=False)
-                targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
-                if len(targets) >= limit or len(targets) > 100:
-                    return targets
+            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name'])
+            
+            if 'Amount' in df_fdr.columns:
+                df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+                df_fdr = df_fdr.sort_values('Amount', ascending=False)
+            elif 'Marcap' in df_fdr.columns: 
+                df_fdr['Marcap'] = pd.to_numeric(df_fdr['Marcap'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+                df_fdr = df_fdr.sort_values('Marcap', ascending=False)
+                
+            targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
+            if targets: return targets
     except: pass
     
     try:
         df_kpi = fetch_naver_volume(0, pages=3) 
         df_kdq = fetch_naver_volume(1, pages=3)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if df.empty: return []
-        
-        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-        df = df[~mask].drop_duplicates(subset=['종목명']).copy()
-        
-        def extract_num(x):
-            try:
-                val = re.sub(r'[^\d\.\-]', '', str(x))
-                if val in ['', '-']: return 0.0
-                return float(val)
-            except: return 0.0
+        if not df.empty:
+            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df = df[~mask].drop_duplicates(subset=['종목명']).copy()
             
-        df['Close'] = df['현재가'].apply(extract_num)
-        df['Volume'] = df['거래량'].apply(extract_num)
-        df['Amount'] = df['Close'] * df['Volume']
-        
-        df = df.sort_values('Amount', ascending=False).head(limit)
-        
+            def extract_num(x):
+                try:
+                    val = re.sub(r'[^\d\.\-]', '', str(x))
+                    return float(val) if val not in ['', '-'] else 0.0
+                except: return 0.0
+                
+            df['Close'] = df['현재가'].apply(extract_num)
+            df['Volume'] = df['거래량'].apply(extract_num)
+            df['Amount'] = df['Close'] * df['Volume']
+            df = df.sort_values('Amount', ascending=False).head(limit)
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
+                targets = df[['Name', 'Code']].values.tolist()
+                if targets: return targets
+    except: pass
+    
+    try:
         krx = get_krx_stocks()
         if not krx.empty:
-            df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
-            return df[['Name', 'Code']].values.tolist()
-        return []
-    except: return []
+            mask = krx['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            krx = krx[~mask].drop_duplicates(subset=['Name'])
+            return krx.head(limit)[['Name', 'Code']].values.tolist()
+    except: pass
+    return []
 
 @st.cache_data(ttl=300)
 def get_limit_stocks():
@@ -597,33 +636,25 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
-# 👈 [업데이트] 지능형 듀얼 데이터 엔진 (숫자는 FDR 먼저, 영문은 YF 먼저)
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     df = pd.DataFrame()
     
-    # 1. 한국 티커 (숫자로만 구성됨)
     if ticker_code.isdigit():
         try:
             df = fdr.DataReader(ticker_code, start_date)
         except: pass
-        
-        # FDR 실패 시 야후 우회
         if df is None or df.empty:
             try:
                 df = yf.Ticker(ticker_code + ".KS").history(start=start_date)
                 if not df.empty: df.index = df.index.tz_localize(None)
             except: pass
-            
-    # 2. 미국 티커 (알파벳 포함, ETF 등)
     else:
         try:
             df = yf.Ticker(ticker_code).history(start=start_date)
             if not df.empty: df.index = df.index.tz_localize(None)
         except: pass
-        
-        # 야후 실패 시 FDR 우회
         if df is None or df.empty:
             try:
                 df = fdr.DataReader(ticker_code, start_date)
@@ -704,21 +735,72 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         }
     except: return None
 
-def get_naver_calendar_events():
+@st.cache_data(ttl=3600)
+def analyze_theme_trends():
+    theme_proxies = {
+        "반도체": "091160",
+        "2차전지": "305720",
+        "바이오/헬스케어": "244580",
+        "인터넷/플랫폼": "157490",
+        "자동차/모빌리티": "091230",
+        "금융/지주": "091220",
+        "미디어/엔터": "266360",
+        "로봇/AI": "417270",
+        "K-방산": "449450",  
+        "조선/중공업": "139240",
+        "원자력/전력기기": "102960",
+        "화장품/미용": "228790",
+        "게임": "300610",
+        "건설/인프라": "117700",
+        "철강/소재": "117680"
+    }
+    
+    results = []
+    for theme_name, ticker in theme_proxies.items():
+        try:
+            df = get_historical_data(ticker, 250) 
+            if df.empty or len(df) < 20: continue
+            
+            current_price = float(df['Close'].iloc[-1])
+            
+            def get_stats(days):
+                slice_len = min(days, len(df))
+                period_df = df.iloc[-slice_len:]
+                start_price = float(period_df['Close'].iloc[0])
+                if start_price == 0: return 0, 0
+                
+                ret = ((current_price - start_price) / start_price) * 100
+                vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
+                return ret, vol_sum
+
+            r_1m, v_1m = get_stats(20)   
+            r_3m, v_3m = get_stats(60)   
+            r_6m, v_6m = get_stats(120)  
+            
+            results.append({
+                "테마": theme_name,
+                "1M수익률": r_1m, "1M거래대금": v_1m,
+                "3M수익률": r_3m, "3M거래대금": v_3m,
+                "6M수익률": r_6m, "6M거래대금": v_6m,
+            })
+        except: pass
+        
+    return pd.DataFrame(results)
+
+# 👈 [업데이트 2] 네이버 신규상장(IPO) 일정표 직접 파싱 로직 추가
+@st.cache_data(ttl=10800)
+def get_naver_ipo():
     try:
-        res = requests.get("https://finance.naver.com/sise/calendar.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
-            events_data = []
-            for cell in soup.select("table.type_cal tbody tr td"):
-                day_tag = cell.select_one("span.t_day")
-                if not day_tag: continue
-                day = day_tag.text.strip()
-                for item in cell.select("ul li"):
-                    if item.text.strip(): events_data.append({"날짜": f"{day}일", "일정": item.text.strip()})
-            if events_data: return pd.DataFrame(events_data)
-    except: pass
-    return pd.DataFrame()
+        url = "https://finance.naver.com/sise/ipo.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        df = pd.read_html(StringIO(str(table)))[0]
+        df = df.dropna(subset=['종목명'])
+        df = df[df['종목명'] != '종목명']
+        return df.head(15)
+    except:
+        return pd.DataFrame()
 
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
@@ -1097,7 +1179,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13
     "⚡ 딥테크 & 테마 주도주", 
     "🚨 상/하한가 분석", 
     "📰 실시간 뉴스 터미널", 
-    "📅 증시 캘린더", 
+    "📅 증시 캘린더 (IPO 분석)", 
     "💸 자금 흐름(히트맵)", 
     "👑 기간별 테마 트렌드",
     "💰 배당주(TOP 150)", 
@@ -1496,26 +1578,48 @@ with tab7:
                 if api_key_input: st.info(ask_gemini(f"속보 분석: {title}\n1. 팩트\n2. 선반영\n3. 전략", api_key_input))
             cols[4].link_button("원문🔗", news['link'], use_container_width=True)
 
+# 👈 [업데이트 1] 네이버 IPO 데이터 직접 크롤링 및 AI 분석 탑재
+@st.cache_data(ttl=10800)
+def get_naver_ipo_data():
+    try:
+        url = "https://finance.naver.com/sise/ipo.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        df = pd.read_html(StringIO(str(table)))[0]
+        df = df.dropna(how='all')
+        df = df[df['종목명'].notna()]
+        df = df[df['종목명'] != '종목명']
+        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
+    except:
+        return pd.DataFrame()
+
 with tab8:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📅 핵심 증시 일정 모니터링")
-    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 주요 증시 일정 (Naver)"])
+    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표 (TradingView)", "🇰🇷 국내 신규 상장(IPO) 공모주 분석"])
     with cal_tab1:
         components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
     with cal_tab2:
-        st.info("💡 **[IPO 일정]** 이번 달 수급에 가장 직접적인 영향을 주는 국내 주식 신규상장(IPO) 표입니다.")
-        try:
-            res = requests.get("https://finance.naver.com/sise/ipo.naver", headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-            tables = pd.read_html(StringIO(res.content.decode('euc-kr')))
-            for t in tables:
-                if '종목명' in t.columns and '상장일' in t.columns:
-                    t = t.dropna(subset=['종목명', '상장일'])
-                    if not t.empty: st.dataframe(t[['종목명', '현재가', '공모가', '청약일', '상장일']].head(15), use_container_width=True, hide_index=True); break
-        except: st.warning("⚠️ 자동 표 가져오기가 제한되었습니다. 아래 버튼을 이용해 주세요.")
+        st.info("💡 **[공모주 일정]** 이번 달 시장의 수급(자금)을 블랙홀처럼 빨아들일 신규 상장 종목 리스트입니다.")
+        with st.spinner("네이버 금융에서 최신 IPO 일정을 불러오는 중입니다..."):
+            ipo_df = get_naver_ipo_data()
+            
+        if not ipo_df.empty:
+            st.dataframe(ipo_df, use_container_width=True, hide_index=True)
+            
+            if api_key_input:
+                if st.button("🤖 AI 공모주(IPO) 옥석 가리기 및 투자 매력도 분석", type="primary", use_container_width=True):
+                    with st.spinner("AI가 상장 예정 종목들의 섹터와 흥행 가능성을 분석 중입니다..."):
+                        ipo_text = ipo_df[['종목명', '청약일', '상장일']].to_string()
+                        prompt = f"다음은 다가오는 한국 증시의 신규 상장(IPO) 공모주 일정 및 데이터입니다.\n[데이터]\n{ipo_text}\n\n이 종목들의 산업군과 현재 시장의 트렌드(기대감)를 바탕으로, 가장 흥행 돌풍을 일으키며 따상(급등)할 가능성이 높은 주도 섹터의 종목 1~2개를 꼽아주시고, 그 이유와 투자 매력도를 3줄로 평가해 주세요."
+                        st.success(ask_gemini(prompt, api_key_input))
+            else:
+                st.warning("AI 분석을 사용하시려면 사이드바에 Gemini API 키를 입력해 주세요.")
+        else:
+            st.error("데이터를 불러오지 못했습니다. 네이버 금융 서버 지연이 의심되니 잠시 후 리로드 해주세요.")
         st.divider()
-        btn_c1, btn_c2 = st.columns(2)
-        btn_c1.link_button("🚀 네이버 신규상장(IPO) 일정 바로가기", "https://finance.naver.com/sise/ipo.naver", use_container_width=True)
-        btn_c2.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
+        st.link_button("💰 네이버 배당금 일정 바로가기", "https://finance.naver.com/sise/dividend_list.naver", use_container_width=True)
 
 with tab9:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1607,7 +1711,6 @@ with tab10:
         results = []
         for theme_name, ticker in theme_proxies.items():
             try:
-                # 데이터 부족 문제 해결을 위해 여유롭게 250일 조회
                 df = get_historical_data(ticker, 250) 
                 if df.empty or len(df) < 20: continue
                 
@@ -1658,22 +1761,23 @@ with tab10:
         with col_c1:
             st.markdown(f"#### 💸 {chart_title} 거래대금 TOP 테마")
             vol_df = trend_df.sort_values(vol_col, ascending=True).tail(10).copy()
-            vol_df['text_label'] = vol_df[vol_col].apply(lambda x: f"{int(round(x)):,}억")
+            # 👈 [업데이트 2] 파이썬 단에서 소수점을 완전히 제거하고 정수로 변환
+            vol_df[vol_col] = vol_df[vol_col].round().astype(int)
             
-            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text='text_label')
-            fig_vol.update_traces(marker_color='#1f77b4', textposition='outside', textfont=dict(size=13))
+            fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text=vol_col)
+            fig_vol.update_traces(marker_color='#1f77b4', texttemplate='%{text:,}억', textposition='outside', textfont=dict(size=13))
             fig_vol.update_layout(xaxis_title="누적 거래대금 (억원)", yaxis_title="", height=450, margin=dict(l=0, r=40, t=10, b=0))
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
             
         with col_c2:
             st.markdown(f"#### 🚀 {chart_title} 수익률 TOP 테마")
             ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10).copy()
-            # 👈 [업데이트 2] 수익률 소수점 절사 패치 완료
-            ret_df['text_label'] = ret_df[ret_col].apply(lambda x: f"+{int(round(x))}%" if x > 0 else f"{int(round(x))}%")
+            # 👈 [업데이트 2] 수익률 퍼센트도 파이썬에서 강제 정수형(Int)으로 클렌징
+            ret_df[ret_col] = ret_df[ret_col].round().astype(int)
             colors = ['#ff4b4b' if val > 0 else '#1f77b4' for val in ret_df[ret_col]]
             
-            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text='text_label')
-            fig_ret.update_traces(marker_color=colors, textposition='outside', textfont=dict(size=13))
+            fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text=ret_col)
+            fig_ret.update_traces(marker_color=colors, texttemplate='%{text:+}%', textposition='outside', textfont=dict(size=13))
             fig_ret.update_layout(xaxis_title="누적 수익률 (%)", yaxis_title="", height=450, margin=dict(l=0, r=40, t=10, b=0))
             st.plotly_chart(fig_ret, use_container_width=True, config={'displayModeBar': False})
             
