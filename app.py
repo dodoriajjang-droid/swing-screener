@@ -652,7 +652,7 @@ def get_historical_data(ticker_code, days):
             
     return df
 
-# 👈 [업데이트] 상세 진단 결과에 이평선 판별 기준(💡) 텍스트 명시적으로 추가
+# 👈 [업데이트] 제목표시줄(Expander Header)에 상세 진단 통합 반영
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
@@ -907,7 +907,6 @@ def get_dividend_portfolio(ex_rate=1350.0):
                 
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
-# 👈 [업데이트] 주린이 가이드에 명확한 진단 기준 추가
 def show_beginner_guide():
     with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
         st.markdown("""
@@ -934,7 +933,6 @@ def show_beginner_guide():
         * **PBR:** 기업이 가진 재산(자산) 대비 주가가 얼마나 비싼지. (보통 1보다 낮으면 저평가)
         """)
 
-# 👈 [업데이트] A급 타점 선별 꿀팁 명시
 def show_trading_guidelines():
     with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=True):
         st.markdown("""
@@ -962,6 +960,7 @@ def show_trading_guidelines():
         * 🛑 **손절:** 손절 라인(20일선) 이탈 시 가차 없이 칼손절!
         """)
 
+# 👈 [업데이트] 제목표시줄 포맷 적용
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -978,7 +977,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     sector_info = tech_result.get('섹터', '기타')
     if len(sector_info) > 12: sector_info = sector_info[:12] + ".."
     
-    base_info = f"(진단: {tech_result['상태']} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ 개인: {p_trend} ｜ RSI: {tech_result['RSI']:.1f} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
+    align_status_short = tech_result['배열상태'].split(' ｜ ')[0]
+    
+    base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ 개인: {p_trend} ｜ RSI: {tech_result['RSI']:.1f} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
     
     header_block = f"{status_emoji} {tech_result['종목명']} / {sector_info} / {tech_result['현재가']:,}원"
     
@@ -1769,7 +1770,7 @@ with tab10:
         st.markdown("#### 📋 기간별 상세 데이터 (전체)")
         display_trend_df = trend_df.copy()
         for c in ['1M', '3M', '6M']:
-            display_trend_df[f'{c}수익률'] = display_trend_df[f'{c}수익률'].apply(lambda x: f"{x:+.2f}%")
+            display_trend_df[f'{c}수익률'] = display_trend_df[f'{c}수익률'].apply(lambda x: f"{x:+.0f}%")
             display_trend_df[f'{c}거래대금'] = display_trend_df[f'{c}거래대금'].apply(lambda x: f"{x:,.0f}억")
         
         st.dataframe(display_trend_df.sort_values(vol_col, ascending=False).set_index('테마'), use_container_width=True)
