@@ -45,7 +45,6 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 13개의 탭을 모바일/PC 상관없이 2~3줄로 예쁘게 펼쳐주는 강제 CSS
 st.markdown("""
 <style>
     div[data-testid="stTabs"] [data-baseweb="tab-list"] {
@@ -80,7 +79,7 @@ if 'value_scan_results' not in st.session_state:
     st.session_state.value_scan_results = None
 
 # ==========================================
-# 2. 통합 AI 호출 엔진
+# 2. 통합 AI 호출 엔진 (API 한도 초과 에러 친절하게 안내)
 # ==========================================
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -88,7 +87,11 @@ def ask_gemini(prompt, _api_key):
     try:
         genai.configure(api_key=_api_key)
         return genai.GenerativeModel('gemini-2.5-flash').generate_content(prompt).text
-    except Exception as e: return f"AI 분석 오류: {str(e)}"
+    except Exception as e: 
+        error_msg = str(e)
+        if "429" in error_msg or "quota" in error_msg.lower() or "spending cap" in error_msg.lower():
+            return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다. 구글 AI 스튜디오에서 새로운 API 키를 발급받거나 할당량을 확인해주세요!"
+        return f"AI 분석 오류: {error_msg}"
 
 @st.cache_data(ttl=3600)
 def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
@@ -234,124 +237,88 @@ def fetch_naver_volume(sosok, pages=1):
     if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
     return pd.DataFrame()
 
-# 👈 [업데이트] 히트맵(Tab 9)에서도 통신장애 발생 시 FDR로 우회하는 3중 방어막 추가
 @st.cache_data(ttl=300)
 def get_trading_value_kings():
-    # 1. FDR을 통한 빠르고 안전한 수집 시도
-    try:
-        df_fdr = fdr.StockListing('KRX')
-        if not df_fdr.empty and 'Amount' in df_fdr.columns:
-            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            df_fdr = df_fdr[~mask].copy()
-            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
-            df_fdr['Close'] = pd.to_numeric(df_fdr['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
-            df_fdr['ChagesRatio'] = pd.to_numeric(df_fdr['ChagesRatio'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
-            
-            df_fdr = df_fdr.sort_values('Amount', ascending=False).head(20)
-            df_fdr['Amount_Ouk'] = (df_fdr['Amount'] / 100000000).astype(int)
-            df_fdr['Amount_Ouk'] = df_fdr['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
-            
-            krx = get_krx_stocks()
-            if not krx.empty:
-                df_fdr = pd.merge(df_fdr, krx[['Name', 'Sector']], on='Name', how='left')
-                df_fdr['Sector'] = df_fdr['Sector'].fillna('기타/분류불가')
-            else:
-                df_fdr['Sector'] = '기타/분류불가'
-            return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
-    except: pass
-
-    # 2. FDR 실패 시 네이버 크롤링
     try:
         df_kpi = fetch_naver_volume(0, 1)
         df_kdq = fetch_naver_volume(1, 1)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if not df.empty:
-            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            df = df[~mask].copy()
+        if df.empty: return pd.DataFrame()
+        
+        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        df = df[~mask].copy()
+        
+        def extract_num(x):
+            try:
+                val = re.sub(r'[^\d\.\-]', '', str(x))
+                if val in ['', '-']: return 0.0
+                return float(val)
+            except: return 0.0
             
-            def extract_num(x):
-                try:
-                    val = re.sub(r'[^\d\.\-]', '', str(x))
-                    if val in ['', '-']: return 0.0
-                    return float(val)
-                except: return 0.0
-                
-            df['Name'] = df['종목명']
-            df['Close'] = df['현재가'].apply(extract_num)
-            df['ChagesRatio'] = df['등락률'].apply(extract_num)
-            df['Volume'] = df['거래량'].apply(extract_num)
-            df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
-            df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
+        df['Name'] = df['종목명']
+        df['Close'] = df['현재가'].apply(extract_num)
+        df['ChagesRatio'] = df['등락률'].apply(extract_num)
+        df['Volume'] = df['거래량'].apply(extract_num)
+        
+        df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
+        df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
+        
+        df = df.sort_values('Amount_Ouk', ascending=False).head(20)
+        
+        krx = get_krx_stocks()
+        if not krx.empty:
+            df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
+            df['Code'] = df['Code'].fillna('000000')
+            df['Sector'] = df['Sector'].fillna('기타/분류불가')
+        else:
+            df['Code'] = '000000'
+            df['Sector'] = '기타/분류불가'
             
-            df = df.sort_values('Amount_Ouk', ascending=False).head(20)
-            krx = get_krx_stocks()
-            if not krx.empty:
-                df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
-                df['Code'] = df['Code'].fillna('000000')
-                df['Sector'] = df['Sector'].fillna('기타/분류불가')
-            else:
-                df['Code'] = '000000'
-                df['Sector'] = '기타/분류불가'
-            return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
-    except: pass
-    return pd.DataFrame()
+        return df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except: return pd.DataFrame()
 
-# 👈 [오류 철벽 방어] 스캐너에서 데이터를 못 불러오는 버그 원천 차단 (3단계 폴백)
 @st.cache_data(ttl=300)
 def get_scan_targets(limit=50):
-    # 1. 1순위: 한국거래소 직결 데이터 (가장 안정적)
     try:
         df_fdr = fdr.StockListing('KRX')
         if not df_fdr.empty:
-            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name'])
-            
-            if 'Amount' in df_fdr.columns:
-                df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-                df_fdr = df_fdr.sort_values('Amount', ascending=False)
-            elif 'Marcap' in df_fdr.columns: # 거래대금이 없으면 시가총액순으로 대체
-                df_fdr['Marcap'] = pd.to_numeric(df_fdr['Marcap'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
-                df_fdr = df_fdr.sort_values('Marcap', ascending=False)
-                
-            targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
-            if targets: return targets
+            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+            if df_fdr['Amount'].max() > 0:
+                mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+                df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name']).sort_values('Amount', ascending=False)
+                targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
+                if len(targets) >= limit or len(targets) > 100:
+                    return targets
     except: pass
     
-    # 2. 2순위: 네이버 스크래핑 우회
     try:
         df_kpi = fetch_naver_volume(0, pages=3) 
         df_kdq = fetch_naver_volume(1, pages=3)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if not df.empty:
-            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            df = df[~mask].drop_duplicates(subset=['종목명']).copy()
+        if df.empty: return []
+        
+        mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        df = df[~mask].drop_duplicates(subset=['종목명']).copy()
+        
+        def extract_num(x):
+            try:
+                val = re.sub(r'[^\d\.\-]', '', str(x))
+                if val in ['', '-']: return 0.0
+                return float(val)
+            except: return 0.0
             
-            def extract_num(x):
-                try:
-                    val = re.sub(r'[^\d\.\-]', '', str(x))
-                    return float(val) if val not in ['', '-'] else 0.0
-                except: return 0.0
-                
-            df['Close'] = df['현재가'].apply(extract_num)
-            df['Volume'] = df['거래량'].apply(extract_num)
-            df['Amount'] = df['Close'] * df['Volume']
-            df = df.sort_values('Amount', ascending=False).head(limit)
-            krx = get_krx_stocks()
-            if not krx.empty:
-                df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
-                targets = df[['Name', 'Code']].values.tolist()
-                if targets: return targets
-    except: pass
-    
-    # 3. 3순위 (최후의 보루): 모든 통신이 막혀도 에러 없이 기본 상장사 목록 상위 반환
-    try:
+        df['Close'] = df['현재가'].apply(extract_num)
+        df['Volume'] = df['거래량'].apply(extract_num)
+        df['Amount'] = df['Close'] * df['Volume']
+        
+        df = df.sort_values('Amount', ascending=False).head(limit)
+        
         krx = get_krx_stocks()
         if not krx.empty:
-            mask = krx['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            krx = krx[~mask].drop_duplicates(subset=['Name'])
-            return krx.head(limit)[['Name', 'Code']].values.tolist()
-    except: pass
-    return []
+            df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
+            return df[['Name', 'Code']].values.tolist()
+        return []
+    except: return []
 
 @st.cache_data(ttl=300)
 def get_limit_stocks():
@@ -630,24 +597,37 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
+# 👈 [업데이트] 지능형 듀얼 데이터 엔진 (숫자는 FDR 먼저, 영문은 YF 먼저)
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     df = pd.DataFrame()
     
-    try:
-        df = fdr.DataReader(ticker_code, start_date)
-    except:
-        pass
-        
-    if df is None or df.empty:
+    # 1. 한국 티커 (숫자로만 구성됨)
+    if ticker_code.isdigit():
         try:
-            yf_ticker = ticker_code + ".KS" if ticker_code.isdigit() else ticker_code
-            df = yf.Ticker(yf_ticker).history(start=start_date)
-            if not df.empty:
-                df.index = df.index.tz_localize(None) 
-        except:
-            pass
+            df = fdr.DataReader(ticker_code, start_date)
+        except: pass
+        
+        # FDR 실패 시 야후 우회
+        if df is None or df.empty:
+            try:
+                df = yf.Ticker(ticker_code + ".KS").history(start=start_date)
+                if not df.empty: df.index = df.index.tz_localize(None)
+            except: pass
+            
+    # 2. 미국 티커 (알파벳 포함, ETF 등)
+    else:
+        try:
+            df = yf.Ticker(ticker_code).history(start=start_date)
+            if not df.empty: df.index = df.index.tz_localize(None)
+        except: pass
+        
+        # 야후 실패 시 FDR 우회
+        if df is None or df.empty:
+            try:
+                df = fdr.DataReader(ticker_code, start_date)
+            except: pass
             
     return df
 
@@ -1627,6 +1607,7 @@ with tab10:
         results = []
         for theme_name, ticker in theme_proxies.items():
             try:
+                # 데이터 부족 문제 해결을 위해 여유롭게 250일 조회
                 df = get_historical_data(ticker, 250) 
                 if df.empty or len(df) < 20: continue
                 
@@ -1680,19 +1661,20 @@ with tab10:
             vol_df['text_label'] = vol_df[vol_col].apply(lambda x: f"{int(round(x)):,}억")
             
             fig_vol = px.bar(vol_df, x=vol_col, y='테마', orientation='h', text='text_label')
-            fig_vol.update_traces(marker_color='#1f77b4', textposition='outside')
-            fig_vol.update_layout(xaxis_title="누적 거래대금 (억원)", yaxis_title="", height=400, margin=dict(l=0, r=0, t=10, b=0))
+            fig_vol.update_traces(marker_color='#1f77b4', textposition='outside', textfont=dict(size=13))
+            fig_vol.update_layout(xaxis_title="누적 거래대금 (억원)", yaxis_title="", height=450, margin=dict(l=0, r=40, t=10, b=0))
             st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False})
             
         with col_c2:
             st.markdown(f"#### 🚀 {chart_title} 수익률 TOP 테마")
             ret_df = trend_df.sort_values(ret_col, ascending=True).tail(10).copy()
+            # 👈 [업데이트 2] 수익률 소수점 절사 패치 완료
             ret_df['text_label'] = ret_df[ret_col].apply(lambda x: f"+{int(round(x))}%" if x > 0 else f"{int(round(x))}%")
             colors = ['#ff4b4b' if val > 0 else '#1f77b4' for val in ret_df[ret_col]]
             
             fig_ret = px.bar(ret_df, x=ret_col, y='테마', orientation='h', text='text_label')
-            fig_ret.update_traces(marker_color=colors, textposition='outside')
-            fig_ret.update_layout(xaxis_title="누적 수익률 (%)", yaxis_title="", height=400, margin=dict(l=0, r=0, t=10, b=0))
+            fig_ret.update_traces(marker_color=colors, textposition='outside', textfont=dict(size=13))
+            fig_ret.update_layout(xaxis_title="누적 수익률 (%)", yaxis_title="", height=450, margin=dict(l=0, r=40, t=10, b=0))
             st.plotly_chart(fig_ret, use_container_width=True, config={'displayModeBar': False})
             
         st.divider()
