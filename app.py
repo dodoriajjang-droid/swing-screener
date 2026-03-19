@@ -40,24 +40,37 @@ def save_watchlist(wl):
         st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 및 UI 탭 강제 줄바꿈 패치
+# 1. 초기 설정 및 UI 탭 강제 2줄 패치
 # ==========================================
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 st.markdown("""
 <style>
-    div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-        gap: 4px !important;
+    div[role="tablist"] {
         flex-wrap: wrap !important;
-        overflow-x: visible !important;
-        padding-bottom: 5px !important;
+        gap: 6px !important;
+        padding-bottom: 10px !important;
     }
-    div[data-testid="stTabs"] [data-baseweb="tab-list"] button {
-        flex-grow: 1 !important;
-        flex-basis: calc(14% - 5px) !important;
-        min-width: 140px !important;
+    button[role="tab"] {
+        flex: 1 1 12% !important; 
+        min-width: 130px !important;
+        background-color: #f1f3f6 !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 8px !important;
+        padding: 8px 5px !important;
         margin: 0 !important;
+        display: flex !important;
+        justify-content: center !important;
+    }
+    button[role="tab"][aria-selected="true"] {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border-color: #ff4b4b !important;
+        font-weight: bold !important;
+    }
+    button[role="tab"][aria-selected="true"] p {
+        color: white !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -140,13 +153,6 @@ def get_fear_and_greed():
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
             data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return None
@@ -401,37 +407,39 @@ def get_limit_stocks():
         
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
+# 👈 [업데이트 1] 실시간 뉴스 스크래핑 양을 3배(3페이지)로 대폭 상향
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
+    articles = []
     try:
         ts = int(datetime.now().timestamp())
-        url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&_ts={ts}"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
-        articles = []
-        for dl in soup.select("dl"):
-            subject = dl.select_one(".articleSubject a")
-            if not subject: continue
-            title = subject.get_text(strip=True)
-            link = "https://finance.naver.com" + subject['href'] if subject['href'].startswith("/") else subject['href']
-            pub_time = ""
-            wdate = dl.select_one(".wdate")
-            if wdate:
-                raw_date = wdate.get_text(strip=True)
-                match = re.search(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', raw_date)
-                if match:
-                    date_part = match.group(1)
-                    time_part = match.group(2)
-                    today_str = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
-                    if date_part == today_str: pub_time = time_part
-                    else: pub_time = f"{date_part[5:].replace('-', '/')} {time_part}"
-                else:
-                    match_time = re.search(r'(\d{2}:\d{2})', raw_date)
-                    if match_time: pub_time = match_time.group(1)
-            if not pub_time: pub_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%H:%M")
-            articles.append({"title": title, "link": link, "time": pub_time})
-        return articles
-    except: return []
+        for page in range(1, 4):  # 1~3페이지까지 싹 긁어옴
+            url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&page={page}&_ts={ts}"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
+            for dl in soup.select("dl"):
+                subject = dl.select_one(".articleSubject a")
+                if not subject: continue
+                title = subject.get_text(strip=True)
+                link = "https://finance.naver.com" + subject['href'] if subject['href'].startswith("/") else subject['href']
+                pub_time = ""
+                wdate = dl.select_one(".wdate")
+                if wdate:
+                    raw_date = wdate.get_text(strip=True)
+                    match = re.search(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', raw_date)
+                    if match:
+                        date_part = match.group(1)
+                        time_part = match.group(2)
+                        today_str = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
+                        if date_part == today_str: pub_time = time_part
+                        else: pub_time = f"{date_part[5:].replace('-', '/')} {time_part}"
+                    else:
+                        match_time = re.search(r'(\d{2}:\d{2})', raw_date)
+                        if match_time: pub_time = match_time.group(1)
+                if not pub_time: pub_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%H:%M")
+                articles.append({"title": title, "link": link, "time": pub_time})
+    except: pass
+    return articles
 
 def update_news_state():
     items = get_latest_naver_news()
@@ -440,6 +448,20 @@ def update_news_state():
             st.session_state.news_data.insert(0, item)
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
+
+# 👈 [신규] 네이버 증권 리포트 긁어오기 함수
+@st.cache_data(ttl=3600)
+def get_naver_research():
+    try:
+        url = "https://finance.naver.com/research/company_list.naver"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_1'})
+        df = pd.read_html(StringIO(str(table)))[0]
+        df = df.dropna(subset=['종목명'])
+        return df[['종목명', '제목', '증권사', '작성일']].head(30)
+    except:
+        return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
@@ -608,6 +630,45 @@ def get_investor_trend(code):
         return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak), fmt(ind_sum, ind_streak)
     except: return "조회불가", "조회불가", "조회불가"
 
+# 👈 [신규] 종목별 일별 시세 & 매매동향(외인/기관/개인) 추출 함수
+@st.cache_data(ttl=3600)
+def get_daily_sise_and_investor(code):
+    if not code.isdigit(): return pd.DataFrame() # 국내 종목만
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        table = soup.select('table.type2')[1]
+        
+        rows = table.select('tr')
+        data = []
+        for row in rows:
+            tds = row.select('td')
+            if len(tds) < 9 or not tds[0].text.strip(): continue
+            try:
+                date = tds[0].text.strip()
+                close = tds[1].text.strip()
+                diff = tds[2].text.strip()
+                rate = tds[3].text.strip()
+                
+                inst = int(tds[5].text.strip().replace(',', '').replace('+', ''))
+                forgn = int(tds[6].text.strip().replace(',', '').replace('+', ''))
+                retail = -(inst + forgn)
+                
+                def fmt_vol(v):
+                    if v > 0: return f"🔴 +{v:,}"
+                    elif v < 0: return f"🔵 {v:,}"
+                    return "0"
+                    
+                data.append({
+                    "날짜": date, "종가": close, "전일비": diff, "등락률": rate,
+                    "외국인": fmt_vol(forgn), "기관": fmt_vol(inst), "개인(추정)": fmt_vol(retail)
+                })
+            except: pass
+            if len(data) >= 10: break # 최근 10일치
+        return pd.DataFrame(data)
+    except: return pd.DataFrame()
+
 def get_fundamentals(ticker_code):
     if ticker_code.isdigit():
         try:
@@ -652,7 +713,6 @@ def get_historical_data(ticker_code, days):
             
     return df
 
-# 👈 [업데이트] 제목표시줄(Expander Header)에 상세 진단 통합 반영
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
@@ -960,7 +1020,6 @@ def show_trading_guidelines():
         * 🛑 **손절:** 손절 라인(20일선) 이탈 시 가차 없이 칼손절!
         """)
 
-# 👈 [업데이트] 제목표시줄 포맷 적용
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -1072,6 +1131,15 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         yaxis=dict(title="", showgrid=False, tickformat=","), yaxis2=dict(title="", overlaying="y", side="right", showgrid=False, showticklabels=False)
                     )
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
+                
+                # 👈 [신규] 종목 카드 하단에 일별 시세 & 수급 표 추가
+                st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
+                daily_df = get_daily_sise_and_investor(tech_result['티커'])
+                if not daily_df.empty:
+                    st.dataframe(daily_df, use_container_width=True, hide_index=True)
+                else:
+                    st.caption("해외 주식이거나 세부 수급 데이터를 제공하지 않는 종목입니다.")
+                    
             else: st.error("데이터를 불러오지 못했습니다.")
 
 def display_sorted_results(results_list, tab_key, api_key=""):
@@ -1502,84 +1570,101 @@ with tab6:
             display_lower.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
 
+# 👈 [업데이트] 뉴스 수집 3배 확장 & 네이버 증권 리포트 탭 통합 신설
 with tab7:
     st.markdown("<br>", unsafe_allow_html=True)
-    cols_top = st.columns([4, 1])
-    cols_top[0].subheader("📰 프로 트레이더용 실시간 속보 터미널")
-    if cols_top[1].button("🔄 속보 리로드", use_container_width=True): 
-        get_latest_naver_news.clear()
-        st.session_state.news_data = []
-        st.session_state.seen_links = set()
-        st.session_state.seen_titles = set()
-        st.rerun()
+    st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
     
-    keywords_input = st.text_input("🎯 핵심 키워드 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
-    keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
-    only_kw = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
-    update_news_state()
-    st.divider()
-
-    if st.session_state.quick_analyze_news:
-        qa_name, qa_code = st.session_state.quick_analyze_news
-        st.success(f"⚡ **{qa_name}** 뉴스 감지! 즉시 타점을 진단합니다.")
-        with st.spinner(f"'{qa_name}' 정밀 분석 중..."):
-            res = analyze_technical_pattern(qa_name, qa_code)
-            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="news_qa")
-        if st.button("닫기 ❌", key="close_qa"):
-            st.session_state.quick_analyze_news = None
+    news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트"])
+    
+    with news_sub1:
+        cols_top = st.columns([4, 1])
+        if cols_top[1].button("🔄 속보 리로드", use_container_width=True): 
+            get_latest_naver_news.clear()
+            st.session_state.news_data = []
+            st.session_state.seen_links = set()
+            st.session_state.seen_titles = set()
             st.rerun()
+        
+        keywords_input = st.text_input("🎯 핵심 키워드 하이라이트 (쉼표 구분):", value="AI, 반도체, 데이터센터, 원전, 로봇, 바이오, 수주, 상한가, 단독")
+        keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
+        only_kw = st.checkbox("🔥 위 키워드가 포함된 핵심 뉴스만 보기", value=False)
+        update_news_state()
         st.divider()
 
-    krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
-    pinned_news, regular_news = [], []
-    for news in st.session_state.news_data[:60]:
-        has_kw = any(k.lower() in news['title'].lower() for k in keywords)
-        if only_kw and not has_kw: continue
-        if has_kw and any(kw in news['title'] for kw in ['단독', '특징주', '상한가', '수주', '최대']) and len(pinned_news) < 2:
-            pinned_news.append(news)
-        else: regular_news.append(news)
+        if st.session_state.quick_analyze_news:
+            qa_name, qa_code = st.session_state.quick_analyze_news
+            st.success(f"⚡ **{qa_name}** 뉴스 감지! 즉시 타점을 진단합니다.")
+            with st.spinner(f"'{qa_name}' 정밀 분석 중..."):
+                res = analyze_technical_pattern(qa_name, qa_code)
+                if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="news_qa")
+            if st.button("닫기 ❌", key="close_qa"):
+                st.session_state.quick_analyze_news = None
+                st.rerun()
+            st.divider()
 
-    if pinned_news:
-        st.markdown("### 🚨 실시간 메인 헤드라인 (특징주/단독)")
-        cols_pin = st.columns(len(pinned_news))
-        for idx, p_news in enumerate(pinned_news):
-            with cols_pin[idx]:
-                with st.container(border=True):
-                    st.caption(f"⏱️ {p_news['time']}")
-                    st.markdown(f"#### {p_news['title']}")
-                    if st.button("🤖 AI 팩트체크", key=f"pin_ai_{idx}") and api_key_input:
-                        st.info(ask_gemini(f"속보 분석: {p_news['title']}\n1.팩트 2.선반영 3.전략", api_key_input))
-                    st.link_button("원문 읽기 🔗", p_news['link'], use_container_width=True)
-        st.markdown("---")
+        krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
+        pinned_news, regular_news = [], []
+        
+        # 150개까지 긁어온 뉴스 데이터를 넉넉하게 뿌려줍니다.
+        for news in st.session_state.news_data[:150]:
+            has_kw = any(k.lower() in news['title'].lower() for k in keywords)
+            if only_kw and not has_kw: continue
+            if has_kw and any(kw in news['title'] for kw in ['단독', '특징주', '상한가', '수주', '최대']) and len(pinned_news) < 2:
+                pinned_news.append(news)
+            else: regular_news.append(news)
 
-    good_kws = ['돌파', '최대', '흑자', '승인', '급등', '수주', '상한가', '호실적', 'MOU']
-    bad_kws = ['하락', '적자', '배임', '블록딜', '급락', '횡령', '상장폐지', '주의']
-    for i, news in enumerate(regular_news[:40]):
-        title = news['title']
-        prefix = ""
-        if '단독' in title: prefix += "🚨**[단독]** "
-        if '특징주' in title: prefix += "💡**[특징주]** "
-        if any(kw in title for kw in good_kws): prefix += "🔴`[호재]` "
-        elif any(kw in title for kw in bad_kws): prefix += "🔵`[악재]` "
-        
-        found_comps = []
-        for name, code in krx_dict.items():
-            if name in title:
-                found_comps.append((name, code))
-                if len(found_comps) >= 1: break
-        
-        with st.container(border=True):
-            cols = st.columns([1, 5.5, 2, 1.5, 1])
-            cols[0].markdown(f"**🕒 {news['time']}**")
-            cols[1].markdown(f"{prefix}{title}")
-            with cols[2]:
-                for c_name, c_code in found_comps:
-                    if st.button(f"🔍 {c_name} 타점보기", key=f"qa_{c_code}_{i}"):
-                        st.session_state.quick_analyze_news = (c_name, c_code)
-                        st.rerun()
-            if cols[3].button("🤖 AI 판독", key=f"n_ai_{i}"):
-                if api_key_input: st.info(ask_gemini(f"속보 분석: {title}\n1. 팩트\n2. 선반영\n3. 전략", api_key_input))
-            cols[4].link_button("원문🔗", news['link'], use_container_width=True)
+        if pinned_news:
+            st.markdown("### 🚨 실시간 메인 헤드라인 (특징주/단독)")
+            cols_pin = st.columns(len(pinned_news))
+            for idx, p_news in enumerate(pinned_news):
+                with cols_pin[idx]:
+                    with st.container(border=True):
+                        st.caption(f"⏱️ {p_news['time']}")
+                        st.markdown(f"#### {p_news['title']}")
+                        if st.button("🤖 AI 팩트체크", key=f"pin_ai_{idx}") and api_key_input:
+                            st.info(ask_gemini(f"속보 분석: {p_news['title']}\n1.팩트 2.선반영 3.전략", api_key_input))
+                        st.link_button("원문 읽기 🔗", p_news['link'], use_container_width=True)
+            st.markdown("---")
+
+        good_kws = ['돌파', '최대', '흑자', '승인', '급등', '수주', '상한가', '호실적', 'MOU']
+        bad_kws = ['하락', '적자', '배임', '블록딜', '급락', '횡령', '상장폐지', '주의']
+        for i, news in enumerate(regular_news[:80]):
+            title = news['title']
+            prefix = ""
+            if '단독' in title: prefix += "🚨**[단독]** "
+            if '특징주' in title: prefix += "💡**[특징주]** "
+            if any(kw in title for kw in good_kws): prefix += "🔴`[호재]` "
+            elif any(kw in title for kw in bad_kws): prefix += "🔵`[악재]` "
+            
+            found_comps = []
+            for name, code in krx_dict.items():
+                if name in title:
+                    found_comps.append((name, code))
+                    if len(found_comps) >= 1: break
+            
+            with st.container(border=True):
+                cols = st.columns([1, 5.5, 2, 1.5, 1])
+                cols[0].markdown(f"**🕒 {news['time']}**")
+                cols[1].markdown(f"{prefix}{title}")
+                with cols[2]:
+                    for c_name, c_code in found_comps:
+                        if st.button(f"🔍 {c_name} 타점보기", key=f"qa_{c_code}_{i}"):
+                            st.session_state.quick_analyze_news = (c_name, c_code)
+                            st.rerun()
+                if cols[3].button("🤖 AI 판독", key=f"n_ai_{i}"):
+                    if api_key_input: st.info(ask_gemini(f"속보 분석: {title}\n1. 팩트\n2. 선반영\n3. 전략", api_key_input))
+                cols[4].link_button("원문🔗", news['link'], use_container_width=True)
+
+    with news_sub2:
+        st.markdown("### 📋 오늘의 실시간 증권사 종목 리포트")
+        st.info("💡 네이버 증권 리서치 게시판에 방금 막 올라온 따끈따끈한 기관 리포트 목록입니다.")
+        with st.spinner("리포트 목록을 가져오는 중입니다..."):
+            research_df = get_naver_research()
+            if not research_df.empty:
+                st.dataframe(research_df, use_container_width=True, hide_index=True)
+            else:
+                st.error("리포트를 가져오지 못했습니다.")
 
 with tab8:
     st.markdown("<br>", unsafe_allow_html=True)
