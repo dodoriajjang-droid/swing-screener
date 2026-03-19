@@ -155,6 +155,13 @@ def get_fear_and_greed():
             data = json.loads(res2.json()['contents'])
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+    try:
+        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
+        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res3.status_code == 200:
+            data = res3.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
     return None
 
 @st.cache_data(ttl=3600)
@@ -407,13 +414,12 @@ def get_limit_stocks():
         
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
-# 👈 [업데이트 1] 실시간 뉴스 스크래핑 양을 3배(3페이지)로 대폭 상향
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
     try:
         ts = int(datetime.now().timestamp())
-        for page in range(1, 4):  # 1~3페이지까지 싹 긁어옴
+        for page in range(1, 4): 
             url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&page={page}&_ts={ts}"
             res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
             soup = BeautifulSoup(res.content.decode('euc-kr', errors='replace'), 'html.parser')
@@ -449,7 +455,6 @@ def update_news_state():
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
-# 👈 [신규] 네이버 증권 리포트 긁어오기 함수
 @st.cache_data(ttl=3600)
 def get_naver_research():
     try:
@@ -630,10 +635,9 @@ def get_investor_trend(code):
         return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak), fmt(ind_sum, ind_streak)
     except: return "조회불가", "조회불가", "조회불가"
 
-# 👈 [신규] 종목별 일별 시세 & 매매동향(외인/기관/개인) 추출 함수
 @st.cache_data(ttl=3600)
 def get_daily_sise_and_investor(code):
-    if not code.isdigit(): return pd.DataFrame() # 국내 종목만
+    if not code.isdigit(): return pd.DataFrame()
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
@@ -665,7 +669,7 @@ def get_daily_sise_and_investor(code):
                     "외국인": fmt_vol(forgn), "기관": fmt_vol(inst), "개인(추정)": fmt_vol(retail)
                 })
             except: pass
-            if len(data) >= 10: break # 최근 10일치
+            if len(data) >= 10: break
         return pd.DataFrame(data)
     except: return pd.DataFrame()
 
@@ -842,6 +846,7 @@ def analyze_theme_trends():
         
     return pd.DataFrame(results)
 
+# 👈 [신규] 네이버 IPO 직접 파싱 로직
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
@@ -1132,7 +1137,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     )
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
                 
-                # 👈 [신규] 종목 카드 하단에 일별 시세 & 수급 표 추가
                 st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                 daily_df = get_daily_sise_and_investor(tech_result['티커'])
                 if not daily_df.empty:
@@ -1570,7 +1574,6 @@ with tab6:
             display_lower.columns = ['종목명', '섹터/테마', '가격 흐름 (전일➡️오늘)', '거래대금(억)']
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
 
-# 👈 [업데이트] 뉴스 수집 3배 확장 & 네이버 증권 리포트 탭 통합 신설
 with tab7:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
@@ -1606,7 +1609,6 @@ with tab7:
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
         pinned_news, regular_news = [], []
         
-        # 150개까지 긁어온 뉴스 데이터를 넉넉하게 뿌려줍니다.
         for news in st.session_state.news_data[:150]:
             has_kw = any(k.lower() in news['title'].lower() for k in keywords)
             if only_kw and not has_kw: continue
@@ -1905,42 +1907,45 @@ with tab12:
     c_cat, c_etf = st.columns(2)
     selected_category = c_cat.selectbox("📂 ETF 카테고리 선택:", list(etf_categories.keys()))
     
-    etf_opts = [f"{ticker} ({name})" for ticker, name in etf_categories[selected_category]]
+    etf_opts = ["🔍 분석할 ETF를 선택하세요."] + [f"{ticker} ({name})" for ticker, name in etf_categories[selected_category]]
     selected_etf_str = c_etf.selectbox("🔍 분석할 ETF 선택:", etf_opts)
-    selected_ticker = selected_etf_str.split(" ")[0]
     
     st.divider()
     
-    with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
-        clean_ticker = selected_ticker.replace(".KS", "")
-        res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
-        
-        if res:
-            draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t12_etf")
+    if selected_etf_str != "🔍 분석할 ETF를 선택하세요.":
+        selected_ticker = selected_etf_str.split(" ")[0]
+        with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
+            clean_ticker = selected_ticker.replace(".KS", "")
+            res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
             
-            st.markdown("<br>", unsafe_allow_html=True)
-            if api_key_input:
-                if st.button(f"🤖 '{selected_ticker}' AI 포트폴리오 & 매매 전략 분석", type="primary", use_container_width=True):
-                    with st.spinner("AI가 해당 ETF의 상위 종목 포트폴리오와 거시경제 상황을 분석하여 전략을 수립 중입니다..."):
-                        etf_prompt = f"""
-                        당신은 월스트리트의 퀀트 애널리스트이자 ETF 전문가입니다. 
-                        현재 사용자가 분석을 요청한 ETF는 '{selected_etf_str}' 입니다.
-                        
-                        [현재 기술적 지표]
-                        - 현재가: {res['현재가']}
-                        - 20일선: {res['진입가_가이드']} (상태: {res['상태']})
-                        - RSI: {res['RSI']:.1f}
-                        
-                        위 정보를 바탕으로 다음 내용을 분석해 주세요:
-                        1. 🏢 **핵심 포트폴리오 분석**: 이 ETF가 주로 담고 있는 상위 5~10개 종목의 특성과 현재 시장(매크로) 환경에서의 강점/약점을 설명해 주세요.
-                        2. 🎯 **단기/중기 매매 의견**: 현재 기술적 타점(이격도, RSI)을 고려할 때 지금 진입하는 것이 좋은지 (적극매수/분할매수/관망 중 택 1) 명확히 제시하고 그 이유를 설명해 주세요.
-                        3. 💡 **투자 주의사항**: 현재 거시경제 상황(금리, 인플레이션 등)에서 이 ETF 투자 시 겪을 수 있는 리스크 1가지를 경고해 주세요.
-                        """
-                        st.info(ask_gemini(etf_prompt, api_key_input))
+            if res:
+                draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t12_etf")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                if api_key_input:
+                    if st.button(f"🤖 '{selected_ticker}' AI 포트폴리오 & 매매 전략 분석", type="primary", use_container_width=True):
+                        with st.spinner("AI가 해당 ETF의 상위 종목 포트폴리오와 거시경제 상황을 분석하여 전략을 수립 중입니다..."):
+                            etf_prompt = f"""
+                            당신은 월스트리트의 퀀트 애널리스트이자 ETF 전문가입니다. 
+                            현재 사용자가 분석을 요청한 ETF는 '{selected_etf_str}' 입니다.
+                            
+                            [현재 기술적 지표]
+                            - 현재가: {res['현재가']}
+                            - 20일선: {res['진입가_가이드']} (상태: {res['상태']})
+                            - RSI: {res['RSI']:.1f}
+                            
+                            위 정보를 바탕으로 다음 내용을 분석해 주세요:
+                            1. 🏢 **핵심 포트폴리오 분석**: 이 ETF가 주로 담고 있는 상위 5~10개 종목의 특성과 현재 시장(매크로) 환경에서의 강점/약점을 설명해 주세요.
+                            2. 🎯 **단기/중기 매매 의견**: 현재 기술적 타점(이격도, RSI)을 고려할 때 지금 진입하는 것이 좋은지 (적극매수/분할매수/관망 중 택 1) 명확히 제시하고 그 이유를 설명해 주세요.
+                            3. 💡 **투자 주의사항**: 현재 거시경제 상황(금리, 인플레이션 등)에서 이 ETF 투자 시 겪을 수 있는 리스크 1가지를 경고해 주세요.
+                            """
+                            st.info(ask_gemini(etf_prompt, api_key_input))
+                else:
+                    st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
             else:
-                st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
-        else:
-            st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 증시 데이터 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
+                st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 증시 데이터 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
+    else:
+        st.info("👆 위 목록에서 타점을 확인할 ETF를 골라주세요.")
 
 with tab13:
     st.markdown("<br>", unsafe_allow_html=True)
