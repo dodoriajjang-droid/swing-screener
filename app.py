@@ -45,7 +45,6 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 14개의 탭을 모바일/PC 상관없이 2~3줄로 예쁘게 펼쳐주는 강제 CSS
 st.markdown("""
 <style>
     div[role="tablist"] {
@@ -120,8 +119,10 @@ def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
         return "오류"
 
 # ==========================================
-# 3. 데이터 수집 및 분석 함수들
+# 3. 데이터 수집 및 분석 함수들 (누락 복구 완벽 패치)
 # ==========================================
+
+# 1️⃣ 거시경제 및 미장 데이터
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
@@ -162,7 +163,6 @@ def get_fear_and_greed():
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
     empty_df = pd.DataFrame(columns=['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액', '거래량'])
-    
     try:
         response = requests.get('https://finance.yahoo.com/gainers', headers={'User-Agent': 'Mozilla/5.0'})
         tables = pd.read_html(StringIO(response.text))
@@ -213,6 +213,7 @@ def get_us_top_gainers():
         return df, ex_rate, fetch_time
     except: return empty_df, 1350.0, fetch_time
 
+# 2️⃣ 코스피/코스닥 스캐닝 데이터
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
@@ -408,6 +409,7 @@ def get_limit_stocks():
         
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
+# 3️⃣ 뉴스, 일정, IPO 데이터 수집 (누락되었던 함수 포함 완벽 복구)
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
@@ -462,32 +464,22 @@ def get_naver_research():
     except:
         return pd.DataFrame()
 
-# 👈 [신규 탑재] 14번 탭 전용 네이버 금융 펀더멘털(기업실적분석/동일업종/컨센서스) 스크래핑 엔진
-@st.cache_data(ttl=86400)
-def get_financial_deep_data(code):
+@st.cache_data(ttl=10800)
+def get_naver_ipo_data():
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        url = "https://finance.naver.com/sise/ipo.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        tables = pd.read_html(StringIO(res.text))
-        
-        fin_df = None
-        peer_df = None
-        
-        for t in tables:
-            str_t = str(t)
-            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
-                if fin_df is None: fin_df = t
-            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
-                if peer_df is None: peer_df = t
-        
-        soup = BeautifulSoup(res.text, 'html.parser')
-        c_area = soup.select_one('.r_cmp_area .f_up em')
-        consensus = c_area.text if c_area else "증권사 추정치 없음"
-        
-        return fin_df, peer_df, consensus
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        df = pd.read_html(StringIO(str(table)))[0]
+        df = df.dropna(how='all')
+        df = df[df['종목명'].notna()]
+        df = df[df['종목명'] != '종목명']
+        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
     except:
-        return None, None, "데이터 스크래핑 오류"
+        return pd.DataFrame()
 
+# 4️⃣ AI 부가 기능 수집 함수들
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
@@ -612,6 +604,7 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
         return validated[:20]
     except: return []
 
+# 5️⃣ 재무/기술적 정밀 수집 엔진 (누락 복구)
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
@@ -710,6 +703,31 @@ def get_fundamentals(ticker_code):
             pbr = round(info.get('priceToBook', 0), 2) if info.get('priceToBook') else 'N/A'
             return per, pbr
         except: return 'N/A', 'N/A'
+
+@st.cache_data(ttl=86400)
+def get_financial_deep_data(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        tables = pd.read_html(StringIO(res.text))
+        
+        fin_df = None
+        peer_df = None
+        
+        for t in tables:
+            str_t = str(t)
+            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
+                if fin_df is None: fin_df = t
+            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
+                if peer_df is None: peer_df = t
+        
+        soup = BeautifulSoup(res.text, 'html.parser')
+        c_area = soup.select_one('.r_cmp_area .f_up em')
+        consensus = c_area.text if c_area else "증권사 목표가 추정치 없음"
+        
+        return fin_df, peer_df, consensus
+    except:
+        return None, None, "데이터 스크래핑 오류"
 
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
@@ -993,7 +1011,7 @@ def show_beginner_guide():
 
         ### 3. 🌡️ 보조 지표 (RSI & OBV & 수급)
         * **🔴 RSI 과열 (70 이상):** 사람들이 너무 흥분해서 비싸게 사고 있는 상태. (곧 떨어질 확률이 높으니 매수 자제)
-        * **🔵 RSI 바닥 (30 이하):** 사람들이 공포에 질려 너무 싸게 던진 상태. (반등을 노려볼 만한 자리)
+        * **🔵 RSI 바닥 (30 이하):** 사람들이 공포에 질려 너무 싸 던진 상태. (반등을 노려볼 만한 자리)
         * **수급 (외인/기관/개인):** 주식을 누가 사고파는지 보여줍니다. 외국인과 기관이 동시에 사는(쌍끌이) 종목이 크게 오를 확률이 높습니다. (🔥매집 = 사고 있음, 💧매도 = 팔고 있음)
         * **OBV:** 주가가 오를 때의 거래량은 더하고 내릴 때의 거래량은 뺀 지표. 주가는 제자리인데 OBV 선이 우상향하면 세력이 몰래 매집 중이라는 뜻입니다.
 
@@ -1181,32 +1199,6 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     for i, res in enumerate(sorted_res):
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
 
-# 👈 [신규 탑재] 14번 탭 전용: 네이버 금융 펀더멘털 스크래핑 엔진 (가치 평가 지표, 실적, 비교표 싹 긁어오기)
-@st.cache_data(ttl=86400)
-def get_financial_deep_data(code):
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        tables = pd.read_html(StringIO(res.text))
-        
-        fin_df = None
-        peer_df = None
-        
-        for t in tables:
-            str_t = str(t)
-            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
-                if fin_df is None: fin_df = t
-            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
-                if peer_df is None: peer_df = t
-        
-        soup = BeautifulSoup(res.text, 'html.parser')
-        c_area = soup.select_one('.r_cmp_area .f_up em')
-        consensus = c_area.text if c_area else "증권사 목표가 추정치 없음"
-        
-        return fin_df, peer_df, consensus
-    except:
-        return None, None, "데이터 스크래핑 오류"
-
 # ==========================================
 # 4. 메인 화면 시작
 # ==========================================
@@ -1276,7 +1268,6 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-# 👈 [업데이트] 14번 탭 (AI 딥 다이브 정밀 분석기) 신설
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
     "🔥 🇺🇸 미국 급등주", 
     "🚀 조건 검색 스캐너", 
@@ -1291,7 +1282,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13
     "💰 배당주(TOP 150)", 
     "📊 글로벌 ETF 분석", 
     "⭐ 내 관심종목",
-    "🔬 기업 정밀 분석기"  # 👈 뉴 탭!
+    "🔬 기업 정밀 분석기" 
 ])
 
 with tab1:
@@ -1996,7 +1987,6 @@ with tab13:
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
 
-# 👈 [핵심 기능] 14번 탭: 펀더멘털 정밀 분석기 (재무제표 + 컨센서스 + 경쟁사 AI 종합 분석)
 with tab14:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 기업 정밀 분석기 (AI Fundamental Deep Dive)")
