@@ -45,6 +45,7 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini 주식 검색기", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
+# 14개의 탭을 모바일/PC 상관없이 2~3줄로 예쁘게 펼쳐주는 강제 CSS
 st.markdown("""
 <style>
     div[role="tablist"] {
@@ -153,13 +154,6 @@ def get_fear_and_greed():
         res2 = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res2.status_code == 200:
             data = json.loads(res2.json()['contents'])
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
-    except: pass
-    try:
-        proxy_url3 = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res3 = requests.get(proxy_url3, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res3.status_code == 200:
-            data = res3.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return None
@@ -467,6 +461,32 @@ def get_naver_research():
         return df[['종목명', '제목', '증권사', '작성일']].head(30)
     except:
         return pd.DataFrame()
+
+# 👈 [신규 탑재] 14번 탭 전용 네이버 금융 펀더멘털(기업실적분석/동일업종/컨센서스) 스크래핑 엔진
+@st.cache_data(ttl=86400)
+def get_financial_deep_data(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        tables = pd.read_html(StringIO(res.text))
+        
+        fin_df = None
+        peer_df = None
+        
+        for t in tables:
+            str_t = str(t)
+            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
+                if fin_df is None: fin_df = t
+            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
+                if peer_df is None: peer_df = t
+        
+        soup = BeautifulSoup(res.text, 'html.parser')
+        c_area = soup.select_one('.r_cmp_area .f_up em')
+        consensus = c_area.text if c_area else "증권사 추정치 없음"
+        
+        return fin_df, peer_df, consensus
+    except:
+        return None, None, "데이터 스크래핑 오류"
 
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
@@ -846,22 +866,6 @@ def analyze_theme_trends():
         
     return pd.DataFrame(results)
 
-# 👈 [신규] 네이버 IPO 직접 파싱 로직
-@st.cache_data(ttl=10800)
-def get_naver_ipo_data():
-    try:
-        url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        table = soup.find('table', {'class': 'type_2'})
-        df = pd.read_html(StringIO(str(table)))[0]
-        df = df.dropna(how='all')
-        df = df[df['종목명'].notna()]
-        df = df[df['종목명'] != '종목명']
-        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
-    except:
-        return pd.DataFrame()
-
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
     portfolio = {
@@ -1177,6 +1181,32 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     for i, res in enumerate(sorted_res):
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
 
+# 👈 [신규 탑재] 14번 탭 전용: 네이버 금융 펀더멘털 스크래핑 엔진 (가치 평가 지표, 실적, 비교표 싹 긁어오기)
+@st.cache_data(ttl=86400)
+def get_financial_deep_data(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        tables = pd.read_html(StringIO(res.text))
+        
+        fin_df = None
+        peer_df = None
+        
+        for t in tables:
+            str_t = str(t)
+            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
+                if fin_df is None: fin_df = t
+            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
+                if peer_df is None: peer_df = t
+        
+        soup = BeautifulSoup(res.text, 'html.parser')
+        c_area = soup.select_one('.r_cmp_area .f_up em')
+        consensus = c_area.text if c_area else "증권사 목표가 추정치 없음"
+        
+        return fin_df, peer_df, consensus
+    except:
+        return None, None, "데이터 스크래핑 오류"
+
 # ==========================================
 # 4. 메인 화면 시작
 # ==========================================
@@ -1246,20 +1276,22 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
-    "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
+# 👈 [업데이트] 14번 탭 (AI 딥 다이브 정밀 분석기) 신설
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    "🔥 🇺🇸 미국 급등주", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
     "🎯 국내 타점 진단", 
-    "⚡ 딥테크 & 테마 주도주", 
+    "⚡ 딥테크 & 테마", 
     "🚨 상/하한가 분석", 
-    "📰 실시간 뉴스 터미널", 
-    "📅 증시 캘린더 (IPO 분석)", 
-    "💸 자금 흐름(히트맵)", 
+    "📰 실시간 속보/리포트", 
+    "📅 IPO / 증시 일정", 
+    "💸 시장 자금 히트맵", 
     "👑 기간별 테마 트렌드",
     "💰 배당주(TOP 150)", 
-    "📊 글로벌 핵심 ETF 분석", 
-    "⭐ 내 관심종목"
+    "📊 글로벌 ETF 분석", 
+    "⭐ 내 관심종목",
+    "🔬 기업 정밀 분석기"  # 👈 뉴 탭!
 ])
 
 with tab1:
@@ -1963,3 +1995,63 @@ with tab13:
         for i, item in enumerate(st.session_state.watchlist):
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
+
+# 👈 [핵심 기능] 14번 탭: 펀더멘털 정밀 분석기 (재무제표 + 컨센서스 + 경쟁사 AI 종합 분석)
+with tab14:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("🔬 기업 정밀 분석기 (AI Fundamental Deep Dive)")
+    st.write("네이버 금융의 최신 재무제표, 증권사 목표주가 컨센서스, 동종업계 비교표를 통째로 수집하여 AI가 기업의 '진짜 가치'를 판별합니다.")
+    
+    krx_df = get_krx_stocks()
+    if not krx_df.empty:
+        opts = ["🔍 분석할 기업을 검색하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+        query_14 = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts, key='t14_search')
+        
+        if query_14 != "🔍 분석할 기업을 검색하세요.":
+            deep_name = query_14.rsplit(" (", 1)[0]
+            deep_code = query_14.rsplit("(", 1)[-1].replace(")", "").strip()
+            
+            st.divider()
+            
+            if api_key_input:
+                if st.button(f"🤖 '{deep_name}' 펀더멘털 정밀 진단 시작", type="primary", use_container_width=True):
+                    with st.spinner(f"📡 네이버 금융에서 '{deep_name}'의 재무제표 및 컨센서스 데이터를 긁어와 AI 퀀트 분석을 진행 중입니다... (약 10~15초 소요)"):
+                        fin_df, peer_df, cons = get_financial_deep_data(deep_code)
+                        
+                        fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무제표 데이터 없음"
+                        peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
+                        
+                        prompt = f"""
+                        당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다.
+                        아래는 한국 주식 '{deep_name}'의 최근 재무제표 요약, 동일 업종 경쟁사 비교 데이터, 증권사 목표주가 컨센서스입니다.
+                        
+                        [증권사 목표주가 컨센서스 (현재가 대비)]: {cons}
+                        
+                        [최근 재무제표 요약 (단위: 억 원)]
+                        {fin_text[:2500]}  # 데이터가 길면 토큰 초과 방지를 위해 자름
+                        
+                        [동일 업종 경쟁사 비교 (PER/PBR 포함)]
+                        {peer_text[:1500]}
+                        
+                        위 데이터를 바탕으로 다음 4가지 항목을 포함한 '1:1 펀더멘털 정밀 진단 리포트'를 작성해주세요. (마크다운 포맷 적용)
+                        1. 📈 **실적 트렌드 분석**: 매출, 영업이익, ROE 등의 숫자를 보고 이 기업이 성장 중인지, 쇠퇴 중인지 명확히 평가하세요.
+                        2. 🥊 **경쟁사 대비 밸류에이션**: 제공된 표의 경쟁사들과 PER, PBR 등을 비교하여 현재 주가가 싼지 비싼지(고평가/저평가) 냉정하게 판단하세요.
+                        3. 🎯 **적정 가치 및 투자 등급**: 증권사 컨센서스와 당신의 분석을 종합하여, 장기 투자 매력도를 S, A, B, C 등급 중 하나로 쾅 찍어주세요.
+                        4. 💡 **최종 투자 코멘트**: 3줄로 핵심만 요약해주세요.
+                        """
+                        
+                        st.success("✅ 정밀 분석 완료!")
+                        st.markdown(ask_gemini(prompt, api_key_input))
+                        
+                        with st.expander(f"📊 수집된 네이버 금융 로우 데이터 (Raw Data) 확인"):
+                            st.write("✅ **증권사 목표가 컨센서스:**", cons)
+                            st.markdown("---")
+                            st.write(f"✅ **기업 실적 분석표 ({deep_name})**")
+                            if fin_df is not None: st.dataframe(fin_df)
+                            else: st.caption("데이터를 불러오지 못했습니다.")
+                            st.markdown("---")
+                            st.write("✅ **동일 업종 비교표**")
+                            if peer_df is not None: st.dataframe(peer_df)
+                            else: st.caption("데이터를 불러오지 못했습니다.")
+            else:
+                st.warning("AI 분석을 사용하시려면 사이드바에 Gemini API 키를 입력해 주세요.")
