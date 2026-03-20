@@ -449,7 +449,6 @@ def get_naver_research():
     except:
         return pd.DataFrame()
 
-# 👈 [핵심 통합 1] 네이버 금융 딥 스크래핑 함수를 위로 올려서 모든 탭에서 쓸 수 있게 함
 @st.cache_data(ttl=86400)
 def get_financial_deep_data(code):
     try:
@@ -853,19 +852,29 @@ def analyze_theme_trends():
         
     return pd.DataFrame(results)
 
+# 👈 [업데이트 1] 네이버 IPO 파싱 로직의 에러 발생 가능성 완벽 차단
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        table = soup.find('table', {'class': 'type_2'})
-        df = pd.read_html(StringIO(str(table)))[0]
-        df = df.dropna(how='all')
-        df = df[df['종목명'].notna()]
-        df = df[df['종목명'] != '종목명']
-        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
-    except:
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        html = res.content.decode('euc-kr', 'replace')
+        tables = pd.read_html(StringIO(html))
+        for df in tables:
+            if '종목명' in df.columns and '상장일' in df.columns:
+                df = df.dropna(how='all')
+                df = df[df['종목명'].notna()]
+                df = df[df['종목명'] != '종목명']
+                
+                # 희망공모가 삭제됨에 따라, 존재하는 컬럼만 추출하도록 방어 로직 추가
+                cols_to_extract = []
+                for c in ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사']:
+                    if c in df.columns:
+                        cols_to_extract.append(c)
+                
+                return df[cols_to_extract].head(15)
+        return pd.DataFrame()
+    except Exception as e:
         return pd.DataFrame()
 
 @st.cache_data(ttl=43200) 
@@ -1031,7 +1040,6 @@ def show_trading_guidelines():
         * 🛑 **손절:** 손절 라인(20일선) 이탈 시 가차 없이 칼손절!
         """)
 
-# 👈 [핵심 통합 2] 개별 주식 카드 안에 'AI 딥다이브 펀더멘털 분석기' 완전 통합
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -1099,10 +1107,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
-            # 버튼 클릭 시 펀더멘털 분석까지 한방에 처리
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
                 with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
-                    # 한국 주식인 경우에만 딥 스크래핑(재무제표) 시도
                     if str(tech_result['티커']).isdigit():
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                         fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
@@ -1143,7 +1149,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 st.write("✅ **동일 업종 비교표**")
                                 st.dataframe(peer_df)
                     else:
-                        # 미국 주식/ETF의 경우 기존 일반 프롬프트 유지
                         prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 🎯 종합 요약 (1줄):"
                         st.success("✅ AI 분석 완료!")
                         st.markdown(ask_gemini(prompt, api_key_str))
@@ -1297,12 +1302,11 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-# 👈 [업데이트 1] 불필요한 탭을 삭제하고 13개로 완벽하게 통합/정렬
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
-    "🔥 🇺🇸 미국 급등주", 
+    "🔥 🇺🇸 미국 급등주 (+5% 이상)", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
-    "🔬 기업 정밀 분석기",  # 👈 기존 4번(국내타점)을 정밀 분석기로 진화
+    "🔬 기업 정밀 분석기", 
     "⚡ 딥테크 & 테마", 
     "🚨 상/하한가 분석", 
     "📰 실시간 속보/리포트", 
@@ -1527,7 +1531,6 @@ with tab3:
     if st.session_state.value_scan_results is not None:
         display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
-# 👈 [핵심 업데이트 2] 4번 탭 전면 개편 (정밀 분석기 통합)
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 기업 정밀 분석기 (기술적 타점 + 펀더멘털)")
@@ -1546,7 +1549,6 @@ with tab4:
                 res = analyze_technical_pattern(searched_name, searched_code)
             
             if res: 
-                # 여기서 그려지는 카드 안의 AI 버튼은 이제 딥다이브 펀더멘털 분석을 돌립니다!
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
             else: 
                 st.error("❌ 분석 불가: 데이터를 불러올 수 없습니다.")
@@ -1976,7 +1978,29 @@ with tab12:
             res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
             
             if res:
-                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t12_etf")
+                draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t12_etf")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                if api_key_input:
+                    if st.button(f"🤖 '{selected_ticker}' AI 포트폴리오 & 매매 전략 분석", type="primary", use_container_width=True):
+                        with st.spinner("AI가 해당 ETF의 상위 종목 포트폴리오와 거시경제 상황을 분석하여 전략을 수립 중입니다..."):
+                            etf_prompt = f"""
+                            당신은 월스트리트의 퀀트 애널리스트이자 ETF 전문가입니다. 
+                            현재 사용자가 분석을 요청한 ETF는 '{selected_etf_str}' 입니다.
+                            
+                            [현재 기술적 지표]
+                            - 현재가: {res['현재가']}
+                            - 20일선: {res['진입가_가이드']} (상태: {res['상태']})
+                            - RSI: {res['RSI']:.1f}
+                            
+                            위 정보를 바탕으로 다음 내용을 분석해 주세요:
+                            1. 🏢 **핵심 포트폴리오 분석**: 이 ETF가 주로 담고 있는 상위 5~10개 종목의 특성과 현재 시장(매크로) 환경에서의 강점/약점을 설명해 주세요.
+                            2. 🎯 **단기/중기 매매 의견**: 현재 기술적 타점(이격도, RSI)을 고려할 때 지금 진입하는 것이 좋은지 (적극매수/분할매수/관망 중 택 1) 명확히 제시하고 그 이유를 설명해 주세요.
+                            3. 💡 **투자 주의사항**: 현재 거시경제 상황(금리, 인플레이션 등)에서 이 ETF 투자 시 겪을 수 있는 리스크 1가지를 경고해 주세요.
+                            """
+                            st.info(ask_gemini(etf_prompt, api_key_input))
+                else:
+                    st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
             else:
                 st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 증시 데이터 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
     else:
