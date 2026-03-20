@@ -89,7 +89,7 @@ if 'value_scan_results' not in st.session_state:
     st.session_state.value_scan_results = None
 
 # ==========================================
-# 2. 통합 데이터 수집 & AI 함수 모음 (맨 위로 배치)
+# 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -104,17 +104,6 @@ def ask_gemini(prompt, _api_key):
         return f"AI 분석 오류: {error_msg}"
 
 @st.cache_data(ttl=3600)
-def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
-    if not _api_key: return "AI미연동"
-    try:
-        prompt = f"당신은 실전 스윙 트레이더입니다. '{stock_name}'의 단기 매매 의견을 다음 4개 중 딱 1개로만 답변하세요: [적극매수, 분할매수, 관망, 매수금지]. 다른 부연 설명은 절대 금지.\n데이터: 현재가 {curr}원, 20일선 {ma20}원, RSI {rsi:.1f}"
-        res = ask_gemini(prompt, _api_key).replace(".", "").replace("\n", "").strip()
-        for kw in ["적극매수", "분할매수", "관망", "매수금지"]:
-            if kw in res: return kw
-        return "관망"
-    except: return "오류"
-
-@st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
     tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "필라델피아 반도체": "^SOX", "WTI 원유": "CL=F", "원/달러 환율": "KRW=X"}
@@ -126,16 +115,38 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
+# 👈 [핵심 업데이트 1] CNN 공포지수 3중 우회 프록시 엔진 탑재
 @st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    
+    # 1단계: 직접 찌르기
     try:
-        res = requests.get(url, headers=headers, timeout=5)
+        res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
             data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
+
+    # 2단계: CorsProxy 우회
+    try:
+        proxy_url = f"https://corsproxy.io/?{urllib.parse.quote(url)}"
+        res = requests.get(proxy_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+
+    # 3단계: AllOrigins 우회
+    try:
+        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        res = requests.get(proxy_url, timeout=5)
+        if res.status_code == 200:
+            data = json.loads(res.json()['contents'])
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    
     return None
 
 @st.cache_data(ttl=3600)
@@ -175,14 +186,12 @@ def get_us_top_gainers():
         df = df.sort_values('등락률', ascending=False).head(15)
         try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
         except: ex_rate = 1350.0 
-        
         def get_clean_korean_name(n):
             try:
                 res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(n)}", timeout=2)
                 ko_name = res.json()[0][0][0]
                 return re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|\(주\))', '', ko_name).strip()
             except: return n
-            
         df['기업명'] = df['기업명'].apply(get_clean_korean_name)
         df['환산(원)'] = df['현재가'].apply(lambda x: f"{int(float(x.replace(',', '')) * ex_rate):,}원" if x and x.replace('.', '', 1).replace(',', '').isdigit() else "-")
         df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f}" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
@@ -238,7 +247,6 @@ def get_trading_value_kings():
             else: df_fdr['Sector'] = '기타/분류불가'
             return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: pass
-
     try:
         df_kpi = fetch_naver_volume(0, 1)
         df_kdq = fetch_naver_volume(1, 1)
@@ -247,9 +255,7 @@ def get_trading_value_kings():
             mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
             df = df[~mask].copy()
             def extract_num(x):
-                try:
-                    val = re.sub(r'[^\d\.\-]', '', str(x))
-                    return float(val) if val not in ['', '-'] else 0.0
+                try: return float(re.sub(r'[^\d\.\-]', '', str(x)))
                 except: return 0.0
             df['Name'] = df['종목명']
             df['Close'] = df['현재가'].apply(extract_num)
@@ -774,22 +780,46 @@ def analyze_theme_trends():
         except: pass
     return pd.DataFrame(results)
 
+# 👈 [핵심 업데이트 2] 네이버 IPO 표 수동 발골 파싱 (무결점 방어 로직)
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        html = res.content.decode('euc-kr', 'replace')
-        tables = pd.read_html(StringIO(html))
-        for df in tables:
-            if '종목명' in df.columns and '상장일' in df.columns:
-                df = df.dropna(how='all')
-                df = df[df['종목명'].notna()]
-                df = df[df['종목명'] != '종목명']
-                cols_to_extract = [c for c in ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사'] if c in df.columns]
-                return df[cols_to_extract].head(15).reset_index(drop=True)
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        
+        # 표의 뼈대(tr, td)를 직접 하나하나 해체해서 긁어옴 (Pandas 에러 방지)
+        trs = table.find_all('tr')
+        headers = []
+        data = []
+        
+        for tr in trs:
+            ths = tr.find_all('th')
+            if ths and not headers:
+                headers = [th.text.strip() for th in ths]
+            
+            tds = tr.find_all('td')
+            if tds:
+                row = [td.text.strip() for td in tds]
+                if len(row) == len(headers) and row[0]: # 빈 줄이나 더미 데이터 무시
+                    data.append(row)
+        
+        if not headers or not data: return pd.DataFrame()
+        
+        df = pd.DataFrame(data, columns=headers)
+        
+        # 있는 컬럼만 스마트하게 추출
+        cols_to_extract = []
+        for c in ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사']:
+            matched_col = next((h for h in headers if c in h), None)
+            if matched_col:
+                cols_to_extract.append(matched_col)
+        
+        df = df[cols_to_extract].rename(columns=lambda x: x.replace(' ', ''))
+        return df.head(15).reset_index(drop=True)
+    except:
         return pd.DataFrame()
-    except: return pd.DataFrame()
 
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
@@ -1864,29 +1894,7 @@ with tab12:
             res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
             
             if res:
-                draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t12_etf")
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                if api_key_input:
-                    if st.button(f"🤖 '{selected_ticker}' AI 포트폴리오 & 매매 전략 분석", type="primary", use_container_width=True):
-                        with st.spinner("AI가 해당 ETF의 상위 종목 포트폴리오와 거시경제 상황을 분석하여 전략을 수립 중입니다..."):
-                            etf_prompt = f"""
-                            당신은 월스트리트의 퀀트 애널리스트이자 ETF 전문가입니다. 
-                            현재 사용자가 분석을 요청한 ETF는 '{selected_etf_str}' 입니다.
-                            
-                            [현재 기술적 지표]
-                            - 현재가: {res['현재가']}
-                            - 20일선: {res['진입가_가이드']} (상태: {res['상태']})
-                            - RSI: {res['RSI']:.1f}
-                            
-                            위 정보를 바탕으로 다음 내용을 분석해 주세요:
-                            1. 🏢 **핵심 포트폴리오 분석**: 이 ETF가 주로 담고 있는 상위 5~10개 종목의 특성과 현재 시장(매크로) 환경에서의 강점/약점을 설명해 주세요.
-                            2. 🎯 **단기/중기 매매 의견**: 현재 기술적 타점(이격도, RSI)을 고려할 때 지금 진입하는 것이 좋은지 (적극매수/분할매수/관망 중 택 1) 명확히 제시하고 그 이유를 설명해 주세요.
-                            3. 💡 **투자 주의사항**: 현재 거시경제 상황(금리, 인플레이션 등)에서 이 ETF 투자 시 겪을 수 있는 리스크 1가지를 경고해 주세요.
-                            """
-                            st.info(ask_gemini(etf_prompt, api_key_input))
-                else:
-                    st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t12_etf")
             else:
                 st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 증시 데이터 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
     else:
