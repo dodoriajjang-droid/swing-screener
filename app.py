@@ -106,23 +106,9 @@ def ask_gemini(prompt, _api_key):
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다. 구글 AI 스튜디오에서 새로운 API 키를 발급받거나 할당량을 확인해주세요!"
         return f"AI 분석 오류: {error_msg}"
 
-@st.cache_data(ttl=3600)
-def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
-    if not _api_key: return "AI미연동"
-    try:
-        prompt = f"당신은 실전 스윙 트레이더입니다. '{stock_name}'의 단기 매매 의견을 다음 4개 중 딱 1개로만 답변하세요: [적극매수, 분할매수, 관망, 매수금지]. 다른 부연 설명은 절대 금지.\n데이터: 현재가 {curr}원, 20일선 {ma20}원, RSI {rsi:.1f}"
-        res = ask_gemini(prompt, _api_key).replace(".", "").replace("\n", "").strip()
-        for kw in ["적극매수", "분할매수", "관망", "매수금지"]:
-            if kw in res: return kw
-        return "관망"
-    except:
-        return "오류"
-
 # ==========================================
-# 3. 데이터 수집 및 분석 함수들 (누락 복구 완벽 패치)
+# 3. 데이터 수집 및 분석 함수들
 # ==========================================
-
-# 1️⃣ 거시경제 및 미장 데이터
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
@@ -163,6 +149,7 @@ def get_fear_and_greed():
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
     empty_df = pd.DataFrame(columns=['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액', '거래량'])
+    
     try:
         response = requests.get('https://finance.yahoo.com/gainers', headers={'User-Agent': 'Mozilla/5.0'})
         tables = pd.read_html(StringIO(response.text))
@@ -213,7 +200,6 @@ def get_us_top_gainers():
         return df, ex_rate, fetch_time
     except: return empty_df, 1350.0, fetch_time
 
-# 2️⃣ 코스피/코스닥 스캐닝 데이터
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
@@ -409,7 +395,6 @@ def get_limit_stocks():
         
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
-# 3️⃣ 뉴스, 일정, IPO 데이터 수집 (누락되었던 함수 포함 완벽 복구)
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
@@ -464,22 +449,32 @@ def get_naver_research():
     except:
         return pd.DataFrame()
 
-@st.cache_data(ttl=10800)
-def get_naver_ipo_data():
+# 👈 [핵심 통합 1] 네이버 금융 딥 스크래핑 함수를 위로 올려서 모든 탭에서 쓸 수 있게 함
+@st.cache_data(ttl=86400)
+def get_financial_deep_data(code):
     try:
-        url = "https://finance.naver.com/sise/ipo.naver"
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        table = soup.find('table', {'class': 'type_2'})
-        df = pd.read_html(StringIO(str(table)))[0]
-        df = df.dropna(how='all')
-        df = df[df['종목명'].notna()]
-        df = df[df['종목명'] != '종목명']
-        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
+        tables = pd.read_html(StringIO(res.text))
+        
+        fin_df = None
+        peer_df = None
+        
+        for t in tables:
+            str_t = str(t)
+            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
+                if fin_df is None: fin_df = t
+            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
+                if peer_df is None: peer_df = t
+        
+        soup = BeautifulSoup(res.text, 'html.parser')
+        c_area = soup.select_one('.r_cmp_area .f_up em')
+        consensus = c_area.text if c_area else "증권사 목표가 추정치 없음"
+        
+        return fin_df, peer_df, consensus
     except:
-        return pd.DataFrame()
+        return None, None, "데이터 스크래핑 오류"
 
-# 4️⃣ AI 부가 기능 수집 함수들
 @st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
@@ -604,7 +599,6 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
         return validated[:20]
     except: return []
 
-# 5️⃣ 재무/기술적 정밀 수집 엔진 (누락 복구)
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
@@ -703,31 +697,6 @@ def get_fundamentals(ticker_code):
             pbr = round(info.get('priceToBook', 0), 2) if info.get('priceToBook') else 'N/A'
             return per, pbr
         except: return 'N/A', 'N/A'
-
-@st.cache_data(ttl=86400)
-def get_financial_deep_data(code):
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        tables = pd.read_html(StringIO(res.text))
-        
-        fin_df = None
-        peer_df = None
-        
-        for t in tables:
-            str_t = str(t)
-            if '매출액' in str_t and '영업이익' in str_t and '당기순이익' in str_t:
-                if fin_df is None: fin_df = t
-            if '종목명' in str_t and '현재가' in str_t and 'PER' in str_t:
-                if peer_df is None: peer_df = t
-        
-        soup = BeautifulSoup(res.text, 'html.parser')
-        c_area = soup.select_one('.r_cmp_area .f_up em')
-        consensus = c_area.text if c_area else "증권사 목표가 추정치 없음"
-        
-        return fin_df, peer_df, consensus
-    except:
-        return None, None, "데이터 스크래핑 오류"
 
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
@@ -884,6 +853,21 @@ def analyze_theme_trends():
         
     return pd.DataFrame(results)
 
+@st.cache_data(ttl=10800)
+def get_naver_ipo_data():
+    try:
+        url = "https://finance.naver.com/sise/ipo.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        df = pd.read_html(StringIO(str(table)))[0]
+        df = df.dropna(how='all')
+        df = df[df['종목명'].notna()]
+        df = df[df['종목명'] != '종목명']
+        return df[['종목명', '희망공모가', '공모가', '청약일', '상장일']].head(10)
+    except:
+        return pd.DataFrame()
+
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
     portfolio = {
@@ -1011,7 +995,7 @@ def show_beginner_guide():
 
         ### 3. 🌡️ 보조 지표 (RSI & OBV & 수급)
         * **🔴 RSI 과열 (70 이상):** 사람들이 너무 흥분해서 비싸게 사고 있는 상태. (곧 떨어질 확률이 높으니 매수 자제)
-        * **🔵 RSI 바닥 (30 이하):** 사람들이 공포에 질려 너무 싸 던진 상태. (반등을 노려볼 만한 자리)
+        * **🔵 RSI 바닥 (30 이하):** 사람들이 공포에 질려 너무 싸게 던진 상태. (반등을 노려볼 만한 자리)
         * **수급 (외인/기관/개인):** 주식을 누가 사고파는지 보여줍니다. 외국인과 기관이 동시에 사는(쌍끌이) 종목이 크게 오를 확률이 높습니다. (🔥매집 = 사고 있음, 💧매도 = 팔고 있음)
         * **OBV:** 주가가 오를 때의 거래량은 더하고 내릴 때의 거래량은 뺀 지표. 주가는 제자리인데 OBV 선이 우상향하면 세력이 몰래 매집 중이라는 뜻입니다.
 
@@ -1047,6 +1031,7 @@ def show_trading_guidelines():
         * 🛑 **손절:** 손절 라인(20일선) 이탈 시 가차 없이 칼손절!
         """)
 
+# 👈 [핵심 통합 2] 개별 주식 카드 안에 'AI 딥다이브 펀더멘털 분석기' 완전 통합
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     
@@ -1114,10 +1099,54 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"🤖 '{tech_result['종목명']}' 상세 AI 적정가 판단 및 매매 의견", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 차트, 가치 평가, 그리고 향후 모멘텀 일정을 분석 중입니다..."):
-                    prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}원, 20일선:{tech_result['진입가_가이드']}원, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 📅 핵심 모멘텀 및 예정된 일정\n- 해당 기업의 주가에 영향을 줄 수 있는 단기/중장기 호재성 일정이나 악재(실적발표, 신제품 출시, 임상, 수주 계약, 산업 트렌드 등)를 아는 대로 요약해주세요.\n\n4. 🎯 종합 요약 (1줄):"
-                    st.success(ask_gemini(prompt, api_key_str))
+            # 버튼 클릭 시 펀더멘털 분석까지 한방에 처리
+            if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
+                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
+                    # 한국 주식인 경우에만 딥 스크래핑(재무제표) 시도
+                    if str(tech_result['티커']).isdigit():
+                        fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
+                        fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
+                        peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
+                        
+                        prompt = f"""
+                        당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다.
+                        '{tech_result['종목명']}'에 대한 [기술적 타점]과 [펀더멘털]을 종합 분석해주세요.
+                        
+                        [기술적 지표 및 수급]
+                        - 현재가: {curr}원, 20일선: {tech_result['진입가_가이드']}원 (상태: {tech_result['상태']})
+                        - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
+                        - 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
+                        
+                        [증권사 목표주가 컨센서스]: {cons}
+                        
+                        [최근 재무제표 요약 (단위: 억 원)]
+                        {fin_text[:2000]}
+                        
+                        [동일 업종 경쟁사 비교 (PER/PBR 포함)]
+                        {peer_text[:1000]}
+                        
+                        위 데이터를 바탕으로 다음 리포트를 작성해주세요. (마크다운 포맷)
+                        1. 📈 **기술적 타점 & 수급 분석**: 현재 진입하기 좋은 자리인지, 수급 주체는 누구인지.
+                        2. 🏢 **실적 트렌드 & 밸류에이션**: 재무제표와 경쟁사 비교를 통해 고평가/저평가 여부 판단.
+                        3. 🎯 **단기 매매 의견 및 목표가**: (적극매수/분할매수/관망/매수금지 중 택 1) 및 단기 대응 전략.
+                        4. 💡 **최종 투자 코멘트**: 3줄 요약.
+                        """
+                        st.success("✅ AI 정밀 분석 완료!")
+                        st.markdown(ask_gemini(prompt, api_key_str))
+                        
+                        with st.expander(f"📊 '{tech_result['종목명']}' 수집된 로우 데이터 (Raw Data) 확인"):
+                            st.write("✅ **증권사 목표가 컨센서스:**", cons)
+                            if fin_df is not None: 
+                                st.write("✅ **기업 실적 분석표**")
+                                st.dataframe(fin_df)
+                            if peer_df is not None: 
+                                st.write("✅ **동일 업종 비교표**")
+                                st.dataframe(peer_df)
+                    else:
+                        # 미국 주식/ETF의 경우 기존 일반 프롬프트 유지
+                        prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 🎯 종합 요약 (1줄):"
+                        st.success("✅ AI 분석 완료!")
+                        st.markdown(ask_gemini(prompt, api_key_str))
         
         tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년", "5년"], horizontal=True, key=f"tf_{key_suffix}", index=0)
         days_dict = {"1개월": 30, "3개월": 90, "1년": 365, "5년": 1825}
@@ -1268,11 +1297,12 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+# 👈 [업데이트 1] 불필요한 탭을 삭제하고 13개로 완벽하게 통합/정렬
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
     "🔥 🇺🇸 미국 급등주", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
-    "🎯 국내 타점 진단", 
+    "🔬 기업 정밀 분석기",  # 👈 기존 4번(국내타점)을 정밀 분석기로 진화
     "⚡ 딥테크 & 테마", 
     "🚨 상/하한가 분석", 
     "📰 실시간 속보/리포트", 
@@ -1281,8 +1311,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13
     "👑 기간별 테마 트렌드",
     "💰 배당주(TOP 150)", 
     "📊 글로벌 ETF 분석", 
-    "⭐ 내 관심종목",
-    "🔬 기업 정밀 분석기" 
+    "⭐ 내 관심종목"
 ])
 
 with tab1:
@@ -1498,24 +1527,29 @@ with tab3:
     if st.session_state.value_scan_results is not None:
         display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
+# 👈 [핵심 업데이트 2] 4번 탭 전면 개편 (정밀 분석기 통합)
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🔍 국내 개별 종목 정밀 타점 진단기")
+    st.subheader("🔬 기업 정밀 분석기 (기술적 타점 + 펀더멘털)")
+    st.write("관심 있는 기업을 검색하시면 실시간 차트/수급 진단과 함께 **AI 딥다이브 재무제표 분석**을 원스톱으로 제공합니다.")
     show_beginner_guide() 
     krx_df = get_krx_stocks()
     if not krx_df.empty:
-        opts = ["🔍 검색 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+        opts = ["🔍 분석할 국내 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
         query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts)
         
-        if query != "🔍 검색 종목을 입력하세요.":
+        if query != "🔍 분석할 국내 종목을 입력하세요.":
             searched_name = query.rsplit(" (", 1)[0]
             searched_code = query.rsplit("(", 1)[-1].replace(")", "").strip()
             
             with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
                 res = analyze_technical_pattern(searched_name, searched_code)
             
-            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
-            else: st.error("❌ 분석 불가: 데이터가 없습니다.")
+            if res: 
+                # 여기서 그려지는 카드 안의 AI 버튼은 이제 딥다이브 펀더멘털 분석을 돌립니다!
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
+            else: 
+                st.error("❌ 분석 불가: 데이터를 불러올 수 없습니다.")
 
 with tab5:
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1942,29 +1976,7 @@ with tab12:
             res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
             
             if res:
-                draw_stock_card(res, api_key_str="", is_expanded=True, key_suffix="t12_etf")
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                if api_key_input:
-                    if st.button(f"🤖 '{selected_ticker}' AI 포트폴리오 & 매매 전략 분석", type="primary", use_container_width=True):
-                        with st.spinner("AI가 해당 ETF의 상위 종목 포트폴리오와 거시경제 상황을 분석하여 전략을 수립 중입니다..."):
-                            etf_prompt = f"""
-                            당신은 월스트리트의 퀀트 애널리스트이자 ETF 전문가입니다. 
-                            현재 사용자가 분석을 요청한 ETF는 '{selected_etf_str}' 입니다.
-                            
-                            [현재 기술적 지표]
-                            - 현재가: {res['현재가']}
-                            - 20일선: {res['진입가_가이드']} (상태: {res['상태']})
-                            - RSI: {res['RSI']:.1f}
-                            
-                            위 정보를 바탕으로 다음 내용을 분석해 주세요:
-                            1. 🏢 **핵심 포트폴리오 분석**: 이 ETF가 주로 담고 있는 상위 5~10개 종목의 특성과 현재 시장(매크로) 환경에서의 강점/약점을 설명해 주세요.
-                            2. 🎯 **단기/중기 매매 의견**: 현재 기술적 타점(이격도, RSI)을 고려할 때 지금 진입하는 것이 좋은지 (적극매수/분할매수/관망 중 택 1) 명확히 제시하고 그 이유를 설명해 주세요.
-                            3. 💡 **투자 주의사항**: 현재 거시경제 상황(금리, 인플레이션 등)에서 이 ETF 투자 시 겪을 수 있는 리스크 1가지를 경고해 주세요.
-                            """
-                            st.info(ask_gemini(etf_prompt, api_key_input))
-                else:
-                    st.warning("AI 분석을 사용하려면 사이드바에 Gemini API 키를 입력해 주세요.")
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t12_etf")
             else:
                 st.error("데이터를 불러오지 못했습니다. 일시적인 통신 장애일 수 있으니 '🔄 증시 데이터 리로드' 버튼을 누르거나 잠시 후 다시 시도해 주세요.")
     else:
@@ -1986,62 +1998,3 @@ with tab13:
         for i, item in enumerate(st.session_state.watchlist):
             res = analyze_technical_pattern(item['종목명'], item['티커'])
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
-
-with tab14:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🔬 기업 정밀 분석기 (AI Fundamental Deep Dive)")
-    st.write("네이버 금융의 최신 재무제표, 증권사 목표주가 컨센서스, 동종업계 비교표를 통째로 수집하여 AI가 기업의 '진짜 가치'를 판별합니다.")
-    
-    krx_df = get_krx_stocks()
-    if not krx_df.empty:
-        opts = ["🔍 분석할 기업을 검색하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-        query_14 = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts, key='t14_search')
-        
-        if query_14 != "🔍 분석할 기업을 검색하세요.":
-            deep_name = query_14.rsplit(" (", 1)[0]
-            deep_code = query_14.rsplit("(", 1)[-1].replace(")", "").strip()
-            
-            st.divider()
-            
-            if api_key_input:
-                if st.button(f"🤖 '{deep_name}' 펀더멘털 정밀 진단 시작", type="primary", use_container_width=True):
-                    with st.spinner(f"📡 네이버 금융에서 '{deep_name}'의 재무제표 및 컨센서스 데이터를 긁어와 AI 퀀트 분석을 진행 중입니다... (약 10~15초 소요)"):
-                        fin_df, peer_df, cons = get_financial_deep_data(deep_code)
-                        
-                        fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무제표 데이터 없음"
-                        peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
-                        
-                        prompt = f"""
-                        당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다.
-                        아래는 한국 주식 '{deep_name}'의 최근 재무제표 요약, 동일 업종 경쟁사 비교 데이터, 증권사 목표주가 컨센서스입니다.
-                        
-                        [증권사 목표주가 컨센서스 (현재가 대비)]: {cons}
-                        
-                        [최근 재무제표 요약 (단위: 억 원)]
-                        {fin_text[:2500]}  # 데이터가 길면 토큰 초과 방지를 위해 자름
-                        
-                        [동일 업종 경쟁사 비교 (PER/PBR 포함)]
-                        {peer_text[:1500]}
-                        
-                        위 데이터를 바탕으로 다음 4가지 항목을 포함한 '1:1 펀더멘털 정밀 진단 리포트'를 작성해주세요. (마크다운 포맷 적용)
-                        1. 📈 **실적 트렌드 분석**: 매출, 영업이익, ROE 등의 숫자를 보고 이 기업이 성장 중인지, 쇠퇴 중인지 명확히 평가하세요.
-                        2. 🥊 **경쟁사 대비 밸류에이션**: 제공된 표의 경쟁사들과 PER, PBR 등을 비교하여 현재 주가가 싼지 비싼지(고평가/저평가) 냉정하게 판단하세요.
-                        3. 🎯 **적정 가치 및 투자 등급**: 증권사 컨센서스와 당신의 분석을 종합하여, 장기 투자 매력도를 S, A, B, C 등급 중 하나로 쾅 찍어주세요.
-                        4. 💡 **최종 투자 코멘트**: 3줄로 핵심만 요약해주세요.
-                        """
-                        
-                        st.success("✅ 정밀 분석 완료!")
-                        st.markdown(ask_gemini(prompt, api_key_input))
-                        
-                        with st.expander(f"📊 수집된 네이버 금융 로우 데이터 (Raw Data) 확인"):
-                            st.write("✅ **증권사 목표가 컨센서스:**", cons)
-                            st.markdown("---")
-                            st.write(f"✅ **기업 실적 분석표 ({deep_name})**")
-                            if fin_df is not None: st.dataframe(fin_df)
-                            else: st.caption("데이터를 불러오지 못했습니다.")
-                            st.markdown("---")
-                            st.write("✅ **동일 업종 비교표**")
-                            if peer_df is not None: st.dataframe(peer_df)
-                            else: st.caption("데이터를 불러오지 못했습니다.")
-            else:
-                st.warning("AI 분석을 사용하시려면 사이드바에 Gemini API 키를 입력해 주세요.")
