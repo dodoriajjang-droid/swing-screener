@@ -85,7 +85,7 @@ if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
 
 # ==========================================
-# 2. 통합 데이터 수집 & AI 함수 모음 (순서 꼬임 방지: 무조건 최상단 배치)
+# 2. 통합 데이터 수집 & AI 함수 모음 
 # ==========================================
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -537,45 +537,79 @@ def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
         return validated[:20]
     except: return []
 
-@st.cache_data(ttl=3600)
+# 🔥 실시간 장중 잠정 추정치 파싱 기능 추가 (캐시 시간 10분으로 축소)
+@st.cache_data(ttl=600)
 def get_investor_trend(code):
     try:
         res = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
-        rows = soup.select('table.type2')[1].select('tr')
+        tables = soup.select('table.type2')
+
+        est_forgn, est_inst = None, None
+        hist_table = tables[1] if len(tables) > 1 else tables[0]
+
+        # 1. 장중 추정치(잠정치) 파싱
+        for i, t in enumerate(tables):
+            th_tags = t.select('th')
+            headers = [th.text.strip() for th in th_tags]
+            if '시간' in headers and '외국인' in headers and '기관계' in headers:
+                trs = t.select('tr')
+                for tr in trs:
+                    tds = tr.select('td')
+                    if len(tds) >= 3 and str(tds[0].text).strip().replace(':', '').isdigit():
+                        try:
+                            est_forgn = int(tds[1].text.strip().replace(',', '').replace('+', ''))
+                            est_inst = int(tds[2].text.strip().replace(',', '').replace('+', ''))
+                        except: pass
+                        break
+                if est_forgn is not None:
+                    hist_table = tables[i+1] if len(tables) > i+1 else tables[i]
+                break
+
+        # 2. 일별 확정치 파싱 (기존 로직)
+        rows = hist_table.select('tr')
         inst_sum, forgn_sum, ind_sum = 0, 0, 0
         inst_streak, forgn_streak, ind_streak = 0, 0, 0
         inst_break, forgn_break, ind_break = False, False, False
         count = 0
+        
         for row in rows:
             tds = row.select('td')
-            if len(tds) < 9 or not tds[0].text.strip(): continue 
+            if len(tds) < 9 or not tds[0].text.strip(): continue
             try:
                 i_val = int(tds[5].text.strip().replace(',', '').replace('+', ''))
                 f_val = int(tds[6].text.strip().replace(',', '').replace('+', ''))
                 p_val = -(i_val + f_val) 
-                
+
                 inst_sum += i_val
                 forgn_sum += f_val
                 ind_sum += p_val
-                
+
                 if i_val > 0 and not inst_break: inst_streak += 1
                 elif i_val <= 0: inst_break = True
-                
+
                 if f_val > 0 and not forgn_break: forgn_streak += 1
                 elif f_val <= 0: forgn_break = True
-                
+
                 if p_val > 0 and not ind_break: ind_streak += 1
                 elif p_val <= 0: ind_break = True
-                
+
                 count += 1
             except: pass
             if count >= 5: break 
-        def fmt(v, streak): 
-            base = f"+{v:,}" if v > 0 else f"{v:,}"
-            if streak >= 3: return f"{base} (🔥{streak}일 연속 매집)"
-            return f"{base} ({'🔥매집' if v>0 else '💧매도' if v<0 else '➖중립'})"
-        return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak), fmt(ind_sum, ind_streak)
+
+        def fmt(est, val_sum, streak, is_ind=False): 
+            base = f"+{val_sum:,}" if val_sum > 0 else f"{val_sum:,}"
+            trend_str = f"🔥{streak}일연속" if streak >= 3 else ('🔥매집' if val_sum>0 else '💧매도' if val_sum<0 else '➖중립')
+            
+            if is_ind: return f"{base} ({trend_str})"
+            
+            if est is not None and est != 0:
+                est_str = f"잠정:{'+' if est > 0 else ''}{est:,}"
+                return f"{est_str} / 5일:{base}({trend_str})"
+            return f"{base} ({trend_str})"
+
+        return fmt(est_inst, inst_sum, inst_streak), fmt(est_forgn, forgn_sum, forgn_streak), fmt(None, ind_sum, ind_streak, True)
     except: return "조회불가", "조회불가", "조회불가"
 
 @st.cache_data(ttl=3600)
@@ -630,7 +664,7 @@ def get_fundamentals(ticker_code):
             return per, pbr
         except: return 'N/A', 'N/A'
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)  # 캐시 타임 10분으로 단축 (가격 및 추정치 빠른 갱신)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     df = pd.DataFrame()
@@ -652,7 +686,7 @@ def get_historical_data(ticker_code, days):
             except: pass
     return df
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)  # 실시간 매매 전략 갱신을 위해 캐시 타임 10분으로 축소
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
     try:
@@ -918,9 +952,10 @@ def show_trading_guidelines():
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
     def get_short_trend(trend_text):
-        val = str(trend_text).split(' ')[0]
-        if "🔥" in str(trend_text): return f"🔥{val}"
-        if "💧" in str(trend_text): return f"💧{val}"
+        # 장중 잠정치 포맷을 위해 수정
+        val = str(trend_text).split(' / ')[0] if ' / ' in str(trend_text) else str(trend_text).split(' ')[0]
+        if "🔥" in str(trend_text) or "+" in val: return f"🔥{val}"
+        if "💧" in str(trend_text) or "-" in val: return f"💧{val}"
         return f"➖{val}"
     f_trend = get_short_trend(tech_result['외인수급'])
     i_trend = get_short_trend(tech_result['기관수급'])
@@ -966,7 +1001,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
-        with c7: st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
+        with c7: st.markdown(f"🕵️ **당일 추정치 및 수급 동향**<br>**외국인:** `{tech_result['외인수급']}`<br>**기관:** `{tech_result['기관수급']}`<br>**개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1113,9 +1148,8 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-# 👈 [핵심 업데이트] 0번 탭(메인 관제 센터)을 맨 앞에 추가
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
-    "🎛️ 메인 대시보드", # 👈 신규 추가된 메인 관제 센터
+    "🎛️ 메인 대시보드",
     "🔥 🇺🇸 미국 급등주", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
@@ -1137,7 +1171,6 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12,
 with tab0:
     st.markdown("## 🎛️ 트레이딩 관제 센터 (Command Center)")
     
-    # 상단: 거시 경제 지표 (기존 상단에 있던 게이지를 0번 탭 안으로 예쁘게 이식)
     m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
     def draw_gauge(val, prev, title, steps, is_error=False):
         if is_error: return go.Figure(go.Indicator(mode="gauge", value=0, title={'text': f"<b>{title}</b><br><span style='font-size:12px;color:red'>데이터 로딩 지연중</span>"}, gauge={'axis': {'range': [0, steps[-1]['range'][1]]}, 'bar': {'color': "gray"}}))
@@ -1167,7 +1200,6 @@ with tab0:
                 if '필라델피아 반도체' in macro_data: c3.metric("💻 필라델피아 반도체(SOX)", f"{macro_data['필라델피아 반도체']['value']:.1f}", f"{macro_data['필라델피아 반도체']['delta']:.1f}")
                 if 'WTI 원유' in macro_data: c4.metric("🛢️ WTI 원유 (달러)", f"{macro_data['WTI 원유']['value']:.2f}", f"{macro_data['WTI 원유']['delta']:.2f}")
 
-    # 1. 매매 전략 가이드 (기계적 뷰)
     st.subheader("1️⃣ Strategy & Position (오늘의 매매 전략)")
     vix_val = macro_data['VIX']['value'] if macro_data and 'VIX' in macro_data else 20
     fg_val = fg_data['score'] if fg_data else 50
@@ -1183,7 +1215,6 @@ with tab0:
 
     col_dash1, col_dash2 = st.columns([1, 1])
     
-    # 2. 실시간 뉴스 엣지
     with col_dash1:
         st.subheader("2️⃣ Information Edge (시장 핵심 속보)")
         update_news_state()
@@ -1201,7 +1232,6 @@ with tab0:
         else:
             st.caption("현재 시작에 임팩트를 주는 핵심 속보가 없습니다.")
 
-    # 3. 실시간 상황판
     with col_dash2:
         st.subheader("3️⃣ Technical View (실시간 주도주 시그널)")
         with st.spinner("오늘 거래대금이 가장 터지는 주도주들의 차트 시그널을 판별 중입니다..."):
@@ -1227,7 +1257,6 @@ with tab0:
                 
     st.divider()
 
-    # 4. 퀵 오더 & 리스크 관리
     st.subheader("4️⃣ Quick Action & Risk Management")
     q_col1, q_col2 = st.columns([1, 1])
     
@@ -1481,7 +1510,7 @@ with tab3:
 with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("🔬 기업 정밀 분석기 (기술적 타점 + 펀더멘털)")
-    st.write("관심 있는 기업을 검색하시면 실시간 차트/수급 진단과 함께 **AI 딥다이브 재무제표 분석**을 원스톱으로 제공합니다.")
+    st.write("관심 있는 기업을 검색하시면 실시간 차트/수급 진단과 함께 **AI 딥다이브 재무제표 분석**을 원스톱 정밀로 제공합니다.")
     show_beginner_guide() 
     krx_df = get_krx_stocks()
     if not krx_df.empty:
@@ -1768,58 +1797,6 @@ with tab10:
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
     st.write("국내 대표 테마 ETF의 거래대금과 수익률을 역산하여, 최근 시장의 핵심 자금이 어디로 이동했는지 추적합니다.")
     
-    @st.cache_data(ttl=3600)
-    def analyze_theme_trends():
-        theme_proxies = {
-            "반도체": "091160",
-            "2차전지": "305720",
-            "바이오/헬스케어": "244580",
-            "인터넷/플랫폼": "157490",
-            "자동차/모빌리티": "091230",
-            "금융/지주": "091220",
-            "미디어/엔터": "266360",
-            "로봇/AI": "417270",
-            "K-방산": "449450",  
-            "조선/중공업": "139240",
-            "원자력/전력기기": "102960",
-            "화장품/미용": "228790",
-            "게임": "300610",
-            "건설/인프라": "117700",
-            "철강/소재": "117680"
-        }
-        
-        results = []
-        for theme_name, ticker in theme_proxies.items():
-            try:
-                df = get_historical_data(ticker, 250) 
-                if df.empty or len(df) < 20: continue
-                
-                current_price = float(df['Close'].iloc[-1])
-                
-                def get_stats(days):
-                    slice_len = min(days, len(df))
-                    period_df = df.iloc[-slice_len:]
-                    start_price = float(period_df['Close'].iloc[0])
-                    if start_price == 0: return 0, 0
-                    
-                    ret = ((current_price - start_price) / start_price) * 100
-                    vol_sum = (period_df['Volume'] * period_df['Close']).sum() / 100000000
-                    return ret, vol_sum
-
-                r_1m, v_1m = get_stats(20)   
-                r_3m, v_3m = get_stats(60)   
-                r_6m, v_6m = get_stats(120)  
-                
-                results.append({
-                    "테마": theme_name,
-                    "1M수익률": r_1m, "1M거래대금": v_1m,
-                    "3M수익률": r_3m, "3M거래대금": v_3m,
-                    "6M수익률": r_6m, "6M거래대금": v_6m,
-                })
-            except: pass
-            
-        return pd.DataFrame(results)
-
     with st.spinner("과거 6개월 치 테마별 자금 유입 데이터를 역산 중입니다..."):
         trend_df = analyze_theme_trends()
         
