@@ -40,7 +40,7 @@ def save_watchlist(wl):
         st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 및 UI 패치
+# 1. 초기 설정 및 UI 탭 강제 2줄 패치
 # ==========================================
 st.set_page_config(page_title="Jaemini 트레이딩 터미널", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
@@ -98,6 +98,17 @@ def ask_gemini(prompt, _api_key):
         if "429" in error_msg or "quota" in error_msg.lower() or "spending cap" in error_msg.lower():
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다. 구글 AI 스튜디오에서 새로운 API 키를 발급받거나 할당량을 확인해주세요!"
         return f"AI 분석 오류: {error_msg}"
+
+@st.cache_data(ttl=3600)
+def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
+    if not _api_key: return "AI미연동"
+    try:
+        prompt = f"당신은 실전 스윙 트레이더입니다. '{stock_name}'의 단기 매매 의견을 다음 4개 중 딱 1개로만 답변하세요: [적극매수, 분할매수, 관망, 매수금지]. 다른 부연 설명은 절대 금지.\n데이터: 현재가 {curr}원, 20일선 {ma20}원, RSI {rsi:.1f}"
+        res = ask_gemini(prompt, _api_key).replace(".", "").replace("\n", "").strip()
+        for kw in ["적극매수", "분할매수", "관망", "매수금지"]:
+            if kw in res: return kw
+        return "관망"
+    except: return "오류"
 
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
@@ -578,6 +589,36 @@ def get_investor_trend(code):
         return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak), fmt(ind_sum, ind_streak)
     except: return "조회불가", "조회불가", "조회불가"
 
+# 👈 [핵심 업데이트 2] 당일 장중 '실시간(잠정치)' 외인/기관 수급 파싱 함수
+@st.cache_data(ttl=300)
+def get_intraday_estimate(code):
+    if not code.isdigit(): return None
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        tables = soup.find_all('table', {'class': 'type2'})
+        for table in tables:
+            summary = table.get('summary', '')
+            if '잠정치' in summary:
+                trs = table.find_all('tr')
+                for tr in trs:
+                    tds = tr.find_all('td')
+                    if len(tds) >= 3 and not '비어있습니다' in tr.text:
+                        time_str = tds[0].text.strip()
+                        if not time_str or time_str == '': continue
+                        
+                        forgn_str = tds[1].text.strip().replace(',', '').replace('+', '')
+                        inst_str = tds[2].text.strip().replace(',', '').replace('+', '')
+                        
+                        forgn_val = int(forgn_str) if forgn_str.lstrip('-').isdigit() else 0
+                        inst_val = int(inst_str) if inst_str.lstrip('-').isdigit() else 0
+                        
+                        return {"time": time_str, "forgn": forgn_val, "inst": inst_val}
+        return None
+    except: return None
+
 @st.cache_data(ttl=3600)
 def get_daily_sise_and_investor(code):
     if not code.isdigit(): return pd.DataFrame()
@@ -700,6 +741,8 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         inst_vol, forgn_vol, ind_vol = get_investor_trend(ticker_code)
         per, pbr = get_fundamentals(ticker_code)
         
+        intraday_est = get_intraday_estimate(ticker_code)
+        
         target_1 = int(latest['Bollinger_Upper'])
         recent_high = int(analysis_df['Close'].max())
         target_2 = recent_high if recent_high > (target_1 * 1.02) else int(target_1 * 1.05)
@@ -723,6 +766,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, 
             "기관수급": inst_vol, "외인수급": forgn_vol, "개인수급": ind_vol,
+            "장중잠정수급": intraday_est,
             "PER": per, "PBR": pbr, "OBV": analysis_df['OBV'].tail(20),
             "차트 데이터": analysis_df.tail(20), 
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
@@ -917,22 +961,32 @@ def show_trading_guidelines():
 
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default", show_longterm_chart=False):
     status_emoji = tech_result['상태'].split(' ')[0]
+    
     def get_short_trend(trend_text):
         val = str(trend_text).split(' ')[0]
         if "🔥" in str(trend_text): return f"🔥{val}"
         if "💧" in str(trend_text): return f"💧{val}"
         return f"➖{val}"
+        
     f_trend = get_short_trend(tech_result['외인수급'])
     i_trend = get_short_trend(tech_result['기관수급'])
     p_trend = get_short_trend(tech_result.get('개인수급', '0'))
     
     sector_info = tech_result.get('섹터', '기타')
     if len(sector_info) > 12: sector_info = sector_info[:12] + ".."
+    
     align_status_short = tech_result['배열상태'].split(' ｜ ')[0]
+    
     base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ 개인: {p_trend} ｜ RSI: {tech_result['RSI']:.1f} ｜ PER: {tech_result['PER']} ｜ PBR: {tech_result['PBR']})"
+    
     header_block = f"{status_emoji} {tech_result['종목명']} / {sector_info} / {tech_result['현재가']:,}원"
     
-    expander_title = f"{header_block} ｜ AI단기: {tech_result['AI단기']} ｜ {base_info}" if 'AI단기' in tech_result else f"{header_block} ｜ {base_info}"
+    if 'AI단기' in tech_result:
+        ai_op = tech_result['AI단기']
+        ai_icon = "🔥" if "매수" in ai_op else "❄️" if "금지" in ai_op else "👀"
+        expander_title = f"{header_block} ｜ AI단기: {ai_icon}{ai_op} ｜ {base_info}"
+    else:
+        expander_title = f"{header_block} ｜ {base_info}"
     
     with st.expander(expander_title, expanded=is_expanded):
         if tech_result.get('과거검증'):
@@ -949,6 +1003,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             
         col_btn1, col_btn2 = st.columns([8, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
+        
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if col_btn2.button("⭐ 관심종목 추가" if not is_in_wl else "🌟 추가됨", disabled=is_in_wl, key=f"star_{tech_result['티커']}_{key_suffix}"):
             st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
@@ -966,7 +1021,15 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         c5, c6, c7 = st.columns([1, 1, 2])
         c5.metric("🛑 손절 라인", f"{tech_result['손절가']:,}원", f"{tech_result['손절가'] - curr:,}원 (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
-        with c7: st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
+        
+        # 👈 [업데이트] 장중 잠정 수급 UI 반영
+        with c7: 
+            st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
+            if tech_result.get('장중잠정수급'):
+                id_data = tech_result['장중잠정수급']
+                f_val_str = f"🔥+{id_data['forgn']:,}" if id_data['forgn'] > 0 else f"💧{id_data['forgn']:,}"
+                i_val_str = f"🔥+{id_data['inst']:,}" if id_data['inst'] > 0 else f"💧{id_data['inst']:,}"
+                st.markdown(f"⚡ **오늘 장중 실시간 수급 (잠정)**<br>외인 `{f_val_str}` ｜ 기관 `{i_val_str}` `({id_data['time']} 기준)`", unsafe_allow_html=True)
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1113,9 +1176,8 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
         st.session_state.ex_rate = ex_rate
         st.session_state.us_fetch_time = fetch_time
 
-# 👈 [핵심 업데이트] 0번 탭(메인 관제 센터)을 맨 앞에 추가
 tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
-    "🎛️ 메인 대시보드", # 👈 신규 추가된 메인 관제 센터
+    "🎛️ 메인 대시보드", 
     "🔥 🇺🇸 미국 급등주", 
     "🚀 조건 검색 스캐너", 
     "💎 장기 가치주 스캐너", 
@@ -1137,7 +1199,6 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12,
 with tab0:
     st.markdown("## 🎛️ 트레이딩 관제 센터 (Command Center)")
     
-    # 상단: 거시 경제 지표 (기존 상단에 있던 게이지를 0번 탭 안으로 예쁘게 이식)
     m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
     def draw_gauge(val, prev, title, steps, is_error=False):
         if is_error: return go.Figure(go.Indicator(mode="gauge", value=0, title={'text': f"<b>{title}</b><br><span style='font-size:12px;color:red'>데이터 로딩 지연중</span>"}, gauge={'axis': {'range': [0, steps[-1]['range'][1]]}, 'bar': {'color': "gray"}}))
@@ -1167,7 +1228,6 @@ with tab0:
                 if '필라델피아 반도체' in macro_data: c3.metric("💻 필라델피아 반도체(SOX)", f"{macro_data['필라델피아 반도체']['value']:.1f}", f"{macro_data['필라델피아 반도체']['delta']:.1f}")
                 if 'WTI 원유' in macro_data: c4.metric("🛢️ WTI 원유 (달러)", f"{macro_data['WTI 원유']['value']:.2f}", f"{macro_data['WTI 원유']['delta']:.2f}")
 
-    # 1. 매매 전략 가이드 (기계적 뷰)
     st.subheader("1️⃣ Strategy & Position (오늘의 매매 전략)")
     vix_val = macro_data['VIX']['value'] if macro_data and 'VIX' in macro_data else 20
     fg_val = fg_data['score'] if fg_data else 50
@@ -1183,7 +1243,6 @@ with tab0:
 
     col_dash1, col_dash2 = st.columns([1, 1])
     
-    # 2. 실시간 뉴스 엣지
     with col_dash1:
         st.subheader("2️⃣ Information Edge (시장 핵심 속보)")
         update_news_state()
@@ -1201,7 +1260,6 @@ with tab0:
         else:
             st.caption("현재 시작에 임팩트를 주는 핵심 속보가 없습니다.")
 
-    # 3. 실시간 상황판
     with col_dash2:
         st.subheader("3️⃣ Technical View (실시간 주도주 시그널)")
         with st.spinner("오늘 거래대금이 가장 터지는 주도주들의 차트 시그널을 판별 중입니다..."):
@@ -1227,7 +1285,6 @@ with tab0:
                 
     st.divider()
 
-    # 4. 퀵 오더 & 리스크 관리
     st.subheader("4️⃣ Quick Action & Risk Management")
     q_col1, q_col2 = st.columns([1, 1])
     
@@ -1409,7 +1466,7 @@ with tab2:
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
-    st.write("AI가 미래 핵심 기업을 찾아내고, 병렬 재무 스캔을 통해 '진흙 속의 진주'를 초고 초발굴합니다.")
+    st.write("AI가 미래 핵심 기업을 찾아내고, 병렬 재무 스캔을 통해 '진흙 속의 진주'를 초고속으로 발굴합니다.")
     show_beginner_guide() 
     
     hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
