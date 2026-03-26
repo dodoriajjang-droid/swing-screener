@@ -17,18 +17,19 @@ import json
 import time
 import concurrent.futures
 import os
-import streamlit.components.v1 as components
 
 # ==========================================
-# 0. 로컬 영구 저장소
+# 0. 로컬 영구 저장소 (관심종목 유지용)
 # ==========================================
 WATCHLIST_FILE = "watchlist.json"
+
 def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
         try:
             with open(WATCHLIST_FILE, "r", encoding="utf-8") as f: return json.load(f)
         except: return []
     return []
+
 def save_watchlist(wl):
     try:
         with open(WATCHLIST_FILE, "w", encoding="utf-8") as f: json.dump(wl, f, ensure_ascii=False, indent=4)
@@ -57,7 +58,7 @@ if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
 
 # ==========================================
-# 2. 통합 데이터 수집 & AI 함수 모음 (최상단 고정 - NameError 방지)
+# 2. 통합 데이터 수집 & AI 함수 모음 (🚨 사라졌던 AI 함수들 완벽 복구!)
 # ==========================================
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -82,6 +83,130 @@ def get_quick_ai_opinion(stock_name, curr, ma20, rsi, _api_key):
     except: return "오류"
 
 @st.cache_data(ttl=3600)
+def get_all_sector_info(tickers, _api_key):
+    results = {t: ("분석 대기", "분석 대기") for t in tickers}
+    if not _api_key: return results
+    try:
+        response = ask_gemini(f"당신은 월스트리트 주식 전문가입니다.\n다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.\n반드시 '티커|섹터|산업' 형태로만 답변하세요.\n[티커 목록]\n{chr(10).join(tickers)}", _api_key)
+        for line in response.strip().split('\n'):
+            parts = line.split('|')
+            if len(parts) >= 3 and parts[0].strip().replace('*', '').replace('-', '') in results:
+                results[parts[0].strip().replace('*', '').replace('-', '')] = (parts[1].strip(), parts[2].strip())
+        return results
+    except: return results
+
+@st.cache_data(ttl=3600)
+def get_company_summary(ticker, _api_key):
+    try:
+        biz_summary = yf.Ticker(ticker).info.get('longBusinessSummary', '')
+        prompt = f"미국 주식 {ticker}의 영문 개요를 읽고, '무엇을 만들고 어떻게 돈을 버는지' 한국어로 2줄 요약해 주세요. [개요]: {biz_summary[:1500]}" if biz_summary else f"미국 주식 '{ticker}' 핵심 비즈니스 모델을 한국어로 2~3줄 요약해 주세요."
+        return ask_gemini(prompt, _api_key)
+    except: return "기업 정보를 요약하는 중 오류가 발생했습니다."
+
+@st.cache_data(ttl=3600)
+def analyze_news_with_gemini(ticker, _api_key):
+    try:
+        news_list = yf.Ticker(ticker).news
+        if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
+        news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
+        prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
+        return ask_gemini(prompt, _api_key)
+    except: return "뉴스 분석 중 오류가 발생했습니다."
+
+@st.cache_data(ttl=3600)
+def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
+    if not _api_key: return []
+    try:
+        response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            if clean_name in name_to_code:
+                final_name = clean_name
+                final_code = name_to_code[clean_name]
+            elif code in code_to_name:
+                final_name = code_to_name[code]
+                final_code = code
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+        return validated[:20]
+    except: return []
+
+@st.cache_data(ttl=3600)
+def get_theme_stocks_with_ai(theme_keyword, _api_key):
+    if not _api_key: return []
+    try:
+        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            if clean_name in name_to_code:
+                final_name = clean_name
+                final_code = name_to_code[clean_name]
+            elif code in code_to_name:
+                final_name = code_to_name[code]
+                final_code = code
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+        return validated[:20]
+    except: return []
+
+@st.cache_data(ttl=10800)
+def get_trending_themes_with_ai(_api_key):
+    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
+    if not _api_key: return default_themes
+    try:
+        prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 반도체장비, 2차전지, 제약바이오, 원자력"
+        response = ask_gemini(prompt, _api_key)
+        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
+        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
+    except: return default_themes
+
+@st.cache_data(ttl=3600)
+def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
+    if not _api_key: return []
+    try:
+        prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 테마주가 아닌 실제 기술을 개발하거나 관련 사업을 영위하는 장기 투자 관점의 종목이어야 합니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
+        response = ask_gemini(prompt, _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            if clean_name in name_to_code:
+                final_name = clean_name
+                final_code = name_to_code[clean_name]
+            elif code in code_to_name:
+                final_name = code_to_name[code]
+                final_code = code
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+        return validated[:20]
+    except: return []
+
+@st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
     tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "필라델피아 반도체": "^SOX", "WTI 원유": "CL=F", "원/달러 환율": "KRW=X"}
@@ -104,10 +229,17 @@ def get_fear_and_greed():
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
+        proxy_url = f"https://corsproxy.io/?{urllib.parse.quote(url)}"
+        res = requests.get(proxy_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except: pass
+    try:
+        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}"
         res = requests.get(proxy_url, timeout=5)
         if res.status_code == 200:
-            data = json.loads(res.json()['contents'])
+            data = res.json()
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     return {"score": 50, "delta": 0, "rating": "Neutral (서버차단 방어)"}
@@ -527,7 +659,6 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     try:
         df = get_historical_data(ticker_code, 150)
         if df.empty or len(df) < 20 + offset_days: return None
-        
         today_close = int(df['Close'].iloc[-1]) 
         if offset_days > 0: analysis_df = df.iloc[:-offset_days].copy()
         else: analysis_df = df.copy()
@@ -590,12 +721,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
 
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
-    theme_proxies = {
-        "반도체": "091160", "2차전지": "305720", "바이오/헬스케어": "244580", "인터넷/플랫폼": "157490",
-        "자동차/모빌리티": "091230", "금융/지주": "091220", "미디어/엔터": "266360", "로봇/AI": "417270",
-        "K-방산": "449450", "조선/중공업": "139240", "원자력/전력기기": "102960", "화장품/미용": "228790",
-        "게임": "300610", "건설/인프라": "117700", "철강/소재": "117680"
-    }
+    theme_proxies = {"반도체": "091160", "2차전지": "305720", "바이오/헬스케어": "244580", "인터넷/플랫폼": "157490", "자동차/모빌리티": "091230", "금융/지주": "091220", "미디어/엔터": "266360", "로봇/AI": "417270", "K-방산": "449450", "조선/중공업": "139240", "원자력/전력기기": "102960", "화장품/미용": "228790", "게임": "300610", "건설/인프라": "117700", "철강/소재": "117680"}
     results = []
     for theme_name, ticker in theme_proxies.items():
         try:
@@ -616,89 +742,6 @@ def analyze_theme_trends():
             results.append({"테마": theme_name, "1M수익률": r_1m, "1M거래대금": v_1m, "3M수익률": r_3m, "3M거래대금": v_3m, "6M수익률": r_6m, "6M거래대금": v_6m})
         except: pass
     return pd.DataFrame(results)
-
-# 👈 [핵심 업데이트 2] 네이버 IPO 무적의 수동 파싱 로직 적용
-@st.cache_data(ttl=10800)
-def get_naver_ipo_data():
-    try:
-        url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36'})
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        
-        # 명확한 표 클래스 탐색
-        table = soup.find('table', class_='type_2')
-        if not table: return pd.DataFrame()
-        
-        trs = table.find_all('tr')
-        headers = []
-        data = []
-        
-        for tr in trs:
-            ths = tr.find_all('th')
-            if ths and not headers:
-                headers = [th.text.strip() for th in ths]
-            
-            tds = tr.find_all('td')
-            if tds:
-                row = [td.text.strip() for td in tds]
-                if len(row) == len(headers) and row[0] and row[0] != '종목명':
-                    data.append(row)
-                    
-        if not headers or not data: return pd.DataFrame()
-        df = pd.DataFrame(data, columns=headers)
-        
-        # 화면에 출력할 핵심 열만 솎아내기 (희망공모가 등 변동되는 열 방어)
-        valid_cols = []
-        target_cols = ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사']
-        for tc in target_cols:
-            for hc in headers:
-                if tc in hc: 
-                    valid_cols.append(hc)
-                    break
-        
-        df = df[valid_cols]
-        # 컬럼명 깔끔하게 정리
-        df.columns = [c.replace(' ', '') for c in df.columns]
-        return df.head(15).reset_index(drop=True)
-    except: return pd.DataFrame()
-
-# ETF 및 배당주 포트폴리오 데이터를 최대한 압축하여 코드 라인수 절약
-@st.cache_data(ttl=43200) 
-def get_dividend_portfolio(ex_rate=1350.0):
-    portfolio = {
-        "KRX": [("088980.KS","맥쿼리인프라","반기","6.0~6.5%"), ("024110.KS","기업은행","결산","7.5~8.5%"), ("316140.KS","우리금융지주","분기","8.0~9.0%"), ("033780.KS","KT&G","반기/결산","6.0~7.0%"), ("017670.KS","SK텔레콤","분기","6.5~7.0%"), ("055550.KS","신한지주","분기","5.5~6.5%"), ("086790.KS","하나금융지주","분기/결산","6.0~7.5%"), ("105560.KS","KB금융","분기","5.0~6.0%"), ("138040.KS","메리츠금융지주","결산","4.5~5.5%"), ("139130.KS","DGB금융지주","결산","8.0~9.0%"), ("175330.KS","JB금융지주","반기/결산","8.0~9.0%"), ("138930.KS","BNK금융지주","결산","8.0~9.0%"), ("016360.KS","삼성증권","결산","7.0~8.0%"), ("005940.KS","NH투자증권","결산","7.0~8.0%"), ("051600.KS","한전KPS","결산","5.5~6.5%"), ("030200.KS","KT","분기","5.5~6.5%"), ("000815.KS","삼성화재우","결산","6.5~7.5%"), ("053800.KS","현대차2우B","분기/결산","6.0~7.5%"), ("030000.KS","제일기획","결산","5.5~6.5%"), ("040420.KS","정상제이엘에스","결산","6.0~7.0%"), ("010950.KS","S-Oil","결산","5.0~6.0%"), ("005935.KS","삼성전자우","분기","2.5~3.0%"), ("005490.KS","POSCO홀딩스","분기","4.5~5.0%"), ("071050.KS","한국금융지주","결산","5.5~6.5%"), ("003540.KS","대신증권","결산","7.5~8.5%"), ("039490.KS","키움증권","결산","4.0~5.0%"), ("005830.KS","DB손해보험","결산","5.0~6.0%"), ("001450.KS","현대해상","결산","5.5~6.5%"), ("000810.KS","삼성생명","결산","4.5~5.5%"), ("003690.KS","코리안리","결산","5.0~6.0%"), ("108670.KS","LX인터내셔널","결산","6.5~7.5%"), ("078930.KS","GS","결산","5.5~6.5%"), ("004800.KS","효성","결산","6.0~7.0%"), ("011500.KS","E1","결산","5.0~6.0%"), ("004020.KS","고려아연","결산","3.5~4.5%"), ("001230.KS","동국제강","결산","5.5~6.5%"), ("001430.KS","세아베스틸지주","결산","5.0~6.0%"), ("267250.KS","HD현대","결산","5.0~6.0%"), ("002960.KS","한국쉘석유","결산","6.0~7.0%"), ("001720.KS","신영증권","결산","6.5~7.5%"), ("000060.KS","동양생명","결산","6.0~7.0%"), ("036530.KS","LS","결산","3.0~4.0%"), ("034730.KS","SK","결산","3.5~4.5%"), ("000880.KS","한화","결산","3.0~4.0%"), ("069260.KS","TKG휴켐스","결산","5.0~6.0%"), ("001040.KS","영원무역","결산","3.0~4.0%"), ("010780.KS","아이에스동서","결산","4.0~5.0%"), ("002380.KS","KCC","결산","2.0~3.0%"), ("039130.KS","하나투어","결산","3.0~4.0%"), ("003410.KS","쌍용C&E","분기","6.5~7.5%")],
-        "US": [("O","Realty Income","월배당","5.5~6.0%"), ("MO","Altria Group","분기","9.0~9.5%"), ("VZ","Verizon","분기","6.0~6.5%"), ("T","AT&T","분기","6.0~6.5%"), ("PM","Philip Morris","분기","5.0~5.5%"), ("KO","Coca-Cola","분기","3.0~3.5%"), ("PEP","PepsiCo","분기","2.8~3.2%"), ("JNJ","Johnson & Johnson","분기","3.0~3.5%"), ("PG","Procter & Gamble","분기","2.3~2.8%"), ("ABBV","AbbVie","분기","3.8~4.2%"), ("PFE","Pfizer","분기","5.5~6.0%"), ("CVX","Chevron","분기","4.0~4.5%"), ("XOM","Exxon Mobil","분기","3.0~3.5%"), ("MMM","3M","분기","5.5~6.5%"), ("IBM","IBM","분기","3.5~4.0%"), ("ENB","Enbridge","분기","7.0~7.5%"), ("WPC","W. P. Carey","분기","6.0~6.5%"), ("MAIN","Main Street","월배당","6.0~6.5%"), ("ARCC","Ares Capital","분기","9.0~9.5%"), ("KMI","Kinder Morgan","분기","6.0~6.5%"), ("CSCO","Cisco Systems","분기","3.0~3.5%"), ("HD","Home Depot","분기","2.5~3.0%"), ("MRK","Merck","분기","2.5~3.0%"), ("MCD","McDonald's","분기","2.0~2.5%"), ("WMT","Walmart","분기","1.5~2.0%"), ("TGT","Target","분기","2.5~3.0%"), ("CAT","Caterpillar","분기","1.5~2.0%"), ("LOW","Lowe's","분기","1.5~2.0%"), ("SBUX","Starbucks","분기","2.5~3.0%"), ("CL","Colgate-Palmolive","분기","2.0~2.5%"), ("K","Kellanova","분기","3.5~4.0%"), ("GIS","General Mills","분기","3.0~3.5%"), ("HSY","Hershey","분기","2.5~3.0%"), ("KMB","Kimberly-Clark","분기","3.5~4.0%"), ("GPC","Genuine Parts","분기","2.5~3.0%"), ("ED","Consolidated Edison","분기","3.5~4.0%"), ("SO","Southern Company","분기","3.5~4.0%"), ("DUK","Duke Energy","분기","4.0~4.5%"), ("NEE","NextEra Energy","분기","2.5~3.0%"), ("D","Dominion Energy","분기","5.0~5.5%"), ("EPD","Enterprise Products","분기","7.0~7.5%"), ("PRU","Prudential Financial","분기","4.5~5.0%"), ("MET","MetLife","분기","3.0~3.5%"), ("AFL","Aflac","분기","2.0~2.5%"), ("GILD","Gilead Sciences","분기","4.0~4.5%"), ("BMY","Bristol-Myers Squibb","분기","4.5~5.0%"), ("AMGN","Amgen","분기","3.0~3.5%"), ("TXN","Texas Instruments","분기","2.5~3.0%"), ("LMT","Lockheed Martin","분기","2.5~3.0%"), ("UPS","United Parcel Service","분기","4.0~4.5%")],
-        "ETF": [("SCHD","미국 SCHD (고배당)","분기","3.4~3.8%"), ("JEPI","미국 JEPI (S&P 프리미엄)","월배당","7.0~8.0%"), ("JEPQ","미국 JEPQ (나스닥 프리미엄)","월배당","8.5~9.5%"), ("VYM","미국 VYM (고배당)","분기","2.8~3.2%"), ("SPYD","미국 SPYD (S&P500 고배당)","분기","4.5~5.0%"), ("DGRO","미국 DGRO (배당성장)","분기","2.2~2.6%"), ("QYLD","미국 QYLD (커버드콜)","월배당","11.0~12.0%"), ("XYLD","미국 XYLD (S&P 커버드콜)","월배당","9.0~10.0%"), ("DIVO","미국 DIVO (배당+옵션)","월배당","4.5~5.0%"), ("VNQ","미국 VNQ (리츠)","분기","4.0~4.5%"), ("458730.KS","TIGER 미국배당다우존스","월배당","3.5~4.0%"), ("161510.KS","ARIRANG 고배당주","결산","6.0~7.0%"), ("458760.KS","TIGER 미국배당+7%","월배당","10.0~11.0%"), ("448550.KS","ACE 미국배당다우존스","월배당","3.5~4.0%"), ("466950.KS","KODEX 미국배당프리미엄","월배당","7.0~8.0%"), ("329200.KS","TIGER 부동산인프라","분기","6.5~7.5%"), ("091220.KS","KODEX 은행","결산","6.0~7.0%"), ("211560.KS","TIGER 배당성장","분기","4.0~5.0%"), ("271560.KS","ARIRANG 미국고배당","분기","3.5~4.5%"), ("433330.KS","TIMEFOLIO 코리아플러스","월배당","5.0~6.0%"), ("VIG","미국 VIG (배당성장)","분기","1.8~2.2%"), ("NOBL","미국 NOBL (배당귀족)","분기","2.0~2.5%"), ("SDY","미국 SDY (배당귀족)","분기","2.5~3.0%"), ("HDV","미국 HDV (핵심배당)","분기","3.5~4.0%"), ("PEY","미국 PEY (고배당)","월배당","4.5~5.0%"), ("DHS","미국 DHS (고배당)","월배당","3.5~4.0%"), ("DVY","미국 DVY (우량배당)","분기","3.5~4.0%"), ("FVD","미국 FVD (가치배당)","분기","2.0~2.5%"), ("SPHD","미국 SPHD (저변동성 고배당)","월배당","4.0~4.5%"), ("DIV","미국 DIV (글로벌 고배당)","월배당","6.0~6.5%"), ("RDIV","미국 RDIV (리스크가중 배당)","분기","4.0~4.5%"), ("ALTY","미국 ALTY (대안수익)","월배당","7.0~8.0%"), ("VPU","미국 VPU (유틸리티)","분기","3.0~3.5%"), ("XLU","미국 XLU (유틸리티)","분기","3.0~3.5%"), ("PFF","미국 PFF (우선주)","월배당","6.0~6.5%"), ("460330.KS","SOL 미국배당다우존스","월배당","3.5~4.0%"), ("276970.KS","KODEX 배당가치","결산","5.0~6.0%"), ("213610.KS","TIGER 코스피고배당","결산","5.5~6.5%"), ("379800.KS","KODEX 미국배당프리미엄액티브","월배당","7.0~8.0%"), ("104530.KS","KODEX 고배당","결산","5.0~6.0%"), ("266140.KS","TIGER 글로벌배당","분기","3.0~4.0%"), ("415920.KS","TIGER 글로벌멀티에셋","월배당","4.0~5.0%"), ("402970.KS","TIGER 미국배당+3%프리미엄","월배당","6.0~7.0%"), ("368590.KS","KBSTAR 200고배당커버드콜","월배당","7.0~8.0%"), ("222170.KS","ARIRANG 고배당저변동","결산","5.0~6.0%"), ("148020.KS","KBSTAR 200고배당","결산","5.0~6.0%"), ("232080.KS","TIGER 코스닥150","결산","1.0~2.0%"), ("256450.KS","ARIRANG 퀄리티","결산","4.0~5.0%"), ("433320.KS","TIGER 글로벌리츠","분기","4.0~5.0%"), ("357870.KS","TIGER 부동산인프라고배당","분기","6.0~7.0%")]
-    }
-    all_tickers = [t for cat in portfolio.values() for t, n, p, y in cat]
-    price_dict = {}
-    try:
-        data = yf.download(all_tickers, period="5d", progress=False)
-        if isinstance(data.columns, pd.MultiIndex): close_data = data['Close']
-        elif 'Close' in data: close_data = pd.DataFrame(data['Close'])
-        else: close_data = pd.DataFrame()
-        for t in all_tickers:
-            if t in close_data.columns:
-                val = close_data[t].dropna()
-                if not val.empty: price_dict[t] = float(val.iloc[-1])
-    except: pass
-    results = {"KRX": [], "US": [], "ETF": []}
-    for category, stocks in portfolio.items():
-        for t_code, name, period, est_yield in stocks:
-            p_val = price_dict.get(t_code)
-            p_str, div_str = "조회 지연", est_yield
-            if p_val:
-                if ".KS" in t_code:
-                    p_str, krw_price = f"{int(p_val):,}원", p_val
-                else:
-                    p_str, krw_price = f"${p_val:,.2f}", p_val * ex_rate
-                try:
-                    pcts = [float(x) for x in re.findall(r"[\d\.]+", est_yield)]
-                    if len(pcts) >= 2: div_str = f"{est_yield} (약 {int(krw_price * (pcts[0] / 100)):,}~{int(krw_price * (pcts[1] / 100)):,}원)"
-                    elif len(pcts) == 1: div_str = f"{est_yield} (약 {int(krw_price * (pcts[0] / 100)):,}원)"
-                except: pass
-            results[category].append({"티커/코드": t_code.replace(".KS", ""), "종목명": name, "현재가": p_str, "배당수익률(예상)": div_str, "배당주기": period})
-    return {k: pd.DataFrame(v) for k, v in results.items()}
 
 # ==========================================
 # 3. UI 렌더링 함수들
@@ -721,9 +764,9 @@ def show_trading_guidelines():
         **1️⃣ 숲을 본다 (09:00~09:30) : 주도 테마 선점**
         * **[10번 탭] 테마 트렌드 & [1번 탭] 미장 & [7번 탭] 뉴스**를 통해 오늘 돈이 몰리는 주도 섹터 파악
         **2️⃣ 나무를 고른다 (09:30~) : 스캐너 황금 콤보 적용 및 보유 기간**
-        * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증`
-        * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증`
-        * ©️ **바닥 줍줍 (목표 1일~3일):** `🔵RSI 30이하` + `🔥거래량 급증`
+        * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증` 
+        * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` 
+        * ©️ **바닥 줍줍 (목표 1일~3일):** `🔵RSI 30이하` + `🔥거래량 급증` 
         * 🐋 **스마트머니 편승 (목표 3일~1주):** `[✅ 눌림목]` OR `[🔵 RSI 30이하]` + `[🐋 쌍끌이 순매수]`
         """)
 
@@ -793,21 +836,12 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         prompt = f"""
                         당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다.
                         '{tech_result['종목명']}'에 대한 [기술적 타점]과 [펀더멘털]을 종합 분석해주세요.
-                        
-                        [기술적 지표 및 수급]
-                        - 현재가: {curr}원, 20일선: {tech_result['진입가_가이드']}원 (상태: {tech_result['상태']})
-                        - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
-                        - 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
-                        
                         [증권사 목표주가 컨센서스]: {cons}
-                        
                         [최근 재무제표 요약 (단위: 억 원)]
                         {fin_text[:2000]}
-                        
                         [동일 업종 경쟁사 비교 (PER/PBR 포함)]
                         {peer_text[:1000]}
                         
-                        위 데이터를 바탕으로 다음 리포트를 작성해주세요. (마크다운 포맷)
                         1. 📈 **기술적 타점 & 수급 분석**: 현재 진입하기 좋은 자리인지, 수급 주체는 누구인지.
                         2. 🏢 **실적 트렌드 & 밸류에이션**: 재무제표와 경쟁사 비교를 통해 고평가/저평가 여부 판단.
                         3. 🎯 **단기 매매 의견 및 목표가**: (적극매수/분할매수/관망/매수금지 중 택 1) 및 단기 대응 전략.
@@ -824,7 +858,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 st.write("✅ **동일 업종 비교표**")
                                 st.dataframe(peer_df)
                     else:
-                        prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점 (차트/모멘텀 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n2. 🛡️ 스윙/가치 투자 관점 (재무/가치 중심)\n- 의견 (적극매수/분할매수/관망/매수금지 중 택 1)\n- 이유:\n\n3. 🎯 종합 요약 (1줄):"
+                        prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{curr}, 20일선:{tech_result['진입가_가이드']}, RSI:{tech_result['RSI']:.1f}, PER:{tech_result['PER']}, PBR:{tech_result['PBR']}\n\n1. ⚡ 단기 트레이딩 관점\n2. 🛡️ 스윙/가치 투자 관점\n3. 🎯 종합 요약 (1줄):"
                         st.success("✅ AI 분석 완료!")
                         st.markdown(ask_gemini(prompt, api_key_str))
         
@@ -1193,6 +1227,7 @@ with tab2:
                         if cond_rsi_bottom and res['RSI'] > 30: match = False
                         if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": match = False
                         if cond_twin_buy and ("+" not in str(res['기관수급']) or "+" not in str(res['외인수급'])): match = False
+                        
                         if match: return res
                     return None
                 
