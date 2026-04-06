@@ -39,7 +39,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v2.0", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v2.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -49,7 +49,7 @@ if 'watchlist' not in st.session_state: st.session_state.watchlist = load_watchl
 if 'quick_analyze_news' not in st.session_state: st.session_state.quick_analyze_news = None
 if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
-if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None # 연기금 스캐너 결과 저장용
+if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None
 
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
@@ -127,10 +127,11 @@ def get_trending_themes_with_ai(_api_key):
     except: return default_themes
 
 @st.cache_data(ttl=3600)
-def get_theme_stocks_with_ai(theme_keyword, _api_key):
+def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
     if not _api_key: return []
     try:
-        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
+        prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 테마주가 아닌 실제 기술을 개발하거나 관련 사업을 영위하는 장기 투자 관점의 종목이어야 합니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
+        response = ask_gemini(prompt, _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
         if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
@@ -392,43 +393,24 @@ def get_investor_trend(code):
 
 @st.cache_data(ttl=3600)
 def get_pension_fund_trend(code):
-    """
-    네이버 금융에서 연기금(Pension Fund)의 당일 및 누적 순매수 동향을 추출.
-    주의: 네이버 금융의 투자자별 매매동향 탭(투자자별)에는 기관을 세분화한 데이터가 있지만,
-    단일 종목 페이지(frgn.naver)에는 기관 합계만 나옵니다.
-    보다 정밀한 분석을 위해선 KRX API나 pykrx가 필요하지만, 우선적으로 기관 수급 데이터를 우회적으로 사용하거나,
-    (이 예제에서는 기관 합계를 연기금의 대리 지표로 삼거나 별도 페이지 파싱을 가정합니다.)
-    여기서는 증권사 HTS/MTS에서 가장 많이 쓰이는 '기관 연속 순매수'를 연기금/투신의 핵심 시그널로 대체하여 사용합니다.
-    """
     try:
         res = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         rows = soup.select('table.type2')[1].select('tr')
-        
-        pension_like_sum = 0
-        pension_like_streak = 0
-        pension_break = False
-        count = 0
-        
+        pension_like_sum, pension_like_streak, pension_break, count = 0, 0, False, 0
         for row in rows:
             tds = row.select('td')
             if len(tds) < 9 or not tds[0].text.strip(): continue 
             try:
-                # 기관 순매수를 연기금/투신의 주도적 움직임으로 간주 (실제 연기금 데이터는 pykrx 필요)
                 i_val = int(tds[5].text.strip().replace(',', '').replace('+', '')) 
                 pension_like_sum += i_val
-                
-                if i_val > 0 and not pension_break: 
-                    pension_like_streak += 1
-                elif i_val <= 0: 
-                    pension_break = True
+                if i_val > 0 and not pension_break: pension_like_streak += 1
+                elif i_val <= 0: pension_break = True
                 count += 1
             except: pass
             if count >= 5: break
-            
         return pension_like_sum, pension_like_streak
-    except:
-        return 0, 0
+    except: return 0, 0
 
 def get_fundamentals(ticker_code):
     if ticker_code.isdigit():
@@ -541,11 +523,6 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
 
 @st.cache_data(ttl=86400)
 def get_nps_holdings_mock():
-    """
-    원래라면 DART Open API를 통해 '국민연금공단'의 5% 이상 보유 종목 리스트를 가져와야 합니다.
-    여기서는 구조를 잡기 위해 대표적인 국민연금 5% 이상 보유 종목 Mock 데이터를 반환합니다.
-    실제 적용 시 DART API (crtfc_key 필요) 연동 코드로 교체하시면 됩니다.
-    """
     return pd.DataFrame([
         {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.52%", "최근변동": "유지"},
         {"종목명": "SK하이닉스", "티커": "000660", "보유비중": "8.12%", "최근변동": "확대"},
@@ -556,16 +533,36 @@ def get_nps_holdings_mock():
         {"종목명": "POSCO홀딩스", "티커": "005490", "보유비중": "6.71%", "최근변동": "유지"},
         {"종목명": "셀트리온", "티커": "068270", "보유비중": "6.22%", "최근변동": "확대"},
         {"종목명": "삼성SDI", "티커": "006400", "보유비중": "8.34%", "최근변동": "축소"},
-        {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"},
-        {"종목명": "기아", "티커": "000270", "보유비중": "7.20%", "최근변동": "확대"},
-        {"종목명": "KB금융", "티커": "105560", "보유비중": "8.50%", "최근변동": "확대"},
-        {"종목명": "신한지주", "티커": "055550", "보유비중": "8.25%", "최근변동": "확대"},
-        {"종목명": "HD현대중공업", "티커": "329180", "보유비중": "5.10%", "최근변동": "확대"}
+        {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
     ])
 
 # ==========================================
-# 3. UI 렌더링 함수들
+# 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
+def show_beginner_guide():
+    with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
+        st.markdown("""
+        ### 1. 📊 차트 상태 (상세 진단 기준 & 이평선)
+        * **이동평균선(이평선):** 일정 기간 동안의 주가 평균을 이은 선입니다. (5일선=1주일, 20일선=1달, 60일선=3달)
+        * **🔥 완벽 정배열 (상승 추세):** `5일선 > 20일선 > 60일선` 순서로 주가 아래에 예쁘게 깔려 있는 가장 이상적인 상승 구간입니다.
+        * **❄️ 역배열 (하락 추세):** `5일선 < 20일선 < 60일선` 순서로 주가 위에서 짓누르고 있는 하락 구간입니다.
+        * **✨ 5-20 골든크로스:** 어제까지 아래에 있던 단기선(5일)이 중기선(20일)을 **오늘 뚫고 위로 올라온** 긍정적 턴어라운드 신호입니다.
+        * **🌀 혼조세/횡보:** 위 조건들에 해당하지 않고 선들이 뒤엉켜 방향을 탐색하는 박스권 상태입니다.
+        """)
+
+def show_trading_guidelines():
+    with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=True):
+        st.markdown("""
+        *💡 본 시나리오는 장중 계속 호가창만 볼 수 없는 환경에 최적화된 **'단기 스윙(며칠~1, 2주 보유)'** 전략입니다. 스캐너로 타점을 찾아 미리 지정가로 매수/매도/손절을 걸어두고 기계적으로 대응하십시오.*
+        **1️⃣ 숲을 본다 (09:00~09:30) : 주도 테마 선점**
+        * **시장 자금 히트맵**을 통해 오늘 돈이 몰리는 주도 섹터 파악
+        **2️⃣ 나무를 고른다 (09:30~) : 스캐너 황금 콤보 적용 및 보유 기간**
+        * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증` 
+        * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` 
+        * ©️ **바닥 줍줍 (목표 1일~3일):** `🔵RSI 30이하` + `🔥거래량 급증` 
+        * 🐋 **스마트머니 편승 (목표 3일~1주):** `[✅ 눌림목]` + `[👴 연기금 3일 연속 순매수]`
+        """)
+
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
     status_emoji = tech_result['상태'].split(' ')[0]
     def get_short_trend(trend_text):
@@ -657,22 +654,29 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     for i, res in enumerate(sorted_res):
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
 
+if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state.gainers_df.columns:
+    df, ex_rate, fetch_time = get_us_top_gainers()
+    st.session_state.gainers_df = df
+    st.session_state.ex_rate = ex_rate
+    st.session_state.us_fetch_time = fetch_time
+
 # ==========================================
-# 4. 메인 화면 시작
+# 4. 메인 화면 & 사이드바 메뉴
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v2.0")
+    st.title("📈 Jaemini PRO v2.1")
     st.markdown("단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
     menu_list = [
         "🎛️ 메인 대시보드",
-        "👨‍🦳 연기금 그림자 매매 스캐너", # NEW!
-        "🗺️ 시장 자금 & 스마트머니 히트맵", # UPDATED!
-        "🏛️ DART: 국민연금 코어픽 5%", # NEW!
+        "👨‍🦳 연기금 그림자 매매 스캐너", 
+        "🗺️ 시장 자금 & 스마트머니 히트맵", 
+        "🏛️ DART: 국민연금 코어픽 5%", 
         "🚀 조건 검색 스캐너 (기본)",
         "🔥 🇺🇸 미국 급등주",
         "💎 장기 가치주 스캐너", 
+        "🔬 기업 정밀 분석기", 
         "⭐ 내 관심종목"
     ]
     selected_menu = st.radio("📌 메뉴 이동", menu_list)
@@ -766,7 +770,7 @@ if selected_menu == "🎛️ 메인 대시보드":
 
 elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
     st.markdown("## 👨‍🦳 연기금 그림자 매매 스캐너 (Smart Money Tracker)")
-    st.info("💡 **전략 설명:** 자금력이 풍부한 기관(연기금/투신)이 최근 며칠간 은밀하게 물량을 모으고 있으나, 아직 주가가 크게 상승하지 않고 20일선 부근에서 눌림목을 형성 중인 '안전 탑승 구간'을 발굴합니다.")
+    show_trading_guidelines()
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
@@ -791,9 +795,7 @@ elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
                     time.sleep(0.1) 
                     res = analyze_technical_pattern(name, code)
                     if res:
-                        # 조건 1: 연기금(기관) 연속 순매수 일수 충족 여부
                         if res.get('연기금연속순매수', 0) < pension_streak_cond: return None
-                        # 조건 2: 20일선 눌림목 조건
                         if pension_pullback_cond and "✅ 타점 근접" not in res['상태']: return None
                         return res
                     return None
@@ -815,7 +817,7 @@ elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
 
 elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
     st.subheader("🗺️ 시장 주도주 & 스마트머니 유입 섹터 히트맵")
-    st.write("거래대금이 크게 터진 종목들 중에서, 기관(연기금 추정)의 매수세가 동반된 종목을 별도로 파악하여 주도 섹터의 자금 로테이션을 읽어냅니다.")
+    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 하락 / 붉은색: 상승)")
     
     with st.spinner("거래대금 상위 30종목 데이터 및 수급 스크래핑 중..."):
         t_kings = get_trading_value_kings()
@@ -823,23 +825,21 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
             t_kings = t_kings.head(30)
             pension_streaks = []
             
-            # 히트맵에 표시하기 위해 상위 종목들의 수급 상태를 빠르게 파악
             for idx, row in t_kings.iterrows():
                 _, streak = get_pension_fund_trend(row['Code'])
                 pension_streaks.append(streak)
             
             t_kings['연속매수'] = pension_streaks
             t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
-            
             t_kings['display_text'] = "<span style='font-size:16px; font-weight:bold;'>" + t_kings['Name'] + "</span><br>" + t_kings['ChagesRatio'].map("{:+.2f}%".format) + "<br>" + t_kings['수급상태']
             
-            # Plotly Treemap
+            # 녹색(음수) -> 회색(보합) -> 붉은색(양수) 으로 컬러 스케일 조정 (요청 반영)
             fig = px.treemap(
                 t_kings, 
                 path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'], 
                 values='Amount_Ouk', 
-                color='연속매수', 
-                color_continuous_scale=[(0.0, '#f63538'), (0.2, '#414554'), (1.0, '#ffd700')], # 매수 일수가 길수록 황금색으로 표시
+                color='ChagesRatio', 
+                color_continuous_scale=[(0.0, '#00b050'), (0.5, '#414554'), (1.0, '#ff0000')], 
                 color_continuous_midpoint=0,
                 custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수']
             )
@@ -856,14 +856,12 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
 
 elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
     st.markdown("## 🏛️ DART 공시 연동: 국민연금 코어 픽(Core Pick)")
-    st.info("💡 국민연금공단이 자본시장법에 따라 의무 공시한 '5% 이상 대량보유상황보고서'를 기반으로, 중장기 가치투자에 적합한 종목과 단기 수급 모멘텀(황금 콤보)이 겹치는 종목을 필터링합니다.")
-    
     nps_df = get_nps_holdings_mock()
     
     tab_nps1, tab_nps2 = st.tabs(["📋 국민연금 5% 대량보유 현황", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
     
     with tab_nps1:
-        st.write("*(참고: 이 데이터는 구조 설계를 위한 Mock 데이터이며, 실제 서비스 적용 시 DART Open API의 `/api/majorstock.xml` 엔드포인트를 호출하여 대체해야 합니다.)*")
+        st.write("*(참고: 이 데이터는 DART Open API 연동을 위한 Mock 데이터 프레임워크입니다.)*")
         st.dataframe(nps_df, use_container_width=True, hide_index=True)
         
     with tab_nps2:
@@ -871,14 +869,14 @@ elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
         st.write("**`[조건]`** 국민연금이 5% 이상 보유하여 **기본적인 펀더멘털이 검증된 종목** 중, 최근 시장에서 **기관이 다시 3일 이상 순매수를 시작**하며 단기 모멘텀이 붙기 시작한 종목을 스캔합니다.")
         
         if st.button("🚀 황금 콤보 교차 스캔 시작", type="primary"):
-            with st.spinner("국민연금 보유 종목에 대한 실시간 수급 패턴 교차 분석 중..."):
+            with st.spinner("수급 패턴 교차 분석 중..."):
                 combo_results = []
                 progress_bar2 = st.progress(0)
                 completed2, total2 = 0, len(nps_df)
                 
                 for idx, row in nps_df.iterrows():
                     res = analyze_technical_pattern(row['종목명'], row['티커'])
-                    if res and res.get('연기금연속순매수', 0) >= 2: # 시연을 위해 2일로 낮춤
+                    if res and res.get('연기금연속순매수', 0) >= 2: 
                         res['NPS_비중'] = row['보유비중']
                         combo_results.append(res)
                     completed2 += 1
@@ -894,6 +892,8 @@ elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
 
 elif selected_menu == "🚀 조건 검색 스캐너 (기본)":
     st.subheader("🚀 실시간 조건 검색 스캐너 & 과거 타점 검증기")
+    show_beginner_guide()
+    
     col_c1, col_c2, col_c3 = st.columns(3)
     with col_c1: cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입"); cond_pullback = st.checkbox("✅ 20일선 눌림목 (타점 근접)", value=True)
     with col_c2: cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (낙폭과대)"); cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 의심)")
@@ -935,7 +935,104 @@ elif selected_menu == "🚀 조건 검색 스캐너 (기본)":
                 st.rerun()
     if st.session_state.scan_results is not None: display_sorted_results(st.session_state.scan_results, tab_key="t2", api_key=api_key_input)
 
-# ... (이하 '🔥 🇺🇸 미국 급등주', '💎 장기 가치주 스캐너', '⭐ 내 관심종목' 메뉴 코드는 동일하게 유지)
+
+elif selected_menu == "🔥 🇺🇸 미국 급등주":
+    st.markdown("## 🔥 미국장 급등주 (+5% 이상)")
+    col1, col2 = st.columns([1, 1.2], gap="large")
+    with col1:
+        if 'us_fetch_time' in st.session_state: st.caption(f"⏱️ {st.session_state.us_fetch_time} (한국시간)")
+        if not st.session_state.gainers_df.empty:
+            tickers_list = st.session_state.gainers_df['종목코드'].tolist()
+            sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input) if api_key_input else {t: ("분석 대기", "분석 대기") for t in tickers_list}
+            display_df = st.session_state.gainers_df[['종목코드', '기업명', '현재가', '환산(원)', '등락률']].copy()
+            opts = ["🔍 종목 선택"]
+            for i, row in display_df.iterrows():
+                sec, ind = sector_dict.get(row['종목코드'], ("분석 불가", "분석 불가"))
+                opts.append(f"{row['종목코드']} ({row['기업명']}) - ({sec} / {ind})")
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            sel_opt = st.selectbox("#### 🔍 분석 대상 종목 선택", opts)
+            sel_tick = "N/A" if sel_opt == "🔍 종목 선택" else sel_opt.split(" ")[0]
+        else: sel_tick = "N/A"; st.info("현재 +5% 이상 급등한 종목이 없습니다.")
+    
+    with col2:
+        st.subheader("🎯 연관 테마 매칭 및 타점 진단")
+        if sel_tick != "N/A" and api_key_input:
+            sec, ind = sector_dict.get(sel_tick, ("분석 불가", "분석 불가"))
+            comp_name = sel_opt.split(" - ")[0]
+            st.markdown(f"**🏷️ 섹터 정보:** `{sec}` / `{ind}`")
+            with st.spinner(f"🔍 기업 개요 및 분석 중..."):
+                with st.container(border=True): st.markdown(f"**🏢 비즈니스 모델 요약**\n> {get_company_summary(sel_tick, comp_name, api_key_input)}")
+            with st.spinner('✨ AI 추천 국내 수혜주 타점 정밀 분석 중... (병렬 처리)'):
+                kor_stocks = get_ai_matched_stocks(sel_tick, sec, ind, comp_name, api_key_input)
+                if kor_stocks:
+                    theme_res_list = []
+                    def fetch_and_analyze(item):
+                        name, code = item
+                        return analyze_technical_pattern(name, code)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                        for res in executor.map(fetch_and_analyze, kor_stocks):
+                            if res: theme_res_list.append(res)
+                    display_sorted_results(theme_res_list, tab_key="t1", api_key=api_key_input)
+
+
+elif selected_menu == "💎 장기 가치주 스캐너":
+    st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
+    hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
+    all_themes = list(dict.fromkeys(hot_themes + ["전고체 배터리", "온디바이스 AI", "자율주행", "우주항공(UAM)"]))
+    col_v1, col_v2 = st.columns([2, 1])
+    with col_v1:
+        sel_t = st.selectbox("💡 미래 유망 기술 선택:", all_themes + ["✏️ 직접 입력..."])
+        tech_keyword = st.text_input("직접 입력:", placeholder="예: 6G 통신") if sel_t == "✏️ 직접 입력..." else sel_t
+    with col_v2: cap_size = st.selectbox("🏢 기업 규모 선택:", ["상관없음", "대형주", "중소형주"], index=0)
+    val_strictness = st.radio("투자 성향", ["💎 수익/자산 좋고 바닥인 가치주", "🚀 기술력 압도적인 성장주", "🔥 적자여도 미래만 보는 야수의 심장"])
+    max_per, max_pbr = (15.0, 1.5) if "가치주" in val_strictness else (40.0, 4.0) if "성장주" in val_strictness else (9999.0, 9999.0)
+
+    if st.button("💎 병렬 가치주 스캔 시작", type="primary", use_container_width=True):
+        if not api_key_input: st.warning("API 키를 입력해주세요.")
+        else:
+            with st.spinner("스캔 중..."):
+                candidates = get_longterm_value_stocks_with_ai(tech_keyword, cap_size, api_key_input)
+                if not candidates: st.error("관련 기업을 찾지 못했습니다.")
+                else:
+                    progress_bar = st.progress(0)
+                    value_results = []
+                    completed, total = 0, len(candidates)
+                    def process_fundamental(target):
+                        name, code = target
+                        time.sleep(0.1) 
+                        per_str, pbr_str = get_fundamentals(code)
+                        try:
+                            per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
+                            pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
+                            if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
+                                return analyze_technical_pattern(name, code)
+                        except: pass
+                        return None
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                        for future in concurrent.futures.as_completed({executor.submit(process_fundamental, c): c for c in candidates}):
+                            res = future.result()
+                            completed += 1
+                            if res: value_results.append(res)
+                            progress_bar.progress(completed / total)
+                    st.session_state.value_scan_results = value_results
+                    st.rerun()
+    if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
+
+
+elif selected_menu == "🔬 기업 정밀 분석기":
+    st.subheader("🔬 기업 정밀 분석기 (기술적 타점 + 펀더멘털)")
+    krx_df = get_krx_stocks()
+    if not krx_df.empty:
+        opts = ["🔍 분석할 국내 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+        query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts)
+        if query != "🔍 분석할 국내 종목을 입력하세요.":
+            searched_name = query.rsplit(" (", 1)[0]
+            searched_code = query.rsplit("(", 1)[-1].replace(")", "").strip()
+            with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                res = analyze_technical_pattern(searched_name, searched_code)
+            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
+
+
 elif selected_menu == "⭐ 내 관심종목":
     st.subheader("⭐ 나만의 관심종목 (Watchlist)")
     if not st.session_state.watchlist: st.info("추가된 종목이 없습니다.")
