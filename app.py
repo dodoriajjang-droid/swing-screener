@@ -52,7 +52,7 @@ if 'value_scan_results' not in st.session_state: st.session_state.value_scan_res
 if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None
 
 # ==========================================
-# 2. 통합 데이터 수집 & AI 함수 모음 (원상복구 완)
+# 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -64,6 +64,35 @@ def ask_gemini(prompt, _api_key):
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
         return f"AI 분석 오류: {str(e)}"
+
+@st.cache_data(ttl=10800) # 3시간 캐시
+def get_daily_market_briefing(macro_data, top_gainers, _api_key):
+    if not _api_key: return "API 키가 필요합니다."
+    
+    vix = f"{macro_data['VIX']['value']:.2f}" if macro_data and 'VIX' in macro_data else 'N/A'
+    sox = f"{macro_data['필라델피아 반도체']['value']:.2f}" if macro_data and '필라델피아 반도체' in macro_data else 'N/A'
+    krw = f"{macro_data['원/달러 환율']['value']:.1f}" if macro_data and '원/달러 환율' in macro_data else 'N/A'
+    tnx = f"{macro_data['美 10년물 국채']['value']:.3f}" if macro_data and '美 10년물 국채' in macro_data else 'N/A'
+    gainers_str = ", ".join(top_gainers) if top_gainers else '데이터 없음'
+
+    prompt = f"""
+    당신은 여의도 최고의 시황 애널리스트입니다. 오늘 아침 실전 트레이더들을 위한 '모닝 브리핑'을 작성해주세요.
+    
+    [현재 글로벌 매크로 및 수급 데이터]
+    - VIX(공포지수): {vix}
+    - 필라델피아 반도체 지수: {sox}
+    - 원/달러 환율: {krw}원
+    - 美 10년물 국채금리: {tnx}%
+    - 전일 미국장 주요 급등주: {gainers_str}
+    
+    위 팩트 데이터를 바탕으로 다음 3가지 항목을 마크다운 포맷으로 가독성 좋게 작성해주세요. 
+    (말투는 명확하고 단호한 전문 트레이더의 시각으로 작성할 것)
+    
+    1. 🇺🇸 **간밤의 미 증시 요약**: 매크로 데이터와 급등주를 바탕으로 한 전일 미국장 요약 (2~3줄)
+    2. 🇰🇷 **국내 증시 투자의견**: 미 증시 결과와 환율/금리가 오늘 한국 코스피/코스닥 수급에 미칠 영향 (2~3줄)
+    3. 🎯 **오늘의 픽 (주목할 섹터)**: 위 데이터를 볼 때, 오늘 장중 자금이 쏠릴 것으로 예상되는 국내 수혜 섹터 1~2개와 그 이유 (1줄)
+    """
+    return ask_gemini(prompt, _api_key)
 
 @st.cache_data(ttl=3600)
 def get_company_summary(ticker, comp_name, _api_key):
@@ -849,7 +878,7 @@ def get_nps_holdings_mock():
     ])
 
 # ==========================================
-# 3. UI 렌더링 가이드 및 카드 함수 (복원 및 고도화 완)
+# 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
 def show_beginner_guide():
     with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
@@ -932,7 +961,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             if tech_result.get('연기금연속순매수', 0) >= 3:
                 st.markdown(f"👴 **스마트머니 시그널:** <span style='color:orange; font-weight:bold;'>🔥 기관(연기금 추정) {tech_result['연기금연속순매수']}일 연속 순매수 포착</span>", unsafe_allow_html=True)
         
-        # 👈 오리지널 AI 딥다이브 정밀 분석 로직 완벽 복구
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
@@ -968,7 +996,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         st.success("✅ AI 분석 완료!")
                         st.markdown(ask_gemini(prompt, api_key_str))
         
-        # 👈 일별 시세 및 매매동향(최근 10일) 복원
         tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년"], horizontal=True, key=f"tf_{key_suffix}", index=0)
         days_dict = {"1개월": 30, "3개월": 90, "1년": 365}
         with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
@@ -1025,7 +1052,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
     st.session_state.us_fetch_time = fetch_time
 
 # ==========================================
-# 4. 메인 화면 & 사이드바 메뉴 (누락된 메뉴 100% 원상복구)
+# 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
     st.title("📈 Jaemini PRO v3.0")
@@ -1109,6 +1136,17 @@ if selected_menu == "🎛️ 메인 대시보드":
 
     st.divider()
     
+    st.subheader("📰 AI 모닝 브리핑 (Global to Local)")
+    if api_key_input:
+        with st.spinner("최신 글로벌 매크로 데이터를 바탕으로 AI가 모닝 브리핑을 작성 중입니다..."):
+            top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
+            briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
+            st.info(briefing_text, icon="💡")
+    else:
+        st.warning("API 키를 입력하시면 AI가 작성하는 실시간 글로벌-국내 증시 브리핑을 볼 수 있습니다.")
+
+    st.divider()
+    
     col_dash1, col_dash2 = st.columns([1, 1])
     with col_dash1:
         st.subheader("⚡ 퀵 오더 (종목 직접 검색)")
@@ -1185,7 +1223,6 @@ elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
     if st.session_state.pension_scan_results is not None: 
         display_sorted_results(st.session_state.pension_scan_results, tab_key="pension", api_key=api_key_input)
 
-
 elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
     st.subheader("🗺️ 시장 주도주 & 스마트머니 유입 섹터 히트맵")
     st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다.")
@@ -1204,7 +1241,6 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
             t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
             t_kings['display_text'] = "<span style='font-size:16px; font-weight:bold;'>" + t_kings['Name'] + "</span><br>" + t_kings['ChagesRatio'].map("{:+.2f}%".format) + "<br>" + t_kings['수급상태']
             
-            # 👈 히트맵 색상 Finviz(미국) 스타일 반영 완벽 적용: 붉은색(하락/마이너스) -> 회색(보합/0) -> 녹색(상승/플러스)
             fig = px.treemap(
                 t_kings, 
                 path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'], 
@@ -1223,7 +1259,6 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
             if sel_king != "선택":
                 k_code = t_kings[t_kings['Name'] == sel_king]['Code'].iloc[0]
                 if res := analyze_technical_pattern(sel_king, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
-
 
 elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
     st.markdown("## 🏛️ DART 공시 연동: 국민연금 코어 픽(Core Pick)")
@@ -1307,7 +1342,6 @@ elif selected_menu == "🚀 조건 검색 스캐너 (기본)":
                 st.rerun()
     if st.session_state.scan_results is not None: display_sorted_results(st.session_state.scan_results, tab_key="t2", api_key=api_key_input)
 
-
 elif selected_menu == "🔥 🇺🇸 미국 급등주":
     st.markdown("## 🔥 미국장 급등주 (+5% 이상)")
     col1, col2 = st.columns([1, 1.2], gap="large")
@@ -1332,7 +1366,6 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
             sec, ind = sector_dict.get(sel_tick, ("분석 불가", "분석 불가"))
             comp_name = sel_opt.split(" - ")[0]
             st.markdown(f"**🏷️ 섹터 정보:** `{sec}` / `{ind}`")
-            # 👈 미국 주식 AI 브리핑 가이드 복구 완료
             with st.spinner(f"🔍 기업 개요 및 분석 중..."):
                 with st.container(border=True): st.markdown(f"**🏢 비즈니스 모델 요약**\n> {get_company_summary(sel_tick, comp_name, api_key_input)}")
             with st.spinner('✨ AI 추천 국내 수혜주 타점 정밀 분석 중... (병렬 처리)'):
@@ -1346,7 +1379,6 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
                         for res in executor.map(fetch_and_analyze, kor_stocks):
                             if res: theme_res_list.append(res)
                     display_sorted_results(theme_res_list, tab_key="t1", api_key=api_key_input)
-
 
 elif selected_menu == "💎 장기 가치주 스캐너":
     st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
@@ -1391,7 +1423,6 @@ elif selected_menu == "💎 장기 가치주 스캐너":
                     st.rerun()
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
-
 elif selected_menu == "🔬 기업 정밀 분석기":
     st.subheader("🔬 기업 정밀 분석기 (기술적 타점 + 펀더멘털)")
     krx_df = get_krx_stocks()
@@ -1405,7 +1436,6 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 res = analyze_technical_pattern(searched_name, searched_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
 
-# 👈 누락되었던 딥테크/상하한가/뉴스/IPO/테마/배당/ETF 메뉴 전체 완전 복구
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
