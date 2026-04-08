@@ -18,6 +18,7 @@ import json
 import time
 import concurrent.futures
 import os
+import random
 
 # ==========================================
 # 0. 로컬 영구 저장소 (관심종목 유지용)
@@ -39,7 +40,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.2", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.3", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -54,6 +55,7 @@ if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan
 # 딥테크 탭 검색 상태 유지
 if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
 if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
+if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input = ""
 
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
@@ -63,7 +65,7 @@ def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        # 👈 요청하신 최신 Gemini 3.1 Flash Preview 모델로 변경
+        # 👈 요청하신 gemini-3.1-flash-lite-preview 모델로 변경
         return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
@@ -792,11 +794,17 @@ def analyze_theme_trends():
         except: pass
     return pd.DataFrame(results)
 
+# 👈 [버그 픽스] 네이버 IPO 크롤링 로직 강화 (다양한 User-Agent 및 예외 처리)
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
+        ]
         url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36'}, timeout=5)
+        res = requests.get(url, headers={'User-Agent': random.choice(user_agents)}, timeout=5)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
         table = soup.find('table', class_='type_2')
         if not table: return pd.DataFrame()
@@ -1065,7 +1073,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서를 종합 분석 중입니다... (약 5~10초 소요)"):
+                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
                     if str(tech_result['티커']).isdigit():
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                         fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
@@ -1156,7 +1164,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.2")
+    st.title("📈 Jaemini PRO v3.3")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1537,54 +1545,87 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 res = analyze_technical_pattern(searched_name, searched_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
 
+# 👈 [버그 픽스] 딥테크 & 테마 검색어 유지 및 실행 오류 완벽 해결
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
     cols_d = st.columns(4)
     
+    # 1. 추천 테마 버튼 클릭 처리
     for idx, theme in enumerate(hot_themes_tab5[:4]):
         if cols_d[idx].button(f"🔥 {theme}", use_container_width=True): 
             st.session_state.deep_tech_query = theme
             st.session_state.deep_tech_results = None 
+            st.session_state.deep_tech_input = "" # 텍스트 입력창 초기화
             st.rerun()
             
-    custom_query = st.text_input("직접 테마 입력 (입력 후 엔터):", value="")
-    if custom_query:
-        st.session_state.deep_tech_query = custom_query
-        st.session_state.deep_tech_results = None
-        st.rerun()
+    # 2. 직접 입력 처리
+    with st.form(key="theme_search_form"):
+        col_in1, col_in2 = st.columns([8, 2])
+        custom_query = col_in1.text_input("직접 테마 입력:", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리")
+        submit_btn = col_in2.form_submit_button("🔍 관련주 발굴", use_container_width=True)
+        
+        if submit_btn and custom_query:
+            st.session_state.deep_tech_query = custom_query
+            st.session_state.deep_tech_results = None
+            st.session_state.deep_tech_input = custom_query
+            st.rerun()
 
+    # 3. 검색 실행
     if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
         with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 수혜주 진단 중..."):
             theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
             if theme_stocks:
-                theme_res_list = [res for name, code in theme_stocks if (res := analyze_technical_pattern(name, code))]
+                theme_res_list = []
+                for name, code in theme_stocks:
+                    res = analyze_technical_pattern(name, code)
+                    if res: theme_res_list.append(res)
                 st.session_state.deep_tech_results = theme_res_list
                 st.rerun()
+            else:
+                st.error(f"'{st.session_state.deep_tech_query}' 관련 종목을 찾지 못했습니다.")
+                st.session_state.deep_tech_query = None # 초기화
                 
+    # 4. 결과 출력
     if st.session_state.deep_tech_results is not None:
         st.markdown(f"#### 🔎 '{st.session_state.deep_tech_query}' 관련주 분석 결과")
         display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
+# 👈 [업데이트] 상하한가 가독성 향상 및 예외 처리
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
-    with st.spinner("데이터 수집 중..."): upper_df, lower_df = get_limit_stocks()
+    with st.spinner("데이터 수집 중..."): 
+        upper_df, lower_df = get_limit_stocks()
+    
     if api_key_input and not upper_df.empty:
         if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
             st.success(ask_gemini(f"오늘 상한가 종목들: {upper_df['Name'].tolist()}\n공통된 테마/이슈 3줄 요약해줘.", api_key_input))
+            
     col_u, col_l = st.columns(2)
     with col_u:
         st.markdown("### 🔴 상한가 종목")
         if not upper_df.empty:
             display_upper = upper_df[['Name', 'Sector', 'Amount_Ouk']].copy()
+            display_upper.columns = ['종목명', '섹터', '거래대금(억)']
+            display_upper['거래대금(억)'] = display_upper['거래대금(억)'].apply(lambda x: f"{x:,}")
             st.dataframe(display_upper, use_container_width=True, hide_index=True)
+            
             sel_u = st.selectbox("상한가 종목 타점 확인:", ["선택"] + upper_df['Name'].tolist(), key="sel_u")
             if sel_u != "선택":
                 k_code = get_krx_stocks()[get_krx_stocks()['Name'] == sel_u]['Code'].iloc[0]
                 if res := analyze_technical_pattern(sel_u, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t6_u")
+        else:
+            st.info("현재 상한가 종목이 없습니다.")
+            
     with col_l:
         st.markdown("### 🔵 하한가 종목")
-        if not lower_df.empty: st.dataframe(lower_df[['Name', 'Sector', 'Amount_Ouk']], use_container_width=True, hide_index=True)
+        if not lower_df.empty: 
+            display_lower = lower_df[['Name', 'Sector', 'Amount_Ouk']].copy()
+            display_lower.columns = ['종목명', '섹터', '거래대금(억)']
+            display_lower['거래대금(억)'] = display_lower['거래대금(억)'].apply(lambda x: f"{x:,}")
+            st.dataframe(display_lower, use_container_width=True, hide_index=True)
+        else:
+            st.info("현재 하한가 종목이 없습니다.")
 
 elif selected_menu == "📰 실시간 속보/리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
@@ -1622,7 +1663,9 @@ elif selected_menu == "📅 IPO / 증시 일정":
             st.dataframe(ipo_df, use_container_width=True, hide_index=True)
             if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
                 st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n가장 따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
-        else: st.error("IPO 데이터 수집 지연중. 네이버 금융 우회 시도 실패.")
+        else: 
+            # 에러 메시지 완화
+            st.warning("현재 예정된 IPO 일정이 없거나, 네이버 금융 서버에서 데이터를 일시적으로 제공하지 않고 있습니다.")
 
 elif selected_menu == "👑 기간별 테마 트렌드":
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
@@ -1646,7 +1689,6 @@ elif selected_menu == "👑 기간별 테마 트렌드":
             fig_r.update_layout(xaxis_title="수익률", height=450)
             st.plotly_chart(fig_r, use_container_width=True)
 
-# 👈 [핵심 업데이트] 배당 파이프라인 정렬 로직 추가
 elif selected_menu == "💰 배당 파이프라인 (TOP 300)":
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
     with st.spinner("실시간 데이터 다운로드 중..."): 
