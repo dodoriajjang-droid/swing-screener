@@ -39,7 +39,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.1", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.2", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -51,6 +51,10 @@ if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
 if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None
 
+# 딥테크 탭 검색 상태 유지
+if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
+if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
+
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
@@ -59,7 +63,8 @@ def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        return genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt).text
+        # 👈 요청하신 최신 Gemini 3.1 Flash Preview 모델로 변경
+        return genai.GenerativeModel('gemini-3.1-flash-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
@@ -818,7 +823,6 @@ def get_naver_ipo_data():
         return df.head(15).reset_index(drop=True)
     except: return pd.DataFrame()
 
-# 👈 [업데이트] TOP 100 리스트 완벽 보강
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
     portfolio = {
@@ -1061,7 +1065,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
+                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서를 종합 분석 중입니다... (약 5~10초 소요)"):
                     if str(tech_result['티커']).isdigit():
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                         fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
@@ -1152,7 +1156,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.1")
+    st.title("📈 Jaemini PRO v3.2")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1537,17 +1541,30 @@ elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
     cols_d = st.columns(4)
-    deep_tech_query = None
+    
     for idx, theme in enumerate(hot_themes_tab5[:4]):
-        if cols_d[idx].button(f"🔥 {theme}", use_container_width=True): deep_tech_query = theme
-    custom_query = st.text_input("직접 테마 입력:", value="")
-    final_query = deep_tech_query if deep_tech_query else custom_query
-    if final_query and api_key_input:
-        with st.spinner(f"✨ '{final_query}' 수혜주 진단 중..."):
-            theme_stocks = get_theme_stocks_with_ai(final_query, api_key_input)
+        if cols_d[idx].button(f"🔥 {theme}", use_container_width=True): 
+            st.session_state.deep_tech_query = theme
+            st.session_state.deep_tech_results = None 
+            st.rerun()
+            
+    custom_query = st.text_input("직접 테마 입력 (입력 후 엔터):", value="")
+    if custom_query:
+        st.session_state.deep_tech_query = custom_query
+        st.session_state.deep_tech_results = None
+        st.rerun()
+
+    if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
+        with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 수혜주 진단 중..."):
+            theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
             if theme_stocks:
                 theme_res_list = [res for name, code in theme_stocks if (res := analyze_technical_pattern(name, code))]
-                display_sorted_results(theme_res_list, tab_key="t5", api_key=api_key_input)
+                st.session_state.deep_tech_results = theme_res_list
+                st.rerun()
+                
+    if st.session_state.deep_tech_results is not None:
+        st.markdown(f"#### 🔎 '{st.session_state.deep_tech_query}' 관련주 분석 결과")
+        display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
@@ -1629,13 +1646,45 @@ elif selected_menu == "👑 기간별 테마 트렌드":
             fig_r.update_layout(xaxis_title="수익률", height=450)
             st.plotly_chart(fig_r, use_container_width=True)
 
+# 👈 [핵심 업데이트] 배당 파이프라인 정렬 로직 추가
 elif selected_menu == "💰 배당 파이프라인 (TOP 300)":
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
-    with st.spinner("실시간 데이터 다운로드 중..."): div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
+    with st.spinner("실시간 데이터 다운로드 중..."): 
+        div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
+    
+    sort_opt = st.radio("⬇️ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
+    
+    def extract_val(val_str, is_yield=False):
+        try:
+            if is_yield:
+                nums = re.findall(r"[\d\.]+", str(val_str).split('(')[0])
+                return float(nums[-1]) if nums else 0.0
+            else:
+                if val_str == "조회 지연": return 0.0
+                return float(str(val_str).replace('$', '').replace('원', '').replace(',', '').strip())
+        except:
+            return 0.0
+
+    def apply_sort(df, opt):
+        if df.empty: return df
+        temp_df = df.copy()
+        if opt == "배당수익률 높은순":
+            temp_df['__sort'] = temp_df['배당수익률(예상)'].apply(lambda x: extract_val(x, True))
+            return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+        elif opt == "현재가 높은순":
+            temp_df['__sort'] = temp_df['현재가'].apply(lambda x: extract_val(x, False))
+            return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+        elif opt == "현재가 낮은순":
+            temp_df['__sort'] = temp_df['현재가'].apply(lambda x: extract_val(x, False))
+            valid = temp_df[temp_df['__sort'] > 0].sort_values('__sort', ascending=True)
+            invalid = temp_df[temp_df['__sort'] == 0]
+            return pd.concat([valid, invalid]).drop(columns=['__sort'])
+        return temp_df
+
     dt1, dt2, dt3 = st.tabs(["🇰🇷 국장 TOP 100", "🇺🇸 미장 TOP 100", "📈 배당 ETF TOP 100"])
-    with dt1: st.dataframe(div_dfs["KRX"], use_container_width=True, hide_index=True)
-    with dt2: st.dataframe(div_dfs["US"], use_container_width=True, hide_index=True)
-    with dt3: st.dataframe(div_dfs["ETF"], use_container_width=True, hide_index=True)
+    with dt1: st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
+    with dt2: st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
+    with dt3: st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
 
 elif selected_menu == "📊 글로벌 ETF 분석":
     st.subheader("📊 글로벌/국내 핵심 ETF & 포트폴리오 분석")
