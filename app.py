@@ -40,7 +40,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.3", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.4", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -65,7 +65,7 @@ def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        # 👈 요청하신 gemini-3.1-flash-lite-preview 모델로 변경
+        # 👈 gemini-3.1-flash-lite-preview 모델 적용 완료
         return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
@@ -511,6 +511,7 @@ def update_news_state():
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
+# 👈 [업데이트] 리포트 원문 링크 파싱 추가
 @st.cache_data(ttl=3600)
 def get_naver_research():
     try:
@@ -518,8 +519,19 @@ def get_naver_research():
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
         table = soup.find('table', {'class': 'type_1'})
-        df = pd.read_html(StringIO(str(table)))[0].dropna(subset=['종목명'])
-        return df[['종목명', '제목', '증권사', '작성일']].head(30)
+        rows = []
+        for tr in table.find_all('tr'):
+            tds = tr.find_all('td')
+            if len(tds) >= 5:
+                stock_name = tds[0].get_text(strip=True)
+                if not stock_name: continue
+                title_a = tds[1].find('a')
+                title = title_a.get_text(strip=True) if title_a else tds[1].get_text(strip=True)
+                link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
+                broker = tds[2].get_text(strip=True)
+                date = tds[4].get_text(strip=True)
+                rows.append({"종목명": stock_name, "제목": title, "증권사": broker, "작성일": date, "원문링크": link})
+        return pd.DataFrame(rows).head(30)
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
@@ -794,7 +806,6 @@ def analyze_theme_trends():
         except: pass
     return pd.DataFrame(results)
 
-# 👈 [버그 픽스] 네이버 IPO 크롤링 로직 강화 (다양한 User-Agent 및 예외 처리)
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
@@ -1164,7 +1175,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.3")
+    st.title("📈 Jaemini PRO v3.4")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1545,24 +1556,25 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 res = analyze_technical_pattern(searched_name, searched_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
 
-# 👈 [버그 픽스] 딥테크 & 테마 검색어 유지 및 실행 오류 완벽 해결
+# 👈 [업데이트] UI 어긋남 문제 및 검색어 상태 초기화 버그 해결 
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
     cols_d = st.columns(4)
     
-    # 1. 추천 테마 버튼 클릭 처리
+    # 상단 추천 테마 버튼
     for idx, theme in enumerate(hot_themes_tab5[:4]):
         if cols_d[idx].button(f"🔥 {theme}", use_container_width=True): 
             st.session_state.deep_tech_query = theme
             st.session_state.deep_tech_results = None 
-            st.session_state.deep_tech_input = "" # 텍스트 입력창 초기화
+            st.session_state.deep_tech_input = ""
             st.rerun()
             
-    # 2. 직접 입력 처리
-    with st.form(key="theme_search_form"):
+    st.markdown("**직접 테마 입력:**")
+    with st.form(key="theme_search_form", clear_on_submit=False):
         col_in1, col_in2 = st.columns([8, 2])
-        custom_query = col_in1.text_input("직접 테마 입력:", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리")
+        # label_visibility="collapsed" 를 통해 입력창과 버튼의 세로 정렬(높이)을 깔끔하게 맞춤
+        custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리")
         submit_btn = col_in2.form_submit_button("🔍 관련주 발굴", use_container_width=True)
         
         if submit_btn and custom_query:
@@ -1571,7 +1583,6 @@ elif selected_menu == "⚡ 딥테크 & 테마":
             st.session_state.deep_tech_input = custom_query
             st.rerun()
 
-    # 3. 검색 실행
     if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
         with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 수혜주 진단 중..."):
             theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
@@ -1584,14 +1595,13 @@ elif selected_menu == "⚡ 딥테크 & 테마":
                 st.rerun()
             else:
                 st.error(f"'{st.session_state.deep_tech_query}' 관련 종목을 찾지 못했습니다.")
-                st.session_state.deep_tech_query = None # 초기화
+                st.session_state.deep_tech_query = None 
                 
-    # 4. 결과 출력
     if st.session_state.deep_tech_results is not None:
         st.markdown(f"#### 🔎 '{st.session_state.deep_tech_query}' 관련주 분석 결과")
         display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
-# 👈 [업데이트] 상하한가 가독성 향상 및 예외 처리
+# 👈 [업데이트] 상하한가 가독성 향상 & IndexError 완벽 방어 처리
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     with st.spinner("데이터 수집 중..."): 
@@ -1612,8 +1622,14 @@ elif selected_menu == "🚨 상/하한가 분석":
             
             sel_u = st.selectbox("상한가 종목 타점 확인:", ["선택"] + upper_df['Name'].tolist(), key="sel_u")
             if sel_u != "선택":
-                k_code = get_krx_stocks()[get_krx_stocks()['Name'] == sel_u]['Code'].iloc[0]
-                if res := analyze_technical_pattern(sel_u, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t6_u")
+                # 에러 방어 로직: 이름이 리스트에 없을 경우의 IndexError 방지
+                krx_df_local = get_krx_stocks()
+                match_row = krx_df_local[krx_df_local['Name'] == sel_u]
+                if not match_row.empty:
+                    k_code = match_row['Code'].iloc[0]
+                    if res := analyze_technical_pattern(sel_u, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t6_u")
+                else:
+                    st.error(f"'{sel_u}' 종목의 코드를 찾을 수 없어 분석할 수 없습니다. (신규 상장/이름 변경 가능성)")
         else:
             st.info("현재 상한가 종목이 없습니다.")
             
@@ -1627,6 +1643,7 @@ elif selected_menu == "🚨 상/하한가 분석":
         else:
             st.info("현재 하한가 종목이 없습니다.")
 
+# 👈 [업데이트] AI 리포트 종합 의견 기능 & 원문 링크 클릭 기능 추가
 elif selected_menu == "📰 실시간 속보/리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
     news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트"])
@@ -1648,9 +1665,25 @@ elif selected_menu == "📰 실시간 속보/리포트":
                             res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
                             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
                 cols[3].link_button("원문🔗", news['link'])
+                
     with news_sub2:
         st.markdown("### 📋 오늘의 실시간 증권사 리포트")
-        st.dataframe(get_naver_research(), use_container_width=True, hide_index=True)
+        res_df = get_naver_research()
+        if not res_df.empty:
+            if api_key_input and st.button("🤖 AI 당일 리포트 종합 의견 및 섹터 요약", use_container_width=True, type="primary"):
+                with st.spinner("당일 발간된 리포트들을 분석하여 시장 분위기와 유망 섹터를 요약 중입니다..."):
+                    report_text = "\n".join([f"- [{r['증권사']}] {r['종목명']}: {r['제목']}" for _, r in res_df.head(30).iterrows()])
+                    prompt = f"당신은 증권사 리서치 센터장입니다. 오늘 발간된 다음 증권사 리포트 제목들을 분석하여, 1) 오늘 증권가가 가장 주목하는 핵심 섹터/테마 2개와 그 이유, 2) 시장의 전반적인 투자의견 요약을 마크다운으로 작성해주세요.\n\n[오늘의 리포트]\n{report_text}"
+                    st.info(ask_gemini(prompt, api_key_input), icon="💡")
+            
+            # 원문링크 컬럼을 실제 클릭 가능한 URL로 변환하여 출력
+            st.dataframe(
+                res_df, 
+                column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.caption("리포트 데이터를 불러오지 못했습니다.")
 
 elif selected_menu == "📅 IPO / 증시 일정":
     st.subheader("📅 핵심 증시 일정 & IPO 공모주 분석")
@@ -1663,9 +1696,7 @@ elif selected_menu == "📅 IPO / 증시 일정":
             st.dataframe(ipo_df, use_container_width=True, hide_index=True)
             if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
                 st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n가장 따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
-        else: 
-            # 에러 메시지 완화
-            st.warning("현재 예정된 IPO 일정이 없거나, 네이버 금융 서버에서 데이터를 일시적으로 제공하지 않고 있습니다.")
+        else: st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
 
 elif selected_menu == "👑 기간별 테마 트렌드":
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
