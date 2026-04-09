@@ -40,7 +40,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.4", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.5", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -65,7 +65,6 @@ def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        # 👈 gemini-3.1-flash-lite-preview 모델 적용 완료
         return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
@@ -511,7 +510,6 @@ def update_news_state():
             st.session_state.seen_links.add(item['link'])
             st.session_state.seen_titles.add(item['title'])
 
-# 👈 [업데이트] 리포트 원문 링크 파싱 추가
 @st.cache_data(ttl=3600)
 def get_naver_research():
     try:
@@ -806,6 +804,7 @@ def analyze_theme_trends():
         except: pass
     return pd.DataFrame(results)
 
+# 👈 IPO 파싱 안정성 및 예외 처리 강화
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
@@ -1053,11 +1052,19 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             
         col_btn1, col_btn2 = st.columns([8, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
+        
+        # 👈 [업데이트] 앱 전체에서 작동하는 관심종목 스마트 토글 (추가/삭제) 버튼
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
-        if col_btn2.button("⭐ 관심종목 추가" if not is_in_wl else "🌟 추가됨", disabled=is_in_wl, key=f"star_{tech_result['티커']}_{key_suffix}"):
-            st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
-            save_watchlist(st.session_state.watchlist)
-            st.rerun()
+        if not is_in_wl:
+            if col_btn2.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
+                st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
+                save_watchlist(st.session_state.watchlist)
+                st.rerun()
+        else:
+            if col_btn2.button("❌ 관심종목 삭제", key=f"star_del_{tech_result['티커']}_{key_suffix}"):
+                st.session_state.watchlist = [x for x in st.session_state.watchlist if x['티커'] != tech_result['티커']]
+                save_watchlist(st.session_state.watchlist)
+                st.rerun()
 
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
@@ -1175,7 +1182,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.4")
+    st.title("📈 Jaemini PRO v3.5")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1556,13 +1563,11 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 res = analyze_technical_pattern(searched_name, searched_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
 
-# 👈 [업데이트] UI 어긋남 문제 및 검색어 상태 초기화 버그 해결 
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
     cols_d = st.columns(4)
     
-    # 상단 추천 테마 버튼
     for idx, theme in enumerate(hot_themes_tab5[:4]):
         if cols_d[idx].button(f"🔥 {theme}", use_container_width=True): 
             st.session_state.deep_tech_query = theme
@@ -1573,7 +1578,6 @@ elif selected_menu == "⚡ 딥테크 & 테마":
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
         col_in1, col_in2 = st.columns([8, 2])
-        # label_visibility="collapsed" 를 통해 입력창과 버튼의 세로 정렬(높이)을 깔끔하게 맞춤
         custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리")
         submit_btn = col_in2.form_submit_button("🔍 관련주 발굴", use_container_width=True)
         
@@ -1601,7 +1605,6 @@ elif selected_menu == "⚡ 딥테크 & 테마":
         st.markdown(f"#### 🔎 '{st.session_state.deep_tech_query}' 관련주 분석 결과")
         display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
-# 👈 [업데이트] 상하한가 가독성 향상 & IndexError 완벽 방어 처리
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     with st.spinner("데이터 수집 중..."): 
@@ -1622,7 +1625,6 @@ elif selected_menu == "🚨 상/하한가 분석":
             
             sel_u = st.selectbox("상한가 종목 타점 확인:", ["선택"] + upper_df['Name'].tolist(), key="sel_u")
             if sel_u != "선택":
-                # 에러 방어 로직: 이름이 리스트에 없을 경우의 IndexError 방지
                 krx_df_local = get_krx_stocks()
                 match_row = krx_df_local[krx_df_local['Name'] == sel_u]
                 if not match_row.empty:
@@ -1643,7 +1645,6 @@ elif selected_menu == "🚨 상/하한가 분석":
         else:
             st.info("현재 하한가 종목이 없습니다.")
 
-# 👈 [업데이트] AI 리포트 종합 의견 기능 & 원문 링크 클릭 기능 추가
 elif selected_menu == "📰 실시간 속보/리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
     news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트"])
@@ -1676,7 +1677,6 @@ elif selected_menu == "📰 실시간 속보/리포트":
                     prompt = f"당신은 증권사 리서치 센터장입니다. 오늘 발간된 다음 증권사 리포트 제목들을 분석하여, 1) 오늘 증권가가 가장 주목하는 핵심 섹터/테마 2개와 그 이유, 2) 시장의 전반적인 투자의견 요약을 마크다운으로 작성해주세요.\n\n[오늘의 리포트]\n{report_text}"
                     st.info(ask_gemini(prompt, api_key_input), icon="💡")
             
-            # 원문링크 컬럼을 실제 클릭 가능한 URL로 변환하여 출력
             st.dataframe(
                 res_df, 
                 column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
