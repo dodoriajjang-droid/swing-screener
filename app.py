@@ -19,6 +19,7 @@ import time
 import concurrent.futures
 import os
 import random
+import calendar # 달력 생성을 위한 기본 라이브러리 추가
 
 # ==========================================
 # 0. 로컬 영구 저장소 (관심종목 유지용)
@@ -40,7 +41,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.6", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.5", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -56,6 +57,11 @@ if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan
 if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
 if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
 if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input = ""
+
+# 스마트머니 달력 연/월 상태 유지
+now = datetime.now()
+if 'smart_cal_year' not in st.session_state: st.session_state.smart_cal_year = now.year
+if 'smart_cal_month' not in st.session_state: st.session_state.smart_cal_month = now.month
 
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
@@ -1180,7 +1186,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.6")
+    st.title("📈 Jaemini PRO v3.5")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1683,12 +1689,30 @@ elif selected_menu == "📰 실시간 속보/리포트":
         else:
             st.caption("리포트 데이터를 불러오지 못했습니다.")
 
-# 👈 [새로운 기능] IPO 탭 내에 스마트머니 수급 달력(옵션만기/매크로) 추가
+# 👈 [업데이트] 글로벌 경제 지표 한글화 & 스마트머니 달력 연월 이동 기능 완벽 지원
 elif selected_menu == "📅 IPO / 증시 일정":
     st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
-    cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석", "🧠 스마트머니 수급 달력 (26년 4월)"])
+    cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석", "🧠 스마트머니 수급 달력"])
+    
     with cal_tab1: 
-        components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
+        # TradingView 위젯 언어 설정을 한국어("kr")로 명시하여 출력
+        components.html("""
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
+          {
+          "colorTheme": "light",
+          "isTransparent": true,
+          "width": "100%",
+          "height": "600",
+          "locale": "kr",
+          "importanceFilter": "-1,0,1",
+          "currencyFilter": "USD,KRW,CNY,EUR,JPY"
+        }
+          </script>
+        </div>
+        """, height=600)
+        
     with cal_tab2:
         with st.spinner("IPO 일정을 긁어오는 중..."):
             ipo_df = get_naver_ipo_data()
@@ -1698,14 +1722,57 @@ elif selected_menu == "📅 IPO / 증시 일정":
                 st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n가장 따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
         else: 
             st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
+            
     with cal_tab3:
         st.markdown("""
-        #### 📅 2026년 4월 옵션만기 & 매크로 수급 시나리오
-        > **💡 핵심 전략:** 15일(세금납부)과 17일(미장 옵션만기) 전후의 '변동성/하방 압력' 구간을 피하고, 20~21일 딜러 헤지 청산에 따른 '슈팅(반등)' 구간을 공략합니다.
+        #### 📅 미국 증시 파생수급 기반 트레이딩 시나리오
+        > **💡 핵심 전략:** 미국 시장 기준 **3번째 금요일(옵션 만기일, OpEx)** 전후의 마켓 메이커(딜러) 감마 헤지 물량에 따른 변동성(하방 압력)을 피하고, 차주 월/화요일 족쇄 해제(Vanna 효과)로 인한 **'슈팅(상승)'** 구간을 공략합니다. (4월의 경우 세금 납부일인 Tax Day 영향 추가 반영)
         """)
         
-        # HTML/CSS를 활용한 커스텀 달력 렌더링
-        calendar_html = """
+        # 연월 네비게이션 컨트롤
+        cc1, cc2, cc3 = st.columns([1, 8, 1])
+        with cc1:
+            if st.button("◀ 이전 달", use_container_width=True):
+                st.session_state.smart_cal_month -= 1
+                if st.session_state.smart_cal_month == 0:
+                    st.session_state.smart_cal_month = 12
+                    st.session_state.smart_cal_year -= 1
+                st.rerun()
+        with cc2:
+            st.markdown(f"<h3 style='text-align: center; margin:0;'>{st.session_state.smart_cal_year}년 {st.session_state.smart_cal_month}월</h3>", unsafe_allow_html=True)
+        with cc3:
+            if st.button("다음 달 ▶", use_container_width=True):
+                st.session_state.smart_cal_month += 1
+                if st.session_state.smart_cal_month == 13:
+                    st.session_state.smart_cal_month = 1
+                    st.session_state.smart_cal_year += 1
+                st.rerun()
+                
+        if st.button("🔄 오늘로 돌아가기"):
+            st.session_state.smart_cal_year = datetime.now().year
+            st.session_state.smart_cal_month = datetime.now().month
+            st.rerun()
+
+        # 달력 생성 로직
+        year = st.session_state.smart_cal_year
+        month = st.session_state.smart_cal_month
+        
+        cal = calendar.monthcalendar(year, month)
+        
+        # 3번째 금요일 찾기 로직
+        fridays = [week[4] for week in cal if week[4] != 0]
+        opex_day = fridays[2] if len(fridays) >= 3 else fridays[-1]
+        
+        # 이벤트 일자 설정
+        macro_days = range(10, 15)
+        opex_week_days = range(opex_day - 4, opex_day)
+        shoot_days = range(opex_day + 3, opex_day + 5) # 옵션 만기일 다음주 월/화
+        tax_day = 15 if month == 4 else None # 4월 한정 Tax Day
+
+        today_day = datetime.now().day if year == datetime.now().year and month == datetime.now().month else -1
+
+        html_parts = []
+        html_parts.append("""
         <style>
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background-color: #e0e0e0; border: 1px solid #ccc; font-family: sans-serif; }
         .day-header { background-color: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; border-bottom: 1px solid #ccc; color: #333; }
@@ -1713,49 +1780,47 @@ elif selected_menu == "📅 IPO / 증시 일정":
         .day-num { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #444; }
         .day-num.sunday { color: #d32f2f; }
         .day-num.saturday { color: #1976d2; }
-        .event-macro { background-color: #ffebee; color: #c62828; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #c62828; }
-        .event-opex { background-color: #fff3e0; color: #e65100; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #e65100; }
-        .event-shoot { background-color: #e8f5e9; color: #2e7d32; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #2e7d32; }
+        .event-macro { background-color: #f5f5f5; color: #616161; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #9e9e9e; }
+        .event-down { background-color: #ffebee; color: #c62828; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #c62828; }
+        .event-warn { background-color: #fff3e0; color: #e65100; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #e65100; }
+        .event-up { background-color: #e8f5e9; color: #2e7d32; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #2e7d32; }
         .today-cell { background-color: #f0f8ff; border: 2px solid #1f77b4; box-shadow: inset 0 0 5px rgba(31,119,180,0.2); }
         .empty-cell { background-color: #fafafa; }
         </style>
         <div class="calendar-grid">
             <div class="day-header" style="color: #d32f2f;">일</div><div class="day-header">월</div><div class="day-header">화</div><div class="day-header">수</div><div class="day-header">목</div><div class="day-header">금</div><div class="day-header" style="color: #1976d2;">토</div>
-            <div class="day-cell empty-cell"></div><div class="day-cell empty-cell"></div><div class="day-cell empty-cell"></div>
-            <div class="day-cell"><div class="day-num">1</div></div>
-            <div class="day-cell"><div class="day-num">2</div></div>
-            <div class="day-cell"><div class="day-num">3</div></div>
-            <div class="day-cell"><div class="day-num saturday">4</div></div>
-            <div class="day-cell"><div class="day-num sunday">5</div></div>
-            <div class="day-cell"><div class="day-num">6</div></div>
-            <div class="day-cell"><div class="day-num">7</div></div>
-            <div class="day-cell"><div class="day-num">8</div></div>
-            <div class="day-cell"><div class="day-num">9</div></div>
-            <div class="day-cell"><div class="day-num">10</div><div class="event-macro">🚨 매크로 경계<br>(물가지표 대기)</div></div>
-            <div class="day-cell"><div class="day-num saturday">11</div></div>
-            <div class="day-cell"><div class="day-num sunday">12</div></div>
-            <div class="day-cell today-cell"><div class="day-num">13 (오늘)</div><div class="event-opex">⚠️ 옵션만기 주간<br>(핀닝 현상 시작)</div></div>
-            <div class="day-cell"><div class="day-num">14</div><div class="event-opex">⚠️ 하방 압력</div></div>
-            <div class="day-cell"><div class="day-num">15</div><div class="event-macro">💸 세금 납부일<br>(Tax Day 매도)</div><div class="event-opex">⚠️ 하방 압력</div></div>
-            <div class="day-cell"><div class="day-num">16</div><div class="event-opex">⚠️ 변동성 극대화</div></div>
-            <div class="day-cell"><div class="day-num">17</div><div class="event-opex">🇺🇸 美 옵션 만기<br>(OpEx 데이)</div></div>
-            <div class="day-cell"><div class="day-num saturday">18</div></div>
-            <div class="day-cell"><div class="day-num sunday">19</div></div>
-            <div class="day-cell"><div class="day-num">20</div><div class="event-shoot">🚀 헤지 청산<br>(강력한 반등/슈팅)</div></div>
-            <div class="day-cell"><div class="day-num">21</div><div class="event-shoot">🚀 슈팅 지속<br>(Vanna 효과)</div></div>
-            <div class="day-cell"><div class="day-num">22</div></div>
-            <div class="day-cell"><div class="day-num">23</div></div>
-            <div class="day-cell"><div class="day-num">24</div></div>
-            <div class="day-cell"><div class="day-num saturday">25</div></div>
-            <div class="day-cell"><div class="day-num sunday">26</div></div>
-            <div class="day-cell"><div class="day-num">27</div></div>
-            <div class="day-cell"><div class="day-num">28</div></div>
-            <div class="day-cell"><div class="day-num">29</div></div>
-            <div class="day-cell"><div class="day-num">30</div></div>
-            <div class="day-cell empty-cell"></div><div class="day-cell empty-cell"></div>
-        </div>
-        """
-        st.markdown(calendar_html, unsafe_allow_html=True)
+        """)
+        
+        for week in cal:
+            for i, day in enumerate(week):
+                if day == 0:
+                    html_parts.append('<div class="day-cell empty-cell"></div>')
+                else:
+                    cell_class = "day-cell today-cell" if day == today_day else "day-cell"
+                    num_class = "day-num sunday" if i == 0 else "day-num saturday" if i == 6 else "day-num"
+                    day_lbl = f"{day} (오늘)" if day == today_day else str(day)
+                    
+                    events_html = ""
+                    
+                    if day == tax_day:
+                        events_html += '<div class="event-down">🔴 세금납부일<br>(하락 예상)</div>'
+                    
+                    if day in macro_days and day not in opex_week_days and day != tax_day:
+                        events_html += '<div class="event-macro">⚠️ 매크로 경계<br>(관망/조정)</div>'
+                        
+                    if day in opex_week_days:
+                        events_html += '<div class="event-warn">⚠️ 옵션만기 주간<br>(핀닝/하락압력)</div>'
+                        
+                    if day == opex_day:
+                        events_html += '<div class="event-down">🔴 美 옵션만기<br>(변동성 극대화)</div>'
+                        
+                    if day in shoot_days and i in [1, 2]: # 옵션 만기일 이후 첫 월,화요일
+                        events_html += '<div class="event-up">🟢 헤지 청산<br>(슈팅/상승예상)</div>'
+
+                    html_parts.append(f'<div class="{cell_class}"><div class="{num_class}">{day_lbl}</div>{events_html}</div>')
+
+        html_parts.append("</div>")
+        st.markdown("".join(html_parts), unsafe_allow_html=True)
 
 elif selected_menu == "👑 기간별 테마 트렌드":
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
