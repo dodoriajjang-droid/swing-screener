@@ -40,7 +40,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.5", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.6", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -804,7 +804,6 @@ def analyze_theme_trends():
         except: pass
     return pd.DataFrame(results)
 
-# 👈 IPO 파싱 안정성 및 예외 처리 강화
 @st.cache_data(ttl=10800)
 def get_naver_ipo_data():
     try:
@@ -1053,7 +1052,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         col_btn1, col_btn2 = st.columns([8, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
         
-        # 👈 [업데이트] 앱 전체에서 작동하는 관심종목 스마트 토글 (추가/삭제) 버튼
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if not is_in_wl:
             if col_btn2.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
@@ -1182,7 +1180,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.5")
+    st.title("📈 Jaemini PRO v3.6")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1352,7 +1350,7 @@ elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
 
 elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
     st.subheader("🗺️ 시장 주도주 & 스마트머니 유입 섹터 히트맵")
-    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다.")
+    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 하락 / 붉은색: 상승)")
     
     with st.spinner("거래대금 상위 30종목 데이터 및 수급 스크래핑 중..."):
         t_kings = get_trading_value_kings()
@@ -1373,7 +1371,7 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
                 path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'], 
                 values='Amount_Ouk', 
                 color='ChagesRatio', 
-                color_continuous_scale=[(0.0, '#f63538'), (0.5, '#414554'), (1.0, '#30cc5a')], 
+                color_continuous_scale=[(0.0, '#00b050'), (0.5, '#414554'), (1.0, '#ff0000')], 
                 color_continuous_midpoint=0,
                 custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수']
             )
@@ -1685,10 +1683,12 @@ elif selected_menu == "📰 실시간 속보/리포트":
         else:
             st.caption("리포트 데이터를 불러오지 못했습니다.")
 
+# 👈 [새로운 기능] IPO 탭 내에 스마트머니 수급 달력(옵션만기/매크로) 추가
 elif selected_menu == "📅 IPO / 증시 일정":
-    st.subheader("📅 핵심 증시 일정 & IPO 공모주 분석")
-    cal_tab1, cal_tab2 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석"])
-    with cal_tab1: components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
+    st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
+    cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석", "🧠 스마트머니 수급 달력 (26년 4월)"])
+    with cal_tab1: 
+        components.html("""<iframe scrolling="yes" allowtransparency="true" frameborder="0" src="https://s.tradingview.com/embed-widget/events/?locale=kr&importanceFilter=-1%2C0%2C1&currencyFilter=USD%2CKRW%2CCNY%2CEUR&colorTheme=light" style="box-sizing: border-box; height: 600px; width: 100%;"></iframe>""", height=600)
     with cal_tab2:
         with st.spinner("IPO 일정을 긁어오는 중..."):
             ipo_df = get_naver_ipo_data()
@@ -1696,7 +1696,66 @@ elif selected_menu == "📅 IPO / 증시 일정":
             st.dataframe(ipo_df, use_container_width=True, hide_index=True)
             if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
                 st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n가장 따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
-        else: st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
+        else: 
+            st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
+    with cal_tab3:
+        st.markdown("""
+        #### 📅 2026년 4월 옵션만기 & 매크로 수급 시나리오
+        > **💡 핵심 전략:** 15일(세금납부)과 17일(미장 옵션만기) 전후의 '변동성/하방 압력' 구간을 피하고, 20~21일 딜러 헤지 청산에 따른 '슈팅(반등)' 구간을 공략합니다.
+        """)
+        
+        # HTML/CSS를 활용한 커스텀 달력 렌더링
+        calendar_html = """
+        <style>
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background-color: #e0e0e0; border: 1px solid #ccc; font-family: sans-serif; }
+        .day-header { background-color: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; border-bottom: 1px solid #ccc; color: #333; }
+        .day-cell { background-color: white; min-height: 110px; padding: 8px; display: flex; flex-direction: column; }
+        .day-num { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #444; }
+        .day-num.sunday { color: #d32f2f; }
+        .day-num.saturday { color: #1976d2; }
+        .event-macro { background-color: #ffebee; color: #c62828; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #c62828; }
+        .event-opex { background-color: #fff3e0; color: #e65100; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #e65100; }
+        .event-shoot { background-color: #e8f5e9; color: #2e7d32; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #2e7d32; }
+        .today-cell { background-color: #f0f8ff; border: 2px solid #1f77b4; box-shadow: inset 0 0 5px rgba(31,119,180,0.2); }
+        .empty-cell { background-color: #fafafa; }
+        </style>
+        <div class="calendar-grid">
+            <div class="day-header" style="color: #d32f2f;">일</div><div class="day-header">월</div><div class="day-header">화</div><div class="day-header">수</div><div class="day-header">목</div><div class="day-header">금</div><div class="day-header" style="color: #1976d2;">토</div>
+            <div class="day-cell empty-cell"></div><div class="day-cell empty-cell"></div><div class="day-cell empty-cell"></div>
+            <div class="day-cell"><div class="day-num">1</div></div>
+            <div class="day-cell"><div class="day-num">2</div></div>
+            <div class="day-cell"><div class="day-num">3</div></div>
+            <div class="day-cell"><div class="day-num saturday">4</div></div>
+            <div class="day-cell"><div class="day-num sunday">5</div></div>
+            <div class="day-cell"><div class="day-num">6</div></div>
+            <div class="day-cell"><div class="day-num">7</div></div>
+            <div class="day-cell"><div class="day-num">8</div></div>
+            <div class="day-cell"><div class="day-num">9</div></div>
+            <div class="day-cell"><div class="day-num">10</div><div class="event-macro">🚨 매크로 경계<br>(물가지표 대기)</div></div>
+            <div class="day-cell"><div class="day-num saturday">11</div></div>
+            <div class="day-cell"><div class="day-num sunday">12</div></div>
+            <div class="day-cell today-cell"><div class="day-num">13 (오늘)</div><div class="event-opex">⚠️ 옵션만기 주간<br>(핀닝 현상 시작)</div></div>
+            <div class="day-cell"><div class="day-num">14</div><div class="event-opex">⚠️ 하방 압력</div></div>
+            <div class="day-cell"><div class="day-num">15</div><div class="event-macro">💸 세금 납부일<br>(Tax Day 매도)</div><div class="event-opex">⚠️ 하방 압력</div></div>
+            <div class="day-cell"><div class="day-num">16</div><div class="event-opex">⚠️ 변동성 극대화</div></div>
+            <div class="day-cell"><div class="day-num">17</div><div class="event-opex">🇺🇸 美 옵션 만기<br>(OpEx 데이)</div></div>
+            <div class="day-cell"><div class="day-num saturday">18</div></div>
+            <div class="day-cell"><div class="day-num sunday">19</div></div>
+            <div class="day-cell"><div class="day-num">20</div><div class="event-shoot">🚀 헤지 청산<br>(강력한 반등/슈팅)</div></div>
+            <div class="day-cell"><div class="day-num">21</div><div class="event-shoot">🚀 슈팅 지속<br>(Vanna 효과)</div></div>
+            <div class="day-cell"><div class="day-num">22</div></div>
+            <div class="day-cell"><div class="day-num">23</div></div>
+            <div class="day-cell"><div class="day-num">24</div></div>
+            <div class="day-cell"><div class="day-num saturday">25</div></div>
+            <div class="day-cell"><div class="day-num sunday">26</div></div>
+            <div class="day-cell"><div class="day-num">27</div></div>
+            <div class="day-cell"><div class="day-num">28</div></div>
+            <div class="day-cell"><div class="day-num">29</div></div>
+            <div class="day-cell"><div class="day-num">30</div></div>
+            <div class="day-cell empty-cell"></div><div class="day-cell empty-cell"></div>
+        </div>
+        """
+        st.markdown(calendar_html, unsafe_allow_html=True)
 
 elif selected_menu == "👑 기간별 테마 트렌드":
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
