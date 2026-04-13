@@ -19,7 +19,7 @@ import time
 import concurrent.futures
 import os
 import random
-import calendar # 달력 생성을 위한 기본 라이브러리 추가
+import calendar
 
 # ==========================================
 # 0. 로컬 영구 저장소 (관심종목 유지용)
@@ -41,7 +41,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.5", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.7", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -71,6 +71,7 @@ def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
+        # 👈 gemini-3.1-flash-lite-preview 적용
         return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
@@ -1186,7 +1187,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.5")
+    st.title("📈 Jaemini PRO v3.7")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1356,7 +1357,7 @@ elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
 
 elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
     st.subheader("🗺️ 시장 주도주 & 스마트머니 유입 섹터 히트맵")
-    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 하락 / 붉은색: 상승)")
+    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 상승 / 붉은색: 하락)")
     
     with st.spinner("거래대금 상위 30종목 데이터 및 수급 스크래핑 중..."):
         t_kings = get_trading_value_kings()
@@ -1372,12 +1373,13 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
             t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
             t_kings['display_text'] = "<span style='font-size:16px; font-weight:bold;'>" + t_kings['Name'] + "</span><br>" + t_kings['ChagesRatio'].map("{:+.2f}%".format) + "<br>" + t_kings['수급상태']
             
+            # Finviz 스타일: 빨간색(하락) -> 회색(보합) -> 녹색(상승)
             fig = px.treemap(
                 t_kings, 
                 path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'], 
                 values='Amount_Ouk', 
                 color='ChagesRatio', 
-                color_continuous_scale=[(0.0, '#00b050'), (0.5, '#414554'), (1.0, '#ff0000')], 
+                color_continuous_scale=[(0.0, '#f63538'), (0.5, '#414554'), (1.0, '#30cc5a')], 
                 color_continuous_midpoint=0,
                 custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수']
             )
@@ -1567,6 +1569,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 res = analyze_technical_pattern(searched_name, searched_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
 
+# 👈 [업데이트] 검색창과 버튼의 높이 어긋남 해결
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
@@ -1582,6 +1585,7 @@ elif selected_menu == "⚡ 딥테크 & 테마":
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
         col_in1, col_in2 = st.columns([8, 2])
+        # label_visibility="collapsed" 옵션으로 버튼과 텍스트 상자 세로 정렬 맞춤
         custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리")
         submit_btn = col_in2.form_submit_button("🔍 관련주 발굴", use_container_width=True)
         
@@ -1609,6 +1613,7 @@ elif selected_menu == "⚡ 딥테크 & 테마":
         st.markdown(f"#### 🔎 '{st.session_state.deep_tech_query}' 관련주 분석 결과")
         display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
+# 👈 [업데이트] 빈 데이터프레임일 경우 예외처리(st.info 표시) 추가
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     with st.spinner("데이터 수집 중..."): 
@@ -1689,13 +1694,13 @@ elif selected_menu == "📰 실시간 속보/리포트":
         else:
             st.caption("리포트 데이터를 불러오지 못했습니다.")
 
-# 👈 [업데이트] 글로벌 경제 지표 한글화 & 스마트머니 달력 연월 이동 기능 완벽 지원
+# 👈 [업데이트] 글로벌 경제 지표 한글화 & 스마트머니 달력 평일(월~금) 및 동적 연월 생성 완벽 지원
 elif selected_menu == "📅 IPO / 증시 일정":
     st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
     cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석", "🧠 스마트머니 수급 달력"])
     
     with cal_tab1: 
-        # TradingView 위젯 언어 설정을 한국어("kr")로 명시하여 출력
+        st.caption("💡 트레이딩뷰(TradingView) 자체 DB 정책상 일부 세부 경제 지표명은 영어 원문으로 송출될 수 있습니다.")
         components.html("""
         <div class="tradingview-widget-container">
           <div class="tradingview-widget-container__widget"></div>
@@ -1725,11 +1730,10 @@ elif selected_menu == "📅 IPO / 증시 일정":
             
     with cal_tab3:
         st.markdown("""
-        #### 📅 미국 증시 파생수급 기반 트레이딩 시나리오
+        #### 📅 미국 증시 파생수급 기반 트레이딩 시나리오 (Smart Money Calendar)
         > **💡 핵심 전략:** 미국 시장 기준 **3번째 금요일(옵션 만기일, OpEx)** 전후의 마켓 메이커(딜러) 감마 헤지 물량에 따른 변동성(하방 압력)을 피하고, 차주 월/화요일 족쇄 해제(Vanna 효과)로 인한 **'슈팅(상승)'** 구간을 공략합니다. (4월의 경우 세금 납부일인 Tax Day 영향 추가 반영)
         """)
         
-        # 연월 네비게이션 컨트롤
         cc1, cc2, cc3 = st.columns([1, 8, 1])
         with cc1:
             if st.button("◀ 이전 달", use_container_width=True):
@@ -1753,21 +1757,27 @@ elif selected_menu == "📅 IPO / 증시 일정":
             st.session_state.smart_cal_month = datetime.now().month
             st.rerun()
 
-        # 달력 생성 로직
         year = st.session_state.smart_cal_year
         month = st.session_state.smart_cal_month
         
+        # 일요일(SUNDAY)을 0번 인덱스로 설정하여 달력 생성
+        calendar.setfirstweekday(calendar.SUNDAY)
         cal = calendar.monthcalendar(year, month)
         
-        # 3번째 금요일 찾기 로직
-        fridays = [week[4] for week in cal if week[4] != 0]
+        # 금요일은 일요일(0) 기준 인덱스 5
+        fridays = [week[5] for week in cal if week[5] != 0]
         opex_day = fridays[2] if len(fridays) >= 3 else fridays[-1]
         
-        # 이벤트 일자 설정
-        macro_days = range(10, 15)
-        opex_week_days = range(opex_day - 4, opex_day)
-        shoot_days = range(opex_day + 3, opex_day + 5) # 옵션 만기일 다음주 월/화
-        tax_day = 15 if month == 4 else None # 4월 한정 Tax Day
+        opex_week_days = [opex_day - 4 + i for i in range(5)] # 월~금
+        shoot_days = [opex_day + 3, opex_day + 4] # 다음주 월, 화
+        macro_days = [day for day in range(10, 15) if day not in opex_week_days]
+
+        tax_day = -1
+        if month == 4:
+            tax_day = 15
+            for week in cal:
+                if week[6] == 15: tax_day = 17 # 토요일(6)이면 월요일(17)로 이동
+                if week[0] == 15: tax_day = 16 # 일요일(0)이면 월요일(16)로 이동
 
         today_day = datetime.now().day if year == datetime.now().year and month == datetime.now().month else -1
 
@@ -1796,26 +1806,26 @@ elif selected_menu == "📅 IPO / 증시 일정":
                 if day == 0:
                     html_parts.append('<div class="day-cell empty-cell"></div>')
                 else:
+                    is_weekend = (i == 0 or i == 6) # i=0(일), i=6(토)
                     cell_class = "day-cell today-cell" if day == today_day else "day-cell"
                     num_class = "day-num sunday" if i == 0 else "day-num saturday" if i == 6 else "day-num"
                     day_lbl = f"{day} (오늘)" if day == today_day else str(day)
                     
                     events_html = ""
-                    
-                    if day == tax_day:
-                        events_html += '<div class="event-down">🔴 세금납부일<br>(하락 예상)</div>'
-                    
-                    if day in macro_days and day not in opex_week_days and day != tax_day:
-                        events_html += '<div class="event-macro">⚠️ 매크로 경계<br>(관망/조정)</div>'
+                    if not is_weekend:
+                        if day == tax_day:
+                            events_html += '<div class="event-down">🔴 세금납부일<br>(하락 예상)</div>'
                         
-                    if day in opex_week_days:
-                        events_html += '<div class="event-warn">⚠️ 옵션만기 주간<br>(핀닝/하락압력)</div>'
-                        
-                    if day == opex_day:
-                        events_html += '<div class="event-down">🔴 美 옵션만기<br>(변동성 극대화)</div>'
-                        
-                    if day in shoot_days and i in [1, 2]: # 옵션 만기일 이후 첫 월,화요일
-                        events_html += '<div class="event-up">🟢 헤지 청산<br>(슈팅/상승예상)</div>'
+                        if day in opex_week_days:
+                            if day == opex_day:
+                                events_html += '<div class="event-down">🔴 美 옵션만기<br>(변동성 극대화)</div>'
+                            else:
+                                events_html += '<div class="event-warn">⚠️ 옵션만기 주간<br>(핀닝/하락압력)</div>'
+                        elif day in macro_days and day != tax_day:
+                            events_html += '<div class="event-macro">⚠️ 매크로 경계<br>(관망/조정)</div>'
+                            
+                        if day in shoot_days:
+                            events_html += '<div class="event-up">🟢 헤지 청산<br>(슈팅/상승예상)</div>'
 
                     html_parts.append(f'<div class="{cell_class}"><div class="{num_class}">{day_lbl}</div>{events_html}</div>')
 
