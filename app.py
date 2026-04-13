@@ -41,7 +41,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.7", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.8", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -78,7 +78,7 @@ def ask_gemini(prompt, _api_key):
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
         return f"AI 분석 오류: {str(e)}"
 
-# 브리핑 1일 1회 생성 (86400초 캐시)
+# 하루 1번 생성으로 변경 (86400초)
 @st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     if not _api_key: return "API 키가 필요합니다."
@@ -486,13 +486,9 @@ def get_volume_surge_drop():
                     df = t.dropna(subset=['종목명', '현재가']).copy()
                     df = df[df['종목명'] != '종목명']
                     df = df[~df['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False, regex=True)]
-                    
-                    # 불필요한 빈 컬럼 제거 및 20개 컷
                     return df.dropna(axis=1, how='all').head(20).reset_index(drop=True)
-        except Exception as e:
-            pass
+        except: pass
         return pd.DataFrame()
-        
     surge_df = fetch_vol_table("https://finance.naver.com/sise/sise_quant_high.naver")
     drop_df = fetch_vol_table("https://finance.naver.com/sise/sise_quant_low.naver")
     return surge_df, drop_df
@@ -510,7 +506,6 @@ def get_market_warnings():
                     return df.dropna(axis=1, how='all').reset_index(drop=True)
         except: pass
         return pd.DataFrame()
-        
     mgmt_df = fetch_warning_table("https://finance.naver.com/sise/management.naver")
     alert_df = fetch_warning_table("https://finance.naver.com/sise/investment_alert.naver")
     return mgmt_df, alert_df
@@ -864,7 +859,6 @@ def get_naver_ipo_data():
                 df = df.dropna(subset=['종목명']).copy()
                 df = df[df['종목명'] != '종목명']
                 
-                # 꼭 필요한 컬럼만 추출하여 에러 방지
                 valid_cols = [c for c in ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사'] if c in df.columns]
                 return df[valid_cols].head(15).reset_index(drop=True)
         return pd.DataFrame()
@@ -1211,7 +1205,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.7")
+    st.title("📈 Jaemini PRO v3.8")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1299,11 +1293,10 @@ if selected_menu == "🎛️ 메인 대시보드":
             top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
             briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
             
-            # 👇 생성 일시 추가
             current_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
             st.info(f"**[생성 일시: {current_time} (KST)]**\n\n{briefing_text}", icon="💡")
             
-            st.caption("※ 본 브리핑은 3시간 단위로 캐시가 갱신됩니다. (하루 1번 생성을 원하시면 코드의 ttl=10800을 ttl=86400으로 변경하세요)")
+            st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
     else:
         st.warning("API 키를 입력하시면 AI가 작성하는 실시간 글로벌-국내 증시 브리핑을 볼 수 있습니다.")
 
@@ -1756,46 +1749,78 @@ elif selected_menu == "📰 실시간 속보/리포트":
 
 elif selected_menu == "📅 IPO / 증시 일정":
     st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
-    cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석", "🧠 스마트머니 수급 달력"])
+    cal_tab1, cal_tab2, cal_tab3, cal_tab4 = st.tabs(["🌍 글로벌 경제 지표", "🇰🇷 국장 수급 달력", "🇰🇷 국내 IPO 분석", "🧠 미장 수급 달력"])
     
     with cal_tab1: 
-        st.caption("💡 트레이딩뷰(TradingView) 자체 DB 정책상 일부 세부 경제 지표명은 영어 원문으로 송출될 수 있습니다.")
         components.html("""
-        <div class="tradingview-widget-container">
-          <div class="tradingview-widget-container__widget"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
-          {
-          "colorTheme": "light",
-          "isTransparent": true,
-          "width": "100%",
-          "height": "600",
-          "locale": "kr",
-          "importanceFilter": "-1,0,1",
-          "currencyFilter": "USD,KRW,CNY,EUR,JPY"
-        }
-          </script>
-        </div>
+        <div class="tradingview-widget-container"><div class="tradingview-widget-container__widget"></div>
+        <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
+        { "colorTheme": "light", "isTransparent": true, "width": "100%", "height": "600", "locale": "kr", "importanceFilter": "-1,0,1", "currencyFilter": "USD,KRW,CNY,EUR,JPY" }
+        </script></div>
         """, height=600)
-        
+
     with cal_tab2:
-        with st.spinner("IPO 일정을 긁어오는 중..."):
-            ipo_df = get_naver_ipo_data()
+        st.markdown("#### 🇰🇷 국장 파생수급 및 변동성 시나리오")
+        st.write("> **💡 국장 핵심 전략:** 매월 **2번째 목요일** 선물/옵션 만기일 수급 충돌을 경계합니다. 최근 위클리 옵션(월/목) 만기 당일 오후의 지수 흔들림을 역이용하는 단기 전략이 유효합니다.")
+        
+        year, month = st.session_state.smart_cal_year, st.session_state.smart_cal_month
+        calendar.setfirstweekday(calendar.SUNDAY)
+        cal = calendar.monthcalendar(year, month)
+        
+        thursdays = [week[calendar.THURSDAY] for week in cal if week[calendar.THURSDAY] != 0]
+        kr_opex = thursdays[1] if len(thursdays) >= 2 else thursdays[0]
+        is_quadruple = month in [3, 6, 9, 12] 
+
+        html_parts = []
+        html_parts.append("""<style>
+        .kr-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background-color: #eee; border: 1px solid #ccc; }
+        .kr-header { background-color: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; }
+        .kr-cell { background-color: white; min-height: 100px; padding: 5px; border: 1px solid #f0f0f0; }
+        .kr-num { font-weight: bold; margin-bottom: 5px; }
+        .kr-event-red { background-color: #fff0f0; color: #d32f2f; padding: 3px; font-size: 11px; margin-bottom: 2px; border-left: 3px solid #d32f2f; border-radius: 2px; font-weight: bold;}
+        .kr-event-blue { background-color: #f0f4ff; color: #1976d2; padding: 3px; font-size: 11px; margin-bottom: 2px; border-left: 3px solid #1976d2; border-radius: 2px; }
+        .kr-event-green { background-color: #f0fff4; color: #2e7d32; padding: 3px; font-size: 11px; margin-bottom: 2px; border-left: 3px solid #2e7d32; border-radius: 2px; }
+        </style><div class="kr-grid">
+        <div class="kr-header" style="color:red;">일</div><div class="kr-header">월</div><div class="kr-header">화</div><div class="kr-header">수</div><div class="kr-header">목</div><div class="kr-header">금</div><div class="kr-header" style="color:blue;">토</div>
+        """)
+
+        for week in cal:
+            for i, day in enumerate(week):
+                if day == 0: html_parts.append('<div class="kr-cell" style="background:#fafafa;"></div>')
+                else:
+                    events = ""
+                    if i == calendar.THURSDAY: 
+                        if day == kr_opex:
+                            label = "🔥 네마녀의 날" if is_quadruple else "🔴 옵션 만기일"
+                            events += f'<div class="kr-event-red">{label}<br>(수급 변동 극대)</div>'
+                        else:
+                            events += '<div class="kr-event-blue">🔹 위클리 만기<br>(오후 변동성)</div>'
+                    elif i == calendar.MONDAY: 
+                        events += '<div class="kr-event-blue">🔹 위클리 만기<br>(수급 재편)</div>'
+                    elif i == calendar.FRIDAY and (day == kr_opex + 1): 
+                        events += '<div class="kr-event-green">🟢 수급 되돌림<br>(추세 복귀)</div>'
+                    
+                    num_color = "red" if i == 0 else "blue" if i == 6 else "black"
+                    html_parts.append(f'<div class="kr-cell"><div class="kr-num" style="color:{num_color};">{day}</div>{events}</div>')
+        
+        html_parts.append("</div>")
+        st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+    with cal_tab3:
+        ipo_df = get_naver_ipo_data()
         if not ipo_df.empty:
             st.dataframe(ipo_df, use_container_width=True, hide_index=True)
             if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
-                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n가장 따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
-        else: 
-            st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
-            
-    with cal_tab3:
-        st.markdown("""
-        #### 📅 미국 증시 파생수급 기반 트레이딩 시나리오 (Smart Money Calendar)
-        > **💡 핵심 전략:** 미국 시장 기준 **3번째 금요일(옵션 만기일, OpEx)** 전후의 마켓 메이커(딜러) 감마 헤지 물량에 따른 변동성(하방 압력)을 피하고, 차주 월/화요일 족쇄 해제(Vanna 효과)로 인한 **'슈팅(상승)'** 구간을 공략합니다. (4월의 경우 세금 납부일인 Tax Day 영향 추가 반영)
-        """)
+                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
+        else: st.warning("현재 IPO 일정이 없거나 데이터 응답이 지연되었습니다.")
+
+    with cal_tab4:
+        st.markdown("#### 🇺🇸 미장 파생수급 기반 트레이딩 시나리오")
+        st.write("> **💡 핵심 전략:** 미국 시장 기준 **3번째 금요일(옵션 만기일, OpEx)** 전후의 마켓 메이커(딜러) 감마 헤지 물량에 따른 변동성(하방 압력)을 피하고, 차주 월/화요일 족쇄 해제(Vanna 효과)로 인한 **'슈팅(상승)'** 구간을 공략합니다. (4월의 경우 세금 납부일인 Tax Day 영향 추가 반영)")
         
         cc1, cc2, cc3 = st.columns([1, 8, 1])
         with cc1:
-            if st.button("◀ 이전 달", use_container_width=True):
+            if st.button("◀ 이전 달", use_container_width=True, key="us_prev"):
                 st.session_state.smart_cal_month -= 1
                 if st.session_state.smart_cal_month == 0:
                     st.session_state.smart_cal_month = 12
@@ -1804,14 +1829,14 @@ elif selected_menu == "📅 IPO / 증시 일정":
         with cc2:
             st.markdown(f"<h3 style='text-align: center; margin:0;'>{st.session_state.smart_cal_year}년 {st.session_state.smart_cal_month}월</h3>", unsafe_allow_html=True)
         with cc3:
-            if st.button("다음 달 ▶", use_container_width=True):
+            if st.button("다음 달 ▶", use_container_width=True, key="us_next"):
                 st.session_state.smart_cal_month += 1
                 if st.session_state.smart_cal_month == 13:
                     st.session_state.smart_cal_month = 1
                     st.session_state.smart_cal_year += 1
                 st.rerun()
                 
-        if st.button("🔄 오늘로 돌아가기"):
+        if st.button("🔄 오늘로 돌아가기", key="us_today"):
             st.session_state.smart_cal_year = datetime.now().year
             st.session_state.smart_cal_month = datetime.now().month
             st.rerun()
@@ -1819,24 +1844,22 @@ elif selected_menu == "📅 IPO / 증시 일정":
         year = st.session_state.smart_cal_year
         month = st.session_state.smart_cal_month
         
-        # 일요일(SUNDAY)을 0번 인덱스로 설정하여 달력 생성
         calendar.setfirstweekday(calendar.SUNDAY)
         cal = calendar.monthcalendar(year, month)
         
-        # 금요일은 일요일(0) 기준 인덱스 5
         fridays = [week[5] for week in cal if week[5] != 0]
         opex_day = fridays[2] if len(fridays) >= 3 else fridays[-1]
         
-        opex_week_days = [opex_day - 4 + i for i in range(5)] # 월~금
-        shoot_days = [opex_day + 3, opex_day + 4] # 다음주 월, 화
+        opex_week_days = [opex_day - 4 + i for i in range(5)] 
+        shoot_days = [opex_day + 3, opex_day + 4] 
         macro_days = [day for day in range(10, 15) if day not in opex_week_days]
 
         tax_day = -1
         if month == 4:
             tax_day = 15
             for week in cal:
-                if week[6] == 15: tax_day = 17 # 토요일(6)이면 월요일(17)로 이동
-                if week[0] == 15: tax_day = 16 # 일요일(0)이면 월요일(16)로 이동
+                if week[6] == 15: tax_day = 17 
+                if week[0] == 15: tax_day = 16 
 
         today_day = datetime.now().day if year == datetime.now().year and month == datetime.now().month else -1
 
@@ -1865,7 +1888,7 @@ elif selected_menu == "📅 IPO / 증시 일정":
                 if day == 0:
                     html_parts.append('<div class="day-cell empty-cell"></div>')
                 else:
-                    is_weekend = (i == 0 or i == 6) # i=0(일), i=6(토)
+                    is_weekend = (i == 0 or i == 6) 
                     cell_class = "day-cell today-cell" if day == today_day else "day-cell"
                     num_class = "day-num sunday" if i == 0 else "day-num saturday" if i == 6 else "day-num"
                     day_lbl = f"{day} (오늘)" if day == today_day else str(day)
