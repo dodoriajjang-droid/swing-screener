@@ -78,7 +78,8 @@ def ask_gemini(prompt, _api_key):
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
         return f"AI 분석 오류: {str(e)}"
 
-@st.cache_data(ttl=10800)
+# 브리핑 1일 1회 생성 (86400초 캐시)
+@st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     
@@ -99,7 +100,7 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     - 전일 미국장 주요 급등주: {gainers_str}
     
     위 팩트 데이터를 바탕으로 다음 3가지 항목을 마크다운 포맷으로 가독성 좋게 작성해주세요. 
-    (말투는 명확하고 단호한 전문 트레이더의 시각으로 작성할 것)
+    (말투는 명확하고 단호한 전문 트레이더의 시각으로 작성할 것. 시작할 때 '안녕하십니까. 여의도 데스크입니다. 오늘 아침 시장 대응을 위한 핵심 전략 전달합니다.' 를 포함할 것)
     
     1. 🇺🇸 **간밤의 미 증시 요약**: 매크로 데이터와 급등주를 바탕으로 한 전일 미국장 요약 (2~3줄)
     2. 🇰🇷 **국내 증시 투자의견**: 미 증시 결과와 환율/금리가 오늘 한국 코스피/코스닥 수급에 미칠 영향 (2~3줄)
@@ -474,6 +475,46 @@ def get_limit_stocks():
         if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
+@st.cache_data(ttl=600)
+def get_volume_surge_drop():
+    def fetch_vol_table(url):
+        try:
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr', errors='replace')))
+            for t in tables:
+                if '종목명' in t.columns and '현재가' in t.columns:
+                    df = t.dropna(subset=['종목명', '현재가']).copy()
+                    df = df[df['종목명'] != '종목명']
+                    df = df[~df['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False, regex=True)]
+                    
+                    # 불필요한 빈 컬럼 제거 및 20개 컷
+                    return df.dropna(axis=1, how='all').head(20).reset_index(drop=True)
+        except Exception as e:
+            pass
+        return pd.DataFrame()
+        
+    surge_df = fetch_vol_table("https://finance.naver.com/sise/sise_quant_high.naver")
+    drop_df = fetch_vol_table("https://finance.naver.com/sise/sise_quant_low.naver")
+    return surge_df, drop_df
+
+@st.cache_data(ttl=3600)
+def get_market_warnings():
+    def fetch_warning_table(url):
+        try:
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr', errors='replace')))
+            for t in tables:
+                if '종목명' in t.columns:
+                    df = t.dropna(subset=['종목명']).copy()
+                    df = df[df['종목명'] != '종목명']
+                    return df.dropna(axis=1, how='all').reset_index(drop=True)
+        except: pass
+        return pd.DataFrame()
+        
+    mgmt_df = fetch_warning_table("https://finance.naver.com/sise/management.naver")
+    alert_df = fetch_warning_table("https://finance.naver.com/sise/investment_alert.naver")
+    return mgmt_df, alert_df
+
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
@@ -811,41 +852,24 @@ def analyze_theme_trends():
         except: pass
     return pd.DataFrame(results)
 
-@st.cache_data(ttl=10800)
+@st.cache_data(ttl=43200) 
 def get_naver_ipo_data():
     try:
-        user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
-        ]
         url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': random.choice(user_agents)}, timeout=5)
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        table = soup.find('table', class_='type_2')
-        if not table: return pd.DataFrame()
-        trs = table.find_all('tr')
-        headers, data = [], []
-        for tr in trs:
-            ths = tr.find_all('th')
-            if ths and not headers: headers = [th.text.strip() for th in ths]
-            tds = tr.find_all('td')
-            if tds:
-                row = [td.text.strip() for td in tds]
-                if len(row) == len(headers) and row[0] and row[0] != '종목명': data.append(row)
-        if not headers or not data: return pd.DataFrame()
-        df = pd.DataFrame(data, columns=headers)
-        valid_cols = []
-        target_cols = ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사']
-        for tc in target_cols:
-            for hc in headers:
-                if tc in hc: 
-                    valid_cols.append(hc)
-                    break
-        df = df[valid_cols]
-        df.columns = [c.replace(' ', '') for c in df.columns]
-        return df.head(15).reset_index(drop=True)
-    except: return pd.DataFrame()
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
+        
+        for df in tables:
+            if '종목명' in df.columns and '현재가' in df.columns:
+                df = df.dropna(subset=['종목명']).copy()
+                df = df[df['종목명'] != '종목명']
+                
+                # 꼭 필요한 컬럼만 추출하여 에러 방지
+                valid_cols = [c for c in ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사'] if c in df.columns]
+                return df[valid_cols].head(15).reset_index(drop=True)
+        return pd.DataFrame()
+    except Exception as e: 
+        return pd.DataFrame()
 
 @st.cache_data(ttl=43200) 
 def get_dividend_portfolio(ex_rate=1350.0):
@@ -1202,6 +1226,7 @@ with st.sidebar:
         "🔬 기업 정밀 분석기", 
         "⚡ 딥테크 & 테마", 
         "🚨 상/하한가 분석", 
+        "🚦 거래량 급증 & 시장경보",
         "📰 실시간 속보/리포트", 
         "📅 IPO / 증시 일정", 
         "👑 기간별 테마 트렌드", 
@@ -1273,7 +1298,12 @@ if selected_menu == "🎛️ 메인 대시보드":
         with st.spinner("최신 글로벌 매크로 데이터를 바탕으로 AI가 모닝 브리핑을 작성 중입니다..."):
             top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
             briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
-            st.info(briefing_text, icon="💡")
+            
+            # 👇 생성 일시 추가
+            current_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
+            st.info(f"**[생성 일시: {current_time} (KST)]**\n\n{briefing_text}", icon="💡")
+            
+            st.caption("※ 본 브리핑은 3시간 단위로 캐시가 갱신됩니다. (하루 1번 생성을 원하시면 코드의 ttl=10800을 ttl=86400으로 변경하세요)")
     else:
         st.warning("API 키를 입력하시면 AI가 작성하는 실시간 글로벌-국내 증시 브리핑을 볼 수 있습니다.")
 
@@ -1569,7 +1599,6 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 res = analyze_technical_pattern(searched_name, searched_code)
             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4")
 
-# 👈 [업데이트] 검색창과 버튼의 높이 어긋남 해결
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
@@ -1585,7 +1614,6 @@ elif selected_menu == "⚡ 딥테크 & 테마":
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
         col_in1, col_in2 = st.columns([8, 2])
-        # label_visibility="collapsed" 옵션으로 버튼과 텍스트 상자 세로 정렬 맞춤
         custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리")
         submit_btn = col_in2.form_submit_button("🔍 관련주 발굴", use_container_width=True)
         
@@ -1613,7 +1641,6 @@ elif selected_menu == "⚡ 딥테크 & 테마":
         st.markdown(f"#### 🔎 '{st.session_state.deep_tech_query}' 관련주 분석 결과")
         display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
-# 👈 [업데이트] 빈 데이터프레임일 경우 예외처리(st.info 표시) 추가
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     with st.spinner("데이터 수집 중..."): 
@@ -1653,6 +1680,39 @@ elif selected_menu == "🚨 상/하한가 분석":
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
         else:
             st.info("현재 하한가 종목이 없습니다.")
+
+elif selected_menu == "🚦 거래량 급증 & 시장경보":
+    st.markdown("## 🚦 거래량 급증/급감 & 투자자 보호(시장경보)")
+    
+    tab_vol, tab_warn = st.tabs(["📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
+    
+    with tab_vol:
+        st.write("네이버 금융 기준 거래량 급증 및 급감 상위 20개 종목입니다.")
+        with st.spinner("데이터 스크래핑 중..."):
+            surge_df, drop_df = get_volume_surge_drop()
+        
+        c_surge, c_drop = st.columns(2)
+        with c_surge:
+            st.markdown("### 🔥 거래량 급증")
+            if not surge_df.empty: st.dataframe(surge_df, use_container_width=True, hide_index=True)
+            else: st.caption("현재 데이터가 없거나 서버 응답이 지연되었습니다.")
+        with c_drop:
+            st.markdown("### ❄️ 거래량 급감")
+            if not drop_df.empty: st.dataframe(drop_df, use_container_width=True, hide_index=True)
+            else: st.caption("현재 데이터가 없거나 서버 응답이 지연되었습니다.")
+            
+    with tab_warn:
+        st.write("한국거래소(KRX) 및 네이버 금융 기준 투자자 보호 지정 종목입니다.")
+        with st.spinner("시장경보 데이터 스크래핑 중..."):
+            mgmt_df, alert_df = get_market_warnings()
+            
+        st.markdown("### 🛑 관리종목 (상장폐지 위험)")
+        if not mgmt_df.empty: st.dataframe(mgmt_df, use_container_width=True, hide_index=True)
+        else: st.success("현재 지정된 관리종목이 없습니다.")
+        
+        st.markdown("### ⚠️ 투자주의/경고/위험 종목")
+        if not alert_df.empty: st.dataframe(alert_df, use_container_width=True, hide_index=True)
+        else: st.success("현재 지정된 시장경보 종목이 없습니다.")
 
 elif selected_menu == "📰 실시간 속보/리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
@@ -1694,7 +1754,6 @@ elif selected_menu == "📰 실시간 속보/리포트":
         else:
             st.caption("리포트 데이터를 불러오지 못했습니다.")
 
-# 👈 [업데이트] 글로벌 경제 지표 한글화 & 스마트머니 달력 평일(월~금) 및 동적 연월 생성 완벽 지원
 elif selected_menu == "📅 IPO / 증시 일정":
     st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
     cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 주요 경제 지표", "🇰🇷 국내 신규 상장(IPO) 분석", "🧠 스마트머니 수급 달력"])
