@@ -41,7 +41,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v3.8", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v3.9", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -71,14 +71,12 @@ def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        # 👈 gemini-3.1-flash-lite-preview 적용
         return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
         return f"AI 분석 오류: {str(e)}"
 
-# 하루 1번 생성으로 변경 (86400초)
 @st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     if not _api_key: return "API 키가 필요합니다."
@@ -851,17 +849,32 @@ def analyze_theme_trends():
 def get_naver_ipo_data():
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', class_='type_2')
+        if not table: return pd.DataFrame()
         
-        for df in tables:
-            if '종목명' in df.columns and '현재가' in df.columns:
-                df = df.dropna(subset=['종목명']).copy()
-                df = df[df['종목명'] != '종목명']
-                
-                valid_cols = [c for c in ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사'] if c in df.columns]
-                return df[valid_cols].head(15).reset_index(drop=True)
-        return pd.DataFrame()
+        headers_list = []
+        data = []
+        for tr in table.find_all('tr'):
+            ths = tr.find_all('th')
+            if ths and not headers_list:
+                headers_list = [th.text.strip() for th in ths]
+            tds = tr.find_all('td')
+            if tds:
+                row = [td.text.strip() for td in tds]
+                if len(row) == len(headers_list) and row[0] and row[0] != '종목명':
+                    data.append(row)
+        
+        if not headers_list or not data: return pd.DataFrame()
+            
+        df = pd.DataFrame(data, columns=headers_list)
+        target_cols = ['종목명', '현재가', '공모가', '청약일', '상장일', '주간사']
+        valid_cols = [c for c in headers_list if any(t in c for t in target_cols)]
+        
+        if valid_cols: return df[valid_cols].head(15).reset_index(drop=True)
+        return df.head(15).reset_index(drop=True)
     except Exception as e: 
         return pd.DataFrame()
 
@@ -1205,7 +1218,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v3.8")
+    st.title("📈 Jaemini PRO v3.9")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1749,7 +1762,7 @@ elif selected_menu == "📰 실시간 속보/리포트":
 
 elif selected_menu == "📅 IPO / 증시 일정":
     st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
-    cal_tab1, cal_tab2, cal_tab3, cal_tab4 = st.tabs(["🌍 글로벌 경제 지표", "🇰🇷 국장 수급 달력", "🇰🇷 국내 IPO 분석", "🧠 미장 수급 달력"])
+    cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 경제 지표", "🧠 통합 수급 달력 (국장+미장)", "🇰🇷 국내 IPO 분석"])
     
     with cal_tab1: 
         components.html("""
@@ -1760,63 +1773,8 @@ elif selected_menu == "📅 IPO / 증시 일정":
         """, height=600)
 
     with cal_tab2:
-        st.markdown("#### 🇰🇷 국장 파생수급 및 변동성 시나리오")
-        st.write("> **💡 국장 핵심 전략:** 매월 **2번째 목요일** 선물/옵션 만기일 수급 충돌을 경계합니다. 최근 위클리 옵션(월/목) 만기 당일 오후의 지수 흔들림을 역이용하는 단기 전략이 유효합니다.")
-        
-        year, month = st.session_state.smart_cal_year, st.session_state.smart_cal_month
-        calendar.setfirstweekday(calendar.SUNDAY)
-        cal = calendar.monthcalendar(year, month)
-        
-        thursdays = [week[calendar.THURSDAY] for week in cal if week[calendar.THURSDAY] != 0]
-        kr_opex = thursdays[1] if len(thursdays) >= 2 else thursdays[0]
-        is_quadruple = month in [3, 6, 9, 12] 
-
-        html_parts = []
-        html_parts.append("""<style>
-        .kr-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background-color: #eee; border: 1px solid #ccc; }
-        .kr-header { background-color: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; }
-        .kr-cell { background-color: white; min-height: 100px; padding: 5px; border: 1px solid #f0f0f0; }
-        .kr-num { font-weight: bold; margin-bottom: 5px; }
-        .kr-event-red { background-color: #fff0f0; color: #d32f2f; padding: 3px; font-size: 11px; margin-bottom: 2px; border-left: 3px solid #d32f2f; border-radius: 2px; font-weight: bold;}
-        .kr-event-blue { background-color: #f0f4ff; color: #1976d2; padding: 3px; font-size: 11px; margin-bottom: 2px; border-left: 3px solid #1976d2; border-radius: 2px; }
-        .kr-event-green { background-color: #f0fff4; color: #2e7d32; padding: 3px; font-size: 11px; margin-bottom: 2px; border-left: 3px solid #2e7d32; border-radius: 2px; }
-        </style><div class="kr-grid">
-        <div class="kr-header" style="color:red;">일</div><div class="kr-header">월</div><div class="kr-header">화</div><div class="kr-header">수</div><div class="kr-header">목</div><div class="kr-header">금</div><div class="kr-header" style="color:blue;">토</div>
-        """)
-
-        for week in cal:
-            for i, day in enumerate(week):
-                if day == 0: html_parts.append('<div class="kr-cell" style="background:#fafafa;"></div>')
-                else:
-                    events = ""
-                    if i == calendar.THURSDAY: 
-                        if day == kr_opex:
-                            label = "🔥 네마녀의 날" if is_quadruple else "🔴 옵션 만기일"
-                            events += f'<div class="kr-event-red">{label}<br>(수급 변동 극대)</div>'
-                        else:
-                            events += '<div class="kr-event-blue">🔹 위클리 만기<br>(오후 변동성)</div>'
-                    elif i == calendar.MONDAY: 
-                        events += '<div class="kr-event-blue">🔹 위클리 만기<br>(수급 재편)</div>'
-                    elif i == calendar.FRIDAY and (day == kr_opex + 1): 
-                        events += '<div class="kr-event-green">🟢 수급 되돌림<br>(추세 복귀)</div>'
-                    
-                    num_color = "red" if i == 0 else "blue" if i == 6 else "black"
-                    html_parts.append(f'<div class="kr-cell"><div class="kr-num" style="color:{num_color};">{day}</div>{events}</div>')
-        
-        html_parts.append("</div>")
-        st.markdown("".join(html_parts), unsafe_allow_html=True)
-
-    with cal_tab3:
-        ipo_df = get_naver_ipo_data()
-        if not ipo_df.empty:
-            st.dataframe(ipo_df, use_container_width=True, hide_index=True)
-            if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
-                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
-        else: st.warning("현재 IPO 일정이 없거나 데이터 응답이 지연되었습니다.")
-
-    with cal_tab4:
-        st.markdown("#### 🇺🇸 미장 파생수급 기반 트레이딩 시나리오")
-        st.write("> **💡 핵심 전략:** 미국 시장 기준 **3번째 금요일(옵션 만기일, OpEx)** 전후의 마켓 메이커(딜러) 감마 헤지 물량에 따른 변동성(하방 압력)을 피하고, 차주 월/화요일 족쇄 해제(Vanna 효과)로 인한 **'슈팅(상승)'** 구간을 공략합니다. (4월의 경우 세금 납부일인 Tax Day 영향 추가 반영)")
+        st.markdown("#### 🌎 글로벌 파생수급 통합 시나리오")
+        st.write("> **💡 핵심 전략:** 한국 시장(매월 2번째 목요일)과 미국 시장(매월 3번째 금요일)의 파생상품 만기일이 겹치는 구간의 수급 변동성을 하나의 달력에서 직관적으로 파악합니다.")
         
         cc1, cc2, cc3 = st.columns([1, 8, 1])
         with cc1:
@@ -1847,12 +1805,12 @@ elif selected_menu == "📅 IPO / 증시 일정":
         calendar.setfirstweekday(calendar.SUNDAY)
         cal = calendar.monthcalendar(year, month)
         
+        # US Logic
         fridays = [week[5] for week in cal if week[5] != 0]
-        opex_day = fridays[2] if len(fridays) >= 3 else fridays[-1]
-        
-        opex_week_days = [opex_day - 4 + i for i in range(5)] 
-        shoot_days = [opex_day + 3, opex_day + 4] 
-        macro_days = [day for day in range(10, 15) if day not in opex_week_days]
+        us_opex_day = fridays[2] if len(fridays) >= 3 else fridays[-1]
+        us_opex_week_days = [us_opex_day - 4 + i for i in range(5)] 
+        us_shoot_days = [us_opex_day + 3, us_opex_day + 4] 
+        us_macro_days = [day for day in range(10, 15) if day not in us_opex_week_days]
 
         tax_day = -1
         if month == 4:
@@ -1861,58 +1819,83 @@ elif selected_menu == "📅 IPO / 증시 일정":
                 if week[6] == 15: tax_day = 17 
                 if week[0] == 15: tax_day = 16 
 
+        # KR Logic
+        thursdays = [week[calendar.THURSDAY] for week in cal if week[calendar.THURSDAY] != 0]
+        kr_opex_day = thursdays[1] if len(thursdays) >= 2 else thursdays[0]
+        kr_is_quadruple = month in [3, 6, 9, 12]
+
         today_day = datetime.now().day if year == datetime.now().year and month == datetime.now().month else -1
 
-        html_parts = []
-        html_parts.append("""
-        <style>
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background-color: #e0e0e0; border: 1px solid #ccc; font-family: sans-serif; }
-        .day-header { background-color: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; border-bottom: 1px solid #ccc; color: #333; }
-        .day-cell { background-color: white; min-height: 110px; padding: 8px; display: flex; flex-direction: column; }
-        .day-num { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #444; }
-        .day-num.sunday { color: #d32f2f; }
-        .day-num.saturday { color: #1976d2; }
-        .event-macro { background-color: #f5f5f5; color: #616161; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #9e9e9e; }
-        .event-down { background-color: #ffebee; color: #c62828; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #c62828; }
-        .event-warn { background-color: #fff3e0; color: #e65100; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #e65100; }
-        .event-up { background-color: #e8f5e9; color: #2e7d32; padding: 4px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; font-weight: bold; text-align: center; border-left: 3px solid #2e7d32; }
-        .today-cell { background-color: #f0f8ff; border: 2px solid #1f77b4; box-shadow: inset 0 0 5px rgba(31,119,180,0.2); }
-        .empty-cell { background-color: #fafafa; }
-        </style>
-        <div class="calendar-grid">
-            <div class="day-header" style="color: #d32f2f;">일</div><div class="day-header">월</div><div class="day-header">화</div><div class="day-header">수</div><div class="day-header">목</div><div class="day-header">금</div><div class="day-header" style="color: #1976d2;">토</div>
-        """)
+        html_parts = [
+            "<style>",
+            ".cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background: #ddd; border: 1px solid #ccc; font-family: sans-serif; }",
+            ".cal-head { background: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; }",
+            ".cal-cell { background: white; min-height: 120px; padding: 5px; display: flex; flex-direction: column; }",
+            ".cal-cell.today { background: #f0f8ff; border: 2px solid #1f77b4; }",
+            ".cal-num { font-weight: bold; margin-bottom: 5px; font-size: 15px; }",
+            ".evt-us-red { background: #ffebee; color: #c62828; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #c62828; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-us-warn { background: #fff3e0; color: #e65100; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #e65100; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-us-green { background: #e8f5e9; color: #2e7d32; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #2e7d32; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-kr-red { background: #fce4ec; color: #b71c1c; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #b71c1c; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-kr-blue { background: #e3f2fd; color: #1565c0; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #1565c0; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-kr-green { background: #f1f8e9; color: #1b5e20; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #1b5e20; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            "</style>",
+            "<div class='cal-grid'>",
+            "<div class='cal-head' style='color:#d32f2f;'>일</div><div class='cal-head'>월</div><div class='cal-head'>화</div><div class='cal-head'>수</div><div class='cal-head'>목</div><div class='cal-head'>금</div><div class='cal-head' style='color:#1976d2;'>토</div>"
+        ]
         
         for week in cal:
             for i, day in enumerate(week):
                 if day == 0:
-                    html_parts.append('<div class="day-cell empty-cell"></div>')
+                    html_parts.append("<div class='cal-cell' style='background:#fafafa;'></div>")
                 else:
-                    is_weekend = (i == 0 or i == 6) 
-                    cell_class = "day-cell today-cell" if day == today_day else "day-cell"
-                    num_class = "day-num sunday" if i == 0 else "day-num saturday" if i == 6 else "day-num"
+                    events = ""
+                    
+                    # TAX
+                    if day == tax_day: events += "<div class='evt-us-red'>🔴 🇺🇸세금납부일(하락압력)</div>"
+                    
+                    # KR events
+                    if i == calendar.MONDAY:
+                        events += "<div class='evt-kr-blue'>🔹 🇰🇷위클리 만기(수급재편)</div>"
+                    elif i == calendar.THURSDAY:
+                        if day == kr_opex_day:
+                            label = "🔥 🇰🇷네마녀의 날" if kr_is_quadruple else "🔴 🇰🇷옵션만기일"
+                            events += f"<div class='evt-kr-red'>{label}(수급극대)</div>"
+                        else:
+                            events += "<div class='evt-kr-blue'>🔹 🇰🇷위클리 만기(오후변동)</div>"
+                    elif i == calendar.FRIDAY and day == kr_opex_day + 1:
+                        events += "<div class='evt-kr-green'>🟢 🇰🇷수급 되돌림(추세복귀)</div>"
+
+                    # US events
+                    if day in us_opex_week_days:
+                        if day == us_opex_day:
+                            events += "<div class='evt-us-red'>🔴 🇺🇸옵션만기(변동성폭발)</div>"
+                        else:
+                            events += "<div class='evt-us-warn'>⚠️ 🇺🇸만기주간(핀닝/하락)</div>"
+                    elif day in us_macro_days and day != tax_day:
+                        events += "<div class='evt-us-warn'>⚠️ 🇺🇸매크로 경계(관망)</div>"
+                    
+                    if day in us_shoot_days:
+                        events += "<div class='evt-us-green'>🟢 🇺🇸헤지청산(슈팅기대)</div>"
+
+                    num_color = "#d32f2f" if i == 0 else "#1976d2" if i == 6 else "#333"
+                    cell_cls = "cal-cell today" if day == today_day else "cal-cell"
                     day_lbl = f"{day} (오늘)" if day == today_day else str(day)
                     
-                    events_html = ""
-                    if not is_weekend:
-                        if day == tax_day:
-                            events_html += '<div class="event-down">🔴 세금납부일<br>(하락 예상)</div>'
-                        
-                        if day in opex_week_days:
-                            if day == opex_day:
-                                events_html += '<div class="event-down">🔴 美 옵션만기<br>(변동성 극대화)</div>'
-                            else:
-                                events_html += '<div class="event-warn">⚠️ 옵션만기 주간<br>(핀닝/하락압력)</div>'
-                        elif day in macro_days and day != tax_day:
-                            events_html += '<div class="event-macro">⚠️ 매크로 경계<br>(관망/조정)</div>'
-                            
-                        if day in shoot_days:
-                            events_html += '<div class="event-up">🟢 헤지 청산<br>(슈팅/상승예상)</div>'
-
-                    html_parts.append(f'<div class="{cell_class}"><div class="{num_class}">{day_lbl}</div>{events_html}</div>')
+                    html_parts.append(f"<div class='{cell_cls}'><div class='cal-num' style='color:{num_color};'>{day_lbl}</div>{events}</div>")
 
         html_parts.append("</div>")
         st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+    with cal_tab3:
+        with st.spinner("최신 IPO 일정을 파싱 중입니다..."):
+            ipo_df = get_naver_ipo_data()
+        if not ipo_df.empty:
+            st.dataframe(ipo_df, use_container_width=True, hide_index=True)
+            if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
+                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
+        else: 
+            st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
 
 elif selected_menu == "👑 기간별 테마 트렌드":
     st.subheader("👑 기간별 주도 테마 트렌드 (1M/3M/6M)")
