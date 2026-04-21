@@ -119,16 +119,6 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     return ask_gemini(prompt, _api_key)
 
 @st.cache_data(ttl=3600)
-def get_company_summary(ticker, comp_name, _api_key):
-    if not _api_key: return "API 키가 필요합니다."
-    prompt = f"""
-    당신은 글로벌 주식 펀드매니저입니다. 미국 급등주 '{comp_name} (티커: {ticker})'에 대해 아래 내용을 마크다운으로 작성해주세요.
-    1. 🏢 **핵심 비즈니스 & 모멘텀**: 이 기업의 주가 상승을 견인한 비즈니스 모델과 최신 모멘텀을 2~3줄로 브리핑하세요.
-    2. 🇰🇷 **국내 증시 대비 포인트**: 이 기업의 상승과 연관하여, 오늘 한국 증시에서 반드시 주목해야 할 연관 테마 및 섹터를 2줄로 직관적으로 제시하세요.
-    """
-    return ask_gemini(prompt, _api_key)
-
-@st.cache_data(ttl=3600)
 def get_all_sector_info(tickers, _api_key):
     results = {t: ("분석 대기", "분석 대기") for t in tickers}
     if not _api_key: return results
@@ -140,16 +130,6 @@ def get_all_sector_info(tickers, _api_key):
                 results[parts[0].strip().replace('*', '').replace('-', '')] = (parts[1].strip(), parts[2].strip())
         return results
     except: return results
-
-@st.cache_data(ttl=3600)
-def analyze_news_with_gemini(ticker, _api_key):
-    try:
-        news_list = yf.Ticker(ticker).news
-        if not news_list: return "최근 관련 뉴스를 찾을 수 없습니다."
-        news_text = "\n".join([f"[{n.get('publisher')}] {n.get('title')}" for n in news_list[:3]])
-        prompt = f"한국 주식 스윙 전문 애널리스트입니다. 미국 주식 '{ticker}' 영문 헤드라인을 바탕으로 한국 테마주에 미칠 영향을 분석하세요.\n{news_text}\n* 시장 센티먼트:\n* 재료 지속성:\n* 투자 코멘트:"
-        return ask_gemini(prompt, _api_key)
-    except: return "뉴스 분석 중 오류가 발생했습니다."
 
 @st.cache_data(ttl=3600)
 def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
@@ -256,6 +236,39 @@ def get_macro_indicators():
         except: pass
     return results if results else None
 
+@st.cache_data(ttl=3600)
+def get_us_sector_etfs():
+    sectors = {
+        "반도체 (SOXX)": "SOXX",
+        "기술주 (XLK)": "XLK",
+        "소비재 (XLY)": "XLY",
+        "헬스케어 (XLV)": "XLV",
+        "금융 (XLF)": "XLF",
+        "에너지 (XLE)": "XLE",
+        "산업재 (XLI)": "XLI"
+    }
+    res = []
+    try:
+        tickers = list(sectors.values())
+        data = yf.download(tickers, period="5d", progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            close_data = data['Close']
+        elif 'Close' in data:
+            close_data = pd.DataFrame(data['Close'])
+        else:
+            close_data = pd.DataFrame()
+        for name, t in sectors.items():
+            if t in close_data.columns:
+                closes = close_data[t].dropna()
+                if len(closes) >= 2:
+                    pct = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+                    res.append({"섹터": name, "등락률": pct, "종가": closes.iloc[-1]})
+        if res:
+            df = pd.DataFrame(res).sort_values("등락률", ascending=False)
+            return df
+    except: pass
+    return pd.DataFrame()
+
 @st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
@@ -309,7 +322,7 @@ def get_us_top_gainers():
                     result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": vol_str})
         df = pd.DataFrame(result_data)
         if df.empty: return empty_df, 1350.0, fetch_time
-        df = df.sort_values('등락률', ascending=False).head(15)
+        df = df.sort_values('등락률', ascending=False).head(30)
         try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
         except: ex_rate = 1350.0 
         def get_clean_korean_name(n):
@@ -1078,6 +1091,39 @@ def get_nps_holdings_mock():
         {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
     ])
 
+@st.cache_data(ttl=3600)
+def get_us_sector_etfs():
+    sectors = {
+        "반도체 (SOXX)": "SOXX",
+        "기술주 (XLK)": "XLK",
+        "소비재 (XLY)": "XLY",
+        "헬스케어 (XLV)": "XLV",
+        "금융 (XLF)": "XLF",
+        "에너지 (XLE)": "XLE",
+        "산업재 (XLI)": "XLI"
+    }
+    res = []
+    try:
+        tickers = list(sectors.values())
+        data = yf.download(tickers, period="5d", progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            close_data = data['Close']
+        elif 'Close' in data:
+            close_data = pd.DataFrame(data['Close'])
+        else:
+            close_data = pd.DataFrame()
+        for name, t in sectors.items():
+            if t in close_data.columns:
+                closes = close_data[t].dropna()
+                if len(closes) >= 2:
+                    pct = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+                    res.append({"섹터": name, "등락률": float(pct), "종가": float(closes.iloc[-1])})
+        if res:
+            df = pd.DataFrame(res).sort_values("등락률", ascending=False)
+            return df
+    except: pass
+    return pd.DataFrame()
+
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
@@ -1137,6 +1183,15 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     expander_title = f"{header_block} ｜ {base_info}"
     
     with st.expander(expander_title, expanded=is_expanded):
+        if tech_result.get('과거검증'):
+            pnl = tech_result['수익률']
+            color = "#ff4b4b" if pnl > 0 else "#1f77b4"
+            bg_color = "rgba(255, 75, 75, 0.1)" if pnl > 0 else "rgba(31, 119, 180, 0.1)"
+            st.markdown(f"""<div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {color};">
+                <h3 style="margin:0; color: {color};">⏰ 타임머신 검증 결과</h3>
+                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b>{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b>{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color};">({pnl:+.2f}%)</span></p>
+            </div>""", unsafe_allow_html=True)
+            
         col_btn1, col_btn2 = st.columns([8, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
         
@@ -1733,42 +1788,66 @@ elif selected_menu == "🚀 퀀트 스캐너 & 백테스팅":
                     st.error("데이터를 가져오지 못했습니다.")
 
 elif selected_menu == "🔥 🇺🇸 미국 급등주":
-    st.markdown("## 🔥 미국장 급등주 (+5% 이상)")
-    col1, col2 = st.columns([1, 1.2], gap="large")
-    with col1:
-        if 'us_fetch_time' in st.session_state: st.caption(f"⏱️ {st.session_state.us_fetch_time} (한국시간)")
+    st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
+    st.write("미국발 훈풍이 한국 증시에 미치는 파급력을 분석합니다. (노이즈 제거, 핵심 섹터 및 공급망 추적, 장초반 갭상승 대응 시나리오)")
+
+    col_sec, col_gain = st.columns([1, 1.2], gap="large")
+
+    with col_sec:
+        st.subheader("📊 1. 미 증시 주도 섹터 (ETF)")
+        st.caption("간밤에 미국 시장에서 돈이 몰린 핵심 섹터입니다.")
+        with st.spinner("섹터 ETF 등락률 산출 중..."):
+            etf_df = get_us_sector_etfs()
+            if not etf_df.empty:
+                etf_df['등락률'] = etf_df['등락률'].apply(lambda x: f"{'+' if x>0 else ''}{x:.2f}%")
+                st.dataframe(etf_df, use_container_width=True, hide_index=True)
+
+        st.subheader("🚀 2. 글로벌 급등주 필터링")
+        st.caption("간밤에 급등한 미국주식 목록입니다. 밸류체인 분석을 원하는 종목을 선택하세요.")
         if not st.session_state.gainers_df.empty:
-            tickers_list = st.session_state.gainers_df['종목코드'].tolist()
-            sector_dict = get_all_sector_info(tuple(tickers_list), api_key_input) if api_key_input else {t: ("분석 대기", "분석 대기") for t in tickers_list}
-            display_df = st.session_state.gainers_df[['종목코드', '기업명', '현재가', '환산(원)', '등락률']].copy()
-            opts = ["🔍 종목 선택"]
-            for i, row in display_df.iterrows():
-                sec, ind = sector_dict.get(row['종목코드'], ("분석 불가", "분석 불가"))
-                opts.append(f"{row['종목코드']} ({row['기업명']}) - ({sec} / {ind})")
+            display_df = st.session_state.gainers_df[['종목코드', '기업명', '현재가', '등락률']].copy()
             st.dataframe(display_df, use_container_width=True, hide_index=True)
-            sel_opt = st.selectbox("#### 🔍 분석 대상 종목 선택", opts)
+            
+            opts = ["🔍 종목 선택"] + [f"{r['종목코드']} ({r['기업명']})" for _, r in display_df.iterrows()]
+            sel_opt = st.selectbox("#### 🎯 분석할 주도주 선택", opts)
             sel_tick = "N/A" if sel_opt == "🔍 종목 선택" else sel_opt.split(" ")[0]
-        else: sel_tick = "N/A"; st.info("현재 +5% 이상 급등한 종목이 없습니다.")
-    
-    with col2:
-        st.subheader("🎯 연관 테마 매칭 및 타점 진단")
+        else:
+            sel_tick = "N/A"
+            st.info("현재 급등주 데이터를 불러올 수 없습니다.")
+
+    with col_gain:
+        st.subheader("🔗 3. 글로벌 밸류체인 & 갭상승 대응 시나리오")
         if sel_tick != "N/A" and api_key_input:
-            sec, ind = sector_dict.get(sel_tick, ("분석 불가", "분석 불가"))
-            comp_name = sel_opt.split(" - ")[0]
-            st.markdown(f"**🏷️ 섹터 정보:** `{sec}` / `{ind}`")
-            with st.spinner(f"🔍 기업 개요 및 분석 중..."):
-                with st.container(border=True): st.markdown(f"**🏢 비즈니스 모델 요약**\n> {get_company_summary(sel_tick, comp_name, api_key_input)}")
-            with st.spinner('✨ AI 추천 국내 수혜주 타점 정밀 분석 중... (병렬 처리)'):
-                kor_stocks = get_ai_matched_stocks(sel_tick, sec, ind, comp_name, api_key_input)
-                if kor_stocks:
-                    theme_res_list = []
-                    def fetch_and_analyze(item):
-                        name, code = item
-                        return analyze_technical_pattern(name, code)
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                        for res in executor.map(fetch_and_analyze, kor_stocks):
-                            if res: theme_res_list.append(res)
-                    display_sorted_results(theme_res_list, tab_key="t1", api_key=api_key_input)
+            comp_name = sel_opt.split(" (")[1].replace(")", "")
+            
+            with st.spinner(f"✨ AI가 '{sel_tick}'의 공급망과 국장 수혜주를 입체적으로 분석 중입니다..."):
+                prompt = f"""
+                당신은 월스트리트와 여의도를 넘나드는 최고의 글로벌 매크로/퀀트 애널리스트입니다.
+                간밤에 미국 증시에서 '{comp_name}({sel_tick})' 종목이 급등했습니다.
+                다음 4가지 관점에서 한국장 시초가 대응 리포트를 마크다운으로 작성해주세요.
+
+                1. 🏢 **급등 사유 & 모멘텀**: 이 기업이 왜 올랐는지 핵심만 2줄 요약. (시총이 너무 작은 잡주/바이오 임상 테마 등 국장 영향력이 없다고 판단되면 단호하게 "한국 증시 파급력 없음"이라고 명시할 것)
+                2. 🕸️ **글로벌 밸류체인 매핑**: 이 기업의 사업 모델과 직접적으로 연결되는 한국 코스피/코스닥의 핵심 수혜주 3~5개 및 그 이유 (예: A사 - 카메라 모듈 공급, B사 - 관련 장비 독점).
+                3. 📈 **섹터 파급력**: 오늘 한국 증시에서 어떤 테마에 돈이 몰릴지 전망.
+                4. ⏰ **장초반 갭상승 대응 시나리오**: 추천한 국장 수혜주들이 시가에 갭을 크게 띄울 경우, 추격 매수해야 할지, 아니면 시가 고점(음봉)을 주의하고 눌림목을 기다려야 할지 구체적인 트레이딩 전략 제시.
+                """
+                report = ask_gemini(prompt, api_key_input)
+                st.success("✅ 밸류체인 및 대응 시나리오 분석 완료!")
+                st.markdown(report)
+                
+            st.divider()
+            st.subheader("🎯 추천된 국장 수혜주 타점 즉시 확인")
+            st.write("위 리포트에서 언급된 종목의 현재 타점이 궁금하다면 아래에서 바로 검색하세요.")
+            krx_df = get_krx_stocks()
+            if not krx_df.empty:
+                opts_krx = ["🔍 종목명 검색 후 엔터"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                us_sub_query = st.selectbox("수혜주 차트 상태 확인:", opts_krx, key="us_sub_scan")
+                if us_sub_query != "🔍 종목명 검색 후 엔터":
+                    q_name = us_sub_query.rsplit(" (", 1)[0]
+                    q_code = us_sub_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                    with st.spinner("차트 타점 분석 중..."):
+                        res = analyze_technical_pattern(q_name, q_code)
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain")
 
 elif selected_menu == "💎 장기 가치주 스캐너":
     st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
