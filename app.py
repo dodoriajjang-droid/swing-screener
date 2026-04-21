@@ -1051,7 +1051,36 @@ def get_nps_holdings_mock():
         {"종목명": "삼성SDI", "티커": "006400", "보유비중": "8.34%", "최근변동": "축소"},
         {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
     ])
-
+@st.cache_data(ttl=3600)
+def search_us_ticker(query):
+    if not query: return []
+    
+    # 1. 한글이 포함되어 있다면 구글 번역 API를 통해 영어로 변환 (예: 애플 -> Apple)
+    if re.search('[가-힣]', query):
+        try:
+            res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={urllib.parse.quote(query)}", timeout=2)
+            search_term = res.json()[0][0][0]
+        except:
+            search_term = query
+    else:
+        search_term = query
+            
+    # 2. 야후 파이낸스 Search API 실시간 연동
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(search_term)}&quotesCount=5"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5)
+        data = response.json()
+        results = []
+        for quote in data.get('quotes', []):
+            if quote.get('quoteType') in ['EQUITY', 'ETF']:
+                sym = quote.get('symbol')
+                name = quote.get('shortname', 'Unknown')
+                exch = quote.get('exchDisp', 'US')
+                results.append(f"{sym} ({name} / {exch})")
+        return results
+    except Exception as e:
+        return []
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
@@ -1373,18 +1402,26 @@ if selected_menu == "🎛️ 메인 대시보드":
                             st.markdown(f"**현재가:** {res['현재가']:,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
                             st.markdown(f"**진입가:** {res['진입가_가이드']:,}원 ｜ **손절가:** {res['손절가']:,}원")
                         else: st.caption("데이터 없음")
-        else:
-            us_ticker = st.text_input("🔍 미국 주식 티커를 입력하고 엔터를 누르세요 (예: TSLA, NVDA, AAPL)")
-            if us_ticker:
-                us_ticker = us_ticker.upper().strip()
-                st.link_button(f"🛒 '{us_ticker}' 야후 파이낸스 바로가기", f"https://finance.yahoo.com/quote/{us_ticker}", use_container_width=True)
-                with st.expander(f"📊 '{us_ticker}' 퀵 타점 보기"):
-                    with st.spinner("미국 주식 데이터 불러오는 중..."):
-                        res = analyze_technical_pattern(us_ticker, us_ticker)
-                        if res:
-                            st.markdown(f"**현재가:** ${res['현재가']:,.2f} ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
-                            st.markdown(f"**진입가:** ${res['진입가_가이드']:,.2f} ｜ **손절가:** ${res['손절가']:,.2f}")
-                        else: st.caption("해당 티커의 데이터를 찾을 수 없습니다.")
+else:
+            us_search_query = st.text_input("🔍 미국 주식 종목명(한/영) 또는 티커를 검색하세요 (예: 애플, Nvidia, TSLA)")
+            if us_search_query:
+                with st.spinner("야후 파이낸스 글로벌 DB에서 종목을 찾는 중..."):
+                    search_results = search_us_ticker(us_search_query)
+                
+                if search_results:
+                    selected_us_stock = st.selectbox("👇 검색된 종목 중 정확한 티커를 선택하세요:", ["선택하세요"] + search_results)
+                    if selected_us_stock != "선택하세요":
+                        us_ticker = selected_us_stock.split(" ")[0]
+                        st.link_button(f"🛒 '{us_ticker}' 야후 파이낸스 바로가기", f"https://finance.yahoo.com/quote/{us_ticker}", use_container_width=True)
+                        with st.expander(f"📊 '{us_ticker}' 퀵 타점 보기", expanded=True):
+                            with st.spinner("미국 주식 기술적 데이터 불러오는 중..."):
+                                res = analyze_technical_pattern(us_ticker, us_ticker)
+                                if res:
+                                    st.markdown(f"**현재가:** ${res['현재가']:,.2f} ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
+                                    st.markdown(f"**진입가:** ${res['진입가_가이드']:,.2f} ｜ **손절가:** ${res['손절가']:,.2f}")
+                                else: st.caption("해당 티커의 데이터를 찾을 수 없습니다.")
+                else:
+                    st.error("❌ 검색 결과가 없습니다. 영문 명칭이나 다른 키워드로 다시 검색해보세요.")
 
     with col_dash2:
         st.subheader("🚦 내 관심종목 리스크 모니터링")
@@ -1703,14 +1740,22 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         if us_search_mode == "유명 종목 한글 검색":
             us_query = st.selectbox("👇 종목 선택:", ["🔍 선택하세요"] + list(us_stock_dict.keys()))
             if us_query != "🔍 선택하세요": us_ticker = us_stock_dict[us_query]
-        else:
-            us_ticker = st.text_input("👇 미국 주식 티커를 입력하세요 (예: AAPL):").upper().strip()
-            
-        if us_ticker:
-            with st.spinner(f"📡 '{us_ticker}' 타점 분석 중..."):
-                res = analyze_technical_pattern(us_ticker, us_ticker)
-            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
-            else: st.error("해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 않는 종목입니다.")
+            else:
+        us_query = st.text_input("👇 미국 주식 종목명(한글/영문) 또는 티커를 입력하세요 (예: 테슬라, Microsoft, AAPL):")
+        if us_query:
+            with st.spinner(f"📡 '{us_query}' 글로벌 종목 검색 중..."):
+                us_results = search_us_ticker(us_query)
+                
+            if us_results:
+                sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + us_results, key="us_deep_search")
+                if sel_us_opt != "선택하세요":
+                    us_ticker = sel_us_opt.split(" ")[0]
+                    with st.spinner(f"📡 '{us_ticker}' 타점 및 재무 분석 중..."):
+                        res = analyze_technical_pattern(us_ticker, us_ticker)
+                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
+                    else: st.error("해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 않는 종목입니다.")
+            else:
+                st.error("해당 키워드로 미국 주식을 찾을 수 없습니다.")
 
 elif selected_menu == "⚡ 딥테크 & 테마":
     st.subheader("⚡ 딥테크 & 테마 주도주 실시간 발굴기")
