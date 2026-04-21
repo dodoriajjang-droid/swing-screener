@@ -42,7 +42,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v4.0 Beta", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v4.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -79,12 +79,10 @@ def ask_gemini(prompt, _api_key):
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
         return f"AI 분석 오류: {str(e)}"
 
-# 이미지(비전) 분석 전용 함수
 def ask_gemini_vision(prompt, image_obj, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        # Vision 지원 모델 호출
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         response = model.generate_content([prompt, image_obj])
         return response.text
@@ -1141,7 +1139,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서를 종합 분석 중입니다... (약 5~10초 소요)"):
+                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
                     if str(tech_result['티커']).isdigit():
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                         fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
@@ -1232,7 +1230,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v4.0 Beta")
+    st.title("📈 Jaemini PRO v4.1")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1254,7 +1252,7 @@ with st.sidebar:
         "💰 배당 파이프라인 (TOP 300)", 
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
-        "🧪 v4.0 베타 테스트 (실험실)" # 👈 신규 테스트 탭 추가
+        "🧪 v4.1 베타 테스트 (실험실)"
     ]
     selected_menu = st.radio("📌 메뉴 이동", menu_list)
     st.divider()
@@ -1359,6 +1357,33 @@ if selected_menu == "🎛️ 메인 대시보드":
                     if res['현재가'] <= res['손절가']: st.error(f"🔴 **손절가 이탈 위험:** {item['종목명']} (현재: {res['현재가']:,}원 / 손절선: {res['손절가']:,}원)")
                     elif res['현재가'] >= res['목표가1'] * 0.98: st.success(f"🟢 **익절 구간 도달:** {item['종목명']} (현재: {res['현재가']:,}원 / 1차목표: {res['목표가1']:,}원)")
                     else: st.warning(f"🟡 **홀딩 대기중:** {item['종목명']} (현재: {res['현재가']:,}원)")
+
+    # 👈 [업데이트] 실시간 퀀트 챗봇 메인 대시보드 하단으로 이동
+    st.divider()
+    st.subheader("💬 실시간 퀀트 챗봇 (Interactive RAG)")
+    st.write("장중 궁금한 시장 이슈나 내 관심종목의 상태를 퀀트 비서에게 직접 물어보세요.")
+    
+    chat_container = st.container(height=400)
+    for msg in st.session_state.v4_chat_history:
+        chat_container.chat_message(msg["role"]).write(msg["content"])
+        
+    if prompt := st.chat_input("예: 오늘 삼성전자 수급 동향과 차트 상태를 요약해줘.", key="main_chat"):
+        st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
+        chat_container.chat_message("user").write(prompt)
+        
+        if not api_key_input:
+            st.error("좌측 사이드바에 API 키를 입력해주세요.")
+        else:
+            with chat_container.chat_message("assistant"):
+                with st.spinner("전문가 모드로 답변을 생성 중입니다..."):
+                    sys_prompt = f"""
+                    당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
+                    사용자의 질문에 명확하고 날카롭게 답변하세요. 불필요한 서론은 빼고 핵심만 전달하세요.
+                    사용자 질문: {prompt}
+                    """
+                    reply = ask_gemini(sys_prompt, api_key_input)
+                    st.write(reply)
+                    st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
 elif selected_menu == "👨‍🦳 연기금 그림자 매매 스캐너":
     st.markdown("## 👨‍🦳 연기금 그림자 매매 스캐너 (Smart Money Tracker)")
@@ -2028,17 +2053,16 @@ elif selected_menu == "⭐ 내 관심종목":
                 draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
 
 # ==========================================
-# 🧪 v4.0 신규 실험실 (기존 코드 수정 없이 분리)
+# 🧪 v4.1 신규 실험실 (기존 코드 수정 없이 분리)
 # ==========================================
-elif selected_menu == "🧪 v4.0 베타 테스트 (실험실)":
-    st.markdown("## 🧪 차세대 퀀트 시스템 v4.0 (Beta)")
+elif selected_menu == "🧪 v4.1 베타 테스트 (실험실)":
+    st.markdown("## 🧪 차세대 퀀트 시스템 v4.1 (Beta)")
     st.write("기존 기능을 온전히 보존한 채, 최신 AI 기술을 접목한 신규 패러다임들을 실험하는 공간입니다.")
     
-    test_tab1, test_tab2, test_tab3, test_tab4 = st.tabs([
+    test_tab1, test_tab2, test_tab3 = st.tabs([
         "👁️ 1. AI 비전 차트 분석", 
-        "💬 2. 실시간 퀀트 챗봇", 
-        "🧪 3. 백테스팅 시뮬레이터", 
-        "🕸️ 4. 3D 섹터 순환매 맵"
+        "🧪 2. 백테스팅 시뮬레이터", 
+        "🕸️ 3. 3D 섹터 순환매 맵"
     ])
     
     # ----------------------------------------
@@ -2048,7 +2072,8 @@ elif selected_menu == "🧪 v4.0 베타 테스트 (실험실)":
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
         st.write("복잡한 보조지표를 넘어, HTS/MTS에서 캡처한 차트 이미지를 업로드하면 AI가 직접 저항선, 캔들 패턴, 엘리어트 파동 등을 눈으로 읽어냅니다.")
         
-        uploaded_chart = st.file_uploader("📸 분석할 주식 차트 이미지를 올려주세요 (PNG, JPG)", type=["png", "jpg", "jpeg"])
+        # 💡 Streamlit 파일 업로더는 클릭 후 Ctrl+V (붙여넣기)를 기본 지원함을 명시
+        uploaded_chart = st.file_uploader("📸 분석할 주식 차트 이미지를 올려주세요 (💡 이곳을 클릭 후 Ctrl+V 로 바로 붙여넣기 가능!)", type=["png", "jpg", "jpeg"])
         
         if uploaded_chart:
             st.image(uploaded_chart, caption="업로드된 차트", use_container_width=True)
@@ -2070,38 +2095,9 @@ elif selected_menu == "🧪 v4.0 베타 테스트 (실험실)":
                         st.info(result)
 
     # ----------------------------------------
-    # 2. 실시간 퀀트 챗봇
+    # 2. 백테스팅 시뮬레이터
     # ----------------------------------------
     with test_tab2:
-        st.markdown("### 💬 대화형 퀀트 비서 (Interactive RAG)")
-        st.write("단방향 조회가 아닌, 대화를 통해 종목 상담과 시장 이슈를 깊게 파고듭니다.")
-        
-        chat_container = st.container(height=400)
-        for msg in st.session_state.v4_chat_history:
-            chat_container.chat_message(msg["role"]).write(msg["content"])
-            
-        if prompt := st.chat_input("예: 오늘 삼성전자 수급 동향과 차트 상태를 요약해줘."):
-            st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
-            chat_container.chat_message("user").write(prompt)
-            
-            if not api_key_input:
-                st.error("API 키를 입력해주세요.")
-            else:
-                with chat_container.chat_message("assistant"):
-                    with st.spinner("분석 중..."):
-                        sys_prompt = f"""
-                        당신은 실시간 주식 데이터를 바탕으로 답변하는 전문가 비서입니다. 
-                        사용자의 질문에 명확하고 날카롭게 답변하세요.
-                        사용자 질문: {prompt}
-                        """
-                        reply = ask_gemini(sys_prompt, api_key_input)
-                        st.write(reply)
-                        st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
-
-    # ----------------------------------------
-    # 3. 백테스팅 시뮬레이터
-    # ----------------------------------------
-    with test_tab3:
         st.markdown("### 🧪 단기 스윙 전략 시뮬레이터")
         st.write("과거 1년 데이터를 기반으로 '5일-20일 이평선 골든크로스 매수, 데드크로스 매도' 시의 실제 수익률을 검증합니다.")
         
@@ -2118,7 +2114,6 @@ elif selected_menu == "🧪 v4.0 베타 테스트 (실험실)":
                     bt_df['MA5'] = bt_df['Close'].rolling(5).mean()
                     bt_df['MA20'] = bt_df['Close'].rolling(20).mean()
                     
-                    # 매우 단순한 시그널 로직
                     bt_df['Signal'] = 0
                     bt_df.loc[bt_df['MA5'] > bt_df['MA20'], 'Signal'] = 1
                     bt_df['Position'] = bt_df['Signal'].shift(1).fillna(0)
@@ -2146,27 +2141,32 @@ elif selected_menu == "🧪 v4.0 베타 테스트 (실험실)":
                     st.error("데이터를 가져오지 못했습니다.")
 
     # ----------------------------------------
-    # 4. 3D 섹터 순환매 맵
+    # 3. 3D 섹터 순환매 맵
     # ----------------------------------------
-    with test_tab4:
+    with test_tab3:
         st.markdown("### 🕸️ 스마트머니 물길 추적 (Sankey Diagram)")
         st.write("주도주에서 차기 주도주로 돈이 어떻게 이동하는지(순환매 추적)를 한눈에 파악합니다. *(현재 MVP Mock Data)*")
         
-        # 순환매를 보여주는 Sankey 데이터 (MVP 형태)
+        # Plotly Sankey 설정 최적화 (가독성 향상)
         fig_sk = go.Figure(data=[go.Sankey(
             node = dict(
-                pad = 15, thickness = 20,
-                line = dict(color = "black", width = 0.5),
+                pad = 30,           # 노드 간격 확장
+                thickness = 30,     # 노드 두께 확장
+                line = dict(color = "black", width = 1.0),
                 label = ["2차전지 (과거 주도)", "플랫폼/인터넷", "AI 반도체 (현재 주도)", "전력/변압기", "K-바이오", "조선/기계", "우주항공(미래)"],
                 color = ["gray", "gray", "#ff4b4b", "orange", "#1f77b4", "purple", "green"]
             ),
             link = dict(
-                source = [0, 1, 0, 2, 2, 4], # 인덱스 출발지
-                target = [2, 2, 3, 4, 6, 6], # 인덱스 목적지
-                value =  [8,  3,  2,  5,  2, 4], # 자금 강도
+                source = [0, 1, 0, 2, 2, 4], 
+                target = [2, 2, 3, 4, 6, 6], 
+                value =  [8,  3,  2,  5,  2, 4], 
                 color = "rgba(200, 200, 200, 0.4)"
             )
         )])
-        fig_sk.update_layout(title_text="최근 1개월 시장 자금 흐름 (수급 순환매)", font_size=12, height=500)
+        
+        # 👈 폰트 크기 및 굵기 수정하여 시인성 극대화
+        fig_sk.update_traces(textfont=dict(size=14, color="black", family="Arial Black"))
+        fig_sk.update_layout(title_text="최근 1개월 시장 자금 흐름 (수급 순환매)", height=600)
+        
         st.plotly_chart(fig_sk, use_container_width=True)
         st.caption("💡 해석: 2차전지와 플랫폼에서 빠져나온 수급이 AI 반도체로 흘러갔으며, 이 수익 실현 물량이 다시 바이오와 우주항공 테마로 분산되고 있습니다.")
