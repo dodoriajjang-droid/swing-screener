@@ -2133,16 +2133,16 @@ elif selected_menu == "🧪 v4.3 베타 테스트 (실험실)":
         "🕸️ 3. 실시간 3D 섹터 순환매 맵"
     ])
     
-    # ----------------------------------------
+# ----------------------------------------
     # 1. AI 비전 차트 분석 (URL 붙여넣기 완벽 지원)
     # ----------------------------------------
     with test_tab1:
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
-        st.info("💡 **[필독] 클립보드 붙여넣기 가이드:** 브라우저(크롬/웨일 등) 보안상 빈 화면에서 바로 Ctrl+V는 작동하지 않습니다. 반드시 **'파일 업로드' 영역 안을 마우스로 한 번 클릭하여 테두리가 활성화된 상태**에서 Ctrl+V를 눌러주세요. 그래도 안 된다면 우측의 '이미지 웹 주소(URL) 붙여넣기'를 이용해 주세요.")
+        st.info("💡 **[필독] 클립보드(Ctrl+V) 붙여넣기 정확한 방법:**\n회색 업로드 박스를 클릭하면 파일 탐색기가 열립니다. 캡처한 이미지를 바로 붙여넣으려면 **박스 바깥쪽의 '빈 배경 화면(여백)'을 마우스로 한 번 클릭한 후, 키보드 `Ctrl+V` (`Cmd+V`)**를 누르시면 1초 만에 쏙 들어갑니다. (그래도 안 된다면 우측의 'URL 붙여넣기'를 이용해 주세요)")
         
         upload_col, url_col = st.columns(2)
         with upload_col:
-            uploaded_chart = st.file_uploader("📸 1. 파일 업로드 (이곳을 클릭 후 Ctrl+V 가능)", type=["png", "jpg", "jpeg"])
+            uploaded_chart = st.file_uploader("📸 1. 파일 직접 선택 (또는 화면 빈 여백 클릭 후 Ctrl+V)", type=["png", "jpg", "jpeg"])
         with url_col:
             image_url = st.text_input("🔗 2. 또는 이미지 URL 붙여넣기", placeholder="https://example.com/chart.png")
             st.caption("인터넷 차트 위에서 '이미지 주소 복사' 후 붙여넣기 하세요.")
@@ -2174,7 +2174,6 @@ elif selected_menu == "🧪 v4.3 베타 테스트 (실험실)":
                         """
                         result = ask_gemini_vision(prompt, img_to_analyze, api_key_input)
                         st.info(result)
-
     # ----------------------------------------
     # 2. 백테스팅 시뮬레이터
     # ----------------------------------------
