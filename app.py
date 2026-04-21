@@ -836,6 +836,32 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     except: return None
 
 @st.cache_data(ttl=3600)
+def search_us_ticker(query):
+    if not query: return []
+    if re.search('[가-힣]', query):
+        try:
+            res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={urllib.parse.quote(query)}", timeout=2)
+            search_term = res.json()[0][0][0]
+        except:
+            search_term = query
+    else:
+        search_term = query
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(search_term)}&quotesCount=5"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5)
+        data = response.json()
+        results = []
+        for quote in data.get('quotes', []):
+            if quote.get('quoteType') in ['EQUITY', 'ETF']:
+                sym = quote.get('symbol')
+                name = quote.get('shortname', 'Unknown')
+                exch = quote.get('exchDisp', 'US')
+                results.append(f"{sym} ({name} / {exch})")
+        return results
+    except: return []
+
+@st.cache_data(ttl=3600)
 def analyze_theme_trends():
     theme_proxies = {
         "반도체": "091160", "2차전지": "305720", "바이오/헬스케어": "244580", "인터넷/플랫폼": "157490",
@@ -1051,36 +1077,7 @@ def get_nps_holdings_mock():
         {"종목명": "삼성SDI", "티커": "006400", "보유비중": "8.34%", "최근변동": "축소"},
         {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
     ])
-@st.cache_data(ttl=3600)
-def search_us_ticker(query):
-    if not query: return []
-    
-    # 1. 한글이 포함되어 있다면 구글 번역 API를 통해 영어로 변환 (예: 애플 -> Apple)
-    if re.search('[가-힣]', query):
-        try:
-            res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=en&dt=t&q={urllib.parse.quote(query)}", timeout=2)
-            search_term = res.json()[0][0][0]
-        except:
-            search_term = query
-    else:
-        search_term = query
-            
-    # 2. 야후 파이낸스 Search API 실시간 연동
-    try:
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(search_term)}&quotesCount=5"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=5)
-        data = response.json()
-        results = []
-        for quote in data.get('quotes', []):
-            if quote.get('quoteType') in ['EQUITY', 'ETF']:
-                sym = quote.get('symbol')
-                name = quote.get('shortname', 'Unknown')
-                exch = quote.get('exchDisp', 'US')
-                results.append(f"{sym} ({name} / {exch})")
-        return results
-    except Exception as e:
-        return []
+
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
@@ -1133,7 +1130,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             if delta: return f"{'+' if p>0 else ''}{int(p):,}원"
             return f"{int(p):,}원"
             
-    # 국장, 미장 포맷 분기
     if is_us: base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ RSI: {tech_result['RSI']:.1f})"
     else: base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ RSI: {tech_result['RSI']:.1f})"
     
@@ -1177,7 +1173,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         c5.metric("🛑 손절 라인", fmt_price(tech_result['손절가']), fmt_price(tech_result['손절가'] - curr, True) + " (리스크)", delta_color="normal")
         c6.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         
-        # 미장일 경우 수급/연기금 파트 숨김
         if not is_us:
             with c7: 
                 st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
@@ -1402,7 +1397,7 @@ if selected_menu == "🎛️ 메인 대시보드":
                             st.markdown(f"**현재가:** {res['현재가']:,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
                             st.markdown(f"**진입가:** {res['진입가_가이드']:,}원 ｜ **손절가:** {res['손절가']:,}원")
                         else: st.caption("데이터 없음")
-else:
+        else:
             us_search_query = st.text_input("🔍 미국 주식 종목명(한/영) 또는 티커를 검색하세요 (예: 애플, Nvidia, TSLA)")
             if us_search_query:
                 with st.spinner("야후 파이낸스 글로벌 DB에서 종목을 찾는 중..."):
@@ -1724,23 +1719,6 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                     res = analyze_technical_pattern(searched_name, searched_code)
                 if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
     else:
-        us_stock_dict = {
-            "애플": "AAPL", "마이크로소프트": "MSFT", "엔비디아": "NVDA", "알파벳(구글)": "GOOGL",
-            "아마존": "AMZN", "메타": "META", "테슬라": "TSLA", "브로드컴": "AVGO", "일라이릴리": "LLY",
-            "TSMC": "TSM", "버크셔해서웨이": "BRK-B", "JP모건": "JPM", "유나이티드헬스": "UNH",
-            "엑슨모빌": "XOM", "존슨앤존슨": "JNJ", "마스터카드": "MA", "홈디포": "HD", "P&G": "PG",
-            "코스트코": "COST", "머크": "MRK", "애브비": "ABBV", "셰브론": "CVX", "AMD": "AMD",
-            "넷플릭스": "NFLX", "코카콜라": "KO", "펩시코": "PEP", "월마트": "WMT",
-            "디즈니": "DIS", "시스코": "CSCO", "맥도날드": "MCD", "인텔": "INTC", "버라이즌": "VZ",
-            "화이자": "PFE", "보잉": "BA", "AT&T": "T", "스타벅스": "SBUX", "나이키": "NKE"
-        }
-        us_search_mode = st.radio("검색 방식", ["유명 종목 한글 검색", "티커 직접 입력"], horizontal=True)
-        us_ticker = ""
-        
-        if us_search_mode == "유명 종목 한글 검색":
-            us_query = st.selectbox("👇 종목 선택:", ["🔍 선택하세요"] + list(us_stock_dict.keys()))
-            if us_query != "🔍 선택하세요": us_ticker = us_stock_dict[us_query]
-            else:
         us_query = st.text_input("👇 미국 주식 종목명(한글/영문) 또는 티커를 입력하세요 (예: 테슬라, Microsoft, AAPL):")
         if us_query:
             with st.spinner(f"📡 '{us_query}' 글로벌 종목 검색 중..."):
@@ -2076,7 +2054,7 @@ elif selected_menu == "💰 배당 파이프라인 (TOP 300)":
     with st.spinner("실시간 데이터 다운로드 중..."): 
         div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
     
-    sort_opt = st.radio("⬇️ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
+    sort_opt = st.radio("⬇ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
     
     def extract_val(val_str, is_yield=False):
         try:
@@ -2178,7 +2156,7 @@ elif selected_menu == "🧪 v4.3 베타 테스트 (실험실)":
         "🕸️ 3. 실시간 3D 섹터 순환매 맵"
     ])
     
-# ----------------------------------------
+    # ----------------------------------------
     # 1. AI 비전 차트 분석 (클립보드 & URL 완벽 지원)
     # ----------------------------------------
     with test_tab1:
@@ -2229,6 +2207,7 @@ elif selected_menu == "🧪 v4.3 베타 테스트 (실험실)":
                         result = ask_gemini_vision(prompt, img_to_analyze, api_key_input)
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
+
     # ----------------------------------------
     # 2. 백테스팅 시뮬레이터
     # ----------------------------------------
@@ -2282,7 +2261,6 @@ elif selected_menu == "🧪 v4.3 베타 테스트 (실험실)":
         st.markdown("### 🕸️ 실시간 스마트머니 물길 추적 (Sankey Diagram)")
         st.write("현재 시점의 시장 데이터를 실시간 역산하여, **수익률이 가장 저조한 3개 섹터(자금 유출)**에서 **가장 높은 3개 섹터(자금 유입)**로 수급이 이동하는 '순환매' 흐름을 시각화합니다.")
         
-        # 👈 [업데이트] 기간 설정 토글 추가
         period_sk = st.radio("분석 기간", ["1개월", "3개월", "6개월"], horizontal=True)
         period_col = "1M수익률" if period_sk == "1개월" else "3M수익률" if period_sk == "3개월" else "6M수익률"
         
