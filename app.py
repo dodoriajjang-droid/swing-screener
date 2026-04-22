@@ -217,10 +217,11 @@ def get_trending_themes_with_ai(_api_key):
     except: return default_themes
 
 @st.cache_data(ttl=3600)
-def get_longterm_value_stocks_with_ai(theme, cap_size, _api_key):
+def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
     if not _api_key: return []
     try:
-        prompt = f"한국 증시(코스피/코스닥)에서 '{theme}' 관련 독보적이고 핵심적인 기술을 보유한 유망 기업 중 '{cap_size}'에 해당하는 주식 20개를 찾아주세요. 테마주가 아닌 실제 기술을 개발하거나 관련 사업을 영위하는 장기 투자 관점의 종목이어야 합니다. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
+        # 👈 테마 검색이 아닌 '전문가 투자 전략' 기반 프롬프트로 전면 개편
+        prompt = f"당신은 여의도의 15년차 시니어 펀드매니저입니다. 한국 증시(코스피/코스닥)에서 다음 투자 전략에 가장 완벽하게 부합하는 숨겨진 우량주 20개를 발굴해주세요.\n- 투자 전략: {strategy}\n- 기업 규모: {cap_size}\n단기 테마주나 작전주는 철저히 배제하고, 실제 비즈니스 모델, 경제적 해자, 펀더멘털이 우수한 종목만 엄선하세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
         response = ask_gemini(prompt, _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
@@ -1855,22 +1856,38 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain")
 
 elif selected_menu == "💎 장기 가치주 스캐너":
-    st.subheader("💎 장기 투자 가치주 & 텐배거 유망주 스캐너")
-    hot_themes = get_trending_themes_with_ai(api_key_input) if api_key_input else []
-    all_themes = list(dict.fromkeys(hot_themes + ["전고체 배터리", "온디바이스 AI", "자율주행", "우주항공(UAM)"]))
+    st.markdown("## 💎 여의도 데스크: 기관급 가치주/성장주 스캐너")
+    st.write("단순 테마가 아닌 실제 재무제표와 기업 가치를 분석하는 펀드매니저용 조건 검색기입니다.")
+    
     col_v1, col_v2 = st.columns([2, 1])
     with col_v1:
-        sel_t = st.selectbox("💡 미래 유망 기술 선택:", all_themes + ["✏️ 직접 입력..."])
-        tech_keyword = st.text_input("직접 입력:", placeholder="예: 6G 통신") if sel_t == "✏️ 직접 입력..." else sel_t
-    with col_v2: cap_size = st.selectbox("🏢 기업 규모 선택:", ["상관없음", "대형주", "중소형주"], index=0)
-    val_strictness = st.radio("투자 성향", ["💎 수익/자산 좋고 바닥인 가치주", "🚀 기술력 압도적인 성장주", "🔥 적자여도 미래만 보는 야수의 심장"])
-    max_per, max_pbr = (15.0, 1.5) if "가치주" in val_strictness else (40.0, 4.0) if "성장주" in val_strictness else (9999.0, 9999.0)
+        # 👈 기관 전문가들이 쓰는 대표적인 4가지 퀀트 전략 도입
+        expert_strategy = st.selectbox("🧠 펀드매니저 투자 전략 선택:", [
+            "👑 벤저민 그레이엄형 (안전마진 + 딥밸류: 초저PER & PBR)",
+            "📈 피터 린치형 (GARP: 합리적 가격의 우량 성장주)",
+            "🏰 워런 버핏형 (경제적 해자 + 독점력 + 높은 ROE)",
+            "🔄 턴어라운드 & 배당 (실적 바닥 탈출 또는 고배당 방어주)"
+        ])
+    with col_v2: 
+        cap_size = st.selectbox("🏢 기업 규모 선택:", ["대/중/소형 상관없음", "코스피 대형우량주만", "코스닥 중소형 숨은진주"], index=0)
+        
+    # 전략별로 허용되는 최대 PER/PBR 하드 필터 자동차등 적용
+    if "그레이엄" in expert_strategy:
+        max_per, max_pbr = 10.0, 1.0
+    elif "피터 린치" in expert_strategy:
+        max_per, max_pbr = 20.0, 3.0
+    elif "워런 버핏" in expert_strategy:
+        max_per, max_pbr = 30.0, 5.0
+    else: # 턴어라운드
+        max_per, max_pbr = 999.0, 3.0 # 적자->흑자 전환 기업은 일시적으로 PER이 높을 수 있음
+        
+    st.info(f"💡 **현재 전략 필터 기준:** AI가 1차 발굴한 종목 중 **[PER {max_per} 이하 ｜ PBR {max_pbr} 이하]**인 펀더멘털 합격 종목만 2차로 차트 타점을 검증합니다.")
 
-    if st.button("💎 병렬 가치주 스캔 시작", type="primary", use_container_width=True):
+    if st.button("💎 딥 밸류 병렬 스캔 시작", type="primary", use_container_width=True):
         if not api_key_input: st.warning("API 키를 입력해주세요.")
         else:
-            with st.spinner("스캔 중..."):
-                candidates = get_longterm_value_stocks_with_ai(tech_keyword, cap_size, api_key_input)
+            with st.spinner("여의도 퀀트 알고리즘으로 스캔 중..."):
+                candidates = get_longterm_value_stocks_with_ai(expert_strategy, cap_size, api_key_input)
                 if not candidates: st.error("관련 기업을 찾지 못했습니다.")
                 else:
                     progress_bar = st.progress(0)
@@ -2101,6 +2118,7 @@ elif selected_menu == "📰 실시간 속보/리포트":
             get_latest_naver_news.clear(); st.session_state.news_data = []; st.rerun()
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
+        
         for i, news in enumerate(st.session_state.news_data[:50]):
             title = news['title']
             found_comps = [(name, code) for name, code in krx_dict.items() if name in title][:1]
@@ -2108,13 +2126,20 @@ elif selected_menu == "📰 실시간 속보/리포트":
                 cols = st.columns([1, 6, 2, 1])
                 cols[0].markdown(f"**🕒 {news['time']}**")
                 cols[1].markdown(f"{title}")
+                
+                analyze_clicked = False # 버튼 클릭 여부 저장용 변수
                 with cols[2]:
                     if found_comps:
                         if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{i}"):
-                            res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
-                            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
+                            analyze_clicked = True
                 cols[3].link_button("원문🔗", news['link'])
                 
+                # 👈 [핵심 수정] 버튼이 있던 좁은 컬럼 밖으로 빼서 100% 전체 너비로 렌더링!
+                if analyze_clicked:
+                    st.divider()
+                    with st.spinner(f"'{found_comps[0][0]}' 차트 및 타점 분석 중..."):
+                        res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
     with news_sub2:
         st.markdown("### 📋 오늘의 실시간 증권사 리포트")
         res_df = get_naver_research()
