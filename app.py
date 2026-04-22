@@ -42,7 +42,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v4.6", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v4.7", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -64,12 +64,6 @@ if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input =
 now = datetime.now()
 if 'smart_cal_year' not in st.session_state: st.session_state.smart_cal_year = now.year
 if 'smart_cal_month' not in st.session_state: st.session_state.smart_cal_month = now.month
-
-# 👈 버핏 계산기 연동용 세션 상태 추가
-if 'dcf_target_ticker' not in st.session_state: st.session_state.dcf_target_ticker = "AAPL"
-if 'dcf_target_price' not in st.session_state: st.session_state.dcf_target_price = 150.0
-if 'dcf_target_fcf' not in st.session_state: st.session_state.dcf_target_fcf = 1000.0
-if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shares = 100.0
 
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
@@ -724,7 +718,6 @@ def get_daily_sise_and_investor(code):
         return pd.DataFrame(data)
     except: return pd.DataFrame()
 
-# 👈 [업데이트 v4.6] 야후 파이낸스에서 FCF 및 Shares 데이터를 가져오는 로직 추가
 def get_fundamentals(ticker_code):
     if str(ticker_code).isdigit():
         try:
@@ -747,7 +740,7 @@ def get_fundamentals(ticker_code):
             
             try:
                 cf = t_obj.cash_flow
-                if not cf.empty and 'Free Cash Flow' in cf.index:
+                if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                     fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
                     if pd.notna(fcf_raw): fcf = fcf_raw
             except: pass
@@ -1161,13 +1154,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     status_emoji = tech_result['상태'].split(' ')[0]
     is_us = not str(tech_result['티커']).isdigit() # 미국 주식 판별
     
-    # 👈 버핏 계산기 연동 클릭 이벤트 (세션 업데이트)
-    def update_dcf_session():
-        st.session_state.dcf_target_ticker = tech_result['티커']
-        st.session_state.dcf_target_price = float(tech_result['현재가'])
-        if tech_result.get('FCF'): st.session_state.dcf_target_fcf = float(tech_result['FCF'])
-        if tech_result.get('Shares'): st.session_state.dcf_target_shares = float(tech_result['Shares'])
-
     def get_short_trend(trend_text):
         val = str(trend_text).split(' ')[0]
         if "🔥" in str(trend_text): return f"🔥{val}"
@@ -1205,21 +1191,17 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b>{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b>{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color};">({pnl:+.2f}%)</span></p>
             </div>""", unsafe_allow_html=True)
             
-        col_btn1, col_btn2, col_btn3 = st.columns([6, 2, 2])
+        col_btn1, col_btn2 = st.columns([8, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
         
-        if is_us:
-            # 👈 DCF 버튼 추가
-            col_btn2.button("🧪 가치평가(DCF) 보내기", on_click=update_dcf_session, key=f"dcf_btn_{tech_result['티커']}_{key_suffix}")
-            
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if not is_in_wl:
-            if col_btn3.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
+            if col_btn2.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
                 st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
         else:
-            if col_btn3.button("❌ 관심종목 삭제", key=f"star_del_{tech_result['티커']}_{key_suffix}"):
+            if col_btn2.button("❌ 관심종목 삭제", key=f"star_del_{tech_result['티커']}_{key_suffix}"):
                 st.session_state.watchlist = [x for x in st.session_state.watchlist if x['티커'] != tech_result['티커']]
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
@@ -1251,7 +1233,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 per_val = tech_result.get('PER', 'N/A')
                 pbr_val = tech_result.get('PBR', 'N/A')
                 st.markdown(f"🏢 **핵심 펀더멘털 (TTM)**<br>**PER:** `{per_val}` ｜ **PBR:** `{pbr_val}`", unsafe_allow_html=True)
-
         
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1348,7 +1329,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v4.6")
+    st.title("📈 Jaemini PRO v4.7")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1370,7 +1351,7 @@ with st.sidebar:
         "💰 배당 파이프라인 (TOP 300)", 
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
-        "🧪 v4.6 버핏 퀀트 실험실"
+        "🧪 v4.7 버핏 퀀트 실험실"
     ]
     selected_menu = st.radio("📌 메뉴 이동", menu_list)
     st.divider()
@@ -2289,7 +2270,7 @@ elif selected_menu == "📅 IPO / 증시 일정":
         else: 
             st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
 
-elif selected_menu == "🧪 v4.6 버핏 퀀트 실험실":
+elif selected_menu == "🧪 v4.7 버핏 퀀트 실험실":
     st.markdown("## 🧪 워런 버핏식 가치투자 퀀트 계산기 (Beta)")
     st.write("버핏의 투자 철학(ROE, 현금흐름, 경제적 해자, 안전마진)을 수치화하여 기업의 진짜 가치를 평가합니다.")
     
@@ -2297,18 +2278,71 @@ elif selected_menu == "🧪 v4.6 버핏 퀀트 실험실":
     
     with b_tab1:
         st.markdown("### 📊 잉여현금흐름(FCF) 기반 내재가치 계산기")
-        st.caption("기업이 벌어들일 미래의 잉여현금흐름을 현재 가치로 할인하여 이론적인 적정 주가를 산출합니다. (단위 입력에 주의하세요)")
+        st.caption("기업이 벌어들일 미래의 잉여현금흐름을 현재 가치로 할인하여 이론적인 적정 주가를 산출합니다. 야후 파이낸스 연동을 통해 기본값이 채워집니다.")
         
-        st.info(f"💡 **현재 타겟 종목:** `{st.session_state.dcf_target_ticker}` (스캐너나 분석기에서 '가치평가 보내기'를 누르면 자동 연동됩니다)")
+        market_choice_dcf = st.radio("시장 선택 (가치평가)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, key="dcf_market")
         
+        selected_dcf_ticker = None
+        selected_dcf_name = ""
+        is_us_dcf = (market_choice_dcf == "🇺🇸 미국 주식")
+        
+        if not is_us_dcf:
+            krx_df = get_krx_stocks()
+            if not krx_df.empty:
+                opts = ["🔍 평가할 국내 종목을 선택하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                query = st.selectbox("👇 종목명 검색:", opts, key="dcf_kr_search")
+                if query != "🔍 평가할 국내 종목을 선택하세요.":
+                    selected_dcf_name = query.rsplit(" (", 1)[0]
+                    selected_dcf_ticker = query.rsplit("(", 1)[-1].replace(")", "").strip()
+        else:
+            us_query = st.text_input("👇 미국 주식 종목명(한/영) 또는 티커 (예: AAPL):", key="dcf_us_input")
+            if us_query:
+                with st.spinner("검색 중..."):
+                    us_results = search_us_ticker(us_query)
+                if us_results:
+                    sel_us_opt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + us_results, key="dcf_us_select")
+                    if sel_us_opt != "선택하세요":
+                        selected_dcf_ticker = sel_us_opt.split(" ")[0]
+                        selected_dcf_name = sel_us_opt.split(" (")[1].split(" /")[0]
+        
+        def_price = 50000.0 if not is_us_dcf else 150.0
+        def_fcf = 1000.0
+        def_shares = 100.0
+        
+        if selected_dcf_ticker:
+            with st.spinner("재무 데이터 연동 중..."):
+                hist_df = get_historical_data(selected_dcf_ticker, 10)
+                if not hist_df.empty:
+                    def_price = float(hist_df['Close'].iloc[-1])
+                    
+                yf_ticker = selected_dcf_ticker if is_us_dcf else f"{selected_dcf_ticker}.KS"
+                try:
+                    t_obj = yf.Ticker(yf_ticker)
+                    info = t_obj.info
+                    shares = info.get('sharesOutstanding')
+                    if shares:
+                        def_shares = shares / 1000000 if is_us_dcf else shares / 10000
+                        
+                    cf = t_obj.cash_flow
+                    if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
+                        fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
+                        if pd.notna(fcf_raw):
+                            def_fcf = fcf_raw / 1000000 if is_us_dcf else fcf_raw / 100000000
+                except: pass
+                
+            st.success(f"✅ **{selected_dcf_name} ({selected_dcf_ticker})** 재무 데이터 기본값 세팅 완료! (정확하지 않을 수 있으니 DART/SEC 공시와 교차 검증하세요)")
+            
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.markdown("**[기업 기본 정보]**")
-                # 👈 자동 연동된 세션 데이터로 기본값 렌더링
-                current_fcf = st.number_input("올해 예상 잉여현금흐름 (FCF, 억원/백만$)", value=float(st.session_state.dcf_target_fcf), step=100.0)
-                shares_out = st.number_input("유통 주식수 (만 주 / 백만 주)", value=float(st.session_state.dcf_target_shares), step=100.0)
-                current_price = st.number_input("현재 주가 (원 / 달러)", value=float(st.session_state.dcf_target_price), step=1.0)
+                unit_fcf = "백만$" if is_us_dcf else "억원"
+                unit_shares = "백만 주" if is_us_dcf else "만 주"
+                unit_price = "달러" if is_us_dcf else "원"
+                
+                current_fcf = st.number_input(f"올해 예상 잉여현금흐름 (FCF, {unit_fcf})", value=float(def_fcf), step=10.0, format="%.2f")
+                shares_out = st.number_input(f"유통 주식수 ({unit_shares})", value=float(def_shares), step=10.0, format="%.2f")
+                current_price = st.number_input(f"현재 주가 ({unit_price})", value=float(def_price), step=1.0, format="%.2f")
             with c2:
                 st.markdown("**[성장성 가정]**")
                 growth_rate = st.slider("향후 5년 연평균 예상 성장률 (%)", min_value=1, max_value=50, value=10)
@@ -2319,16 +2353,13 @@ elif selected_menu == "🧪 v4.6 버핏 퀀트 실험실":
             
             st.divider()
             if st.button("📈 기업 내재가치 산출하기", type="primary", use_container_width=True):
-                # DCF 계산 로직
                 dcf_val = 0
                 cf = current_fcf
                 
-                # 5년치 현금흐름의 현재 가치
                 for i in range(1, 6):
                     cf = cf * (1 + growth_rate/100)
                     dcf_val += cf / ((1 + discount_rate/100)**i)
                 
-                # 영구 가치(Terminal Value) 계산 (고든 성장 모형)
                 if discount_rate <= terminal_rate:
                     st.error("할인율은 영구 성장률보다 커야 계산이 가능합니다.")
                 else:
@@ -2337,17 +2368,20 @@ elif selected_menu == "🧪 v4.6 버핏 퀀트 실험실":
                     
                     total_value = dcf_val + tv_discounted
                     
-                    # 단위 통일 (만주/백만달러 등 비율에 맞춰 조정. 여기서는 단순 비율식으로 계산)
-                    value_per_share = (total_value * 10000) / shares_out if shares_out > 0 else 0
+                    if shares_out > 0:
+                        if is_us_dcf:
+                            value_per_share = total_value / shares_out
+                        else:
+                            value_per_share = (total_value * 10000) / shares_out
+                    else:
+                        value_per_share = 0
                     
                     margin_of_safety = ((value_per_share - current_price) / value_per_share) * 100 if value_per_share > 0 else 0
                     
                     st.success("✅ 현금흐름 기반 내재가치 평가 완료!")
                     res_c1, res_c2, res_c3 = st.columns(3)
                     
-                    is_us_fmt = not str(st.session_state.dcf_target_ticker).isdigit()
-                    
-                    if is_us_fmt:
+                    if is_us_dcf:
                         res_c1.metric("계산된 1주당 적정 가치", f"${value_per_share:,.2f}")
                         res_c2.metric("현재 주가", f"${current_price:,.2f}", f"${current_price - value_per_share:,.2f} (적정가 대비)", delta_color="inverse")
                     else:
@@ -2367,9 +2401,9 @@ elif selected_menu == "🧪 v4.6 버핏 퀀트 실험실":
                     res_c3.metric("안전 마진 (저평가율)", f"{margin_of_safety:.1f}%", mos_text, delta_color=mos_color)
                     
                     with st.expander("세부 계산 내역 보기"):
-                        st.write(f"- 향후 5년 현금흐름 현재가치 합산: **{int(dcf_val):,}**")
-                        st.write(f"- 영구가치 현재가치 환산: **{int(tv_discounted):,}**")
-                        st.write(f"- 총 기업 내재가치: **{int(total_value):,}**")
+                        st.write(f"- 향후 5년 현금흐름 현재가치 합산: **{dcf_val:,.2f} {unit_fcf}**")
+                        st.write(f"- 영구가치 현재가치 환산: **{tv_discounted:,.2f} {unit_fcf}**")
+                        st.write(f"- 총 기업 내재가치: **{total_value:,.2f} {unit_fcf}**")
 
     with b_tab2:
         st.markdown("### 📈 버핏 지수 (시장 전체 거시적 평가)")
