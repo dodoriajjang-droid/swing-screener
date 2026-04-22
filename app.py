@@ -59,12 +59,17 @@ if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history =
 if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
 if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
 if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input = ""
-if 'deep_tech_brief' not in st.session_state: st.session_state.deep_tech_brief = None  # 👈 추가된 부분
 
 # 스마트머니 달력 연/월 상태 유지
 now = datetime.now()
 if 'smart_cal_year' not in st.session_state: st.session_state.smart_cal_year = now.year
 if 'smart_cal_month' not in st.session_state: st.session_state.smart_cal_month = now.month
+
+# 버핏 계산기 연동용 세션 상태 추가
+if 'dcf_target_ticker' not in st.session_state: st.session_state.dcf_target_ticker = "AAPL"
+if 'dcf_target_price' not in st.session_state: st.session_state.dcf_target_price = 150.0
+if 'dcf_target_fcf' not in st.session_state: st.session_state.dcf_target_fcf = 1000.0
+if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shares = 100.0
 
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
@@ -221,7 +226,6 @@ def get_trending_themes_with_ai(_api_key):
 def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
     if not _api_key: return []
     try:
-        # 👈 테마 검색이 아닌 '전문가 투자 전략' 기반 프롬프트로 전면 개편
         prompt = f"당신은 여의도의 15년차 시니어 펀드매니저입니다. 한국 증시(코스피/코스닥)에서 다음 투자 전략에 가장 완벽하게 부합하는 숨겨진 우량주 20개를 발굴해주세요.\n- 투자 전략: {strategy}\n- 기업 규모: {cap_size}\n단기 테마주나 작전주는 철저히 배제하고, 실제 비즈니스 모델, 경제적 해자, 펀더멘털이 우수한 종목만 엄선하세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
         response = ask_gemini(prompt, _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
@@ -1154,8 +1158,14 @@ def show_trading_guidelines():
 
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
     status_emoji = tech_result['상태'].split(' ')[0]
-    is_us = not str(tech_result['티커']).isdigit() # 미국 주식 판별
+    is_us = not str(tech_result['티커']).isdigit() 
     
+    def update_dcf_session():
+        st.session_state.dcf_target_ticker = tech_result['티커']
+        st.session_state.dcf_target_price = float(tech_result['현재가'])
+        if tech_result.get('FCF'): st.session_state.dcf_target_fcf = float(tech_result['FCF'])
+        if tech_result.get('Shares'): st.session_state.dcf_target_shares = float(tech_result['Shares'])
+
     def get_short_trend(trend_text):
         val = str(trend_text).split(' ')[0]
         if "🔥" in str(trend_text): return f"🔥{val}"
@@ -1193,17 +1203,19 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b>{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b>{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color};">({pnl:+.2f}%)</span></p>
             </div>""", unsafe_allow_html=True)
             
-        col_btn1, col_btn2 = st.columns([8, 2])
+        col_btn1, col_btn2, col_btn3 = st.columns([6, 2, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
         
+        col_btn2.button("🧪 가치평가(DCF) 보내기", on_click=update_dcf_session, key=f"dcf_btn_{tech_result['티커']}_{key_suffix}")
+            
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if not is_in_wl:
-            if col_btn2.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
+            if col_btn3.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
                 st.session_state.watchlist.append({'종목명': tech_result['종목명'], '티커': tech_result['티커']})
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
         else:
-            if col_btn2.button("❌ 관심종목 삭제", key=f"star_del_{tech_result['티커']}_{key_suffix}"):
+            if col_btn3.button("❌ 관심종목 삭제", key=f"star_del_{tech_result['티커']}_{key_suffix}"):
                 st.session_state.watchlist = [x for x in st.session_state.watchlist if x['티커'] != tech_result['티커']]
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
@@ -1862,7 +1874,6 @@ elif selected_menu == "💎 장기 가치주 스캐너":
     
     col_v1, col_v2 = st.columns([2, 1])
     with col_v1:
-        # 👈 기관 전문가들이 쓰는 대표적인 4가지 퀀트 전략 도입
         expert_strategy = st.selectbox("🧠 펀드매니저 투자 전략 선택:", [
             "👑 벤저민 그레이엄형 (안전마진 + 딥밸류: 초저PER & PBR)",
             "📈 피터 린치형 (GARP: 합리적 가격의 우량 성장주)",
@@ -1872,15 +1883,14 @@ elif selected_menu == "💎 장기 가치주 스캐너":
     with col_v2: 
         cap_size = st.selectbox("🏢 기업 규모 선택:", ["대/중/소형 상관없음", "코스피 대형우량주만", "코스닥 중소형 숨은진주"], index=0)
         
-    # 전략별로 허용되는 최대 PER/PBR 하드 필터 자동차등 적용
     if "그레이엄" in expert_strategy:
         max_per, max_pbr = 10.0, 1.0
     elif "피터 린치" in expert_strategy:
         max_per, max_pbr = 20.0, 3.0
     elif "워런 버핏" in expert_strategy:
         max_per, max_pbr = 30.0, 5.0
-    else: # 턴어라운드
-        max_per, max_pbr = 999.0, 3.0 # 적자->흑자 전환 기업은 일시적으로 PER이 높을 수 있음
+    else:
+        max_per, max_pbr = 999.0, 3.0
         
     st.info(f"💡 **현재 전략 필터 기준:** AI가 1차 발굴한 종목 중 **[PER {max_per} 이하 ｜ PBR {max_pbr} 이하]**인 펀더멘털 합격 종목만 2차로 차트 타점을 검증합니다.")
 
@@ -2027,12 +2037,10 @@ elif selected_menu == "⚡ 딥테크 & 테마":
     if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
         st.markdown(f"### 🔎 '{st.session_state.deep_tech_query}' 테마/섹터 정밀 분석")
         
-        # 1. AI 테마 브리핑 (신규)
         with st.spinner("AI가 해당 테마의 시장 모멘텀과 핵심 촉매(Catalyst)를 분석 중입니다..."):
             theme_brief_prompt = f"당신은 여의도 테마주/섹터 전문 퀀트 애널리스트입니다. '{st.session_state.deep_tech_query}' 테마에 대해 1) 최근 시장에서 주목받는 이유(핵심 모멘텀), 2) 향후 전망 및 트레이딩 관점에서의 리스크를 마크다운 형태의 3줄 이내로 핵심만 요약해주세요."
             st.session_state.deep_tech_brief = ask_gemini(theme_brief_prompt, api_key_input)
 
-        # 2. 관련주 발굴 및 쾌속 병렬 타점 분석 (신규)
         with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 핵심 대장주 및 밸류체인 수혜주 발굴 중..."):
             theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
             
@@ -2065,7 +2073,7 @@ elif selected_menu == "⚡ 딥테크 & 테마":
         if st.session_state.get('deep_tech_brief'):
             st.info(f"**💡 AI 테마 인사이트:**\n{st.session_state.deep_tech_brief}")
         display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
-        
+
 elif selected_menu == "🚨 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
     with st.spinner("데이터 수집 중..."): 
@@ -2156,19 +2164,19 @@ elif selected_menu == "📰 실시간 속보/리포트":
                 cols[0].markdown(f"**🕒 {news['time']}**")
                 cols[1].markdown(f"{title}")
                 
-                analyze_clicked = False # 버튼 클릭 여부 저장용 변수
+                analyze_clicked = False
                 with cols[2]:
                     if found_comps:
                         if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{i}"):
                             analyze_clicked = True
                 cols[3].link_button("원문🔗", news['link'])
                 
-                # 👈 [핵심 수정] 버튼이 있던 좁은 컬럼 밖으로 빼서 100% 전체 너비로 렌더링!
                 if analyze_clicked:
                     st.divider()
                     with st.spinner(f"'{found_comps[0][0]}' 차트 및 타점 분석 중..."):
                         res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
+                
     with news_sub2:
         st.markdown("### 📋 오늘의 실시간 증권사 리포트")
         res_df = get_naver_research()
@@ -2323,6 +2331,100 @@ elif selected_menu == "📅 IPO / 증시 일정":
                 st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
         else: 
             st.warning("현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 일시적으로 불러올 수 없습니다.")
+
+elif selected_menu == "💰 배당 파이프라인 (TOP 300)":
+    st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
+    with st.spinner("실시간 데이터 다운로드 중..."): 
+        div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
+    
+    sort_opt = st.radio("⬇ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
+    
+    def extract_val(val_str, is_yield=False):
+        try:
+            if is_yield:
+                nums = re.findall(r"[\d\.]+", str(val_str).split('(')[0])
+                return float(nums[-1]) if nums else 0.0
+            else:
+                if val_str == "조회 지연": return 0.0
+                return float(str(val_str).replace('$', '').replace('원', '').replace(',', '').strip())
+        except:
+            return 0.0
+
+    def apply_sort(df, opt):
+        if df.empty: return df
+        temp_df = df.copy()
+        if opt == "배당수익률 높은순":
+            temp_df['__sort'] = temp_df['배당수익률(예상)'].apply(lambda x: extract_val(x, True))
+            return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+        elif opt == "현재가 높은순":
+            temp_df['__sort'] = temp_df['현재가'].apply(lambda x: extract_val(x, False))
+            return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+        elif opt == "현재가 낮은순":
+            temp_df['__sort'] = temp_df['현재가'].apply(lambda x: extract_val(x, False))
+            valid = temp_df[temp_df['__sort'] > 0].sort_values('__sort', ascending=True)
+            invalid = temp_df[temp_df['__sort'] == 0]
+            return pd.concat([valid, invalid]).drop(columns=['__sort'])
+        return temp_df
+
+    dt1, dt2, dt3 = st.tabs(["🇰🇷 국장 TOP 100", "🇺🇸 미장 TOP 100", "📈 배당 ETF TOP 100"])
+    with dt1: st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
+    with dt2: st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
+    with dt3: st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
+
+elif selected_menu == "📊 글로벌 ETF 분석":
+    st.subheader("📊 글로벌/국내 핵심 ETF & 포트폴리오 분석")
+    st.write("주도 섹터와 대표 지수를 추종하는 국내외 핵심 ETF의 타점을 진단하고 AI 분석을 받아보세요.")
+    
+    etf_categories = {
+        "📈 글로벌/국내 지수 대표": [
+            ("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ (나스닥)"),
+            ("069500", "KODEX 200"), ("232080", "TIGER 코스닥150"),
+            ("360750", "TIGER 미국S&P500"), ("379800", "KODEX 미국나스닥100TR")
+        ],
+        "🚀 반도체 & 딥테크": [
+            ("SOXX", "iShares Semiconductor"), ("XLK", "Technology Select Sector"),
+            ("091160", "KODEX 반도체"), ("381180", "TIGER 미국필라델피아반도체나스닥"),
+            ("446770", "TIGER 글로벌AI액티브")
+        ],
+        "💰 고배당 & 커버드콜": [
+            ("SCHD", "Schwab US Dividend Equity"), ("JEPI", "JPMorgan Equity Premium Income"),
+            ("458730", "TIGER 미국배당다우존스"), ("161510", "ARIRANG 고배당주"),
+            ("466950", "KODEX 미국배당프리미엄액티브")
+        ],
+        "🛡️ 채권 & 방어주": [
+            ("TLT", "iShares 20+ Year Treasury Bond"), ("GLD", "SPDR Gold Shares"),
+            ("304660", "KODEX 미국채울트라30년선물(H)"), ("329200", "TIGER 부동산인프라고배당")
+        ],
+        "🧬 2차전지 & 바이오": [
+            ("XLV", "Health Care Select Sector"),
+            ("305720", "KODEX 2차전지산업"), ("244580", "KODEX 바이오")
+        ]
+    }
+    
+    c_cat, c_etf = st.columns([1, 1], gap="medium")
+    with c_cat: selected_category = st.selectbox("📂 ETF 카테고리 선택:", list(etf_categories.keys()))
+    etf_opts = ["🔍 분석할 ETF를 선택하세요."] + [f"{ticker} ({name})" for ticker, name in etf_categories[selected_category]]
+    with c_etf: selected_etf_str = st.selectbox("🔍 분석할 ETF 선택:", etf_opts)
+    
+    st.divider()
+    if selected_etf_str != "🔍 분석할 ETF를 선택하세요.":
+        selected_ticker = selected_etf_str.split(" ")[0]
+        with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
+            clean_ticker = selected_ticker.replace(".KS", "")
+            res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
+            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
+            else: st.error("데이터를 불러오지 못했습니다.")
+
+elif selected_menu == "⭐ 내 관심종목":
+    st.subheader("⭐ 나만의 관심종목 (Watchlist)")
+    if not st.session_state.watchlist: st.info("추가된 종목이 없습니다.")
+    else:
+        col1, col2 = st.columns([8, 2])
+        if col2.button("🗑️ 관심종목 모두 지우기", use_container_width=True): 
+            st.session_state.watchlist = []; save_watchlist([]); st.rerun()
+        for i, item in enumerate(st.session_state.watchlist):
+            if res := analyze_technical_pattern(item['종목명'], item['티커']):
+                draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
 
 elif selected_menu == "🧪 v4.7 버핏 퀀트 실험실":
     st.markdown("## 🧪 워런 버핏식 가치투자 퀀트 계산기 (Beta)")
