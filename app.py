@@ -1054,23 +1054,22 @@ def get_dividend_portfolio(ex_rate=1350.0):
             ("304660.KS", "KODEX 미국채울트라30년선물(H)", "결산", "0.0%"), ("252650.KS", "KODEX 200선물인버스2X", "결산", "0.0%")
         ]
     }
-    
+    all_tickers = [t for cat in portfolio.values() for t, n, p, y in cat]
+    price_dict = {}
     try:
         data = yf.download(all_tickers, period="5d", progress=False)
         if isinstance(data.columns, pd.MultiIndex): close_data = data['Close']
         elif 'Close' in data: close_data = pd.DataFrame(data['Close'])
         else: close_data = pd.DataFrame()
-    except Exception as e:
-        close_data = pd.DataFrame()
-        
+        for t in all_tickers:
+            if t in close_data.columns:
+                val = close_data[t].dropna()
+                if not val.empty: price_dict[t] = float(val.iloc[-1])
+    except: pass
     results = {"KRX": [], "US": [], "ETF": []}
     for category, stocks in portfolio.items():
         for t_code, name, period, est_yield in stocks:
-            p_val = None
-            if t_code in close_data.columns:
-                val = close_data[t_code].dropna()
-                if not val.empty: p_val = float(val.iloc[-1])
-                
+            p_val = price_dict.get(t_code)
             p_str, div_str = "조회 지연", est_yield
             if p_val:
                 if ".KS" in t_code: p_str, krw_price = f"{int(p_val):,}원", p_val
@@ -1081,10 +1080,24 @@ def get_dividend_portfolio(ex_rate=1350.0):
                     elif len(pcts) == 1: div_str = f"{est_yield} (약 {int(krw_price * (pcts[0] / 100)):,}원)"
                 except: pass
             results[category].append({"티커/코드": t_code.replace(".KS", ""), "종목명": name, "현재가": p_str, "배당수익률(예상)": div_str, "배당주기": period})
-            
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
 @st.cache_data(ttl=86400)
+def get_nps_holdings_mock():
+    return pd.DataFrame([
+        {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.52%", "최근변동": "유지"},
+        {"종목명": "SK하이닉스", "티커": "000660", "보유비중": "8.12%", "최근변동": "확대"},
+        {"종목명": "현대차", "티커": "005380", "보유비중": "7.35%", "최근변동": "확대"},
+        {"종목명": "NAVER", "티커": "035420", "보유비중": "8.99%", "최근변동": "유지"},
+        {"종목명": "카카오", "티커": "035720", "보유비중": "5.41%", "최근변동": "축소"},
+        {"종목명": "LG에너지솔루션", "티커": "373220", "보유비중": "5.01%", "최근변동": "유지"},
+        {"종목명": "POSCO홀딩스", "티커": "005490", "보유비중": "6.71%", "최근변동": "유지"},
+        {"종목명": "셀트리온", "티커": "068270", "보유비중": "6.22%", "최근변동": "확대"},
+        {"종목명": "삼성SDI", "티커": "006400", "보유비중": "8.34%", "최근변동": "축소"},
+        {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
+    ])
+
+@st.cache_data(ttl=3600)
 def get_us_sector_etfs():
     sectors = {
         "반도체 (SOXX)": "SOXX",
@@ -1153,7 +1166,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         st.session_state.dcf_target_price = float(tech_result['현재가'])
         if tech_result.get('FCF'): st.session_state.dcf_target_fcf = float(tech_result['FCF'])
         if tech_result.get('Shares'): st.session_state.dcf_target_shares = float(tech_result['Shares'])
-        st.session_state.main_menu_radio = "🧪 v4.8 버핏 퀀트 계산기" # 👈 자동 탭 이동 처리
+        st.session_state.main_menu_radio = "🧪 v4.8 버핏 퀀트 계산기"
 
     def get_short_trend(trend_text):
         val = str(trend_text).split(' ')[0]
@@ -1357,7 +1370,6 @@ with st.sidebar:
         "🧪 v4.8 버핏 퀀트 계산기"
     ]
     
-    # 👈 자동 탭 이동을 위한 세션 연동
     if "main_menu_radio" not in st.session_state:
         st.session_state.main_menu_radio = "🎛️ 메인 대시보드"
         
@@ -2495,4 +2507,143 @@ elif selected_menu == "🧪 v4.8 버핏 퀀트 계산기":
                     if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                         fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
                         if pd.notna(fcf_raw):
-                            def_fcf = fcf_raw / 1000000 if is_us_dcf else fcf_raw
+                            def_fcf = fcf_raw / 1000000 if is_us_dcf else fcf_raw / 100000000
+                except: pass
+                
+            st.success(f"✅ **{selected_dcf_name} ({selected_dcf_ticker})** 재무 데이터 기본값 세팅 완료! (정확하지 않을 수 있으니 DART/SEC 공시와 교차 검증하세요)")
+            
+        with st.container(border=True):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("**[기업 기본 정보]**")
+                unit_fcf = "백만$" if is_us_dcf else "억원"
+                unit_shares = "백만 주" if is_us_dcf else "만 주"
+                unit_price = "달러" if is_us_dcf else "원"
+                
+                current_fcf = st.number_input(f"올해 예상 잉여현금흐름 (FCF, {unit_fcf})", value=float(def_fcf), step=10.0, format="%.2f")
+                shares_out = st.number_input(f"유통 주식수 ({unit_shares})", value=float(def_shares), step=10.0, format="%.2f")
+                current_price = st.number_input(f"현재 주가 ({unit_price})", value=float(def_price), step=1.0, format="%.2f")
+            with c2:
+                st.markdown("**[성장성 가정]**")
+                growth_rate = st.slider("향후 5년 연평균 예상 성장률 (%)", min_value=1, max_value=50, value=10)
+                terminal_rate = st.slider("5년 이후 영구 성장률 (%)", min_value=1, max_value=5, value=2)
+            with c3:
+                st.markdown("**[할인율(요구수익률) 가정]**")
+                discount_rate = st.slider("할인율 (투자자 요구수익률, %)", min_value=5, max_value=20, value=10)
+            
+            st.divider()
+            if st.button("📈 기업 내재가치 산출하기", type="primary", use_container_width=True):
+                dcf_val = 0
+                cf = current_fcf
+                
+                for i in range(1, 6):
+                    cf = cf * (1 + growth_rate/100)
+                    dcf_val += cf / ((1 + discount_rate/100)**i)
+                
+                if discount_rate <= terminal_rate:
+                    st.error("할인율은 영구 성장률보다 커야 계산이 가능합니다.")
+                else:
+                    tv = (cf * (1 + terminal_rate/100)) / ((discount_rate - terminal_rate)/100)
+                    tv_discounted = tv / ((1 + discount_rate/100)**5)
+                    
+                    total_value = dcf_val + tv_discounted
+                    
+                    if shares_out > 0:
+                        if is_us_dcf:
+                            value_per_share = total_value / shares_out
+                        else:
+                            value_per_share = (total_value * 10000) / shares_out
+                    else:
+                        value_per_share = 0
+                    
+                    margin_of_safety = ((value_per_share - current_price) / value_per_share) * 100 if value_per_share > 0 else 0
+                    
+                    st.success("✅ 현금흐름 기반 내재가치 평가 완료!")
+                    res_c1, res_c2, res_c3 = st.columns(3)
+                    
+                    if is_us_dcf:
+                        res_c1.metric("계산된 1주당 적정 가치", f"${value_per_share:,.2f}")
+                        res_c2.metric("현재 주가", f"${current_price:,.2f}", f"${current_price - value_per_share:,.2f} (적정가 대비)", delta_color="inverse")
+                    else:
+                        res_c1.metric("계산된 1주당 적정 가치", f"{int(value_per_share):,}원")
+                        res_c2.metric("현재 주가", f"{int(current_price):,}원", f"{int(current_price - value_per_share):,}원 (적정가 대비)", delta_color="inverse")
+                    
+                    if margin_of_safety > 30:
+                        mos_color = "normal"
+                        mos_text = "🟢 초강력 매수 구간 (매우 저평가)"
+                    elif margin_of_safety > 10:
+                        mos_color = "normal"
+                        mos_text = "🟡 분할 매수 고려 (저평가)"
+                    else:
+                        mos_color = "inverse"
+                        mos_text = "🔴 고평가 또는 적정 수준 (매수 보류)"
+                        
+                    res_c3.metric("안전 마진 (저평가율)", f"{margin_of_safety:.1f}%", mos_text, delta_color=mos_color)
+                    
+                    with st.expander("세부 계산 내역 보기"):
+                        st.write(f"- 향후 5년 현금흐름 현재가치 합산: **{dcf_val:,.2f} {unit_fcf}**")
+                        st.write(f"- 영구가치 현재가치 환산: **{tv_discounted:,.2f} {unit_fcf}**")
+                        st.write(f"- 총 기업 내재가치: **{total_value:,.2f} {unit_fcf}**")
+
+    with b_tab2:
+        st.markdown("### 📈 버핏 지수 (시장 전체 거시적 평가)")
+        st.write("`버핏 지수 = (주식시장 전체 시가총액 / 명목 GDP) × 100`\n\n지수가 100%를 초과하면 고평가, 80% 미만이면 저평가 국면으로 해석합니다.")
+        
+        c_buf1, c_buf2 = st.columns(2)
+        with c_buf1: market_cap = st.number_input("해당 국가 주식시장 총 시가총액 (단위: 조 달러/원)", value=55.0)
+        with c_buf2: gdp = st.number_input("해당 국가 명목 GDP (단위: 조 달러/원)", value=27.0)
+        
+        buffett_ratio = (market_cap / gdp) * 100
+        
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = buffett_ratio,
+            title = {'text': "<b>Buffett Indicator (%)</b>"},
+            gauge = {
+                'axis': {'range': [0, 200]},
+                'bar': {'color': "black", 'thickness': 0.15},
+                'steps': [
+                    {'range': [0, 80], 'color': "lightgreen", 'name': "저평가"},
+                    {'range': [80, 100], 'color': "yellow"},
+                    {'range': [100, 120], 'color': "orange"},
+                    {'range': [120, 200], 'color': "red", 'name': "고평가 (버블)"}
+                ],
+                'threshold': {'line': {'color': "black", 'width': 4}, 'thickness': 0.75, 'value': buffett_ratio}
+            }
+        ))
+        fig_gauge.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_gauge, use_container_width=True)
+        
+        if buffett_ratio > 120: st.error("🚨 시장이 상당한 과열 상태입니다. (버블 경고)")
+        elif buffett_ratio > 100: st.warning("⚠️ 시장이 약간 고평가 상태입니다. 현금 비중을 늘리는 것을 고려하세요.")
+        elif buffett_ratio > 80: st.success("✅ 시장이 적정 가치 구간에 있습니다.")
+        else: st.info("💰 시장이 저평가 상태입니다. 적극적인 매수 기회일 수 있습니다.")
+            
+        st.divider()
+        st.markdown("### ⏱️ 복리 계산기 (72의 법칙)")
+        st.write("알베르트 아인슈타인이 '세계 8대 불가사의'라 부른 복리의 마법입니다. 연평균 수익률에 따라 내 자산이 2배가 되는 데 걸리는 시간을 계산합니다.")
+        return_rate = st.slider("목표 연평균 수익률 (%)", min_value=1.0, max_value=30.0, value=15.0, step=0.5)
+        
+        years_to_double = 72 / return_rate
+        st.markdown(f"👉 연수익률 **{return_rate}%** 유지 시, 원금이 2배가 되는 데 약 **<span style='color:#ff4b4b; font-size:24px;'>{years_to_double:.1f}년</span>**이 걸립니다.", unsafe_allow_html=True)
+
+    with b_tab3:
+        st.markdown("### 🔍 퀀트식 버핏 전략 스크리닝 기준")
+        st.info("실제 시중 퀀트 플랫폼(퀀터스 등)에서 워런 버핏 스타일의 알짜 가치주를 찾기 위해 설정해야 하는 검색 조건식 가이드입니다.")
+        
+        st.markdown("""
+        #### 1. 수익성 (돈을 잘 버는가?)
+        * **ROE (자기자본이익률):** 최근 3년 평균 **15% 이상** * *버핏의 핵심 지표입니다. 회사가 주주들의 돈으로 얼마나 효율적으로 이익을 창출하는지 보여줍니다.*
+
+        #### 2. 안정성 (망하지 않을 기업인가?)
+        * **부채비율:** **50% 미만** (또는 최소한 해당 업종 평균 이하)
+          * *위기가 왔을 때 버틸 수 있는 재무적 체력을 의미합니다.*
+
+        #### 3. 가격 (싸게 사고 있는가?)
+        * **PBR (주가순자산비율):** **1.5 이하**
+        * **PER (주가수익비율):** **15 미만** (동일 업종 내 저평가 종목)
+          * *아무리 훌륭한 기업도 너무 비싸게 사면 수익을 내기 어렵습니다.*
+          
+        #### 4. 비재무적 해자 (Economic Moat)
+        * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
+        """)
