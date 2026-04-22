@@ -1217,12 +1217,34 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
 
+# 👈 [수정] 증권사 목표가 스크래핑을 전면으로 빼기
+        consensus_text = "N/A"
+        if not is_us and str(tech_result['티커']).isdigit():
+            try:
+                # 가볍게 목표가만 긁어오기
+                url = f"https://finance.naver.com/item/main.naver?code={tech_result['티커']}"
+                res_html = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3).text
+                soup = BeautifulSoup(res_html, 'html.parser')
+                c_area = soup.select_one('.r_cmp_area .f_up em')
+                consensus_text = c_area.text.strip() if c_area else "목표가 없음"
+            except:
+                consensus_text = "조회 불가"
+
         c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
         c1.metric("📌 진입 기준가", fmt_price(tech_result['진입가_가이드']), fmt_price(tech_result['진입가_가이드'] - curr, True) + " (대비)", delta_color="off")
         c2.metric("🎯 1차 (볼밴상단)", fmt_price(tech_result['목표가1']), fmt_price(tech_result['목표가1'] - curr, True), delta_color="normal")
         c3.metric("🚀 2차 (스윙전고)", fmt_price(tech_result['목표가2']), fmt_price(tech_result['목표가2'] - curr, True), delta_color="normal")
-        c4.metric("🌌 3차 (오버슈팅)", fmt_price(tech_result['목표가3']), fmt_price(tech_result['목표가3'] - curr, True), delta_color="normal")
+        
+        # 👈 [수정] 4번째 칸을 '증권사 목표가'로 변경
+        if not is_us and consensus_text not in ["목표가 없음", "조회 불가", "N/A"]:
+            try:
+                cons_val = float(consensus_text.replace(",", ""))
+                c4.metric("🏦 증권사 목표가", f"{int(cons_val):,}원", f"{int(cons_val - curr):,}원 (괴리율)", delta_color="normal")
+            except:
+                c4.metric("🏦 증권사 목표가", consensus_text)
+        else:
+            c4.metric("🌌 3차 (오버슈팅)", fmt_price(tech_result['목표가3']), fmt_price(tech_result['목표가3'] - curr, True), delta_color="normal")
         
         st.markdown("---")
         c5, c6, c7 = st.columns([1, 1, 2])
