@@ -41,7 +41,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v5.3", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v5.4", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -368,6 +368,33 @@ def get_scan_targets(limit=50):
             targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
             if targets: return targets
     except: pass
+    try:
+        df_kpi = fetch_naver_volume(0, pages=3) 
+        df_kdq = fetch_naver_volume(1, pages=3)
+        df = pd.concat([df_kpi, df_kdq], ignore_index=True)
+        if not df.empty:
+            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df = df[~mask].drop_duplicates(subset=['종목명']).copy()
+            def extract_num(x):
+                try: return float(re.sub(r'[^\d\.\-]', '', str(x)))
+                except: return 0.0
+            df['Close'] = df['현재가'].apply(extract_num)
+            df['Volume'] = df['거래량'].apply(extract_num)
+            df['Amount'] = df['Close'] * df['Volume']
+            df = df.sort_values('Amount', ascending=False).head(limit)
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
+                targets = df[['Name', 'Code']].values.tolist()
+                if targets: return targets
+    except: pass
+    try:
+        krx = get_krx_stocks()
+        if not krx.empty:
+            mask = krx['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            krx = krx[~mask].drop_duplicates(subset=['Name'])
+            return krx.head(limit)[['Name', 'Code']].values.tolist()
+    except: pass
     return []
 
 @st.cache_data(ttl=300)
@@ -405,6 +432,9 @@ def get_limit_stocks():
     if not lower_df.empty and not krx.empty:
         lower_df = pd.merge(lower_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
         lower_df['Sector'] = lower_df['Sector'].fillna('개별이슈/기타')
+    for col in ['Code', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose', 'Name']:
+        if col not in upper_df.columns: upper_df[col] = "기타" if col == 'Sector' else 0
+        if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
 @st.cache_data(ttl=600)
@@ -1020,21 +1050,6 @@ def get_dividend_portfolio(ex_rate=1350.0):
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
 @st.cache_data(ttl=86400)
-def get_nps_holdings_mock():
-    return pd.DataFrame([
-        {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.52%", "최근변동": "유지"},
-        {"종목명": "SK하이닉스", "티커": "000660", "보유비중": "8.12%", "최근변동": "확대"},
-        {"종목명": "현대차", "티커": "005380", "보유비중": "7.35%", "최근변동": "확대"},
-        {"종목명": "NAVER", "티커": "035420", "보유비중": "8.99%", "최근변동": "유지"},
-        {"종목명": "카카오", "티커": "035720", "보유비중": "5.41%", "최근변동": "축소"},
-        {"종목명": "LG에너지솔루션", "티커": "373220", "보유비중": "5.01%", "최근변동": "유지"},
-        {"종목명": "POSCO홀딩스", "티커": "005490", "보유비중": "6.71%", "최근변동": "유지"},
-        {"종목명": "셀트리온", "티커": "068270", "보유비중": "6.22%", "최근변동": "확대"},
-        {"종목명": "삼성SDI", "티커": "006400", "보유비중": "8.34%", "최근변동": "축소"},
-        {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
-    ])
-
-@st.cache_data(ttl=3600)
 def get_us_sector_etfs():
     sectors = {
         "반도체 (SOXX)": "SOXX",
@@ -1192,40 +1207,52 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 pbr_val = tech_result.get('PBR', 'N/A')
                 st.markdown(f"🏢 **핵심 펀더멘털 (TTM)**<br>**PER:** `{per_val}` ｜ **PBR:** `{pbr_val}`", unsafe_allow_html=True)
         
+        # 👈 [핵심 업데이트] AI 딥다이브 버튼 중첩 오류(증발 현상) 해결을 위한 세션 저장
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=f"ai_btn_{tech_result['티커']}_{key_suffix}"):
-                with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
-                    if str(tech_result['티커']).isdigit():
+            ai_btn_key = f"ai_btn_{tech_result['티커']}_{key_suffix}"
+            ai_res_key = f"ai_res_{ai_btn_key}"
+            
+            if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=ai_btn_key):
+                st.session_state[ai_res_key] = "loading" # 로딩 트리거
+                
+            if st.session_state.get(ai_res_key):
+                if st.session_state[ai_res_key] == "loading":
+                    with st.spinner("AI가 차트, 수급, 재무제표 및 컨센서스를 종합 분석 중입니다... (약 5~10초 소요)"):
+                        if str(tech_result['티커']).isdigit():
+                            fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
+                            fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
+                            peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
+                            prompt = f"""
+                            당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다. '{tech_result['종목명']}' 분석 리포트를 마크다운으로 작성하세요.
+                            [기술적 지표 및 수급]
+                            - 현재가: {fmt_price(curr)}, 20일선: {fmt_price(tech_result['진입가_가이드'])} (상태: {tech_result['상태']})
+                            - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
+                            - 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
+                            [증권사 목표주가 컨센서스]: {cons}
+                            [최근 재무제표 요약 (단위: 억 원)]
+                            {fin_text[:1500]}
+                            [동일 업종 경쟁사 비교 (PER/PBR 포함)]
+                            {peer_text[:1000]}
+                            1. 📈 **기술적 타점 & 수급 분석**: 현재 진입하기 좋은 자리인지.
+                            2. 🏢 **실적 트렌드 & 밸류에이션**: 고평가/저평가 여부 판단.
+                            3. 🎯 **단기 매매 의견 및 목표가**: (적극매수/분할매수/관망/매수금지 중 택 1).
+                            4. 💡 **최종 투자 코멘트**: 3줄 요약.
+                            """
+                            st.session_state[ai_res_key] = ask_gemini(prompt, api_key_str)
+                        else:
+                            prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{fmt_price(curr)}, 20일선:{fmt_price(tech_result['진입가_가이드'])}, RSI:{tech_result['RSI']:.1f}\n1. ⚡ 단기 트레이딩 관점\n2. 🛡️ 스윙/가치 투자 관점\n3. 🎯 종합 요약 (1줄):"
+                            st.session_state[ai_res_key] = ask_gemini(prompt, api_key_str)
+                            
+                st.success("✅ AI 정밀 분석 완료!")
+                st.markdown(st.session_state[ai_res_key])
+                
+                if not is_us:
+                    with st.expander(f"📊 '{tech_result['종목명']}' 수집된 로우 데이터 (Raw Data) 확인"):
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
-                        fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
-                        peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
-                        prompt = f"""
-                        당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다. '{tech_result['종목명']}' 분석 리포트를 마크다운으로 작성하세요.
-                        [기술적 지표 및 수급]
-                        - 현재가: {fmt_price(curr)}, 20일선: {fmt_price(tech_result['진입가_가이드'])} (상태: {tech_result['상태']})
-                        - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
-                        - 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
-                        [증권사 목표주가 컨센서스]: {cons}
-                        [최근 재무제표 요약 (단위: 억 원)]
-                        {fin_text[:1500]}
-                        [동일 업종 경쟁사 비교 (PER/PBR 포함)]
-                        {peer_text[:1000]}
-                        1. 📈 **기술적 타점 & 수급 분석**: 현재 진입하기 좋은 자리인지.
-                        2. 🏢 **실적 트렌드 & 밸류에이션**: 고평가/저평가 여부 판단.
-                        3. 🎯 **단기 매매 의견 및 목표가**: (적극매수/분할매수/관망/매수금지 중 택 1).
-                        4. 💡 **최종 투자 코멘트**: 3줄 요약.
-                        """
-                        st.success("✅ AI 정밀 분석 완료!")
-                        st.markdown(ask_gemini(prompt, api_key_str))
-                        with st.expander(f"📊 '{tech_result['종목명']}' 수집된 로우 데이터 (Raw Data) 확인"):
-                            st.write("✅ **증권사 목표가 컨센서스:**", cons)
-                            if fin_df is not None: st.dataframe(fin_df)
-                            if peer_df is not None: st.dataframe(peer_df)
-                    else:
-                        prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{fmt_price(curr)}, 20일선:{fmt_price(tech_result['진입가_가이드'])}, RSI:{tech_result['RSI']:.1f}\n1. ⚡ 단기 트레이딩 관점\n2. 🛡️ 스윙/가치 투자 관점\n3. 🎯 종합 요약 (1줄):"
-                        st.success("✅ AI 분석 완료!")
-                        st.markdown(ask_gemini(prompt, api_key_str))
+                        st.write("✅ **증권사 목표가 컨센서스:**", cons)
+                        if fin_df is not None: st.dataframe(fin_df)
+                        if peer_df is not None: st.dataframe(peer_df)
         
         tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년"], horizontal=True, key=f"tf_{key_suffix}", index=0)
         days_dict = {"1개월": 30, "3개월": 90, "1년": 365}
@@ -1287,7 +1314,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v5.3")
+    st.title("📈 Jaemini PRO v5.4")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1301,7 +1328,7 @@ with st.sidebar:
         "🔥 🇺🇸 미국 급등주",
         "💎 장기 가치주 스캐너", 
         "🔬 기업 정밀 분석기", 
-        "⚡ 딥테크 & 테마", 
+        "⚡ 메가트렌드 & 테마 발굴기", 
         "🚨 상/하한가 분석", 
         "🚦 거래량 급증 & 시장경보",
         "📰 실시간 속보/리포트", 
@@ -1965,7 +1992,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
 
-elif selected_menu == "⚡ 딥테크 & 테마":
+elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
     
@@ -2116,7 +2143,6 @@ elif selected_menu == "📰 실시간 속보/리포트":
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
         
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
-        # 여의도 단골 축약어 사전 적용 (이닉스 같은 부분 일치 오류 완벽 차단)
         news_aliases = {
             "삼전": "삼성전자", "두산에너빌": "두산에너빌리티", "LG엔솔": "LG에너지솔루션", 
             "엘지엔솔": "LG에너지솔루션", "에코프로BM": "에코프로비엠", "에코머티": "에코프로머티리얼즈",
@@ -2642,7 +2668,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🤖 AI 전문가 3인방 난상토론 & 스코어링")
         st.caption("차트 전문가, 가치투자 매니저, 매크로 이코노미스트가 한 종목을 두고 각자의 시각에서 평가합니다.")
         
-        # 👈 [국장 지원] 안내 문구 수정
         debate_ticker = st.text_input("분석할 종목명 또는 티커 입력 (예: 삼성전자, 005930, AAPL)", key="debate_input").upper()
         
         if st.button("🔥 난상토론 시작", type="primary", key="debate_btn"):
@@ -2686,7 +2711,7 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                 title = {'text': "<b>최종 투자 매력도</b>"},
                                 gauge = {
                                     'axis': {'range': [0, 100]},
-                                    'bar': {'color': "black"},
+                                    'bar': {'color': "black", 'thickness': 0.2},
                                     'steps': [
                                         {'range': [0, 40], 'color': "#ffcccb"},
                                         {'range': [40, 60], 'color': "#fff9c4"},
@@ -2718,7 +2743,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                 with st.spinner("과거 1년치 주가 데이터를 수집하여 상관관계를 연산 중입니다..."):
                     try:
                         price_dict = {}
-                        # 👈 [국장 지원] 자체 함수(get_historical_data)를 재활용하여 한글 종목명 자동 매핑
                         for t in port_tickers:
                             df_h = get_historical_data(t, 365)
                             if not df_h.empty:
@@ -2729,7 +2753,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                         if len(price_dict) < 2:
                             st.error("데이터를 충분히 불러오지 못했습니다. 종목명을 정확히 입력해주세요.")
                         else:
-                            # 날짜가 다른 한/미 휴장일 차이를 보정하기 위해 ffill() 적용
                             data = pd.DataFrame(price_dict).ffill().dropna()
                             corr_matrix = data.pct_change().corr().round(2)
                             
@@ -2769,7 +2792,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                         is_kr = False
                         kr_code = ""
                         
-                        # 👈 [국장 지원] 입력값이 한글이거나 6자리 숫자면 네이버 금융 뉴스로 스크래핑 우회
                         if senti_ticker_clean in name_to_code:
                             is_kr = True
                             kr_code = name_to_code[senti_ticker_clean]
@@ -2845,7 +2867,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.write("단순한 골든크로스를 넘어, RSI와 단기/장기 이평선을 내 마음대로 조작하여 최적의 승률을 찾아내는 시뮬레이터입니다.")
         
         c_fac1, c_fac2, c_fac3 = st.columns(3)
-        # 👈 [국장 지원] 안내 문구 변경 및 한글 지원 
         with c_fac1: custom_ticker = st.text_input("테스트 종목 (국/미장 모두 가능)", value="삼성전자")
         with c_fac2: short_ma = st.number_input("단기 이평선 (일)", min_value=3, max_value=20, value=5)
         with c_fac3: long_ma = st.number_input("중장기 이평선 (일)", min_value=20, max_value=200, value=20)
@@ -2855,7 +2876,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         if st.button("🚀 커스텀 전략 시뮬레이션 돌리기", type="primary", use_container_width=True):
             with st.spinner(f"과거 2년치 데이터로 [{short_ma}일/{long_ma}일 교차 & RSI < {rsi_limit}] 전략 백테스팅 중..."):
                 try:
-                    # 👈 [국장 지원] yf.download 대신 국장/미장 통합 스크래퍼 사용
                     df = get_historical_data(custom_ticker.strip(), 730)
                     if df.empty:
                         st.error("데이터를 가져오지 못했습니다. 종목명을 정확히 입력해주세요.")
