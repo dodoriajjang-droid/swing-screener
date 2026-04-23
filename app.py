@@ -2668,9 +2668,12 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🤖 AI 전문가 3인방 난상토론 & 스코어링")
         st.caption("차트 전문가, 가치투자 매니저, 매크로 이코노미스트가 한 종목을 두고 각자의 시각에서 평가합니다.")
         
-        debate_ticker = st.text_input("분석할 종목명 또는 티커 입력 (예: 삼성전자, 005930, AAPL)", key="debate_input").upper()
+        # 👈 [업데이트] 엔터키 작동을 위해 st.form으로 묶음
+        with st.form(key="debate_form"):
+            debate_ticker = st.text_input("분석할 종목명 또는 티커 입력 (예: 삼성전자, 005930, AAPL)").upper()
+            debate_btn = st.form_submit_button("🔥 난상토론 시작", type="primary", use_container_width=True)
         
-        if st.button("🔥 난상토론 시작", type="primary", key="debate_btn"):
+        if debate_btn:
             if not api_key_input:
                 st.error("좌측 사이드바에 API 키를 입력해주세요.")
             elif not debate_ticker:
@@ -2719,7 +2722,8 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                     ]
                                 }
                             ))
-                            fig_gauge.update_layout(height=250, margin=dict(l=10, r=10, t=30, b=10))
+                            # 👈 [업데이트] 글자가 잘리지 않도록 상단 여백(t)을 60으로 증가
+                            fig_gauge.update_layout(height=250, margin=dict(l=10, r=10, t=60, b=10))
                             st.plotly_chart(fig_gauge, use_container_width=True)
                             
                     except Exception as e:
@@ -2732,10 +2736,13 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🛡️ 내 계좌 리스크 (상관계수) 히트맵")
         st.write("보유 종목들이 얼마나 비슷하게 움직이는지(동조화 현상) 확인하여, 계좌가 한 번에 박살나는 것을 방지하세요. (빨간색일수록 같이 움직이고, 파란색일수록 반대로 움직입니다.)")
         
-        default_tickers = "삼성전자, 현대차, SK하이닉스, AAPL, TSLA"
-        port_input = st.text_input("분석할 종목들을 쉼표(,)로 구분해 입력하세요 (국장/미장 혼합 가능)", value=default_tickers)
+        # 👈 [업데이트] 엔터키 작동 폼
+        with st.form(key="corr_form"):
+            default_tickers = "삼성전자, 현대차, SK하이닉스, AAPL, TSLA"
+            port_input = st.text_input("분석할 종목들을 쉼표(,)로 구분해 입력하세요 (국장/미장 혼합 가능)", value=default_tickers)
+            corr_btn = st.form_submit_button("📊 상관계수 분석", type="primary", use_container_width=True)
         
-        if st.button("📊 상관계수 분석", type="primary", key="corr_btn"):
+        if corr_btn:
             port_tickers = [t.strip() for t in port_input.split(",") if t.strip()]
             if len(port_tickers) < 2:
                 st.warning("최소 2개 이상의 종목을 입력해주세요.")
@@ -2777,9 +2784,12 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 👥 군중 심리 트래커 (FOMO vs FUD)")
         st.write("최신 금융 뉴스 헤드라인들을 AI가 자연어 처리(NLP)하여 현재 대중들의 탐욕(FOMO)과 공포(FUD) 수준을 측정합니다.")
         
-        senti_ticker = st.text_input("심리 분석을 원하는 종목명 또는 티커 (예: 에코프로, PLTR, 삼성전자)", key="senti_input")
+        # 👈 [업데이트] 엔터키 작동 폼
+        with st.form(key="senti_form"):
+            senti_ticker = st.text_input("심리 분석을 원하는 종목명 또는 티커 (예: 에코프로, PLTR, 삼성전자)")
+            senti_btn = st.form_submit_button("🧠 심리 지수 추출", type="primary", use_container_width=True)
         
-        if st.button("🧠 심리 지수 추출", type="primary", key="senti_btn"):
+        if senti_btn:
             if not api_key_input: st.error("API 키가 필요합니다.")
             elif not senti_ticker: st.warning("종목을 입력하세요.")
             else:
@@ -2849,7 +2859,8 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                         ]
                                     }
                                 ))
-                                fig_senti.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10))
+                                # 👈 [업데이트] 글자가 잘리지 않도록 상단 여백(t)을 60으로 증가
+                                fig_senti.update_layout(height=300, margin=dict(l=10, r=10, t=60, b=10))
                                 st.plotly_chart(fig_senti, use_container_width=True)
                             with s_col2:
                                 st.markdown("#### 📰 수집된 최신 헤드라인 요약 및 AI 의견")
@@ -2866,14 +2877,17 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### ⚙️ 나만의 퀀트 팩터 커스텀 스튜디오")
         st.write("단순한 골든크로스를 넘어, RSI와 단기/장기 이평선을 내 마음대로 조작하여 최적의 승률을 찾아내는 시뮬레이터입니다.")
         
-        c_fac1, c_fac2, c_fac3 = st.columns(3)
-        with c_fac1: custom_ticker = st.text_input("테스트 종목 (국/미장 모두 가능)", value="삼성전자")
-        with c_fac2: short_ma = st.number_input("단기 이평선 (일)", min_value=3, max_value=20, value=5)
-        with c_fac3: long_ma = st.number_input("중장기 이평선 (일)", min_value=20, max_value=200, value=20)
-        
-        rsi_limit = st.slider("RSI 필터 (이 값 아래일 때만 매수 신호 발생)", min_value=20, max_value=80, value=50)
-        
-        if st.button("🚀 커스텀 전략 시뮬레이션 돌리기", type="primary", use_container_width=True):
+        # 👈 [업데이트] 엔터키 작동 폼
+        with st.form(key="factor_form"):
+            c_fac1, c_fac2, c_fac3 = st.columns(3)
+            with c_fac1: custom_ticker = st.text_input("테스트 종목 (국/미장 모두 가능)", value="삼성전자")
+            with c_fac2: short_ma = st.number_input("단기 이평선 (일)", min_value=3, max_value=20, value=5)
+            with c_fac3: long_ma = st.number_input("중장기 이평선 (일)", min_value=20, max_value=200, value=20)
+            
+            rsi_limit = st.slider("RSI 필터 (이 값 아래일 때만 매수 신호 발생)", min_value=20, max_value=80, value=50)
+            factor_btn = st.form_submit_button("🚀 커스텀 전략 시뮬레이션 돌리기", type="primary", use_container_width=True)
+            
+        if factor_btn:
             with st.spinner(f"과거 2년치 데이터로 [{short_ma}일/{long_ma}일 교차 & RSI < {rsi_limit}] 전략 백테스팅 중..."):
                 try:
                     df = get_historical_data(custom_ticker.strip(), 730)
