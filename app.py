@@ -2642,13 +2642,14 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🤖 AI 전문가 3인방 난상토론 & 스코어링")
         st.caption("차트 전문가, 가치투자 매니저, 매크로 이코노미스트가 한 종목을 두고 각자의 시각에서 평가합니다.")
         
-        debate_ticker = st.text_input("분석할 티커 입력 (예: AAPL, TSLA, 005930)", key="debate_input").upper()
+        # 👈 [국장 지원] 안내 문구 수정
+        debate_ticker = st.text_input("분석할 종목명 또는 티커 입력 (예: 삼성전자, 005930, AAPL)", key="debate_input").upper()
         
         if st.button("🔥 난상토론 시작", type="primary", key="debate_btn"):
             if not api_key_input:
                 st.error("좌측 사이드바에 API 키를 입력해주세요.")
             elif not debate_ticker:
-                st.warning("티커를 입력해주세요.")
+                st.warning("종목을 입력해주세요.")
             else:
                 with st.spinner("3명의 AI 전문가가 데이터를 분석하고 토론을 준비 중입니다... (약 10~15초 소요)"):
                     prompt = f"""
@@ -2706,21 +2707,30 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🛡️ 내 계좌 리스크 (상관계수) 히트맵")
         st.write("보유 종목들이 얼마나 비슷하게 움직이는지(동조화 현상) 확인하여, 계좌가 한 번에 박살나는 것을 방지하세요. (빨간색일수록 같이 움직이고, 파란색일수록 반대로 움직입니다.)")
         
-        default_tickers = "AAPL, MSFT, NVDA, TSLA, SCHD"
-        port_input = st.text_input("분석할 티커들을 쉼표(,)로 구분해 입력하세요 (미장 중심 추천)", value=default_tickers)
+        default_tickers = "삼성전자, 현대차, SK하이닉스, AAPL, TSLA"
+        port_input = st.text_input("분석할 종목들을 쉼표(,)로 구분해 입력하세요 (국장/미장 혼합 가능)", value=default_tickers)
         
         if st.button("📊 상관계수 분석", type="primary", key="corr_btn"):
-            port_tickers = [t.strip().upper() for t in port_input.split(",")]
+            port_tickers = [t.strip() for t in port_input.split(",") if t.strip()]
             if len(port_tickers) < 2:
-                st.warning("최소 2개 이상의 티커를 입력해주세요.")
+                st.warning("최소 2개 이상의 종목을 입력해주세요.")
             else:
-                with st.spinner("과거 1년치 주가 데이터를 가져와 상관관계를 계산 중입니다..."):
+                with st.spinner("과거 1년치 주가 데이터를 수집하여 상관관계를 연산 중입니다..."):
                     try:
-                        data = yf.download(port_tickers, period="1y")['Close']
-                        if data.empty:
-                            st.error("데이터를 불러오지 못했습니다. 티커명을 확인하세요.")
+                        price_dict = {}
+                        # 👈 [국장 지원] 자체 함수(get_historical_data)를 재활용하여 한글 종목명 자동 매핑
+                        for t in port_tickers:
+                            df_h = get_historical_data(t, 365)
+                            if not df_h.empty:
+                                df_h.index = pd.to_datetime(df_h.index).tz_localize(None)
+                                df_h = df_h[~df_h.index.duplicated(keep='first')]
+                                price_dict[t] = df_h['Close']
+                        
+                        if len(price_dict) < 2:
+                            st.error("데이터를 충분히 불러오지 못했습니다. 종목명을 정확히 입력해주세요.")
                         else:
-                            data = data.dropna()
+                            # 날짜가 다른 한/미 휴장일 차이를 보정하기 위해 ffill() 적용
+                            data = pd.DataFrame(price_dict).ffill().dropna()
                             corr_matrix = data.pct_change().corr().round(2)
                             
                             fig_corr = px.imshow(
@@ -2742,26 +2752,50 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
     # ----------------------------------------------------
     with v5_tab3:
         st.markdown("### 👥 군중 심리 트래커 (FOMO vs FUD)")
-        st.write("최신 글로벌 영문 헤드라인들을 AI가 자연어 처리(NLP)하여 현재 대중들의 탐욕(FOMO)과 공포(FUD) 수준을 측정합니다.")
+        st.write("최신 금융 뉴스 헤드라인들을 AI가 자연어 처리(NLP)하여 현재 대중들의 탐욕(FOMO)과 공포(FUD) 수준을 측정합니다.")
         
-        senti_ticker = st.text_input("심리 분석을 원하는 미국 주식 티커 (예: TSLA, PLTR, NVDA)", key="senti_input").upper()
+        senti_ticker = st.text_input("심리 분석을 원하는 종목명 또는 티커 (예: 에코프로, PLTR, 삼성전자)", key="senti_input")
         
         if st.button("🧠 심리 지수 추출", type="primary", key="senti_btn"):
             if not api_key_input: st.error("API 키가 필요합니다.")
-            elif not senti_ticker: st.warning("티커를 입력하세요.")
+            elif not senti_ticker: st.warning("종목을 입력하세요.")
             else:
                 with st.spinner(f"'{senti_ticker}' 관련 최신 뉴스를 스크래핑 및 AI 감성 분석 중..."):
                     try:
-                        news_items = yf.Ticker(senti_ticker).news
-                        if not news_items:
+                        senti_ticker_clean = senti_ticker.strip()
+                        krx_df = get_krx_stocks()
+                        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+                        
+                        is_kr = False
+                        kr_code = ""
+                        
+                        # 👈 [국장 지원] 입력값이 한글이거나 6자리 숫자면 네이버 금융 뉴스로 스크래핑 우회
+                        if senti_ticker_clean in name_to_code:
+                            is_kr = True
+                            kr_code = name_to_code[senti_ticker_clean]
+                        elif re.match(r'^\d{6}$', senti_ticker_clean):
+                            is_kr = True
+                            kr_code = senti_ticker_clean
+
+                        titles = []
+                        if is_kr:
+                            url = f"https://finance.naver.com/item/news_news.naver?code={kr_code}"
+                            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+                            links = soup.select('.tit')
+                            titles = [link.text.strip() for link in links[:10]]
+                        else:
+                            news_items = yf.Ticker(senti_ticker_clean).news
+                            titles = [n['title'] for n in news_items[:10]] if news_items else []
+
+                        if not titles:
                             st.error("최근 뉴스 데이터를 찾을 수 없습니다.")
                         else:
-                            titles = [n['title'] for n in news_items[:10]]
                             titles_str = "\n".join(titles)
                             
                             prompt = f"""
                             당신은 행동재무학(Behavioral Finance) 퀀트입니다. 
-                            다음은 '{senti_ticker}' 종목에 대한 최근 영문 뉴스 헤드라인들입니다.
+                            다음은 '{senti_ticker_clean}' 종목에 대한 최근 뉴스 헤드라인들입니다.
                             이 헤드라인들을 바탕으로 현재 시장 참여자들의 심리 상태를 0부터 100 사이의 'FOMO 지수'로 평가하세요.
                             (0 = 극단적 공포/절망/FUD, 50 = 중립, 100 = 극단적 탐욕/맹신/FOMO)
                             
@@ -2811,7 +2845,8 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.write("단순한 골든크로스를 넘어, RSI와 단기/장기 이평선을 내 마음대로 조작하여 최적의 승률을 찾아내는 시뮬레이터입니다.")
         
         c_fac1, c_fac2, c_fac3 = st.columns(3)
-        with c_fac1: custom_ticker = st.text_input("테스트 종목 티커 (미장 권장)", value="SPY").upper()
+        # 👈 [국장 지원] 안내 문구 변경 및 한글 지원 
+        with c_fac1: custom_ticker = st.text_input("테스트 종목 (국/미장 모두 가능)", value="삼성전자")
         with c_fac2: short_ma = st.number_input("단기 이평선 (일)", min_value=3, max_value=20, value=5)
         with c_fac3: long_ma = st.number_input("중장기 이평선 (일)", min_value=20, max_value=200, value=20)
         
@@ -2820,9 +2855,10 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         if st.button("🚀 커스텀 전략 시뮬레이션 돌리기", type="primary", use_container_width=True):
             with st.spinner(f"과거 2년치 데이터로 [{short_ma}일/{long_ma}일 교차 & RSI < {rsi_limit}] 전략 백테스팅 중..."):
                 try:
-                    df = yf.download(custom_ticker, period="2y", progress=False)
+                    # 👈 [국장 지원] yf.download 대신 국장/미장 통합 스크래퍼 사용
+                    df = get_historical_data(custom_ticker.strip(), 730)
                     if df.empty:
-                        st.error("데이터를 가져오지 못했습니다.")
+                        st.error("데이터를 가져오지 못했습니다. 종목명을 정확히 입력해주세요.")
                     else:
                         if isinstance(df.columns, pd.MultiIndex):
                             df = df['Close'].to_frame()
