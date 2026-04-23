@@ -734,9 +734,15 @@ def get_fundamentals(ticker_code):
             per = soup.select_one('#_per').text if soup.select_one('#_per') else 'N/A'
             pbr = soup.select_one('#_pbr').text if soup.select_one('#_pbr') else 'N/A'
             
-            # 👈 [업데이트] 네이버 금융에서 증권사 목표주가 컨센서스 가져오기
-            c_area = soup.select_one('.r_cmp_area .f_up em')
-            target_price = c_area.text.strip().replace(',', '') if c_area else 'N/A'
+            # 👈 [업데이트] 디자인(색상) 클래스에 의존하지 않고, 확실하게 목표주가 텍스트를 찾아 파싱
+            target_price = 'N/A'
+            no_info_trs = soup.select('.no_info tr')
+            for tr in no_info_trs:
+                if '목표주가' in tr.text:
+                    ems = tr.select('em')
+                    if ems:
+                        target_price = ems[0].text.strip().replace(',', '')
+                        break
             
             return per, pbr, None, None, target_price
         except: return 'N/A', 'N/A', None, None, 'N/A'
@@ -747,7 +753,6 @@ def get_fundamentals(ticker_code):
             per = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
             pbr = round(info.get('priceToBook', 0), 2) if info.get('priceToBook') else 'N/A'
             
-            # 👈 [업데이트] 야후 파이낸스에서 증권사 목표주가 평균 가져오기
             target_price = info.get('targetMeanPrice', 'N/A')
             
             fcf = None
