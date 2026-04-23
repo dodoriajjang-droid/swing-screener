@@ -2558,3 +2558,253 @@ elif selected_menu == "🧪 v4.8 버핏 퀀트 계산기":
         #### 4. 비재무적 해자 (Economic Moat)
         * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
         """)
+elif selected_menu == "🧪 v5.0 메이저 실험실":
+    st.markdown("## 🧪 v5.0 차세대 퀀트 & 포트폴리오 랩 (Beta)")
+    st.write("단일 종목 분석을 넘어선 'AI 멀티 에이전트, 포트폴리오 상관관계, 대안 데이터(Sentiment), 커스텀 팩터' 기반의 하이엔드 기능을 테스트합니다.")
+    
+    v5_tab1, v5_tab2, v5_tab3, v5_tab4 = st.tabs([
+        "🤖 1. AI 멀티 에이전트 토론", 
+        "🛡️ 2. 리스크 상관계수 맵", 
+        "👥 3. 군중 심리(FOMO) 트래커", 
+        "⚙️ 4. 팩터 커스텀 스튜디오"
+    ])
+    
+    # ----------------------------------------------------
+    # 1. AI 멀티 에이전트 난상토론
+    # ----------------------------------------------------
+    with v5_tab1:
+        st.markdown("### 🤖 AI 전문가 3인방 난상토론 & 스코어링")
+        st.caption("차트 전문가, 가치투자 매니저, 매크로 이코노미스트가 한 종목을 두고 각자의 시각에서 평가합니다.")
+        
+        debate_ticker = st.text_input("분석할 티커 입력 (예: AAPL, TSLA, 005930)", key="debate_input").upper()
+        
+        if st.button("🔥 난상토론 시작", type="primary", key="debate_btn"):
+            if not api_key_input:
+                st.error("좌측 사이드바에 API 키를 입력해주세요.")
+            elif not debate_ticker:
+                st.warning("티커를 입력해주세요.")
+            else:
+                with st.spinner("3명의 AI 전문가가 데이터를 분석하고 토론을 준비 중입니다... (약 10~15초 소요)"):
+                    prompt = f"""
+                    당신은 3명의 자아가 부여된 주식 토론 시스템입니다. '{debate_ticker}' 종목에 대해 다음 3가지 관점에서 의견을 내고, 마지막에 종합 점수를 도출하세요.
+                    반드시 아래 지정된 마크다운 포맷을 지켜주세요.
+                    
+                    **[차트 & 모멘텀 전문가]**
+                    - (기술적 분석, 수급 추세 기반의 짧은 코멘트 2줄)
+                    
+                    **[가치투자 펀드매니저]**
+                    - (실적, PER/PBR 밸류에이션, 해자 기반의 짧은 코멘트 2줄)
+                    
+                    **[매크로 이코노미스트]**
+                    - (금리, 환율, 산업 사이클 등 거시경제 기반 짧은 코멘트 2줄)
+                    
+                    **[최종 매력도 점수]**
+                    - (0에서 100 사이의 숫자만 단답으로 적으세요. 예: 75)
+                    """
+                    response = ask_gemini(prompt, api_key_input)
+                    
+                    try:
+                        # 텍스트와 점수 분리 파싱
+                        parts = response.split("**[최종 매력도 점수]**")
+                        debate_text = parts[0].strip()
+                        score_str = re.sub(r'[^0-9]', '', parts[1])
+                        score = int(score_str) if score_str else 50
+                        
+                        col_text, col_score = st.columns([2, 1])
+                        with col_text:
+                            st.info(debate_text)
+                        with col_score:
+                            fig_gauge = go.Figure(go.Indicator(
+                                mode = "gauge+number",
+                                value = score,
+                                title = {'text': "<b>최종 투자 매력도</b>"},
+                                gauge = {
+                                    'axis': {'range': [0, 100]},
+                                    'bar': {'color': "black"},
+                                    'steps': [
+                                        {'range': [0, 40], 'color': "#ffcccb"},
+                                        {'range': [40, 60], 'color': "#fff9c4"},
+                                        {'range': [60, 100], 'color': "#c8e6c9"}
+                                    ]
+                                }
+                            ))
+                            fig_gauge.update_layout(height=250, margin=dict(l=10, r=10, t=30, b=10))
+                            st.plotly_chart(fig_gauge, use_container_width=True)
+                            
+                    except Exception as e:
+                        st.markdown(response)
+                        
+    # ----------------------------------------------------
+    # 2. 포트폴리오 상관계수 히트맵
+    # ----------------------------------------------------
+    with v5_tab2:
+        st.markdown("### 🛡️ 내 계좌 리스크 (상관계수) 히트맵")
+        st.write("보유 종목들이 얼마나 비슷하게 움직이는지(동조화 현상) 확인하여, 계좌가 한 번에 박살나는 것을 방지하세요. (빨간색일수록 같이 움직이고, 파란색일수록 반대로 움직입니다.)")
+        
+        default_tickers = "AAPL, MSFT, NVDA, TSLA, SCHD"
+        port_input = st.text_input("분석할 티커들을 쉼표(,)로 구분해 입력하세요 (미장 중심 추천)", value=default_tickers)
+        
+        if st.button("📊 상관계수 분석", type="primary", key="corr_btn"):
+            port_tickers = [t.strip().upper() for t in port_input.split(",")]
+            if len(port_tickers) < 2:
+                st.warning("최소 2개 이상의 티커를 입력해주세요.")
+            else:
+                with st.spinner("과거 1년치 주가 데이터를 가져와 상관관계를 계산 중입니다..."):
+                    try:
+                        data = yf.download(port_tickers, period="1y")['Close']
+                        if data.empty:
+                            st.error("데이터를 불러오지 못했습니다. 티커명을 확인하세요.")
+                        else:
+                            data = data.dropna()
+                            corr_matrix = data.pct_change().corr().round(2)
+                            
+                            fig_corr = px.imshow(
+                                corr_matrix, 
+                                text_auto=True, 
+                                color_continuous_scale='RdBu_r', 
+                                zmin=-1, zmax=1,
+                                labels=dict(color="상관계수")
+                            )
+                            fig_corr.update_layout(height=500)
+                            st.plotly_chart(fig_corr, use_container_width=True)
+                            
+                            st.caption("💡 **해석 팁:** 1.0에 가까울수록 똑같이 움직이며(위험 분산 안 됨), 0에 가까우면 따로 움직이고, 음수(-)면 반대로 움직여 훌륭한 헷징 수단이 됩니다.")
+                    except Exception as e:
+                        st.error(f"오류 발생: {e}")
+
+    # ----------------------------------------------------
+    # 3. 군중 심리(FOMO) 트래커
+    # ----------------------------------------------------
+    with v5_tab3:
+        st.markdown("### 👥 군중 심리 트래커 (FOMO vs FUD)")
+        st.write("최신 글로벌 영문 헤드라인들을 AI가 자연어 처리(NLP)하여 현재 대중들의 탐욕(FOMO)과 공포(FUD) 수준을 측정합니다.")
+        
+        senti_ticker = st.text_input("심리 분석을 원하는 미국 주식 티커 (예: TSLA, PLTR, NVDA)", key="senti_input").upper()
+        
+        if st.button("🧠 심리 지수 추출", type="primary", key="senti_btn"):
+            if not api_key_input: st.error("API 키가 필요합니다.")
+            elif not senti_ticker: st.warning("티커를 입력하세요.")
+            else:
+                with st.spinner(f"'{senti_ticker}' 관련 최신 뉴스를 스크래핑 및 AI 감성 분석 중..."):
+                    try:
+                        news_items = yf.Ticker(senti_ticker).news
+                        if not news_items:
+                            st.error("최근 뉴스 데이터를 찾을 수 없습니다.")
+                        else:
+                            titles = [n['title'] for n in news_items[:10]]
+                            titles_str = "\n".join(titles)
+                            
+                            prompt = f"""
+                            당신은 행동재무학(Behavioral Finance) 퀀트입니다. 
+                            다음은 '{senti_ticker}' 종목에 대한 최근 영문 뉴스 헤드라인들입니다.
+                            이 헤드라인들을 바탕으로 현재 시장 참여자들의 심리 상태를 0부터 100 사이의 'FOMO 지수'로 평가하세요.
+                            (0 = 극단적 공포/절망/FUD, 50 = 중립, 100 = 극단적 탐욕/맹신/FOMO)
+                            
+                            [뉴스 헤드라인]
+                            {titles_str}
+                            
+                            답변은 반드시 다음 형식을 지켜주세요.
+                            점수: [여기에 숫자만]
+                            이유: [2줄 요약]
+                            """
+                            senti_res = ask_gemini(prompt, api_key_input)
+                            
+                            score_match = re.search(r'점수:\s*(\d+)', senti_res)
+                            senti_score = int(score_match.group(1)) if score_match else 50
+                            
+                            s_col1, s_col2 = st.columns([1, 2])
+                            with s_col1:
+                                fig_senti = go.Figure(go.Indicator(
+                                    mode = "gauge+number",
+                                    value = senti_score,
+                                    title = {'text': "<b>FOMO / FUD Index</b>"},
+                                    gauge = {
+                                        'axis': {'range': [0, 100]},
+                                        'bar': {'color': "black", 'thickness': 0.2},
+                                        'steps': [
+                                            {'range': [0, 30], 'color': "royalblue", 'name': "FUD (공포)"},
+                                            {'range': [30, 70], 'color': "lightgray"},
+                                            {'range': [70, 100], 'color': "tomato", 'name': "FOMO (탐욕)"}
+                                        ]
+                                    }
+                                ))
+                                fig_senti.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10))
+                                st.plotly_chart(fig_senti, use_container_width=True)
+                            with s_col2:
+                                st.markdown("#### 📰 수집된 최신 헤드라인 요약 및 AI 의견")
+                                st.info(senti_res)
+                                with st.expander("원문 헤드라인 보기"):
+                                    for t in titles: st.write(f"- {t}")
+                    except Exception as e:
+                        st.error(f"오류가 발생했습니다: {e}")
+
+    # ----------------------------------------------------
+    # 4. 커스텀 팩터 랩 (백테스팅 스튜디오)
+    # ----------------------------------------------------
+    with v5_tab4:
+        st.markdown("### ⚙️ 나만의 퀀트 팩터 커스텀 스튜디오")
+        st.write("단순한 골든크로스를 넘어, RSI와 단기/장기 이평선을 내 마음대로 조작하여 최적의 승률을 찾아내는 시뮬레이터입니다.")
+        
+        c_fac1, c_fac2, c_fac3 = st.columns(3)
+        with c_fac1: custom_ticker = st.text_input("테스트 종목 티커 (미장 권장)", value="SPY").upper()
+        with c_fac2: short_ma = st.number_input("단기 이평선 (일)", min_value=3, max_value=20, value=5)
+        with c_fac3: long_ma = st.number_input("중장기 이평선 (일)", min_value=20, max_value=200, value=20)
+        
+        rsi_limit = st.slider("RSI 필터 (이 값 아래일 때만 매수 신호 발생)", min_value=20, max_value=80, value=50)
+        
+        if st.button("🚀 커스텀 전략 시뮬레이션 돌리기", type="primary", use_container_width=True):
+            with st.spinner(f"과거 2년치 데이터로 [{short_ma}일/{long_ma}일 교차 & RSI < {rsi_limit}] 전략 백테스팅 중..."):
+                try:
+                    df = yf.download(custom_ticker, period="2y", progress=False)
+                    if df.empty:
+                        st.error("데이터를 가져오지 못했습니다.")
+                    else:
+                        # MultiIndex 컬럼일 경우 처리
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df = df['Close'].to_frame()
+                            df.columns = ['Close']
+                            
+                        # 보조지표 계산
+                        df['MA_S'] = df['Close'].rolling(window=short_ma).mean()
+                        df['MA_L'] = df['Close'].rolling(window=long_ma).mean()
+                        
+                        delta = df['Close'].diff()
+                        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                        rs = gain / loss
+                        df['RSI'] = 100 - (100 / (1 + rs))
+                        
+                        # 전략 시그널 생성 (단기 > 장기 & RSI < 조건값)
+                        df['Signal'] = 0
+                        cond_buy = (df['MA_S'] > df['MA_L']) & (df['RSI'] < rsi_limit)
+                        df.loc[cond_buy, 'Signal'] = 1
+                        
+                        # 수익률 계산
+                        df['Position'] = df['Signal'].shift(1).fillna(0)
+                        df['Daily_Return'] = df['Close'].pct_change()
+                        df['Strategy_Return'] = df['Position'] * df['Daily_Return']
+                        
+                        df['Cum_Market'] = (1 + df['Daily_Return']).cumprod()
+                        df['Cum_Strategy'] = (1 + df['Strategy_Return']).cumprod()
+                        
+                        # 차트 그리기
+                        fig_bt = go.Figure()
+                        fig_bt.add_trace(go.Scatter(x=df.index, y=df['Cum_Market'], name="단순 존버 (Buy & Hold)", line=dict(color='gray', dash='dot')))
+                        fig_bt.add_trace(go.Scatter(x=df.index, y=df['Cum_Strategy'], name="커스텀 팩터 전략", line=dict(color='#ff4b4b', width=2.5)))
+                        fig_bt.update_layout(title=f"[{custom_ticker}] 나만의 커스텀 전략 누적 수익률 비교", height=400, hovermode="x unified")
+                        st.plotly_chart(fig_bt, use_container_width=True)
+                        
+                        final_market = (df['Cum_Market'].iloc[-1] - 1) * 100
+                        final_strat = (df['Cum_Strategy'].iloc[-1] - 1) * 100
+                        
+                        res1, res2 = st.columns(2)
+                        res1.metric("단순 존버 시 누적 수익률", f"{final_market:.2f}%")
+                        res2.metric("커스텀 전략 적용 수익률", f"{final_strat:.2f}%", f"{final_strat - final_market:.2f}%p 대비")
+                        
+                        if final_strat > final_market:
+                            st.success("🎉 축하합니다! 하락장 방어와 매수 타점 조절을 통해 단순 보유보다 더 뛰어난 알파(Alpha) 수익을 창출했습니다.")
+                        else:
+                            st.warning("🤔 잦은 매매 시그널로 인해 수익률이 깎였습니다. 이평선 길이를 늘리거나 RSI 조건을 완화해 보세요.")
+
+                except Exception as e:
+                    st.error(f"시뮬레이션 중 오류 발생: {str(e)}")
