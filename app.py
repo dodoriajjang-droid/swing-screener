@@ -1367,7 +1367,7 @@ with st.sidebar:
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
-    menu_list = [
+menu_list = [
         "🎛️ 메인 대시보드",
         "👨‍🦳 연기금 그림자 매매 스캐너", 
         "🗺️ 시장 자금 & 스마트머니 히트맵", 
@@ -1385,7 +1385,8 @@ with st.sidebar:
         "💰 배당 파이프라인 (TOP 300)", 
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
-        "🧪 v4.8 버핏 퀀트 계산기"
+        "🧪 v4.8 버핏 퀀트 계산기",
+        "🧪 v5.0 메이저 실험실" # 👈 이 줄을 추가하세요! (쉼표 잊지 마세요)
     ]
     
     if "main_menu_radio" not in st.session_state:
