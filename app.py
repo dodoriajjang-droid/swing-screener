@@ -734,17 +734,26 @@ def get_fundamentals(ticker_code):
             per = soup.select_one('#_per').text if soup.select_one('#_per') else 'N/A'
             pbr = soup.select_one('#_pbr').text if soup.select_one('#_pbr') else 'N/A'
             
-            # 👈 [업데이트] 클래스명에 의존하지 않는 가장 강력한 목표주가 크롤링 로직
+            # 👈 [업데이트 v4.11] 평점(4.00점)을 목표가로 오인하는 버그 완벽 수정
             target_price = 'N/A'
             for tr in soup.find_all('tr'):
                 th = tr.find('th')
                 if th and '목표주가' in th.text:
                     td = tr.find('td')
                     if td:
-                        em = td.find('em')
-                        if em:
-                            target_price = em.text.strip().replace(',', '')
-                            break
+                        text_content = td.get_text(separator=' ', strip=True)
+                        possible_prices = []
+                        # 셀 안의 모든 숫자(콤마 포함)를 추출
+                        for n_str in re.findall(r'[0-9,]+', text_content):
+                            clean_n = n_str.replace(',', '')
+                            if clean_n.isdigit():
+                                possible_prices.append(int(clean_n))
+                        # 가장 큰 숫자가 무조건 목표가 (평점은 5 이하이므로 필터링)
+                        if possible_prices:
+                            max_val = max(possible_prices)
+                            if max_val > 10: 
+                                target_price = str(max_val)
+                    break
             
             return per, pbr, None, None, target_price
         except: return 'N/A', 'N/A', None, None, 'N/A'
