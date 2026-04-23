@@ -2187,25 +2187,34 @@ elif selected_menu == "📰 실시간 속보/리포트":
         if st.button("🔄 속보 리로드"): 
             get_latest_naver_news.clear(); st.session_state.news_data = []; st.rerun()
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
+        
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
+        # 👈 [핵심 수정] 이름이 긴 종목부터 찾도록 정렬 (SK하이닉스에서 이닉스를 찾는 참사 방지)
+        sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
         
         for i, news in enumerate(st.session_state.news_data[:50]):
             title = news['title']
-            found_comps = [(name, code) for name, code in krx_dict.items() if name in title][:1]
+            
+            # 긴 이름부터 매칭 시도 후 첫 번째 매칭만 가져옴
+            found_comps = []
+            for name in sorted_names:
+                if name in title:
+                    found_comps.append((name, krx_dict[name]))
+                    break 
             
             with st.container(border=True):
                 cols = st.columns([1, 6, 2, 1])
                 cols[0].markdown(f"**🕒 {news['time']}**")
                 cols[1].markdown(f"{title}")
+                
+                analyze_clicked = False
                 with cols[2]:
                     if found_comps:
-                        # 👈 [업데이트] 버튼 상태를 세션에 저장하여 클릭 증발 현상 방지
                         btn_key = f"qa_{i}"
                         if st.button(f"🔍 {found_comps[0][0]} 분석", key=btn_key):
                             st.session_state[f"news_analyze_{i}"] = not st.session_state.get(f"news_analyze_{i}", False)
                 cols[3].link_button("원문🔗", news['link'])
                 
-            # 👈 [업데이트] 저장된 세션 상태를 보고 카드를 렌더링
             if st.session_state.get(f"news_analyze_{i}", False):
                 st.divider()
                 with st.spinner(f"'{found_comps[0][0]}' 차트 및 타점 분석 중..."):
