@@ -734,15 +734,17 @@ def get_fundamentals(ticker_code):
             per = soup.select_one('#_per').text if soup.select_one('#_per') else 'N/A'
             pbr = soup.select_one('#_pbr').text if soup.select_one('#_pbr') else 'N/A'
             
-            # 👈 [업데이트] 디자인(색상) 클래스에 의존하지 않고, 확실하게 목표주가 텍스트를 찾아 파싱
+            # 👈 [업데이트] 클래스명에 의존하지 않는 가장 강력한 목표주가 크롤링 로직
             target_price = 'N/A'
-            no_info_trs = soup.select('.no_info tr')
-            for tr in no_info_trs:
-                if '목표주가' in tr.text:
-                    ems = tr.select('em')
-                    if ems:
-                        target_price = ems[0].text.strip().replace(',', '')
-                        break
+            for tr in soup.find_all('tr'):
+                th = tr.find('th')
+                if th and '목표주가' in th.text:
+                    td = tr.find('td')
+                    if td:
+                        em = td.find('em')
+                        if em:
+                            target_price = em.text.strip().replace(',', '')
+                            break
             
             return per, pbr, None, None, target_price
         except: return 'N/A', 'N/A', None, None, 'N/A'
@@ -767,7 +769,7 @@ def get_fundamentals(ticker_code):
             
             return per, pbr, fcf, shares, target_price
         except: return 'N/A', 'N/A', None, None, 'N/A'
-
+            
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
