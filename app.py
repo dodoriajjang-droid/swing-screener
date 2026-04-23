@@ -42,7 +42,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v4.10", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v5.0", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -734,7 +734,6 @@ def get_fundamentals(ticker_code):
             per = soup.select_one('#_per').text if soup.select_one('#_per') else 'N/A'
             pbr = soup.select_one('#_pbr').text if soup.select_one('#_pbr') else 'N/A'
             
-            # 👈 [업데이트 v4.11] 평점(4.00점)을 목표가로 오인하는 버그 완벽 수정
             target_price = 'N/A'
             for tr in soup.find_all('tr'):
                 th = tr.find('th')
@@ -743,12 +742,10 @@ def get_fundamentals(ticker_code):
                     if td:
                         text_content = td.get_text(separator=' ', strip=True)
                         possible_prices = []
-                        # 셀 안의 모든 숫자(콤마 포함)를 추출
                         for n_str in re.findall(r'[0-9,]+', text_content):
                             clean_n = n_str.replace(',', '')
                             if clean_n.isdigit():
                                 possible_prices.append(int(clean_n))
-                        # 가장 큰 숫자가 무조건 목표가 (평점은 5 이하이므로 필터링)
                         if possible_prices:
                             max_val = max(possible_prices)
                             if max_val > 10: 
@@ -778,7 +775,7 @@ def get_fundamentals(ticker_code):
             
             return per, pbr, fcf, shares, target_price
         except: return 'N/A', 'N/A', None, None, 'N/A'
-            
+
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -1234,7 +1231,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         st.markdown("---")
         
-        # 👈 [업데이트 v4.10] 레이아웃 재배치 및 증권가 목표가 출력 추가
         c5, c6, c7, c8 = st.columns([1.2, 1.2, 1, 2.5]) 
         
         c5.metric("🛑 손절 라인", fmt_price(tech_result['손절가']), fmt_price(tech_result['손절가'] - curr, True) + " (리스크)", delta_color="normal")
@@ -1363,11 +1359,11 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v4.10")
+    st.title("📈 Jaemini PRO v5.0")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
-menu_list = [
+    menu_list = [
         "🎛️ 메인 대시보드",
         "👨‍🦳 연기금 그림자 매매 스캐너", 
         "🗺️ 시장 자금 & 스마트머니 히트맵", 
@@ -1386,7 +1382,7 @@ menu_list = [
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
         "🧪 v4.8 버핏 퀀트 계산기",
-        "🧪 v5.0 메이저 실험실" # 👈 이 줄을 추가하세요! (쉼표 잊지 마세요)
+        "🧪 v5.0 메이저 실험실"
     ]
     
     if "main_menu_radio" not in st.session_state:
@@ -1534,8 +1530,12 @@ if selected_menu == "🎛️ 메인 대시보드":
         else:
             with chat_container.chat_message("assistant"):
                 with st.spinner("전문가 모드로 답변을 생성 중입니다..."):
+                    # 👈 [업데이트] 챗봇이 오늘 날짜를 확실히 인지하도록 프롬프트에 주입
+                    today_str = datetime.now().strftime("%Y년 %m월 %d일")
                     sys_prompt = f"""
                     당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
+                    오늘은 {today_str}입니다. 반드시 오늘 날짜를 기준으로 최신 뷰로 답변하세요. 
+                    과거의 특정 시점(예: 2024년 등)을 현재인 것처럼 말하지 마세요.
                     사용자의 질문에 명확하고 날카롭게 답변하세요. 불필요한 서론은 빼고 핵심만 전달하세요.
                     사용자 질문: {prompt}
                     """
@@ -2187,12 +2187,13 @@ elif selected_menu == "📰 실시간 속보/리포트":
         for i, news in enumerate(st.session_state.news_data[:50]):
             title = news['title']
             found_comps = [(name, code) for name, code in krx_dict.items() if name in title][:1]
+            
+            analyze_clicked = False
+            
             with st.container(border=True):
                 cols = st.columns([1, 6, 2, 1])
                 cols[0].markdown(f"**🕒 {news['time']}**")
                 cols[1].markdown(f"{title}")
-                
-                analyze_clicked = False
                 with cols[2]:
                     if found_comps:
                         if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{i}"):
@@ -2362,7 +2363,7 @@ elif selected_menu == "📅 IPO / 증시 일정":
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다.")
 
 elif selected_menu == "🧪 v4.8 버핏 퀀트 계산기":
-    st.markdown("## 🧪 워런 버핏식 가치투자 퀀트 계산기 (Beta)")
+    st.markdown("## 🧪 워런 버핏식 가치투자 퀀트 계산기")
     st.write("버핏의 투자 철학(ROE, 현금흐름, 경제적 해자, 안전마진)을 수치화하여 기업의 진짜 가치를 평가합니다.")
     
     b_tab1, b_tab2, b_tab3 = st.tabs(["📊 적정 주가 계산기 (DCF 모델)", "📈 버핏 지수 & 72의 법칙", "🔍 퀀트 스크리닝 가이드"])
@@ -2558,6 +2559,7 @@ elif selected_menu == "🧪 v4.8 버핏 퀀트 계산기":
         #### 4. 비재무적 해자 (Economic Moat)
         * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
         """)
+
 elif selected_menu == "🧪 v5.0 메이저 실험실":
     st.markdown("## 🧪 v5.0 차세대 퀀트 & 포트폴리오 랩 (Beta)")
     st.write("단일 종목 분석을 넘어선 'AI 멀티 에이전트, 포트폴리오 상관관계, 대안 데이터(Sentiment), 커스텀 팩터' 기반의 하이엔드 기능을 테스트합니다.")
@@ -2759,12 +2761,10 @@ elif selected_menu == "🧪 v5.0 메이저 실험실":
                     if df.empty:
                         st.error("데이터를 가져오지 못했습니다.")
                     else:
-                        # MultiIndex 컬럼일 경우 처리
                         if isinstance(df.columns, pd.MultiIndex):
                             df = df['Close'].to_frame()
                             df.columns = ['Close']
                             
-                        # 보조지표 계산
                         df['MA_S'] = df['Close'].rolling(window=short_ma).mean()
                         df['MA_L'] = df['Close'].rolling(window=long_ma).mean()
                         
@@ -2774,12 +2774,10 @@ elif selected_menu == "🧪 v5.0 메이저 실험실":
                         rs = gain / loss
                         df['RSI'] = 100 - (100 / (1 + rs))
                         
-                        # 전략 시그널 생성 (단기 > 장기 & RSI < 조건값)
                         df['Signal'] = 0
                         cond_buy = (df['MA_S'] > df['MA_L']) & (df['RSI'] < rsi_limit)
                         df.loc[cond_buy, 'Signal'] = 1
                         
-                        # 수익률 계산
                         df['Position'] = df['Signal'].shift(1).fillna(0)
                         df['Daily_Return'] = df['Close'].pct_change()
                         df['Strategy_Return'] = df['Position'] * df['Daily_Return']
@@ -2787,7 +2785,6 @@ elif selected_menu == "🧪 v5.0 메이저 실험실":
                         df['Cum_Market'] = (1 + df['Daily_Return']).cumprod()
                         df['Cum_Strategy'] = (1 + df['Strategy_Return']).cumprod()
                         
-                        # 차트 그리기
                         fig_bt = go.Figure()
                         fig_bt.add_trace(go.Scatter(x=df.index, y=df['Cum_Market'], name="단순 존버 (Buy & Hold)", line=dict(color='gray', dash='dot')))
                         fig_bt.add_trace(go.Scatter(x=df.index, y=df['Cum_Strategy'], name="커스텀 팩터 전략", line=dict(color='#ff4b4b', width=2.5)))
