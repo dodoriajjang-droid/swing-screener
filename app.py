@@ -42,7 +42,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v5.0", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v5.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -53,7 +53,7 @@ if 'quick_analyze_news' not in st.session_state: st.session_state.quick_analyze_
 if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
 if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None
-if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요! 트레이딩 퀀트 비서입니다. 오늘 주목해야 할 종목이나 시장 상황에 대해 무엇이든 물어보세요."}]
+if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요! 여의도 퀀트 비서입니다. 오늘 시장 매크로 상황이나 투자 전략에 대해 무엇이든 물어보세요."}]
 
 # 딥테크 탭 검색 상태 유지
 if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
@@ -1359,7 +1359,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v5.0")
+    st.title("📈 Jaemini PRO v5.1")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1367,9 +1367,9 @@ with st.sidebar:
         "🎛️ 메인 대시보드",
         "👨‍🦳 연기금 그림자 매매 스캐너", 
         "🗺️ 시장 자금 & 스마트머니 히트맵", 
-        "🕸️ 3D 섹터 순환매 맵",
+        "🕸️ 실시간 3D 순환매 맵",
         "🏛️ DART: 국민연금 코어픽 5%", 
-        "🚀 퀀트 스캐너 & 백테스팅",
+        "🚀 실시간 퀀트 스캐너 & 백테스팅",
         "🔥 🇺🇸 미국 급등주",
         "💎 장기 가치주 스캐너", 
         "🔬 기업 정밀 분석기", 
@@ -1381,8 +1381,8 @@ with st.sidebar:
         "💰 배당 파이프라인 (TOP 300)", 
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
-        "🧪 v4.8 버핏 퀀트 계산기",
-        "🧪 v5.0 메이저 실험실"
+        "⚖️ 워런 버핏 퀀트 계산기",
+        "🧪 v5.0 AI 포트폴리오 랩"
     ]
     
     if "main_menu_radio" not in st.session_state:
@@ -1530,12 +1530,16 @@ if selected_menu == "🎛️ 메인 대시보드":
         else:
             with chat_container.chat_message("assistant"):
                 with st.spinner("전문가 모드로 답변을 생성 중입니다..."):
-                    # 👈 [업데이트] 챗봇이 오늘 날짜를 확실히 인지하도록 프롬프트에 주입
                     today_str = datetime.now().strftime("%Y년 %m월 %d일")
+                    macro_context = ""
+                    if macro_data:
+                        macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()])
+                        
                     sys_prompt = f"""
                     당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
-                    오늘은 {today_str}입니다. 반드시 오늘 날짜를 기준으로 최신 뷰로 답변하세요. 
-                    과거의 특정 시점(예: 2024년 등)을 현재인 것처럼 말하지 마세요.
+                    오늘은 {today_str}입니다. 반드시 오늘 날짜를 기준으로 최신 뷰로 답변하세요. 과거의 특정 시점(예: 2024년)을 현재인 것처럼 말하지 마세요.
+                    [매크로 데이터]: {macro_context}
+                    [주의사항] 당신은 현재 실시간 개별 종목 주가 검색 권한이 없습니다! 사용자가 특정 종목의 현재가나 목표가를 물어보면, 절대 임의의 숫자를 지어내지(환각) 말고 "정확한 실시간 주가와 목표가는 좌측의 '🔬 기업 정밀 분석기' 메뉴를 이용해 주세요"라고 안내하세요.
                     사용자의 질문에 명확하고 날카롭게 답변하세요. 불필요한 서론은 빼고 핵심만 전달하세요.
                     사용자 질문: {prompt}
                     """
@@ -1626,7 +1630,7 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
                 k_code = t_kings[t_kings['Name'] == sel_king]['Code'].iloc[0]
                 if res := analyze_technical_pattern(sel_king, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
 
-elif selected_menu == "🕸️ 3D 섹터 순환매 맵":
+elif selected_menu == "🕸️ 실시간 3D 순환매 맵":
     st.markdown("## 🕸️ 실시간 스마트머니 물길 추적 (Sankey Diagram)")
     st.write("현재 시점의 시장 데이터를 실시간 역산하여, **수익률이 가장 저조한 3개 섹터(자금 유출)**에서 **가장 높은 3개 섹터(자금 유입)**로 수급이 이동하는 '순환매' 흐름을 시각화합니다.")
     
@@ -1723,7 +1727,7 @@ elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
                 else:
                     st.warning("현재 황금 콤보 조건에 부합하는 종목이 없습니다.")
 
-elif selected_menu == "🚀 퀀트 스캐너 & 백테스팅":
+elif selected_menu == "🚀 실시간 퀀트 스캐너 & 백테스팅":
     st.markdown("## 🚀 실시간 조건 검색 및 1년 백테스팅 시뮬레이터")
     
     scan_tab, backtest_tab = st.tabs(["🚀 실시간 조건 검색 스캐너", "🧪 1년 전략 백테스팅"])
@@ -1831,7 +1835,7 @@ elif selected_menu == "🚀 퀀트 스캐너 & 백테스팅":
                 else:
                     st.error("❌ 데이터를 가져오지 못했습니다. (API 제한 또는 지원하지 않는 티커)")
 
-elif selected_menu == "🔥 🇺🇸 미국 급등주":
+elif selected_menu == "🔥 미국 급등주 & 밸류체인":
     st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
     st.write("미국발 훈풍이 한국 증시에 미치는 파급력을 분석합니다. (노이즈 제거, 핵심 섹터 및 공급망 추적, 장초반 갭상승 대응 시나리오)")
 
@@ -1894,7 +1898,7 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain")
                         else: st.error("❌ 해당 종목 데이터를 불러올 수 없습니다.")
 
-elif selected_menu == "💎 장기 가치주 스캐너":
+elif selected_menu == "💎 장기 가치주 딥밸류 스캐너":
     st.markdown("## 💎 여의도 데스크: 기관급 가치주/성장주 스캐너")
     st.write("단순 테마가 아닌 실제 재무제표와 기업 가치를 분석하는 펀드매니저용 조건 검색기입니다.")
     
@@ -2033,7 +2037,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
 
-elif selected_menu == "⚡ 딥테크 & 테마":
+elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
     
@@ -2362,8 +2366,119 @@ elif selected_menu == "📅 IPO / 증시 일정":
         else: 
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다.")
 
-elif selected_menu == "🧪 v4.8 버핏 퀀트 계산기":
-    st.markdown("## 🧪 워런 버핏식 가치투자 퀀트 계산기")
+elif selected_menu == "💰 배당 파이프라인 (TOP 300)":
+    st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
+    with st.spinner("야후 파이낸스 서버에서 실시간 배당 데이터를 다운로드 중입니다..."): 
+        div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
+    
+    if div_dfs["KRX"].empty and div_dfs["US"].empty:
+        st.error("🚨 야후 파이낸스(Yahoo Finance)에서 배당 데이터를 가져오는 데 실패했습니다. 통신 오류이거나 야후 서버의 접근 차단일 수 있습니다.")
+    else:
+        sort_opt = st.radio("⬇ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
+        
+        def extract_val(val_str, is_yield=False):
+            try:
+                if is_yield:
+                    nums = re.findall(r"[\d\.]+", str(val_str).split('(')[0])
+                    return float(nums[-1]) if nums else 0.0
+                else:
+                    if val_str == "조회 지연": return 0.0
+                    return float(str(val_str).replace('$', '').replace('원', '').replace(',', '').strip())
+            except:
+                return 0.0
+
+        def apply_sort(df, opt):
+            if df.empty: return df
+            temp_df = df.copy()
+            if opt == "배당수익률 높은순":
+                temp_df['__sort'] = temp_df['배당수익률(예상)'].apply(lambda x: extract_val(x, True))
+                return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+            elif opt == "현재가 높은순":
+                temp_df['__sort'] = temp_df['현재가'].apply(lambda x: extract_val(x, False))
+                return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+            elif opt == "현재가 낮은순":
+                temp_df['__sort'] = temp_df['현재가'].apply(lambda x: extract_val(x, False))
+                valid = temp_df[temp_df['__sort'] > 0].sort_values('__sort', ascending=True)
+                invalid = temp_df[temp_df['__sort'] == 0]
+                return pd.concat([valid, invalid]).drop(columns=['__sort'])
+            return temp_df
+
+        dt1, dt2, dt3 = st.tabs(["🇰🇷 국장 TOP 100", "🇺🇸 미장 TOP 100", "📈 배당 ETF TOP 100"])
+        with dt1: st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
+        with dt2: st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
+        with dt3: st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
+
+elif selected_menu == "📊 글로벌 ETF 분석":
+    st.subheader("📊 글로벌/국내 핵심 ETF & 포트폴리오 분석")
+    st.write("주도 섹터와 대표 지수를 추종하는 국내외 핵심 ETF의 타점을 진단하고 AI 분석을 받아보세요.")
+    
+    etf_categories = {
+        "📈 글로벌/국내 지수 대표": [
+            ("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ (나스닥)"),
+            ("069500", "KODEX 200"), ("232080", "TIGER 코스닥150"),
+            ("360750", "TIGER 미국S&P500"), ("379800", "KODEX 미국나스닥100TR")
+        ],
+        "🚀 반도체 & 딥테크": [
+            ("SOXX", "iShares Semiconductor"), ("XLK", "Technology Select Sector"),
+            ("091160", "KODEX 반도체"), ("381180", "TIGER 미국필라델피아반도체나스닥"),
+            ("446770", "TIGER 글로벌AI액티브")
+        ],
+        "💰 고배당 & 커버드콜": [
+            ("SCHD", "Schwab US Dividend Equity"), ("JEPI", "JPMorgan Equity Premium Income"),
+            ("458730", "TIGER 미국배당다우존스"), ("161510", "ARIRANG 고배당주"),
+            ("466950", "KODEX 미국배당프리미엄액티브")
+        ],
+        "🛡️ 채권 & 방어주": [
+            ("TLT", "iShares 20+ Year Treasury Bond"), ("GLD", "SPDR Gold Shares"),
+            ("304660", "KODEX 미국채울트라30년선물(H)"), ("329200", "TIGER 부동산인프라고배당")
+        ],
+        "🧬 2차전지 & 바이오": [
+            ("XLV", "Health Care Select Sector"),
+            ("305720", "KODEX 2차전지산업"), ("244580", "KODEX 바이오")
+        ]
+    }
+    
+    c_cat, c_etf = st.columns([1, 1], gap="medium")
+    with c_cat: selected_category = st.selectbox("📂 ETF 카테고리 선택:", list(etf_categories.keys()))
+    etf_opts = ["🔍 분석할 ETF를 선택하세요."] + [f"{ticker} ({name})" for ticker, name in etf_categories[selected_category]]
+    with c_etf: selected_etf_str = st.selectbox("🔍 분석할 ETF 선택:", etf_opts)
+    
+    st.divider()
+    if selected_etf_str != "🔍 분석할 ETF를 선택하세요.":
+        selected_ticker = selected_etf_str.split(" ")[0]
+        with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
+            try:
+                clean_ticker = selected_ticker.replace(".KS", "")
+                res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
+                if res: 
+                    draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
+                else: 
+                    st.error(f"❌ '{selected_ticker}' 데이터를 불러오지 못했습니다. (네트워크 오류 또는 지원 중단된 티커)")
+            except Exception as e:
+                st.error(f"❌ '{selected_ticker}' 분석 중 시스템 오류 발생: {str(e)}")
+
+elif selected_menu == "⭐ 내 관심종목":
+    st.subheader("⭐ 나만의 관심종목 (Watchlist)")
+    if not st.session_state.watchlist: 
+        st.info("추가된 종목이 없습니다. 스캐너나 분석기에서 관심종목을 추가해보세요.")
+    else:
+        col1, col2 = st.columns([8, 2])
+        if col2.button("🗑️ 관심종목 모두 지우기", use_container_width=True): 
+            st.session_state.watchlist = []; save_watchlist([]); st.rerun()
+            
+        for i, item in enumerate(st.session_state.watchlist):
+            with st.spinner(f"'{item['종목명']}' 데이터 로딩 중..."):
+                try:
+                    res = analyze_technical_pattern(item['종목명'], item['티커'])
+                    if res:
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"wl_{i}")
+                    else:
+                        st.error(f"❌ '{item['종목명']}' ({item['티커']}) 데이터를 불러오지 못했습니다. (일시적인 통신 오류이거나 상장폐지/티커변경일 수 있습니다.)")
+                except Exception as e:
+                    st.error(f"❌ '{item['종목명']}' 데이터 분석 중 치명적 오류 발생: {str(e)}")
+
+elif selected_menu == "⚖️ 워런 버핏 퀀트 계산기":
+    st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
     st.write("버핏의 투자 철학(ROE, 현금흐름, 경제적 해자, 안전마진)을 수치화하여 기업의 진짜 가치를 평가합니다.")
     
     b_tab1, b_tab2, b_tab3 = st.tabs(["📊 적정 주가 계산기 (DCF 모델)", "📈 버핏 지수 & 72의 법칙", "🔍 퀀트 스크리닝 가이드"])
@@ -2560,7 +2675,7 @@ elif selected_menu == "🧪 v4.8 버핏 퀀트 계산기":
         * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
         """)
 
-elif selected_menu == "🧪 v5.0 메이저 실험실":
+elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
     st.markdown("## 🧪 v5.0 차세대 퀀트 & 포트폴리오 랩 (Beta)")
     st.write("단일 종목 분석을 넘어선 'AI 멀티 에이전트, 포트폴리오 상관관계, 대안 데이터(Sentiment), 커스텀 팩터' 기반의 하이엔드 기능을 테스트합니다.")
     
@@ -2606,7 +2721,6 @@ elif selected_menu == "🧪 v5.0 메이저 실험실":
                     response = ask_gemini(prompt, api_key_input)
                     
                     try:
-                        # 텍스트와 점수 분리 파싱
                         parts = response.split("**[최종 매력도 점수]**")
                         debate_text = parts[0].strip()
                         score_str = re.sub(r'[^0-9]', '', parts[1])
