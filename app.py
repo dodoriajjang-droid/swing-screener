@@ -2189,18 +2189,33 @@ elif selected_menu == "📰 실시간 속보/리포트":
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
         
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
-        # 👈 [핵심 수정] 이름이 긴 종목부터 찾도록 정렬 (SK하이닉스에서 이닉스를 찾는 참사 방지)
         sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
+        
+        # 👈 [핵심 업데이트] 여의도 증권가 단골 축약어 사전 도입
+        news_aliases = {
+            "삼전": "삼성전자", "두산에너빌": "두산에너빌리티", "LG엔솔": "LG에너지솔루션", 
+            "엘지엔솔": "LG에너지솔루션", "에코프로BM": "에코프로비엠", "에코머티": "에코프로머티리얼즈",
+            "한화에어로": "한화에어로스페이스", "SK이노": "SK이노베이션", "카뱅": "카카오뱅크",
+            "카페": "카카오페이", "엔씨": "엔씨소프트", "현차": "현대차", "기아차": "기아",
+            "포홀": "POSCO홀딩스", "셀트": "셀트리온", "한화오션": "한화오션", "KAI": "한화에어로스페이스" # 필요시 계속 추가 가능
+        }
         
         for i, news in enumerate(st.session_state.news_data[:50]):
             title = news['title']
-            
-            # 긴 이름부터 매칭 시도 후 첫 번째 매칭만 가져옴
             found_comps = []
-            for name in sorted_names:
-                if name in title:
-                    found_comps.append((name, krx_dict[name]))
-                    break 
+            
+            # 1. 기사 제목에 '축약어'가 있는지 가장 먼저 검사 (예: 두산에너빌 -> 두산에너빌리티)
+            for alias, real_name in news_aliases.items():
+                if alias in title and real_name in krx_dict:
+                    found_comps.append((real_name, krx_dict[real_name]))
+                    break
+            
+            # 2. 축약어가 없다면, 정렬된 공식 명칭으로 검색 (이닉스 참사 방지 로직 유지)
+            if not found_comps:
+                for name in sorted_names:
+                    if name in title:
+                        found_comps.append((name, krx_dict[name]))
+                        break 
             
             with st.container(border=True):
                 cols = st.columns([1, 6, 2, 1])
