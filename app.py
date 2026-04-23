@@ -42,7 +42,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v5.1", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v5.2", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -1359,7 +1359,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v5.1")
+    st.title("📈 Jaemini PRO v5.2")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1530,6 +1530,7 @@ if selected_menu == "🎛️ 메인 대시보드":
         else:
             with chat_container.chat_message("assistant"):
                 with st.spinner("전문가 모드로 답변을 생성 중입니다..."):
+                    # 👈 2024년 환각(Hallucination) 방지용 강력한 시스템 프롬프트 주입
                     today_str = datetime.now().strftime("%Y년 %m월 %d일")
                     macro_context = ""
                     if macro_data:
@@ -1537,7 +1538,7 @@ if selected_menu == "🎛️ 메인 대시보드":
                         
                     sys_prompt = f"""
                     당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
-                    오늘은 {today_str}입니다. 반드시 오늘 날짜를 기준으로 최신 뷰로 답변하세요. 과거의 특정 시점(예: 2024년)을 현재인 것처럼 말하지 마세요.
+                    🚨 아주 중요: 오늘은 정확히 {today_str}입니다! 현재 연도는 2026년입니다. 절대 2024년 등 과거 연도를 현재인 것처럼 말하지 마세요.
                     [매크로 데이터]: {macro_context}
                     [주의사항] 당신은 현재 실시간 개별 종목 주가 검색 권한이 없습니다! 사용자가 특정 종목의 현재가나 목표가를 물어보면, 절대 임의의 숫자를 지어내지(환각) 말고 "정확한 실시간 주가와 목표가는 좌측의 '🔬 기업 정밀 분석기' 메뉴를 이용해 주세요"라고 안내하세요.
                     사용자의 질문에 명확하고 날카롭게 답변하세요. 불필요한 서론은 빼고 핵심만 전달하세요.
@@ -1835,7 +1836,7 @@ elif selected_menu == "🚀 실시간 퀀트 스캐너 & 백테스팅":
                 else:
                     st.error("❌ 데이터를 가져오지 못했습니다. (API 제한 또는 지원하지 않는 티커)")
 
-elif selected_menu == "🔥 미국 급등주 & 밸류체인":
+elif selected_menu == "🔥 🇺🇸 미국 급등주":
     st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
     st.write("미국발 훈풍이 한국 증시에 미치는 파급력을 분석합니다. (노이즈 제거, 핵심 섹터 및 공급망 추적, 장초반 갭상승 대응 시나리오)")
 
@@ -1898,7 +1899,7 @@ elif selected_menu == "🔥 미국 급등주 & 밸류체인":
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain")
                         else: st.error("❌ 해당 종목 데이터를 불러올 수 없습니다.")
 
-elif selected_menu == "💎 장기 가치주 딥밸류 스캐너":
+elif selected_menu == "💎 장기 가치주 스캐너":
     st.markdown("## 💎 여의도 데스크: 기관급 가치주/성장주 스캐너")
     st.write("단순 테마가 아닌 실제 재무제표와 기업 가치를 분석하는 펀드매니저용 조건 검색기입니다.")
     
@@ -2037,7 +2038,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
 
-elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
+elif selected_menu == "⚡ 딥테크 & 테마":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
     
@@ -2192,19 +2193,20 @@ elif selected_menu == "📰 실시간 속보/리포트":
             title = news['title']
             found_comps = [(name, code) for name, code in krx_dict.items() if name in title][:1]
             
-            analyze_clicked = False
-            
             with st.container(border=True):
                 cols = st.columns([1, 6, 2, 1])
                 cols[0].markdown(f"**🕒 {news['time']}**")
                 cols[1].markdown(f"{title}")
                 with cols[2]:
                     if found_comps:
-                        if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{i}"):
-                            analyze_clicked = True
+                        # 👈 [업데이트] 버튼 상태를 세션에 저장하여 클릭 증발 현상 방지
+                        btn_key = f"qa_{i}"
+                        if st.button(f"🔍 {found_comps[0][0]} 분석", key=btn_key):
+                            st.session_state[f"news_analyze_{i}"] = not st.session_state.get(f"news_analyze_{i}", False)
                 cols[3].link_button("원문🔗", news['link'])
                 
-            if analyze_clicked:
+            # 👈 [업데이트] 저장된 세션 상태를 보고 카드를 렌더링
+            if st.session_state.get(f"news_analyze_{i}", False):
                 st.divider()
                 with st.spinner(f"'{found_comps[0][0]}' 차트 및 타점 분석 중..."):
                     res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
