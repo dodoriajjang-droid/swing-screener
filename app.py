@@ -18,7 +18,6 @@ import json
 import time
 import concurrent.futures
 import os
-import random
 import calendar
 import PIL.Image
 
@@ -42,7 +41,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v5.2", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v5.3", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -99,7 +98,6 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
 @st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     if not _api_key: return "API 키가 필요합니다."
-    
     vix = f"{macro_data['VIX']['value']:.2f}" if macro_data and 'VIX' in macro_data else 'N/A'
     sox = f"{macro_data['필라델피아 반도체']['value']:.2f}" if macro_data and '필라델피아 반도체' in macro_data else 'N/A'
     krw = f"{macro_data['원/달러 환율']['value']:.1f}" if macro_data and '원/달러 환율' in macro_data else 'N/A'
@@ -117,36 +115,11 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     - 전일 미국장 주요 급등주: {gainers_str}
     
     위 팩트 데이터를 바탕으로 다음 3가지 항목을 마크다운 포맷으로 가독성 좋게 작성해주세요. 
-    (말투는 명확하고 단호한 전문 트레이더의 시각으로 작성할 것. 시작할 때 '안녕하십니까. 여의도 데스크입니다. 오늘 아침 시장 대응을 위한 핵심 전략 전달합니다.' 를 포함할 것)
-    
     1. 🇺🇸 **간밤의 미 증시 요약**: 매크로 데이터와 급등주를 바탕으로 한 전일 미국장 요약 (2~3줄)
     2. 🇰🇷 **국내 증시 투자의견**: 미 증시 결과와 환율/금리가 오늘 한국 코스피/코스닥 수급에 미칠 영향 (2~3줄)
     3. 🎯 **오늘의 픽 (주목할 섹터)**: 위 데이터를 볼 때, 오늘 장중 자금이 쏠릴 것으로 예상되는 국내 수혜 섹터 1~2개와 그 이유 (1줄)
     """
     return ask_gemini(prompt, _api_key)
-
-@st.cache_data(ttl=3600)
-def get_company_summary(ticker, comp_name, _api_key):
-    if not _api_key: return "API 키가 필요합니다."
-    prompt = f"""
-    당신은 글로벌 주식 펀드매니저입니다. 미국 급등주 '{comp_name} (티커: {ticker})'에 대해 아래 내용을 마크다운으로 작성해주세요.
-    1. 🏢 **핵심 비즈니스 & 모멘텀**: 이 기업의 주가 상승을 견인한 비즈니스 모델과 최신 모멘텀을 2~3줄로 브리핑하세요.
-    2. 🇰🇷 **국내 증시 대비 포인트**: 이 기업의 상승과 연관하여, 오늘 한국 증시에서 반드시 주목해야 할 연관 테마 및 섹터를 2줄로 직관적으로 제시하세요.
-    """
-    return ask_gemini(prompt, _api_key)
-
-@st.cache_data(ttl=3600)
-def get_all_sector_info(tickers, _api_key):
-    results = {t: ("분석 대기", "분석 대기") for t in tickers}
-    if not _api_key: return results
-    try:
-        response = ask_gemini(f"당신은 월스트리트 주식 전문가입니다.\n다음 미국 주식 티커들의 섹터(Sector)와 세부 산업(Industry)을 '한국어'로 분류해주세요.\n반드시 '티커|섹터|산업' 형태로만 답변하세요.\n[티커 목록]\n{chr(10).join(tickers)}", _api_key)
-        for line in response.strip().split('\n'):
-            parts = line.split('|')
-            if len(parts) >= 3 and parts[0].strip().replace('*', '').replace('-', '') in results:
-                results[parts[0].strip().replace('*', '').replace('-', '')] = (parts[1].strip(), parts[2].strip())
-        return results
-    except: return results
 
 @st.cache_data(ttl=3600)
 def analyze_news_with_gemini(ticker, _api_key):
@@ -158,32 +131,16 @@ def analyze_news_with_gemini(ticker, _api_key):
         return ask_gemini(prompt, _api_key)
     except: return "뉴스 분석 중 오류가 발생했습니다."
 
-@st.cache_data(ttl=3600)
-def get_ai_matched_stocks(ticker, sector, industry, comp_name, _api_key):
-    if not _api_key: return []
+@st.cache_data(ttl=10800)
+def get_trending_themes_with_ai(_api_key):
+    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
+    if not _api_key: return default_themes
     try:
-        response = ask_gemini(f"미국 주식 '{comp_name}' (티커: {ticker}, 섹터: {sector}, 산업: {industry})와 비즈니스 모델이 유사하거나, 같은 테마로 움직일 수 있는 한국 코스피/코스닥 상장사 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]", _api_key)
-        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
-        krx_df = get_krx_stocks()
-        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
-        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
-        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
-        validated = []
-        seen = set()
-        for name, code in raw_list:
-            clean_name = name.replace('(주)', '').strip()
-            final_name, final_code = None, None
-            if clean_name in name_to_code:
-                final_name = clean_name
-                final_code = name_to_code[clean_name]
-            elif code in code_to_name:
-                final_name = code_to_name[code]
-                final_code = code
-            if final_name and final_code and final_code not in seen:
-                seen.add(final_code)
-                validated.append((final_name, final_code))
-        return validated[:20]
-    except: return []
+        prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 반도체장비, 2차전지, 제약바이오, 원자력"
+        response = ask_gemini(prompt, _api_key)
+        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
+        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
+    except: return default_themes
 
 @st.cache_data(ttl=3600)
 def get_theme_stocks_with_ai(theme_keyword, _api_key):
@@ -211,17 +168,6 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
                 validated.append((final_name, final_code))
         return validated[:20]
     except: return []
-
-@st.cache_data(ttl=10800)
-def get_trending_themes_with_ai(_api_key):
-    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
-    if not _api_key: return default_themes
-    try:
-        prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 반도체장비, 2차전지, 제약바이오, 원자력"
-        response = ask_gemini(prompt, _api_key)
-        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
-        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
-    except: return default_themes
 
 @st.cache_data(ttl=3600)
 def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
@@ -380,7 +326,6 @@ def get_trading_value_kings():
             else: df_fdr['Sector'] = '기타/분류불가'
             return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except: pass
-
     try:
         df_kpi = fetch_naver_volume(0, 1)
         df_kdq = fetch_naver_volume(1, 1)
@@ -423,33 +368,6 @@ def get_scan_targets(limit=50):
             targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
             if targets: return targets
     except: pass
-    try:
-        df_kpi = fetch_naver_volume(0, pages=3) 
-        df_kdq = fetch_naver_volume(1, pages=3)
-        df = pd.concat([df_kpi, df_kdq], ignore_index=True)
-        if not df.empty:
-            mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            df = df[~mask].drop_duplicates(subset=['종목명']).copy()
-            def extract_num(x):
-                try: return float(re.sub(r'[^\d\.\-]', '', str(x)))
-                except: return 0.0
-            df['Close'] = df['현재가'].apply(extract_num)
-            df['Volume'] = df['거래량'].apply(extract_num)
-            df['Amount'] = df['Close'] * df['Volume']
-            df = df.sort_values('Amount', ascending=False).head(limit)
-            krx = get_krx_stocks()
-            if not krx.empty:
-                df = pd.merge(df, krx[['Name', 'Code']], left_on='종목명', right_on='Name', how='inner')
-                targets = df[['Name', 'Code']].values.tolist()
-                if targets: return targets
-    except: pass
-    try:
-        krx = get_krx_stocks()
-        if not krx.empty:
-            mask = krx['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
-            krx = krx[~mask].drop_duplicates(subset=['Name'])
-            return krx.head(limit)[['Name', 'Code']].values.tolist()
-    except: pass
     return []
 
 @st.cache_data(ttl=300)
@@ -487,9 +405,6 @@ def get_limit_stocks():
     if not lower_df.empty and not krx.empty:
         lower_df = pd.merge(lower_df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
         lower_df['Sector'] = lower_df['Sector'].fillna('개별이슈/기타')
-    for col in ['Code', 'Sector', 'Close', 'Changes', 'ChagesRatio', 'Amount_Ouk', 'PrevClose', 'Name']:
-        if col not in upper_df.columns: upper_df[col] = "기타" if col == 'Sector' else 0
-        if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
 @st.cache_data(ttl=600)
@@ -760,9 +675,7 @@ def get_fundamentals(ticker_code):
             info = t_obj.info
             per = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
             pbr = round(info.get('priceToBook', 0), 2) if info.get('priceToBook') else 'N/A'
-            
             target_price = info.get('targetMeanPrice', 'N/A')
-            
             fcf = None
             shares = info.get('sharesOutstanding', None)
             
@@ -1107,6 +1020,21 @@ def get_dividend_portfolio(ex_rate=1350.0):
     return {k: pd.DataFrame(v) for k, v in results.items()}
 
 @st.cache_data(ttl=86400)
+def get_nps_holdings_mock():
+    return pd.DataFrame([
+        {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.52%", "최근변동": "유지"},
+        {"종목명": "SK하이닉스", "티커": "000660", "보유비중": "8.12%", "최근변동": "확대"},
+        {"종목명": "현대차", "티커": "005380", "보유비중": "7.35%", "최근변동": "확대"},
+        {"종목명": "NAVER", "티커": "035420", "보유비중": "8.99%", "최근변동": "유지"},
+        {"종목명": "카카오", "티커": "035720", "보유비중": "5.41%", "최근변동": "축소"},
+        {"종목명": "LG에너지솔루션", "티커": "373220", "보유비중": "5.01%", "최근변동": "유지"},
+        {"종목명": "POSCO홀딩스", "티커": "005490", "보유비중": "6.71%", "최근변동": "유지"},
+        {"종목명": "셀트리온", "티커": "068270", "보유비중": "6.22%", "최근변동": "확대"},
+        {"종목명": "삼성SDI", "티커": "006400", "보유비중": "8.34%", "최근변동": "축소"},
+        {"종목명": "LG화학", "티커": "051910", "보유비중": "7.15%", "최근변동": "유지"}
+    ])
+
+@st.cache_data(ttl=3600)
 def get_us_sector_etfs():
     sectors = {
         "반도체 (SOXX)": "SOXX",
@@ -1359,7 +1287,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v5.2")
+    st.title("📈 Jaemini PRO v5.3")
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
@@ -1530,7 +1458,6 @@ if selected_menu == "🎛️ 메인 대시보드":
         else:
             with chat_container.chat_message("assistant"):
                 with st.spinner("전문가 모드로 답변을 생성 중입니다..."):
-                    # 👈 2024년 환각(Hallucination) 방지용 강력한 시스템 프롬프트 주입
                     today_str = datetime.now().strftime("%Y년 %m월 %d일")
                     macro_context = ""
                     if macro_data:
@@ -2189,28 +2116,25 @@ elif selected_menu == "📰 실시간 속보/리포트":
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
         
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
-        sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
-        
-        # 👈 [핵심 업데이트] 여의도 증권가 단골 축약어 사전 도입
+        # 여의도 단골 축약어 사전 적용 (이닉스 같은 부분 일치 오류 완벽 차단)
         news_aliases = {
             "삼전": "삼성전자", "두산에너빌": "두산에너빌리티", "LG엔솔": "LG에너지솔루션", 
             "엘지엔솔": "LG에너지솔루션", "에코프로BM": "에코프로비엠", "에코머티": "에코프로머티리얼즈",
             "한화에어로": "한화에어로스페이스", "SK이노": "SK이노베이션", "카뱅": "카카오뱅크",
             "카페": "카카오페이", "엔씨": "엔씨소프트", "현차": "현대차", "기아차": "기아",
-            "포홀": "POSCO홀딩스", "셀트": "셀트리온", "한화오션": "한화오션", "KAI": "한화에어로스페이스" # 필요시 계속 추가 가능
+            "포홀": "POSCO홀딩스", "셀트": "셀트리온", "한화오션": "한화오션", "KAI": "한국항공우주"
         }
+        sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
         
         for i, news in enumerate(st.session_state.news_data[:50]):
             title = news['title']
             found_comps = []
             
-            # 1. 기사 제목에 '축약어'가 있는지 가장 먼저 검사 (예: 두산에너빌 -> 두산에너빌리티)
             for alias, real_name in news_aliases.items():
                 if alias in title and real_name in krx_dict:
                     found_comps.append((real_name, krx_dict[real_name]))
                     break
             
-            # 2. 축약어가 없다면, 정렬된 공식 명칭으로 검색 (이닉스 참사 방지 로직 유지)
             if not found_comps:
                 for name in sorted_names:
                     if name in title:
@@ -2222,7 +2146,6 @@ elif selected_menu == "📰 실시간 속보/리포트":
                 cols[0].markdown(f"**🕒 {news['time']}**")
                 cols[1].markdown(f"{title}")
                 
-                analyze_clicked = False
                 with cols[2]:
                     if found_comps:
                         btn_key = f"qa_{i}"
