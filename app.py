@@ -2664,6 +2664,10 @@ elif selected_menu == "⚖️ 워런 버핏 퀀트 계산기":
         """)
 
 elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
+    # 가격대별 스캐너 세션 상태 초기화 (화면 날아감 방지용)
+    if 'price_scan_results' not in st.session_state:
+        st.session_state.price_scan_results = None
+
     st.markdown("## 🧪 v5.0 차세대 퀀트 & 포트폴리오 랩 (Beta)")
     st.write("단일 종목 분석을 넘어선 'AI 멀티 에이전트, 포트폴리오 상관관계, 대안 데이터(Sentiment), 커스텀 팩터, 조건 검색' 기반의 하이엔드 기능을 테스트합니다.")
     
@@ -2672,7 +2676,7 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         "🛡️ 2. 리스크 상관계수 맵", 
         "👥 3. 군중 심리(FOMO) 트래커", 
         "⚙️ 4. 팩터 커스텀 스튜디오",
-        "💰 5. 금액대별 종목 스캐너" # 👈 신규 탭 추가
+        "💰 5. 금액대별 종목 스캐너"
     ])
     
     # ----------------------------------------------------
@@ -2967,17 +2971,17 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                         step=1000 if market_choice == "🇰🇷 국내 주식" else 5.0)
             
             scan_limit = st.number_input("최대 검색 종목 수", min_value=10, max_value=100, value=30, step=10)
-            scan_btn = st.form_submit_button("🚀 가격대별 스캔 시작", type="primary", use_container_width=True)
+            scan_btn = st.form_submit_button("🚀 가격대별 초고속 병렬 스캔 시작", type="primary", use_container_width=True)
 
         if scan_btn:
-            with st.spinner(f"설정된 가격대({price_range[0]} ~ {price_range[1]} {unit_label})의 종목을 스캔 중입니다..."):
+            with st.spinner(f"설정된 가격대({price_range[0]:,} ~ {price_range[1]:,} {unit_label})의 종목을 병렬 스캔 중입니다..."):
                 found_stocks = []
                 
-                # 1. 국내 주식 스캔 (거래소 전체 목록에서 필터링)
+                # 1. 국내 주식 병렬 스캔
                 if market_choice == "🇰🇷 국내 주식":
                     krx_df = get_krx_stocks()
                     if not krx_df.empty:
-                        # 샘플링하여 스캔 (전수 조사는 너무 오래 걸림)
+                        # 전수 조사는 너무 오래 걸리므로 일부 샘플링 진행
                         sample_stocks = krx_df.sample(n=min(len(krx_df), 300)).values.tolist()
                         progress_bar = st.progress(0)
                         status_text = st.empty()
@@ -2989,8 +2993,7 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                 if not df.empty:
                                     current_price = float(df['Close'].iloc[-1])
                                     if price_range[0] <= current_price <= price_range[1]:
-                                        res = analyze_technical_pattern(name, code)
-                                        return res
+                                        return analyze_technical_pattern(name, code)
                             except: pass
                             return None
                             
@@ -3001,38 +3004,67 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                 completed += 1
                                 if res: 
                                     found_stocks.append(res)
-                                    if len(found_stocks) >= scan_limit: break # 목표 개수 달성 시 중단
-                                progress_bar.progress(min(completed / 100, 1.0))
+                                progress_bar.progress(min(completed / len(sample_stocks), 1.0))
                                 status_text.text(f"스캔 진행 중... {len(found_stocks)}개 포착")
-                                
-                # 2. 미국 주식 스캔 (S&P 500 등 주요 ETF 구성종목이나 야후 실시간 데이터 기반으로 구현해야 하지만, 
-                # 실시간 전수 조사가 어려워 거래대금 상위/급등주 위주로 필터링)
+                                if len(found_stocks) >= scan_limit: 
+                                    break 
+                                    
+                # 2. 미국 주식 병렬 스캔
                 else:
                     st.info("미국 주식은 실시간 급등주 목록(Yahoo Finance) 중에서 해당 가격대를 필터링합니다.")
                     us_df, _, _ = get_us_top_gainers()
                     if not us_df.empty:
                         progress_bar = st.progress(0)
                         status_text = st.empty()
+                        us_targets = us_df[['종목코드', '기업명']].values.tolist()
                         
-                        for i, row in us_df.iterrows():
-                            ticker = row['종목코드']
-                            name = row['기업명']
+                        def check_us_price(stock):
+                            ticker, name = stock
                             try:
                                 df = get_historical_data(ticker, 5)
                                 if not df.empty:
                                     current_price = float(df['Close'].iloc[-1])
                                     if price_range[0] <= current_price <= price_range[1]:
-                                        res = analyze_technical_pattern(name, ticker)
-                                        if res: found_stocks.append(res)
+                                        return analyze_technical_pattern(name, ticker)
                             except: pass
+                            return None
                             
-                            progress_bar.progress((i + 1) / len(us_df))
-                            status_text.text(f"미국장 스캔 진행 중... {len(found_stocks)}개 포착")
-                            if len(found_stocks) >= scan_limit: break
+                        completed = 0
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                            for future in concurrent.futures.as_completed({executor.submit(check_us_price, s): s for s in us_targets}):
+                                res = future.result()
+                                completed += 1
+                                if res: 
+                                    found_stocks.append(res)
+                                progress_bar.progress(min(completed / len(us_targets), 1.0))
+                                status_text.text(f"미국장 스캔 진행 중... {len(found_stocks)}개 포착")
+                                if len(found_stocks) >= scan_limit: 
+                                    break
 
-                if found_stocks:
-                    st.success(f"🎯 지정한 가격대에서 총 {len(found_stocks)}개의 종목을 찾았습니다!")
-                    for i, res in enumerate(found_stocks):
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"price_scan_{i}")
-                else:
-                    st.warning("조건에 맞는 종목을 찾지 못했습니다. 가격 범위를 조절해보세요.")
+                # 화면 새로고침(정렬 등)에 대비해 세션에 저장
+                st.session_state.price_scan_results = found_stocks
+                st.rerun()
+
+        # ----------------------------------------------------
+        # 스캔 결과 렌더링 및 정렬 파트
+        # ----------------------------------------------------
+        if st.session_state.get('price_scan_results') is not None:
+            res_list = st.session_state.price_scan_results
+            if not res_list:
+                st.warning("조건에 맞는 종목을 찾지 못했습니다. 가격 범위를 조절해보세요.")
+            else:
+                st.success(f"🎯 지정한 가격대에서 총 {len(res_list)}개의 종목을 찾았습니다!")
+                
+                # 👈 [핵심 추가] 결과 정렬 UI (라디오 버튼)
+                sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본 (검색순)", "현재가 낮은순 🔽", "현재가 높은순 🔼", "RSI 낮은순 (바닥)"], horizontal=True, key="price_scan_sort")
+                
+                display_list = res_list.copy()
+                if sort_opt == "현재가 낮은순 🔽":
+                    display_list.sort(key=lambda x: x['현재가'])
+                elif sort_opt == "현재가 높은순 🔼":
+                    display_list.sort(key=lambda x: x['현재가'], reverse=True)
+                elif sort_opt == "RSI 낮은순 (바닥)":
+                    display_list.sort(key=lambda x: x['RSI'])
+                    
+                for i, res in enumerate(display_list):
+                    draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"price_scan_{i}")
