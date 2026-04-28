@@ -1220,14 +1220,13 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 pbr_val = tech_result.get('PBR', 'N/A')
                 st.markdown(f"🏢 **핵심 펀더멘털 (TTM)**<br>**PER:** `{per_val}` ｜ **PBR:** `{pbr_val}`", unsafe_allow_html=True)
         
-        # 👈 [핵심 업데이트] AI 딥다이브 버튼 중첩 오류(증발 현상) 해결을 위한 세션 저장
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             ai_btn_key = f"ai_btn_{tech_result['티커']}_{key_suffix}"
             ai_res_key = f"ai_res_{ai_btn_key}"
             
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=ai_btn_key):
-                st.session_state[ai_res_key] = "loading" # 로딩 트리거
+                st.session_state[ai_res_key] = "loading"
                 
             if st.session_state.get(ai_res_key):
                 if st.session_state[ai_res_key] == "loading":
@@ -1298,7 +1297,44 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
-                    if not daily_df.empty: st.dataframe(daily_df, use_container_width=True, hide_index=True)
+                    if not daily_df.empty:
+                        # 👈 [업데이트] 당일 장중 잠정수급을 표 맨 윗줄에 병합
+                        if tech_result.get('장중잠정수급'):
+                            est = tech_result['장중잠정수급']
+                            today_date = datetime.now().strftime('%Y.%m.%d')
+                            # 장이 끝나서 이미 오늘 날짜가 정식으로 반영되었는지 체크 (중복 방지)
+                            if daily_df.iloc[0]['날짜'] != today_date:
+                                def fmt_v(v):
+                                    if v > 0: return f"🔴 +{v:,}"
+                                    elif v < 0: return f"🔵 {v:,}"
+                                    return "0"
+                                
+                                est_f = est['forgn']
+                                est_i = est['inst']
+                                est_r = -(est_f + est_i)
+                                
+                                try:
+                                    prev_close = int(daily_df.iloc[0]['종가'].replace(',', ''))
+                                    curr_price = int(tech_result['현재가'])
+                                    diff = curr_price - prev_close
+                                    diff_str = f"상승 {diff:,}" if diff > 0 else f"하락 {abs(diff):,}" if diff < 0 else "보합 0"
+                                    pct_str = f"{'+' if diff > 0 else ''}{(diff / prev_close) * 100:.2f}%"
+                                except:
+                                    diff_str = "-"
+                                    pct_str = "-"
+                                    
+                                new_row = pd.DataFrame([{
+                                    "날짜": f"{today_date} ({est['time']} 잠정)",
+                                    "종가": f"{int(tech_result['현재가']):,}",
+                                    "전일비": diff_str,
+                                    "등락률": pct_str,
+                                    "외국인": fmt_v(est_f),
+                                    "기관": fmt_v(est_i),
+                                    "개인(추정)": fmt_v(est_r)
+                                }])
+                                daily_df = pd.concat([new_row, daily_df], ignore_index=True)
+                                
+                        st.dataframe(daily_df, use_container_width=True, hide_index=True)
                     else: st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: st.error("데이터를 불러오지 못했습니다.")
 
