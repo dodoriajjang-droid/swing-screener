@@ -2665,13 +2665,14 @@ elif selected_menu == "⚖️ 워런 버핏 퀀트 계산기":
 
 elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
     st.markdown("## 🧪 v5.0 차세대 퀀트 & 포트폴리오 랩 (Beta)")
-    st.write("단일 종목 분석을 넘어선 'AI 멀티 에이전트, 포트폴리오 상관관계, 대안 데이터(Sentiment), 커스텀 팩터' 기반의 하이엔드 기능을 테스트합니다.")
+    st.write("단일 종목 분석을 넘어선 'AI 멀티 에이전트, 포트폴리오 상관관계, 대안 데이터(Sentiment), 커스텀 팩터, 조건 검색' 기반의 하이엔드 기능을 테스트합니다.")
     
-    v5_tab1, v5_tab2, v5_tab3, v5_tab4 = st.tabs([
+    v5_tab1, v5_tab2, v5_tab3, v5_tab4, v5_tab5 = st.tabs([
         "🤖 1. AI 멀티 에이전트 토론", 
         "🛡️ 2. 리스크 상관계수 맵", 
         "👥 3. 군중 심리(FOMO) 트래커", 
-        "⚙️ 4. 팩터 커스텀 스튜디오"
+        "⚙️ 4. 팩터 커스텀 스튜디오",
+        "💰 5. 금액대별 종목 스캐너" # 👈 신규 탭 추가
     ])
     
     # ----------------------------------------------------
@@ -2681,7 +2682,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🤖 AI 전문가 3인방 난상토론 & 스코어링")
         st.caption("차트 전문가, 가치투자 매니저, 매크로 이코노미스트가 한 종목을 두고 각자의 시각에서 평가합니다.")
         
-        # 👈 [업데이트] 엔터키 작동을 위해 st.form으로 묶음
         with st.form(key="debate_form"):
             debate_ticker = st.text_input("분석할 종목명 또는 티커 입력 (예: 삼성전자, 005930, AAPL)").upper()
             debate_btn = st.form_submit_button("🔥 난상토론 시작", type="primary", use_container_width=True)
@@ -2735,7 +2735,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                     ]
                                 }
                             ))
-                            # 👈 [업데이트] 글자가 잘리지 않도록 상단 여백(t)을 60으로 증가
                             fig_gauge.update_layout(height=250, margin=dict(l=10, r=10, t=60, b=10))
                             st.plotly_chart(fig_gauge, use_container_width=True)
                             
@@ -2749,7 +2748,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 🛡️ 내 계좌 리스크 (상관계수) 히트맵")
         st.write("보유 종목들이 얼마나 비슷하게 움직이는지(동조화 현상) 확인하여, 계좌가 한 번에 박살나는 것을 방지하세요. (빨간색일수록 같이 움직이고, 파란색일수록 반대로 움직입니다.)")
         
-        # 👈 [업데이트] 엔터키 작동 폼
         with st.form(key="corr_form"):
             default_tickers = "삼성전자, 현대차, SK하이닉스, AAPL, TSLA"
             port_input = st.text_input("분석할 종목들을 쉼표(,)로 구분해 입력하세요 (국장/미장 혼합 가능)", value=default_tickers)
@@ -2797,7 +2795,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### 👥 군중 심리 트래커 (FOMO vs FUD)")
         st.write("최신 금융 뉴스 헤드라인들을 AI가 자연어 처리(NLP)하여 현재 대중들의 탐욕(FOMO)과 공포(FUD) 수준을 측정합니다.")
         
-        # 👈 [업데이트] 엔터키 작동 폼
         with st.form(key="senti_form"):
             senti_ticker = st.text_input("심리 분석을 원하는 종목명 또는 티커 (예: 에코프로, PLTR, 삼성전자)")
             senti_btn = st.form_submit_button("🧠 심리 지수 추출", type="primary", use_container_width=True)
@@ -2872,7 +2869,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                                         ]
                                     }
                                 ))
-                                # 👈 [업데이트] 글자가 잘리지 않도록 상단 여백(t)을 60으로 증가
                                 fig_senti.update_layout(height=300, margin=dict(l=10, r=10, t=60, b=10))
                                 st.plotly_chart(fig_senti, use_container_width=True)
                             with s_col2:
@@ -2890,7 +2886,6 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
         st.markdown("### ⚙️ 나만의 퀀트 팩터 커스텀 스튜디오")
         st.write("단순한 골든크로스를 넘어, RSI와 단기/장기 이평선을 내 마음대로 조작하여 최적의 승률을 찾아내는 시뮬레이터입니다.")
         
-        # 👈 [업데이트] 엔터키 작동 폼
         with st.form(key="factor_form"):
             c_fac1, c_fac2, c_fac3 = st.columns(3)
             with c_fac1: custom_ticker = st.text_input("테스트 종목 (국/미장 모두 가능)", value="삼성전자")
@@ -2945,9 +2940,99 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                         res2.metric("커스텀 전략 적용 수익률", f"{final_strat:.2f}%", f"{final_strat - final_market:.2f}%p 대비")
                         
                         if final_strat > final_market:
-                            st.success("🎉 축하합니다! 하락장 방어와 매수 타점 조절을 통해 단순 보유보다 더 뛰어난 알파(Alpha) 수익을 창출했습니다.")
+                            st.success("🎉 축하합니다! 하락장 방어와 매수 타점 조절을 통해 단순 보유보다 더 뛰어난 알파(Alpha) 수익 창출에 성공했습니다.")
                         else:
-                            st.warning("🤔 잦은 매매 시그널로 인해 수익률이 깎였습니다. 이평선 길이를 늘리거나 RSI 조건을 완화해 보세요.")
+                            st.warning("🤔 잦은 매매 시그널로 인해 오히려 수익률이 깎였습니다. 이평선 길이를 늘리거나 RSI 조건을 완화해 보세요.")
 
                 except Exception as e:
                     st.error(f"시뮬레이션 중 오류 발생: {str(e)}")
+
+    # ----------------------------------------------------
+    # 5. 금액대별 종목 스캐너
+    # ----------------------------------------------------
+    with v5_tab5:
+        st.markdown("### 💰 금액대별 실시간 종목 스캐너")
+        st.write("원하는 가격대의 주식을 빠르게 검색하고 기술적 타점을 분석합니다.")
+        
+        with st.form("price_scan_form"):
+            c_p1, c_p2 = st.columns(2)
+            with c_p1:
+                market_choice = st.selectbox("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"])
+            with c_p2:
+                # 시장에 따라 단위 라벨 변경
+                unit_label = "원" if market_choice == "🇰🇷 국내 주식" else "달러($)"
+                price_range = st.slider(f"검색할 가격대 ({unit_label})", min_value=1000 if market_choice == "🇰🇷 국내 주식" else 1.0, 
+                                        max_value=1000000 if market_choice == "🇰🇷 국내 주식" else 1000.0, 
+                                        value=(10000, 50000) if market_choice == "🇰🇷 국내 주식" else (50.0, 200.0),
+                                        step=1000 if market_choice == "🇰🇷 국내 주식" else 5.0)
+            
+            scan_limit = st.number_input("최대 검색 종목 수", min_value=10, max_value=100, value=30, step=10)
+            scan_btn = st.form_submit_button("🚀 가격대별 스캔 시작", type="primary", use_container_width=True)
+
+        if scan_btn:
+            with st.spinner(f"설정된 가격대({price_range[0]} ~ {price_range[1]} {unit_label})의 종목을 스캔 중입니다..."):
+                found_stocks = []
+                
+                # 1. 국내 주식 스캔 (거래소 전체 목록에서 필터링)
+                if market_choice == "🇰🇷 국내 주식":
+                    krx_df = get_krx_stocks()
+                    if not krx_df.empty:
+                        # 샘플링하여 스캔 (전수 조사는 너무 오래 걸림)
+                        sample_stocks = krx_df.sample(n=min(len(krx_df), 300)).values.tolist()
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        def check_price(stock):
+                            name, code, _ = stock
+                            try:
+                                df = get_historical_data(code, 5)
+                                if not df.empty:
+                                    current_price = float(df['Close'].iloc[-1])
+                                    if price_range[0] <= current_price <= price_range[1]:
+                                        res = analyze_technical_pattern(name, code)
+                                        return res
+                            except: pass
+                            return None
+                            
+                        completed = 0
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                            for future in concurrent.futures.as_completed({executor.submit(check_price, s): s for s in sample_stocks}):
+                                res = future.result()
+                                completed += 1
+                                if res: 
+                                    found_stocks.append(res)
+                                    if len(found_stocks) >= scan_limit: break # 목표 개수 달성 시 중단
+                                progress_bar.progress(min(completed / 100, 1.0))
+                                status_text.text(f"스캔 진행 중... {len(found_stocks)}개 포착")
+                                
+                # 2. 미국 주식 스캔 (S&P 500 등 주요 ETF 구성종목이나 야후 실시간 데이터 기반으로 구현해야 하지만, 
+                # 실시간 전수 조사가 어려워 거래대금 상위/급등주 위주로 필터링)
+                else:
+                    st.info("미국 주식은 실시간 급등주 목록(Yahoo Finance) 중에서 해당 가격대를 필터링합니다.")
+                    us_df, _, _ = get_us_top_gainers()
+                    if not us_df.empty:
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        for i, row in us_df.iterrows():
+                            ticker = row['종목코드']
+                            name = row['기업명']
+                            try:
+                                df = get_historical_data(ticker, 5)
+                                if not df.empty:
+                                    current_price = float(df['Close'].iloc[-1])
+                                    if price_range[0] <= current_price <= price_range[1]:
+                                        res = analyze_technical_pattern(name, ticker)
+                                        if res: found_stocks.append(res)
+                            except: pass
+                            
+                            progress_bar.progress((i + 1) / len(us_df))
+                            status_text.text(f"미국장 스캔 진행 중... {len(found_stocks)}개 포착")
+                            if len(found_stocks) >= scan_limit: break
+
+                if found_stocks:
+                    st.success(f"🎯 지정한 가격대에서 총 {len(found_stocks)}개의 종목을 찾았습니다!")
+                    for i, res in enumerate(found_stocks):
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"price_scan_{i}")
+                else:
+                    st.warning("조건에 맞는 종목을 찾지 못했습니다. 가격 범위를 조절해보세요.")
