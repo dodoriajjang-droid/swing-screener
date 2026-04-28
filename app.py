@@ -585,10 +585,8 @@ def get_investor_trend(code):
         res = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
         rows = soup.select('table.type2')[1].select('tr')
-        inst_sum, forgn_sum, ind_sum = 0, 0, 0
-        inst_streak, forgn_streak, ind_streak = 0, 0, 0
-        inst_break, forgn_break, ind_break = False, False, False
-        count = 0
+        
+        i_vals, f_vals, p_vals = [], [], []
         for row in rows:
             tds = row.select('td')
             if len(tds) < 9 or not tds[0].text.strip(): continue 
@@ -596,23 +594,38 @@ def get_investor_trend(code):
                 i_val = int(tds[5].text.strip().replace(',', '').replace('+', ''))
                 f_val = int(tds[6].text.strip().replace(',', '').replace('+', ''))
                 p_val = -(i_val + f_val) 
-                inst_sum += i_val
-                forgn_sum += f_val
-                ind_sum += p_val
-                if i_val > 0 and not inst_break: inst_streak += 1
-                elif i_val <= 0: inst_break = True
-                if f_val > 0 and not forgn_break: forgn_streak += 1
-                elif f_val <= 0: forgn_break = True
-                if p_val > 0 and not ind_break: ind_streak += 1
-                elif p_val <= 0: ind_break = True
-                count += 1
+                i_vals.append(i_val)
+                f_vals.append(f_val)
+                p_vals.append(p_val)
             except: pass
-            if count >= 5: break 
-        def fmt(v, streak): 
-            base = f"+{v:,}" if v > 0 else f"{v:,}"
-            if streak >= 3: return f"{base} (🔥{streak}일 연속 매집)"
-            return f"{base} ({'🔥매집' if v>0 else '💧매도' if v<0 else '➖중립'})"
-        return fmt(inst_sum, inst_streak), fmt(forgn_sum, forgn_streak), fmt(ind_sum, ind_streak), inst_streak, forgn_streak
+            if len(i_vals) >= 5: break 
+            
+        def calc_trend(vals):
+            if not vals: return "0 (➖중립)", 0
+            total = sum(vals)
+            buy_streak, sell_streak = 0, 0
+            
+            # 연속 매수/매도 추적
+            for v in vals:
+                if v > 0: buy_streak += 1
+                else: break
+            for v in vals:
+                if v < 0: sell_streak += 1
+                else: break
+                
+            # 합산 결과(Total)에 맞춰 아이콘 완벽 통일
+            if total > 0: desc = f"🔥{buy_streak}일 연속 매집" if buy_streak >= 3 else "🔥매집"
+            elif total < 0: desc = f"💧{sell_streak}일 연속 매도" if sell_streak >= 3 else "💧매도"
+            else: desc = "➖중립"
+            
+            base = f"+{total:,}" if total > 0 else f"{total:,}"
+            return f"{base} ({desc})", buy_streak
+
+        i_str, i_streak = calc_trend(i_vals)
+        f_str, f_streak = calc_trend(f_vals)
+        p_str, _ = calc_trend(p_vals)
+        
+        return i_str, f_str, p_str, i_streak, f_streak
     except: return "조회불가", "조회불가", "조회불가", 0, 0
 
 @st.cache_data(ttl=3600)
