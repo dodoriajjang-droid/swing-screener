@@ -1934,7 +1934,7 @@ elif selected_menu == "💎 장기 가치주 스캐너":
                     st.session_state.value_scan_results = value_results
                     st.rerun()
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
-
+        
 elif selected_menu == "🔬 기업 정밀 분석기":
     st.markdown("## 🔬 기업 정밀 분석기 (차트/수급/비전 AI)")
     
