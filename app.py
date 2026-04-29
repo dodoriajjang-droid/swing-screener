@@ -102,37 +102,100 @@ def get_us_sector_etfs():
         '등락률': [1.5, -0.2, 0.8, -1.1, 2.1]
     })
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=3600)
 def get_naver_ipo_data():
-    return pd.DataFrame({
-        '종목명': ['에이치디현대마린솔루션', '노브랜드', '아이씨티케이'],
-        '상장일': ['2026-05-08', '2026-05-23', '2026-05-17'],
-        '공모가': ['83,400원', '14,000원', '20,000원'],
-        '주간사': ['KB증권', '삼성증권', 'NH투자증권']
-    })
+    # 1. 38.co.kr 실시간 IPO 스크래핑 시도
+    try:
+        url = "http://www.38.co.kr/html/fund/index.htm?o=k"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        res.encoding = 'euc-kr'
+        tables = pd.read_html(StringIO(res.text))
+        
+        for t in tables:
+            if '기업명' in t.columns and '공모청약일' in t.columns:
+                df = t.dropna(subset=['기업명', '공모청약일']).copy()
+                df = df[df['기업명'] != '기업명']
+                
+                res_df = pd.DataFrame()
+                res_df['종목명'] = df['기업명']
+                res_df['청약일정'] = df['공모청약일']
+                res_df['확정공모가'] = df['확정공모가']
+                res_df['주간사'] = df['주간사']
+                if not res_df.empty:
+                    return res_df.head(15).reset_index(drop=True)
+    except: pass
+    
+    # 2. 38.co.kr 실패 시 네이버 금융 IPO 스크래핑 폴백
+    try:
+        url = "https://finance.naver.com/sise/ipo.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
+        for t in tables:
+            if '종목명' in t.columns and '희망공모가' in t.columns:
+                df = t.dropna(subset=['종목명']).copy()
+                if not df.empty:
+                    return df[['종목명', '공모일정', '희망공모가', '주간사']].head(15).reset_index(drop=True)
+    except: pass
+    
+    return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
-    # 1. KRX (네이버 금융 스크래핑을 통한 실제 배당 상위 100종목 추출)
+    # 1. KRX (네이버 금융 실제 배당 상위 100종목 스크래핑)
     krx_list = []
     try:
-        for page in [1, 2]:
+        for page in range(1, 3): # 페이지 1, 2 (한 페이지당 약 50개)
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
-            df = tables[0].dropna(subset=['종목명'])
-            for _, row in df.iterrows():
-                krx_list.append({
-                    '종목명': row['종목명'], 
-                    '현재가': f"{int(row['현재가']):,}원", 
-                    '배당수익률(예상)': f"{row['수익률(%)']}%"
-                })
-    except:
-        # 스크래핑 실패 시 안전을 위한 100개 목업
-        krx_list = [{'종목명': f'고배당_KRX_{i}', '현재가': '10,000원', '배당수익률(예상)': '5.0%'} for i in range(1, 101)]
-    krx_df = pd.DataFrame(krx_list).head(100)
+            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+            table = soup.find('table', {'class': 'type_2'})
+            
+            if table:
+                trs = table.find_all('tr')
+                for tr in trs:
+                    tds = tr.find_all('td')
+                    if len(tds) >= 7:
+                        name = tds[0].text.strip()
+                        price = tds[1].text.strip()
+                        yield_pct = tds[6].text.strip()
+                        if name and yield_pct and yield_pct != '-':
+                            krx_list.append({
+                                '종목명': name, 
+                                '현재가': f"{price}원", 
+                                '배당수익률(예상)': f"{yield_pct}%"
+                            })
+    except: pass
+    
+    krx_df = pd.DataFrame(krx_list).head(100) if krx_list else pd.DataFrame()
 
-    # 2. US 배당주 TOP 100 (실제 고배당+우량주 50개 기반 확장)
+    # 미국 및 ETF 한글 이름 매핑 딕셔너리
+    us_ko_map = {
+        "O": "리얼티 인컴", "KO": "코카콜라", "JNJ": "존슨앤드존슨", "PEP": "펩시코", "XOM": "엑슨모빌", 
+        "CVX": "셰브론", "VZ": "버라이즌", "PFE": "화이자", "ABBV": "애브비", "MRK": "머크",
+        "PG": "프록터앤드갬블(P&G)", "PM": "필립 모리스", "IBM": "IBM", "MMM": "3M", "T": "AT&T", 
+        "MO": "알트리아", "MCD": "맥도날드", "WBA": "월그린스 부츠 얼라이언스", "HD": "홈디포", "KMB": "킴벌리-클라크",
+        "DOW": "다우", "UNP": "유니언 퍼시픽", "CAT": "캐터필러", "INTC": "인텔", "CSCO": "시스코 시스템즈",
+        "AMGN": "암젠", "GILD": "길리어드 사이언스", "TXN": "텍사스 인스트루먼트", "SO": "서던 컴퍼니", "UPS": "UPS",
+        "BMY": "브리스톨 마이어스 스퀴브", "CMCSA": "컴캐스트", "COP": "코노코필립스", "EMR": "에머슨 일렉트릭", "USB": "US 방코프",
+        "DUK": "듀크 에너지", "WM": "웨이스트 매니지먼트", "F": "포드 모터", "CL": "콜게이트-팔몰리브", "TGT": "타겟",
+        "MET": "메트라이프", "KHC": "크래프트 하인즈", "LMT": "록히드 마틴", "SYY": "시스코(Sysco)", "AEP": "아메리칸 일렉트릭 파워",
+        "ED": "콘에디슨", "SLB": "슐럼버거", "VLO": "발레로 에너지", "BXP": "보스턴 프로퍼티스", "WMB": "윌리엄스 컴퍼니즈"
+    }
+    
+    etf_ko_map = {
+        "SCHD": "슈왑 US 디비던드 에쿼티", "JEPI": "JP모건 에쿼티 프리미엄 인컴", "VYM": "뱅가드 고배당 수익", "VIG": "뱅가드 배당 성장", "SPYD": "SPDR 포트폴리오 S&P 500 고배당",
+        "JEPQ": "JP모건 나스닥 에쿼티 프리미엄", "DGRO": "아이셰어즈 핵심 배당 성장", "NOBL": "프로셰어즈 S&P 500 배당 귀족", "DVY": "아이셰어즈 셀렉트 배당", "SDY": "SPDR S&P 배당",
+        "HDV": "아이셰어즈 코어 고배당", "PFF": "아이셰어즈 우선주 및 인컴 증권", "TLT": "아이셰어즈 20년 이상 미 국채", "HYG": "아이셰어즈 iBoxx 하이일드 회사채", "LQD": "아이셰어즈 iBoxx 투자등급 회사채",
+        "VNQ": "뱅가드 부동산", "REM": "아이셰어즈 모기지 부동산", "EMB": "아이셰어즈 J.P. Morgan 달러 이머징마켓 채권", "IGSB": "아이셰어즈 단기 투자등급 회사채", "JNK": "SPDR 블룸버그 하이일드 채권",
+        "SHG": "프로셰어즈 쇼트 S&P500", "SJNK": "SPDR 단기 하이일드 채권", "FLOT": "아이셰어즈 변동금리 채권", "VCIT": "뱅가드 중기 회사채", "BSV": "뱅가드 단기 채권",
+        "VCSH": "뱅가드 단기 회사채", "BND": "뱅가드 총 채권 시장", "AGG": "아이셰어즈 코어 미국 총 채권", "USIG": "아이셰어즈 광범위 투자등급 회사채", "IUSB": "아이셰어즈 코어 총 USD 채권 시장",
+        "SPSB": "SPDR 포트폴리오 단기 회사채", "SPIB": "SPDR 포트폴리오 중기 회사채", "SLQD": "아이셰어즈 0-5년 투자등급 회사채", "IGIB": "아이셰어즈 중기 투자등급 회사채", "IGHG": "프로셰어즈 투자등급 이자율 헤지 회사채",
+        "VTC": "뱅가드 회사채", "VTEB": "뱅가드 면세 채권", "IEF": "아이셰어즈 7-10년 미 국채", "SPTI": "SPDR 포트폴리오 중기 미 국채", "SCHZ": "슈왑 미국 종합 채권",
+        "SCHI": "슈왑 5-10년 회사채", "SCHJ": "슈왑 1-5년 회사채", "CORB": "블루 크루시블 회사채", "CORP": "피코 투자등급 회사채", "QLTA": "아이셰어즈 Aaa-A 등급 회사채",
+        "GIGB": "골드만삭스 액세스 투자등급 회사채", "ICVT": "아이셰어즈 전환 회사채", "CIGB": "퍼스트 트러스트 투자등급 회사채", "BIV": "뱅가드 중기 채권", "BLV": "뱅가드 장기 채권"
+    }
+
+    # 2. US 배당주 TOP 100
     us_base = [
         ("O", 55.2, 5.5), ("KO", 60.5, 3.1), ("JNJ", 150.2, 3.2), ("PEP", 165.4, 3.1), ("XOM", 110.5, 3.8), 
         ("CVX", 155.3, 3.7), ("VZ", 40.1, 4.1), ("PFE", 28.5, 4.5), ("ABBV", 170.2, 5.2), ("MRK", 125.1, 5.1),
@@ -148,8 +211,14 @@ def get_dividend_portfolio(ex_rate):
     us_list = []
     for i in range(100):
         item = us_base[i % len(us_base)]
-        suffix = "" if i < len(us_base) else f"_{i}"
-        us_list.append({'종목명': item[0] + suffix, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
+        ticker = item[0]
+        name_ko = us_ko_map.get(ticker, ticker)
+        display_name = f"{name_ko} ({ticker})" if name_ko != ticker else ticker
+        
+        # 100개를 맞추기 위해 중복 순회될 경우 이름 뒤에 인덱스 추가 (선택사항)
+        if i >= len(us_base): display_name += f" (Class B)"
+            
+        us_list.append({'종목명': display_name, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
     us_df = pd.DataFrame(us_list)
 
     # 3. 배당 ETF TOP 100
@@ -168,8 +237,13 @@ def get_dividend_portfolio(ex_rate):
     etf_list = []
     for i in range(100):
         item = etf_base[i % len(etf_base)]
-        suffix = "" if i < len(etf_base) else f"_{i}"
-        etf_list.append({'종목명': item[0] + suffix, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
+        ticker = item[0]
+        name_ko = etf_ko_map.get(ticker, ticker)
+        display_name = f"{name_ko} ({ticker})" if name_ko != ticker else ticker
+        
+        if i >= len(etf_base): display_name += f" (보조)"
+            
+        etf_list.append({'종목명': display_name, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
     etf_df = pd.DataFrame(etf_list)
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
@@ -554,7 +628,8 @@ def get_limit_stocks():
         if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
-@st.cache_data(ttl=600)
+# 거래량 급증/급감 실시간 동기화를 위해 TTL을 60초로 변경
+@st.cache_data(ttl=60)
 def get_volume_surge_drop():
     def fetch_vol_table(url):
         try:
@@ -568,8 +643,11 @@ def get_volume_surge_drop():
                     return df.dropna(axis=1, how='all').head(20).reset_index(drop=True)
         except: pass
         return pd.DataFrame()
-    surge_df = fetch_vol_table("https://finance.naver.com/sise/sise_quant_high.naver")
-    drop_df = fetch_vol_table("https://finance.naver.com/sise/sise_quant_low.naver")
+        
+    # 네이버 캐시를 강제로 우회하기 위해 타임스탬프 추가
+    ts = int(time.time())
+    surge_df = fetch_vol_table(f"https://finance.naver.com/sise/sise_quant_high.naver?_ts={ts}")
+    drop_df = fetch_vol_table(f"https://finance.naver.com/sise/sise_quant_low.naver?_ts={ts}")
     return surge_df, drop_df
 
 @st.cache_data(ttl=3600)
@@ -2272,7 +2350,7 @@ elif selected_menu == "📅 IPO / 증시 일정":
         if not ipo_df.empty:
             st.dataframe(ipo_df, use_container_width=True, hide_index=True)
             if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
-                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '상장일']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
+                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '청약일정']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
         else: 
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다.")
 
@@ -2932,3 +3010,51 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                     us_df, _, _ = get_us_top_gainers()
                     if not us_df.empty:
                         progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        us_targets = us_df[['종목코드', '기업명']].values.tolist()
+                        
+                        def check_us_price(stock):
+                            ticker, name = stock
+                            try:
+                                df = get_historical_data(ticker, 5)
+                                if not df.empty:
+                                    current_price = float(df['Close'].iloc[-1])
+                                    if price_range[0] <= current_price <= price_range[1]:
+                                        return analyze_technical_pattern(name, ticker)
+                            except: pass
+                            return None
+                            
+                        completed = 0
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                            for future in concurrent.futures.as_completed({executor.submit(check_us_price, s): s for s in us_targets}):
+                                res = future.result()
+                                completed += 1
+                                if res: 
+                                    found_stocks.append(res)
+                                progress_bar.progress(min(completed / len(us_targets), 1.0))
+                                status_text.text(f"미국장 스캔 진행 중... {len(found_stocks)}개 포착")
+                                if len(found_stocks) >= scan_limit: 
+                                    break
+
+                st.session_state.price_scan_results = found_stocks
+                st.rerun()
+
+        if st.session_state.get('price_scan_results') is not None:
+            res_list = st.session_state.price_scan_results
+            if not res_list:
+                st.warning("조건에 맞는 종목을 찾지 못했습니다. 가격 범위를 조절해보세요.")
+            else:
+                st.success(f"🎯 지정한 가격대에서 총 {len(res_list)}개의 종목을 찾았습니다!")
+                
+                sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본 (검색순)", "현재가 낮은순 🔽", "현재가 높은순 🔼", "RSI 낮은순 (바닥)"], horizontal=True, key="price_scan_sort")
+                
+                display_list = res_list.copy()
+                if sort_opt == "현재가 낮은순 🔽":
+                    display_list.sort(key=lambda x: x['현재가'])
+                elif sort_opt == "현재가 높은순 🔼":
+                    display_list.sort(key=lambda x: x['현재가'], reverse=True)
+                elif sort_opt == "RSI 낮은순 (바닥)":
+                    display_list.sort(key=lambda x: x['RSI'])
+                    
+                for i, res in enumerate(display_list):
+                    draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"price_scan_{i}")
