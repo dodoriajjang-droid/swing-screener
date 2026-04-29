@@ -170,7 +170,6 @@ def get_dividend_portfolio(ex_rate):
                     break
     except: pass
     
-    # 크롤링 완전 실패 시 빈 화면 방지를 위한 초강력 백업 데이터 (실제 고배당 우량주 위주)
     if len(krx_list) < 10:
         fallback_data = [
             ("우리금융지주", 14500, 7.5), ("기업은행", 15200, 7.2), ("하나금융지주", 58000, 6.8), ("JB금융지주", 12500, 6.5),
@@ -209,7 +208,6 @@ def get_dividend_portfolio(ex_rate):
         "GIGB": "골드만삭스 액세스 투자등급 회사채", "ICVT": "아이셰어즈 전환 회사채", "CIGB": "퍼스트 트러스트 투자등급 회사채", "BIV": "뱅가드 중기 채권", "BLV": "뱅가드 장기 채권"
     }
 
-    # 2. US 배당주 TOP 100
     us_base = [
         ("O", 55.2, 5.5), ("KO", 60.5, 3.1), ("JNJ", 150.2, 3.2), ("PEP", 165.4, 3.1), ("XOM", 110.5, 3.8), 
         ("CVX", 155.3, 3.7), ("VZ", 40.1, 4.1), ("PFE", 28.5, 4.5), ("ABBV", 170.2, 5.2), ("MRK", 125.1, 5.1),
@@ -228,13 +226,10 @@ def get_dividend_portfolio(ex_rate):
         ticker = item[0]
         name_ko = us_ko_map.get(ticker, ticker)
         display_name = f"{name_ko} ({ticker})" if name_ko != ticker else ticker
-        
         if i >= len(us_base): display_name += f" (Class B)"
-            
         us_list.append({'종목명': display_name, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
     us_df = pd.DataFrame(us_list)
 
-    # 3. 배당 ETF TOP 100
     etf_base = [
         ("SCHD", 75.1, 3.5), ("JEPI", 55.8, 8.2), ("VYM", 115.2, 3.1), ("VIG", 175.5, 1.8), ("SPYD", 40.2, 4.5),
         ("JEPQ", 50.1, 9.5), ("DGRO", 55.2, 2.5), ("NOBL", 95.1, 2.1), ("DVY", 105.2, 3.8), ("SDY", 125.0, 2.8),
@@ -253,9 +248,7 @@ def get_dividend_portfolio(ex_rate):
         ticker = item[0]
         name_ko = etf_ko_map.get(ticker, ticker)
         display_name = f"{name_ko} ({ticker})" if name_ko != ticker else ticker
-        
         if i >= len(etf_base): display_name += f" (보조)"
-            
         etf_list.append({'종목명': display_name, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
     etf_df = pd.DataFrame(etf_list)
 
@@ -676,7 +669,10 @@ def get_market_warnings():
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
-    ts = int(datetime.now().timestamp())
+    now_kst = datetime.utcnow() + timedelta(hours=9)
+    three_hours_ago = now_kst - timedelta(hours=3)
+    ts = int(now_kst.timestamp())
+    
     def fetch_page(page):
         try:
             url = f"https://finance.naver.com/news/news_list.naver?mode=LSS2D&section_id=101&section_id2=258&page={page}&_ts={ts}"
@@ -689,22 +685,32 @@ def get_latest_naver_news():
                 if not subject: continue
                 title = subject.get_text(strip=True)
                 link = "https://finance.naver.com" + subject['href'] if subject['href'].startswith("/") else subject['href']
+                
                 pub_time = ""
                 wdate = dl.select_one(".wdate")
                 if wdate:
                     raw_date = wdate.get_text(strip=True)
                     match = re.search(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', raw_date)
                     if match:
-                        pub_time = match.group(2) if match.group(1) == (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d") else f"{match.group(1)[5:].replace('-', '/')} {match.group(2)}"
+                        news_dt_str = f"{match.group(1)} {match.group(2)}"
+                        try:
+                            news_dt = datetime.strptime(news_dt_str, "%Y-%m-%d %H:%M")
+                            if news_dt < three_hours_ago:
+                                continue # 3시간 이전 뉴스 필터링 스킵
+                        except: pass
+                        
+                        pub_time = match.group(2) if match.group(1) == now_kst.strftime("%Y-%m-%d") else f"{match.group(1)[5:].replace('-', '/')} {match.group(2)}"
                     else:
                         match_time = re.search(r'(\d{2}:\d{2})', raw_date)
                         if match_time: pub_time = match_time.group(1)
-                if not pub_time: pub_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%H:%M")
+                if not pub_time: pub_time = now_kst.strftime("%H:%M")
+                
                 page_articles.append({"title": title, "link": link, "time": pub_time})
             return page_articles
         except: return []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        results = executor.map(fetch_page, [1, 2])
+        
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        results = executor.map(fetch_page, [1, 2, 3]) # 3페이지 탐색 보강
         for res in results: articles.extend(res)
     return articles
 
@@ -2157,7 +2163,12 @@ elif selected_menu == "📰 실시간 속보/리포트":
     
     with news_sub1:
         if st.button("🔄 속보 리로드"): 
-            get_latest_naver_news.clear(); st.session_state.news_data = []; st.rerun()
+            st.session_state.news_data = []
+            st.session_state.seen_links = set()
+            st.session_state.seen_titles = set()
+            get_latest_naver_news.clear()
+            st.rerun()
+            
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
         
         krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
@@ -2685,7 +2696,7 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
     v5_tab1, v5_tab2, v5_tab3, v5_tab4, v5_tab5 = st.tabs([
         "🤖 1. AI 멀티 에이전트 토론", 
         "🛡️ 2. 리스크 상관계수 맵", 
-        "👥 3. 군 심리(FOMO) 트래커", 
+        "👥 3. 군중 심리(FOMO) 트래커", 
         "⚙️ 4. 팩터 커스텀 스튜디오",
         "💰 5. 금액대별 종목 스캐너"
     ])
@@ -2761,7 +2772,7 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
     # ----------------------------------------------------
     with v5_tab2:
         st.markdown("### 🛡️ 내 계좌 리스크 (상관계수) 히트맵")
-        st.write("보유 종목들이 얼마나 비슷하게 움직이는지(동조화 현상) 확인하여, 계좌가 한 번에 박살나는 것을 방지하세요. (빨간색일수록 같이 움직이고, 파란색일수록 반대로 움직입니다.)")
+        st.write("보유 종목들이 얼마나 비슷하게 움직이는지(동조화 현상) 확인하여, 계좌가 한 번 박살나는 것을 방지하세요. (빨간색일수록 같이 움직이고, 파란색일수록 반대로 움직입니다.)")
         
         with st.form(key="corr_form"):
             default_tickers = "삼성전자, 현대차, SK하이닉스, AAPL, TSLA"
