@@ -1362,7 +1362,7 @@ menu_list = [
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
         "⚖️ 워런 버핏 퀀트 계산기",
-        "🚀 v6.0 AI 퀀트 & 매크로 (Beta)" # 메뉴 통합 및 이름 변경
+        "🚀 v6.0 AI 퀀트 & 매크로 (Beta)"
     ]
     
     if "main_menu_radio" not in st.session_state:
