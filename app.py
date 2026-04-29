@@ -1935,7 +1935,7 @@ elif selected_menu == "💎 장기 가치주 스캐너":
                     st.rerun()
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
         
-with ana_tab1:
+    with ana_tab1:
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
         
         if market_choice == "🇰🇷 국내 주식":
