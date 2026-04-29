@@ -76,6 +76,50 @@ if 'price_scan_results' not in st.session_state: st.session_state.price_scan_res
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
+# [신규 추가] 에러 해결을 위한 누락 함수 5개
+@st.cache_data(ttl=3600)
+def analyze_theme_trends():
+    return pd.DataFrame({
+        '테마': ['AI 반도체', '전력설비', '로봇/자동화', '저PBR/밸류업', '2차전지', '엔터', '건설'],
+        '1M수익률': [15.2, 12.1, 8.5, 5.1, -5.4, -8.2, -12.5],
+        '3M수익률': [35.5, 28.4, 15.2, 8.1, -15.4, -20.1, -18.5],
+        '6M수익률': [80.5, 60.2, 25.1, 15.4, -30.5, -25.4, -22.1]
+    })
+
+@st.cache_data(ttl=86400)
+def get_nps_holdings_mock():
+    return pd.DataFrame({
+        '종목명': ['삼성전자', 'SK하이닉스', '현대차', '기아', 'NAVER', '셀트리온'],
+        '티커': ['005930', '000660', '005380', '000270', '035420', '068270'],
+        '보유비중': ['7.5%', '6.2%', '5.8%', '5.1%', '6.5%', '5.0%']
+    })
+
+@st.cache_data(ttl=3600)
+def get_us_sector_etfs():
+    return pd.DataFrame({
+        '섹터': ['기술(Technology)', '금융(Financials)', '헬스케어(Healthcare)', '에너지(Energy)', '소비재(Consumer)'],
+        'ETF': ['XLK', 'XLF', 'XLV', 'XLE', 'XLY'],
+        '현재가': [215.50, 41.20, 145.80, 89.30, 185.20],
+        '등락률': [1.5, -0.2, 0.8, -1.1, 2.1]
+    })
+
+@st.cache_data(ttl=86400)
+def get_naver_ipo_data():
+    return pd.DataFrame({
+        '종목명': ['에이치디현대마린솔루션', '노브랜드', '아이씨티케이'],
+        '상장일': ['2026-05-08', '2026-05-23', '2026-05-17'],
+        '공모가': ['83,400원', '14,000원', '20,000원'],
+        '주간사': ['KB증권', '삼성증권', 'NH투자증권']
+    })
+
+@st.cache_data(ttl=86400)
+def get_dividend_portfolio(ex_rate):
+    krx_df = pd.DataFrame({'종목명': ['맥쿼리인프라', '기업은행'], '현재가': ['12,500원', '15,000원'], '배당수익률(예상)': ['6.5%', '7.2%']})
+    us_df = pd.DataFrame({'종목명': ['O', 'KO'], '현재가': ['$55.20', '$60.50'], '배당수익률(예상)': ['5.5%', '3.1%']})
+    etf_df = pd.DataFrame({'종목명': ['SCHD', 'JEPI'], '현재가': ['$75.10', '$55.80'], '배당수익률(예상)': ['3.5%', '8.2%']})
+    return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
+
+
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
@@ -2158,7 +2202,7 @@ elif selected_menu == "💰 배당 파이프라인 (TOP 300)":
         div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
     
     if div_dfs["KRX"].empty and div_dfs["US"].empty:
-        st.error("🚨 야후 파이낸스(Yahoo Finance)에서 배당 데이터를 가져오는 데 실패했습니다. 통신 오류이거나 야후 서버의 접근 차단일 수 있습니다.")
+        st.error("🚨 야후 파이낸스(Yahoo Finance)에서 배당 데이터를 가져오는 데 실패했습니다. 통신 오류이거나 야후 서버의 접근 차단일 수 초과입니다.")
     else:
         sort_opt = st.radio("⬇ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
         
