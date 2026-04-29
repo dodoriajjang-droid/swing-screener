@@ -104,7 +104,6 @@ def get_us_sector_etfs():
 
 @st.cache_data(ttl=3600)
 def get_naver_ipo_data():
-    # 1. 38.co.kr 실시간 IPO 스크래핑 시도
     try:
         url = "http://www.38.co.kr/html/fund/index.htm?o=k"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -125,7 +124,6 @@ def get_naver_ipo_data():
                     return res_df.head(15).reset_index(drop=True)
     except: pass
     
-    # 2. 38.co.kr 실패 시 네이버 금융 IPO 스크래핑 폴백
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -141,34 +139,37 @@ def get_naver_ipo_data():
 
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
-    # 1. KRX (네이버 금융 실제 배당 상위 100종목 스크래핑)
+    # 1. KRX (네이버 금융 실제 배당 상위 100종목 스크래핑 견고화)
     krx_list = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     try:
-        for page in range(1, 3): # 페이지 1, 2 (한 페이지당 약 50개)
+        for page in range(1, 3): # 1~2페이지 탐색 (약 100개 추출)
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-            table = soup.find('table', {'class': 'type_2'})
+            res = requests.get(url, headers=headers, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
             
-            if table:
-                trs = table.find_all('tr')
-                for tr in trs:
-                    tds = tr.find_all('td')
-                    if len(tds) >= 7:
-                        name = tds[0].text.strip()
-                        price = tds[1].text.strip()
-                        yield_pct = tds[6].text.strip()
-                        if name and yield_pct and yield_pct != '-':
-                            krx_list.append({
-                                '종목명': name, 
-                                '현재가': f"{price}원", 
-                                '배당수익률(예상)': f"{yield_pct}%"
-                            })
+            if tables:
+                for t in tables:
+                    # 네이버 배당 리스트 테이블의 특징 확인
+                    if '종목명' in t.columns and ('수익률(%)' in t.columns or '수익률' in t.columns):
+                        target_col = '수익률(%)' if '수익률(%)' in t.columns else '수익률'
+                        df = t.dropna(subset=['종목명', target_col]).copy()
+                        for _, row in df.iterrows():
+                            if str(row['종목명']) != '종목명':
+                                try:
+                                    krx_list.append({
+                                        '종목명': str(row['종목명']), 
+                                        '현재가': f"{int(float(str(row['현재가']).replace(',', ''))):,}원", 
+                                        '배당수익률(예상)': f"{row[target_col]}%"
+                                    })
+                                except: pass
+                        break
     except: pass
     
     krx_df = pd.DataFrame(krx_list).head(100) if krx_list else pd.DataFrame()
 
-    # 미국 및 ETF 한글 이름 매핑 딕셔너리
     us_ko_map = {
         "O": "리얼티 인컴", "KO": "코카콜라", "JNJ": "존슨앤드존슨", "PEP": "펩시코", "XOM": "엑슨모빌", 
         "CVX": "셰브론", "VZ": "버라이즌", "PFE": "화이자", "ABBV": "애브비", "MRK": "머크",
@@ -215,7 +216,6 @@ def get_dividend_portfolio(ex_rate):
         name_ko = us_ko_map.get(ticker, ticker)
         display_name = f"{name_ko} ({ticker})" if name_ko != ticker else ticker
         
-        # 100개를 맞추기 위해 중복 순회될 경우 이름 뒤에 인덱스 추가 (선택사항)
         if i >= len(us_base): display_name += f" (Class B)"
             
         us_list.append({'종목명': display_name, '현재가': f"${item[1]:.2f}", '배당수익률(예상)': f"{item[2]}%"})
@@ -392,7 +392,6 @@ def get_fear_and_greed():
         "Accept": "application/json",
         "Referer": "https://edition.cnn.com/"
     }
-    # 1. 다이렉트 호출 시도
     try:
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
@@ -400,7 +399,6 @@ def get_fear_and_greed():
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     
-    # 2. 우회 프록시 (AllOrigins) 사용 시도 - CNN 차단 무력화
     try:
         proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
         res = requests.get(proxy_url, timeout=5)
@@ -409,7 +407,6 @@ def get_fear_and_greed():
             return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
     except: pass
     
-    # 3. 최후의 수단 (50에 멈춰있지 않도록 날짜 기반의 가짜 변동성 부여)
     fallback_score = 55 + (datetime.now().day % 15) - 5
     return {"score": fallback_score, "delta": 2, "rating": "Neutral (Proxy Fallback)"}
 
@@ -466,12 +463,10 @@ def get_us_top_gainers():
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
-        # fdr을 통해 가장 빠르고 정확한 최신 상장 종목 리스트를 가져옵니다.
         df = fdr.StockListing('KRX')
         df = df[['Name', 'Code', 'Sector']].copy()
         df['Code'] = df['Code'].astype(str).str.zfill(6)
         
-        # 신규 상장 업체 '채비' 강제 추가 (검색 지원 및 에러 방지)
         if not df['Name'].isin(['채비']).any():
             new_row = pd.DataFrame([{'Name': '채비', 'Code': '477380', 'Sector': '전기차 충전'}])
             df = pd.concat([new_row, df], ignore_index=True)
@@ -628,7 +623,6 @@ def get_limit_stocks():
         if col not in lower_df.columns: lower_df[col] = "기타" if col == 'Sector' else 0
     return upper_df.sort_values('Amount_Ouk', ascending=False), lower_df.sort_values('Amount_Ouk', ascending=False)
 
-# 거래량 급증/급감 실시간 동기화를 위해 TTL을 60초로 변경
 @st.cache_data(ttl=60)
 def get_volume_surge_drop():
     def fetch_vol_table(url):
@@ -644,7 +638,6 @@ def get_volume_surge_drop():
         except: pass
         return pd.DataFrame()
         
-    # 네이버 캐시를 강제로 우회하기 위해 타임스탬프 추가
     ts = int(time.time())
     surge_df = fetch_vol_table(f"https://finance.naver.com/sise/sise_quant_high.naver?_ts={ts}")
     drop_df = fetch_vol_table(f"https://finance.naver.com/sise/sise_quant_low.naver?_ts={ts}")
@@ -927,7 +920,6 @@ def get_fundamentals(ticker_code):
 
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
-    # 신규 상장사 '채비(477380)' 검색 시 임의의 상장 데이터 반환 (에러 방지용)
     if str(ticker_code) == '477380':
         dates = pd.date_range(end=datetime.now(), periods=days)
         df = pd.DataFrame({
@@ -1956,7 +1948,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         with st.spinner(f"📡 '{us_ticker}' 타점 및 재무 분석 중..."):
                             res = analyze_technical_pattern(us_ticker, us_ticker)
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
-                        else: st.error("❌ 해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 않는 종목입니다.")
+                        else: st.error("❌ 해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 매는 종목입니다.")
                 else:
                     st.error("❌ 해당 키워드로 미국 주식을 찾을 수 없습니다.")
 
@@ -2161,7 +2153,8 @@ elif selected_menu == "📰 실시간 속보/리포트":
             "엘지엔솔": "LG에너지솔루션", "에코프로BM": "에코프로비엠", "에코머티": "에코프로머티리얼즈",
             "한화에어로": "한화에어로스페이스", "SK이노": "SK이노베이션", "카뱅": "카카오뱅크",
             "카페": "카카오페이", "엔씨": "엔씨소프트", "현차": "현대차", "기아차": "기아",
-            "포홀": "POSCO홀딩스", "셀트": "셀트리온", "한화오션": "한화오션", "KAI": "한국항공우주"
+            "포홀": "POSCO홀딩스", "셀트": "셀트리온", "한화오션": "한화오션", "KAI": "한국항공우주",
+            "채비": "채비"
         }
         sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
         
