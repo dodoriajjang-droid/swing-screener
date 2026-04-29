@@ -2728,32 +2728,52 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
         "⚡ 5. 체결강도 & 틱(Tick) 분석"
     ])
     
-    with v6_t1:
+with v6_t1:
         st.markdown("### 🌍 글로벌 매크로 & 지정학적 리스크 관제소 (The All-Seeing Eye)")
-        st.write("금, 구리, 비트코인 등 주요 자산의 최근 6개월 추세와 미국 10년-2년 장단기 금리차(경기침체 시그널)를 한눈에 파악합니다.")
+        st.write("금, 은, 구리, 비트코인 등 주요 자산의 최근 6개월 추세와 미국 10년-2년 장단기 금리차(경기침체 시그널)를 한눈에 파악합니다.")
         
         if st.button("📊 실시간 글로벌 매크로 데이터 연동", type="primary"):
             with st.spinner("Yahoo Finance에서 원자재 및 국채 금리 데이터를 수집 중입니다..."):
                 try:
-                    tickers = {"금 (Gold)": "GC=F", "구리 (닥터 코퍼)": "HG=F", "비트코인 (BTC)": "BTC-USD"}
-                    macro_df = pd.DataFrame()
+                    # 은(Silver) 추가 및 티커 설정
+                    tickers = {
+                        "금 (Gold)": "GC=F", 
+                        "은 (Silver)": "SI=F",
+                        "구리 (닥터 코퍼)": "HG=F", 
+                        "비트코인 (BTC)": "BTC-USD"
+                    }
+                    
+                    series_dict = {}
                     for name, ticker in tickers.items():
                         df_hist = yf.Ticker(ticker).history(period="6mo")
                         if not df_hist.empty:
+                            # 타임존 제거 및 날짜(시간 제외) 기준으로 인덱스 통일
+                            df_hist.index = df_hist.index.tz_localize(None).normalize()
+                            # 기준점 대비 수익률(%) 환산
                             normalized = (df_hist['Close'] / df_hist['Close'].iloc[0] - 1) * 100
-                            macro_df[name] = normalized
+                            # 중복 날짜 제거
+                            normalized = normalized[~normalized.index.duplicated(keep='first')]
+                            series_dict[name] = normalized
                     
-                    if not macro_df.empty:
+                    if series_dict:
+                        # 평일/주말 거래일이 다른 자산들의 이빨 빠진 데이터를 앞선 가격으로 채움(ffill)
+                        macro_df = pd.DataFrame(series_dict).ffill().dropna()
+                        
                         st.markdown("#### 🥇 원자재 & 암호화폐 슈퍼사이클 트래커 (6개월 상대수익률 %)")
                         fig_macro = px.line(macro_df, x=macro_df.index, y=macro_df.columns)
                         fig_macro.update_layout(height=400, yaxis_title="수익률 (%)", xaxis_title="날짜", hovermode="x unified")
                         st.plotly_chart(fig_macro, use_container_width=True)
                     
-                    df_10y = yf.Ticker("^TNX").history(period="6mo")['Close']
-                    df_2y = yf.Ticker("^IRX").history(period="6mo")['Close']
+                    # 장단기 금리차 (10Y - 2Y)
+                    df_10y = yf.Ticker("^TNX").history(period="6mo")
+                    df_2y = yf.Ticker("^IRX").history(period="6mo")
                     
                     if not df_10y.empty and not df_2y.empty:
-                        df_spread = (df_10y - df_2y).dropna()
+                        df_10y.index = df_10y.index.tz_localize(None).normalize()
+                        df_2y.index = df_2y.index.tz_localize(None).normalize()
+                        
+                        # 인덱스 기준으로 차이 계산 후 결측치 제거
+                        df_spread = (df_10y['Close'] - df_2y['Close']).dropna()
                         st.markdown("#### 📉 미국채 10년-2년 장단기 금리차 (Yield Curve Spread)")
                         fig_spread = go.Figure()
                         fig_spread.add_trace(go.Scatter(x=df_spread.index, y=df_spread.values, mode='lines', name='10Y-2Y Spread', line=dict(color='purple', width=2)))
@@ -2769,8 +2789,9 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
                             
                     if api_key_input:
                         st.divider()
-                        prompt = f"당신은 수석 이코노미스트입니다. 현재 장단기 금리차가 {df_spread.iloc[-1] if not df_spread.empty else '알수없음'}%이고, 금과 구리, 비트코인 차트를 보았을 때 현재 시장이 '인플레이션 베팅'인지 '경기침체 우려'인지 3줄로 명확하게 판단해주세요."
+                        prompt = f"당신은 수석 이코노미스트입니다. 현재 장단기 금리차가 {df_spread.iloc[-1] if not df_spread.empty else '알수없음'}%이고, 금, 은, 구리, 비트코인 차트를 보았을 때 현재 시장이 '인플레이션 베팅'인지 '경기침체 우려'인지 3줄로 명확하게 판단해주세요."
                         st.info("💡 **AI 매크로 종합 해석:**\n" + ask_gemini(prompt, api_key_input))
+                        
                 except Exception as e:
                     st.error(f"매크로 데이터 수집 중 오류 발생: {e}")
     
