@@ -1946,6 +1946,8 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
             if not krx_df.empty:
+                opts = ["🔍 분석할 국내 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                
                 with st.form("kr_search_form"):
                     col_s1, col_s2 = st.columns([8, 2])
                     with col_s1: 
@@ -2040,6 +2042,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         result = ask_gemini_vision(prompt, img_to_analyze, api_key_input)
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
+
 elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
