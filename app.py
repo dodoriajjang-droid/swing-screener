@@ -2769,11 +2769,11 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
                             
                     if api_key_input:
                         st.divider()
-                        prompt = f"당신은 수석 이코노미스트입니다. 현재 장단기 금리차가 {df_spread.iloc[-1]:.2f}%이고, 금과 구리, 비트코인 차트를 보았을 때 현재 시장이 '인플레이션 베팅'인지 '경기침체 우려'인지 3줄로 명확하게 판단해주세요."
+                        prompt = f"당신은 수석 이코노미스트입니다. 현재 장단기 금리차가 {df_spread.iloc[-1] if not df_spread.empty else '알수없음'}%이고, 금과 구리, 비트코인 차트를 보았을 때 현재 시장이 '인플레이션 베팅'인지 '경기침체 우려'인지 3줄로 명확하게 판단해주세요."
                         st.info("💡 **AI 매크로 종합 해석:**\n" + ask_gemini(prompt, api_key_input))
                 except Exception as e:
                     st.error(f"매크로 데이터 수집 중 오류 발생: {e}")
-
+    
     with v6_t2:
         st.markdown("### 💼 스마트머니 딥(Deep) 트래커: 밸류업 & 파생 수급")
         sub_t1, sub_t2 = st.tabs(["🔥 옵션 Put/Call 비율 (US)", "🚀 한국 밸류업 스캐너 (KR)"])
@@ -2803,7 +2803,7 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
                     except Exception as e:
                         st.error(f"옵션 연산 실패: {e}")
                         
-with sub_t2:
+        with sub_t2:
             st.write("단순 PBR 1 이하 종목 중, ROE가 높은 밸류업 후보를 스캔합니다.")
             if st.button("🚀 밸류업(Value-up) 잠재주 스캔"):
                 with st.spinner("재무제표 및 수익성 스크리닝 중..."):
@@ -2812,10 +2812,9 @@ with sub_t2:
                         st.success(f"🎯 AI 밸류업 잠재 기업 포착")
                         for name, code in candidates:
                             res = analyze_technical_pattern(name, code)
-                            # 👉 수정된 부분: key_suffix에 고유한 종목코드(code)를 추가하여 중복 에러 해결
                             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"vup_{code}")
                     else: st.error("후보를 찾지 못했습니다.")
-
+    
     with v6_t3:
         st.markdown("### 🧠 AI 어닝콜 & 공시 원문(PDF) 딥리딩 룸")
         if not HAS_PYPDF: st.warning("⚠️ PyPDF2 모듈이 없습니다. 텍스트를 직접 복사해서 넣어주세요.")
@@ -2834,7 +2833,7 @@ with sub_t2:
                 with st.spinner("AI 분석 중..."):
                     prompt = f"당신은 리서치 애널리스트입니다. 다음 원문에서 1)목표주가 2)핵심투자포인트 3가지 3)리스크 2가지를 요약해주세요.\n\n{raw_text[:15000]}"
                     st.info(ask_gemini(prompt, api_key_input))
-
+    
     with v6_t4:
         st.markdown("### 🏆 노벨상 수상 알고리즘: '마코위츠' 포트폴리오 최적화 엔진")
         port_input_m = st.text_input("포트폴리오 종목 (예: AAPL, MSFT, TSLA)", value="AAPL, MSFT, GOOGL, NVDA, TSLA")
@@ -2887,7 +2886,7 @@ with sub_t2:
                                 st.metric("예상 연 변동성", f"{max_sharpe_port['Volatility']*100:.2f}%")
                                 st.metric("샤프 지수", f"{max_sharpe_port['Sharpe']:.2f}")
                     except Exception as e: st.error(f"오류: {e}")
-
+    
     with v6_t5:
         st.markdown("### ⚡ 실시간 호가창 체결강도 & 모멘텀 (1분봉 틱 분석)")
         tick_ticker = st.text_input("종목 티커 입력 (예: TSLA - 야후 파이낸스 1m 데이터)", value="TSLA").upper()
