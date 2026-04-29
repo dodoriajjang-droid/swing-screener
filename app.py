@@ -1343,7 +1343,7 @@ with st.sidebar:
     st.markdown("풀옵션 단기 스윙 & 스마트머니 추적 시스템")
     st.divider()
     
-    menu_list = [
+menu_list = [
         "🎛️ 메인 대시보드",
         "👨‍🦳 연기금 그림자 매매 스캐너", 
         "🗺️ 시장 자금 & 스마트머니 히트맵", 
@@ -1362,8 +1362,7 @@ with st.sidebar:
         "📊 글로벌 ETF 분석", 
         "⭐ 내 관심종목",
         "⚖️ 워런 버핏 퀀트 계산기",
-        "🧪 v5.0 AI 포트폴리오 랩"
-        "🚀 v6.0 메이저 업데이트 (Beta)"
+        "🚀 v6.0 AI 퀀트 & 매크로 (Beta)" # 메뉴 통합 및 이름 변경
     ]
     
     if "main_menu_radio" not in st.session_state:
@@ -1947,29 +1946,33 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
             if not krx_df.empty:
-                opts = ["🔍 분석할 국내 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-                
                 with st.form("kr_search_form"):
                     col_s1, col_s2 = st.columns([8, 2])
                     with col_s1: 
-                        query = st.selectbox("👇 종목명 또는 초성을 입력하여 검색하세요:", opts, label_visibility="collapsed")
+                        kr_query = st.text_input("👇 국내 종목명 또는 종목코드를 직접 입력하세요 (예: 삼성전자, 005930):", label_visibility="collapsed")
                     with col_s2: 
-                        search_btn = st.form_submit_button("🔍 검색", use_container_width=True)
+                        kr_search_btn = st.form_submit_button("🔍 검색", use_container_width=True)
                 
-                if search_btn and query != "🔍 분석할 국내 종목을 입력하세요.":
-                    searched_name = query.rsplit(" (", 1)[0]
-                    searched_code = query.rsplit("(", 1)[-1].replace(")", "").strip()
-                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                        res = analyze_technical_pattern(searched_name, searched_code)
-                    if res: 
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                    else: 
-                        st.error("❌ 분석할 수 없는 종목입니다.")
+                if kr_search_btn and kr_query:
+                    match_df = krx_df[krx_df['Name'].str.contains(kr_query, case=False, na=False) | krx_df['Code'].str.contains(kr_query, na=False)]
+                    
+                    if not match_df.empty:
+                        searched_name = match_df.iloc[0]['Name']
+                        searched_code = match_df.iloc[0]['Code']
+                        st.success(f"✅ '{searched_name} ({searched_code})' 종목을 찾았습니다!")
+                        with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                            res = analyze_technical_pattern(searched_name, searched_code)
+                        if res: 
+                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                        else: 
+                            st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
+                    else:
+                        st.error(f"❌ '{kr_query}' 검색 결과가 없습니다. 정확한 종목명을 입력해주세요.")
         else:
             with st.form("us_search_form"):
                 col_us1, col_us2 = st.columns([8, 2])
                 with col_us1: 
-                    us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
+                    us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL, 테슬라):", label_visibility="collapsed")
                 with col_us2: 
                     us_search_btn = st.form_submit_button("🔍 검색", use_container_width=True)
             
@@ -1984,7 +1987,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
             if "us_search_results" in st.session_state and st.session_state.us_search_results:
                 with st.form("us_select_form"):
                     sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + st.session_state.us_search_results)
-                    analyze_btn = st.form_submit_button("📊 분석 시작")
+                    analyze_btn = st.form_submit_button("📊 분석 시작", use_container_width=True)
                     
                 if analyze_btn and sel_us_opt != "선택하세요":
                     us_ticker = sel_us_opt.split(" ")[0]
@@ -1996,9 +1999,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         st.error("❌ 해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 않는 종목입니다.")
 
     with ana_tab2:
-        # 기존 AI Vision 파트 유지
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
-        
         st.warning("⚠️ **[브라우저 보안 안내]** 크롬, 웨일, 엣지 등 최신 브라우저는 보안상 웹페이지 빈 공간에서의 'Ctrl+V(붙여넣기)'를 차단합니다.")
         st.info("💡 **가장 확실하게 이미지를 넣는 2가지 방법:**\n1. 아래 **[Drag and drop file here]** 회색 점선 박스 정중앙을 마우스로 **정확히 1번 클릭**한 뒤 `Ctrl+V`를 누르세요.\n2. 차트 위에서 우클릭 후 **'이미지 주소 복사'**를 하여 우측 텍스트 칸에 `Ctrl+V` 하시는 것이 가장 빠르고 오류가 없습니다.")
         
@@ -2014,7 +2015,6 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         if uploaded_chart:
             img_to_analyze = PIL.Image.open(uploaded_chart)
             st.image(img_to_analyze, caption="✅ 정상적으로 인식된 차트 이미지", use_container_width=True)
-            
         elif image_url:
             try:
                 img_to_analyze = PIL.Image.open(requests.get(image_url, stream=True).raw)
@@ -2040,7 +2040,6 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                         result = ask_gemini_vision(prompt, img_to_analyze, api_key_input)
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
-
 elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
@@ -2711,7 +2710,7 @@ elif selected_menu == "⚖️ 워런 버핏 퀀트 계산기":
         * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
         """)
 
-elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
+elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
     if 'price_scan_results' not in st.session_state:
         st.session_state.price_scan_results = None
 
@@ -3107,7 +3106,7 @@ elif selected_menu == "🧪 v5.0 AI 포트폴리오 랩":
                 for i, res in enumerate(display_list):
                     draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"price_scan_{i}")
 
-elif selected_menu == "🚀 v6.0 메이저 업데이트 (Beta)":
+elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
     st.markdown("## 🚀 v6.0 메이저 업데이트 (Beta 테스트 룸)")
     st.write("기관 프랍 트레이더 수준의 거시경제 분석, AI 어닝 리포트 해독, 포트폴리오 최적화 등 하이엔드 기능을 제공합니다.")
     
