@@ -2794,7 +2794,7 @@ with v6_t1:
                         
                 except Exception as e:
                     st.error(f"매크로 데이터 수집 중 오류 발생: {e}")
-    
+
     with v6_t2:
         st.markdown("### 💼 스마트머니 딥(Deep) 트래커: 밸류업 & 파생 수급")
         sub_t1, sub_t2 = st.tabs(["🔥 옵션 Put/Call 비율 (US)", "🚀 한국 밸류업 스캐너 (KR)"])
