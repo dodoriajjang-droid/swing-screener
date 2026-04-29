@@ -2728,7 +2728,7 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
         "⚡ 5. 체결강도 & 틱(Tick) 분석"
     ])
     
-with v6_t1:
+    with v6_t1:
         st.markdown("### 🌍 글로벌 매크로 & 지정학적 리스크 관제소 (The All-Seeing Eye)")
         st.write("금, 은, 구리, 비트코인 등 주요 자산의 최근 6개월 추세와 미국 10년-2년 장단기 금리차(경기침체 시그널)를 한눈에 파악합니다.")
         
@@ -2795,7 +2795,7 @@ with v6_t1:
                 except Exception as e:
                     st.error(f"매크로 데이터 수집 중 오류 발생: {e}")
 
-with v6_t2:
+    with v6_t2:
         st.markdown("### 💼 스마트머니 딥(Deep) 트래커: 밸류업 & 파생 수급")
         sub_t1, sub_t2 = st.tabs(["🔥 옵션 Put/Call 비율 (US)", "🚀 한국 밸류업 스캐너 (KR)"])
         
@@ -2836,7 +2836,7 @@ with v6_t2:
                             if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"vup_{code}")
                     else: st.error("후보를 찾지 못했습니다.")
     
-with v6_t3:
+    with v6_t3:
         st.markdown("### 🧠 AI 어닝콜 & 공시 원문(PDF) 딥리딩 룸")
         if not HAS_PYPDF: st.warning("⚠️ PyPDF2 모듈이 없습니다. 텍스트를 직접 복사해서 넣어주세요.")
         pdf_file = st.file_uploader("📄 PDF 리포트 업로드", type=["pdf"])
@@ -2855,7 +2855,7 @@ with v6_t3:
                     prompt = f"당신은 리서치 애널리스트입니다. 다음 원문에서 1)목표주가 2)핵심투자포인트 3가지 3)리스크 2가지를 요약해주세요.\n\n{raw_text[:15000]}"
                     st.info(ask_gemini(prompt, api_key_input))
     
-with v6_t4:
+    with v6_t4:
         st.markdown("### 🏆 노벨상 수상 알고리즘: '마코위츠' 포트폴리오 최적화 엔진")
         port_input_m = st.text_input("포트폴리오 종목 (예: AAPL, MSFT, TSLA)", value="AAPL, MSFT, GOOGL, NVDA, TSLA")
         if st.button("⚙️ 몬테카를로 시뮬레이션 (1,000번 반복)", type="primary"):
@@ -2908,7 +2908,7 @@ with v6_t4:
                                 st.metric("샤프 지수", f"{max_sharpe_port['Sharpe']:.2f}")
                     except Exception as e: st.error(f"오류: {e}")
     
-with v6_t5:
+    with v6_t5:
         st.markdown("### ⚡ 실시간 호가창 체결강도 & 모멘텀 (1분봉 틱 분석)")
         tick_ticker = st.text_input("종목 티커 입력 (예: TSLA - 야후 파이낸스 1m 데이터)", value="TSLA").upper()
         if st.button("🔎 1분봉 누적 거래량 델타(CVD) 분석"):
