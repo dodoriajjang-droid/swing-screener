@@ -1946,7 +1946,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
     
     ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
     
-with ana_tab1:
+    with ana_tab1:
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
         
         if market_choice == "🇰🇷 국내 주식":
@@ -1958,7 +1958,6 @@ with ana_tab1:
                 with col_s2: 
                     kr_search_btn = st.button("🔍 검색", use_container_width=True)
                 
-                # 엔터를 치거나(kr_query에 값이 들어옴) 검색 버튼을 누르면 작동
                 if kr_query or kr_search_btn:
                     match_df = krx_df[krx_df['Name'].str.contains(kr_query, case=False, na=False) | krx_df['Code'].str.contains(kr_query, na=False)]
                     
@@ -1974,6 +1973,8 @@ with ana_tab1:
                             st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
                     else:
                         st.error(f"❌ '{kr_query}' 검색 결과가 없습니다. 정확한 종목명을 입력해주세요.")
+            else:
+                st.error("❌ 한국거래소(KRX) 종목 리스트를 불러오지 못했습니다. 잠시 후 좌측 하단의 '🔄 현재 화면 새로고침'을 눌러주세요.")
         else:
             col_us1, col_us2 = st.columns([8, 2])
             with col_us1: 
