@@ -1935,41 +1935,39 @@ elif selected_menu == "💎 장기 가치주 스캐너":
                     st.rerun()
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
         
-elif selected_menu == "🔬 기업 정밀 분석기":
-    st.markdown("## 🔬 기업 정밀 분석기 (차트/수급/비전 AI)")
-    
-    ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
-    
-    with ana_tab1:
+with ana_tab1:
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
         
         if market_choice == "🇰🇷 국내 주식":
-            krx_df = get_krx_stocks()
+            with st.spinner("국내 종목 데이터를 불러오는 중입니다..."):
+                krx_df = get_krx_stocks()
+                
             if not krx_df.empty:
-                opts = ["🔍 분석할 국내 종목을 입력하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                # 사용자가 전체 리스트를 보고 검색할 수 있도록 옵션 생성
+                opts = ["🔍 분석할 국내 종목을 선택하거나 검색하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
                 
                 with st.form("kr_search_form"):
                     col_s1, col_s2 = st.columns([8, 2])
                     with col_s1: 
-                        kr_query = st.text_input("👇 국내 종목명 또는 종목코드를 직접 입력하세요 (예: 삼성전자, 005930):", label_visibility="collapsed")
+                        # 텍스트 입력(text_input) 대신, 리스트가 보이고 검색도 되는 selectbox로 복구
+                        kr_query = st.selectbox("👇 종목명 검색:", opts, label_visibility="collapsed")
                     with col_s2: 
-                        kr_search_btn = st.form_submit_button("🔍 검색", use_container_width=True)
+                        kr_search_btn = st.form_submit_button("📊 분석 시작", use_container_width=True)
                 
-                if kr_search_btn and kr_query:
-                    match_df = krx_df[krx_df['Name'].str.contains(kr_query, case=False, na=False) | krx_df['Code'].str.contains(kr_query, na=False)]
+                if kr_search_btn and kr_query != "🔍 분석할 국내 종목을 선택하거나 검색하세요.":
+                    searched_name = kr_query.rsplit(" (", 1)[0]
+                    searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
                     
-                    if not match_df.empty:
-                        searched_name = match_df.iloc[0]['Name']
-                        searched_code = match_df.iloc[0]['Code']
-                        st.success(f"✅ '{searched_name} ({searched_code})' 종목을 찾았습니다!")
-                        with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                            res = analyze_technical_pattern(searched_name, searched_code)
-                        if res: 
-                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                        else: 
-                            st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
-                    else:
-                        st.error(f"❌ '{kr_query}' 검색 결과가 없습니다. 정확한 종목명을 입력해주세요.")
+                    st.success(f"✅ '{searched_name} ({searched_code})' 종목 분석을 시작합니다.")
+                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                        res = analyze_technical_pattern(searched_name, searched_code)
+                    if res: 
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                    else: 
+                        st.error("❌ 해당 종목의 차트 및 수급 데이터를 불러올 수 없습니다.")
+            else:
+                st.error("❌ 한국거래소(KRX) 종목 리스트를 불러오지 못했습니다. 잠시 후 좌측 하단의 '🔄 현재 화면 새로고침'을 눌러주세요.")
+                
         else:
             with st.form("us_search_form"):
                 col_us1, col_us2 = st.columns([8, 2])
