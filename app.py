@@ -450,17 +450,43 @@ def get_us_top_gainers():
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
+        # 1차 시도: FinanceDataReader 활용 (가장 빠름)
         df = fdr.StockListing('KRX')
+        
+        # FDR 버전에 따라 Sector 컬럼이 없을 경우 다운되는 현상 방지
+        if 'Sector' not in df.columns:
+            df['Sector'] = '기타/분류불가'
+            
         df = df[['Name', 'Code', 'Sector']].copy()
         df['Code'] = df['Code'].astype(str).str.zfill(6)
         
+        # 신규 상장 업체 '채비' 강제 추가
         if not df['Name'].isin(['채비']).any():
             new_row = pd.DataFrame([{'Name': '채비', 'Code': '477380', 'Sector': '전기차 충전'}])
             df = pd.concat([new_row, df], ignore_index=True)
             
         return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-    except: 
-        return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
+        
+    except Exception as e1:
+        try:
+            # 2차 시도: FDR 라이브러리 통신 실패 시, 한국거래소(KIND) 직접 스크래핑
+            url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+            df_kind = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')), header=0)[0]
+            
+            df_kind = df_kind[['회사명', '종목코드', '업종']]
+            df_kind.columns = ['Name', 'Code', 'Sector']
+            df_kind['Code'] = df_kind['Code'].astype(str).str.zfill(6)
+            
+            if not df_kind['Name'].isin(['채비']).any():
+                new_row = pd.DataFrame([{'Name': '채비', 'Code': '477380', 'Sector': '전기차 충전'}])
+                df_kind = pd.concat([new_row, df_kind], ignore_index=True)
+                
+            return df_kind.drop_duplicates(subset=['Name']).reset_index(drop=True)
+            
+        except Exception as e2:
+            # 완벽한 예외 처리 (둘 다 실패 시 빈 깡통 반환하여 앱 전체 크래시 방지)
+            return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
 def fetch_naver_volume(sosok, pages=1):
     df_list = []
