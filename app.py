@@ -1314,7 +1314,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 diff_str = "-"
                                 pct_str = "-"
                                 
-                            # 잠정 수급 데이터가 있을 때와 없을 때 구분
+                            # 네이버 잠정 수급 업데이트 시간에 맞춰 분기 처리
                             if est:
                                 def fmt_v(v):
                                     if v > 0: return f"🔴 +{v:,}"
@@ -1991,34 +1991,31 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
             if not krx_df.empty:
+                # 드롭다운 리스트 복구
+                opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                
                 col_s1, col_s2 = st.columns([8, 2])
                 with col_s1: 
-                    kr_query = st.text_input("👇 국내 종목명 또는 종목코드를 입력 후 엔터 (예: 삼성전자, 005930):", label_visibility="collapsed")
+                    # Selectbox 자체가 타이핑 검색 및 엔터 입력 선택을 완벽히 지원합니다.
+                    kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
                 with col_s2: 
-                    kr_search_btn = st.button("🔍 검색", use_container_width=True)
+                    kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
                 
-                # 검색 기록을 세션에 영구 저장 (창 꺼짐 완벽 방지)
-                if kr_query or kr_search_btn:
-                    st.session_state.kr_search_intent = kr_query
-
-                if st.session_state.get('kr_search_intent'):
-                    search_val = st.session_state.kr_search_intent
-                    match_df = krx_df[krx_df['Name'].str.contains(search_val, case=False, na=False) | krx_df['Code'].str.contains(search_val, na=False)]
+                # 사용자가 옵션을 선택(엔터)하거나 버튼을 눌렀을 때 실행
+                if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
+                    searched_name = kr_query.rsplit(" (", 1)[0]
+                    searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
                     
-                    if not match_df.empty:
-                        searched_name = match_df.iloc[0]['Name']
-                        searched_code = match_df.iloc[0]['Code']
-                        st.success(f"✅ '{searched_name} ({searched_code})' 종목을 찾았습니다!")
-                        with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                            res = analyze_technical_pattern(searched_name, searched_code)
-                        if res: 
-                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                        else: 
-                            st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
-                    else:
-                        st.error(f"❌ '{search_val}' 검색 결과가 없습니다. 정확한 종목명을 입력해주세요.")
+                    st.success(f"✅ '{searched_name} ({searched_code})' 종목 분석을 시작합니다.")
+                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                        res = analyze_technical_pattern(searched_name, searched_code)
+                    if res: 
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                    else: 
+                        st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
             else:
                 st.error("❌ 한국거래소(KRX) 종목 리스트를 불러오지 못했습니다. 잠시 후 좌측 하단의 '🔄 현재 화면 새로고침'을 눌러주세요.")
+                
         else:
             col_us1, col_us2 = st.columns([8, 2])
             with col_us1: 
@@ -2037,12 +2034,9 @@ elif selected_menu == "🔬 기업 정밀 분석기":
             if "us_search_results" in st.session_state and st.session_state.us_search_results:
                 sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + st.session_state.us_search_results)
                 analyze_btn = st.button("📊 분석 시작", use_container_width=True)
-                
-                if analyze_btn:
-                    st.session_state.us_analyze_intent = sel_us_opt
                     
-                if st.session_state.get('us_analyze_intent') and st.session_state.us_analyze_intent != "선택하세요":
-                    us_ticker = st.session_state.us_analyze_intent.split(" ")[0]
+                if analyze_btn and sel_us_opt != "선택하세요":
+                    us_ticker = sel_us_opt.split(" ")[0]
                     with st.spinner(f"📡 '{us_ticker}' 타점 및 재무 분석 중..."):
                         res = analyze_technical_pattern(us_ticker, us_ticker)
                     if res: 
