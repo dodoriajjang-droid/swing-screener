@@ -1290,50 +1290,60 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
                 
-            if not is_us:
+        if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
+                    
                     if not daily_df.empty:
-                        if tech_result.get('장중잠정수급'):
-                            est = tech_result['장중잠정수급']
-                            # 서버 시간 오류 방지를 위해 한국 시간(KST) 강제 고정
-                            now_kst = datetime.utcnow() + timedelta(hours=9)
-                            today_date = now_kst.strftime('%Y.%m.%d')
+                        # 서버 시간 오류 방지를 위해 한국 시간(KST) 강제 고정
+                        now_kst = datetime.utcnow() + timedelta(hours=9)
+                        today_date = now_kst.strftime('%Y.%m.%d')
+                        
+                        # 오늘(KST 기준) 날짜가 아직 확정 테이블에 안 올라왔을 경우 무조건 최상단에 생성
+                        if today_date not in str(daily_df.iloc[0]['날짜']):
+                            est = tech_result.get('장중잠정수급')
                             
-                            # 오늘 날짜가 아직 확정 테이블에 안 올라왔을 경우 최상단에 잠정치 추가
-                            if today_date not in str(daily_df.iloc[0]['날짜']):
+                            try:
+                                # 전일 종가와 현재가를 비교해 실시간 등락 계산
+                                prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
+                                curr_price = int(tech_result['현재가'])
+                                diff = curr_price - prev_close
+                                diff_str = f"상승 {diff:,}" if diff > 0 else f"하락 {abs(diff):,}" if diff < 0 else "보합 0"
+                                pct_str = f"{'+' if diff > 0 else ''}{(diff / prev_close) * 100:.2f}%"
+                            except Exception:
+                                diff_str = "-"
+                                pct_str = "-"
+                                
+                            # 잠정 수급 데이터가 있을 때와 없을 때 구분
+                            if est:
                                 def fmt_v(v):
                                     if v > 0: return f"🔴 +{v:,}"
                                     elif v < 0: return f"🔵 {v:,}"
                                     return "0"
+                                est_f = fmt_v(est['forgn'])
+                                est_i = fmt_v(est['inst'])
+                                est_r = fmt_v(-(est['forgn'] + est['inst']))
+                                time_label = f"({est['time']} 잠정)"
+                            else:
+                                est_f = "장중 집계중"
+                                est_i = "장중 집계중"
+                                est_r = "장중 집계중"
+                                time_label = "(실시간가)"
                                 
-                                est_f = est['forgn']
-                                est_i = est['inst']
-                                est_r = -(est_f + est_i)
-                                
-                                try:
-                                    prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
-                                    curr_price = int(tech_result['현재가'])
-                                    diff = curr_price - prev_close
-                                    diff_str = f"상승 {diff:,}" if diff > 0 else f"하락 {abs(diff):,}" if diff < 0 else "보합 0"
-                                    pct_str = f"{'+' if diff > 0 else ''}{(diff / prev_close) * 100:.2f}%"
-                                except Exception:
-                                    diff_str = "-"
-                                    pct_str = "-"
-                                    
-                                new_row = pd.DataFrame([{
-                                    "날짜": f"✨ {today_date} ({est['time']} 잠정)",
-                                    "종가": f"{int(tech_result['현재가']):,}",
-                                    "전일비": diff_str,
-                                    "등락률": pct_str,
-                                    "외국인": fmt_v(est_f),
-                                    "기관": fmt_v(est_i),
-                                    "개인(추정)": fmt_v(est_r)
-                                }])
-                                daily_df = pd.concat([new_row, daily_df], ignore_index=True)
+                            new_row = pd.DataFrame([{
+                                "날짜": f"✨ {today_date} {time_label}",
+                                "종가": f"{int(tech_result['현재가']):,}",
+                                "전일비": diff_str,
+                                "등락률": pct_str,
+                                "외국인": est_f,
+                                "기관": est_i,
+                                "개인(추정)": est_r
+                            }])
+                            daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                                 
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
-                    else: st.caption("수급 데이터를 제공하지 않는 종목입니다.")
+                    else: 
+                        st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: st.error("데이터를 불러오지 못했습니다.")
 
 def display_sorted_results(results_list, tab_key, api_key=""):
