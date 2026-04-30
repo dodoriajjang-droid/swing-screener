@@ -1290,18 +1290,17 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
                 
-                if not is_us:
+            if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
                     if not daily_df.empty:
-                        
-                        # --- 💡 당일 추정치(잠정수급) 최상단 추가 로직 ---
                         if tech_result.get('장중잠정수급'):
                             est = tech_result['장중잠정수급']
-                            # 현재 날짜 포맷 (네이버 금융 기준 YYYY.MM.DD)
-                            today_date = datetime.now().strftime('%Y.%m.%d')
+                            # 서버 시간 오류 방지를 위해 한국 시간(KST) 강제 고정
+                            now_kst = datetime.utcnow() + timedelta(hours=9)
+                            today_date = now_kst.strftime('%Y.%m.%d')
                             
-                            # 이미 오늘자 확정 데이터가 반영되지 않은 장중에만 '잠정치' 행을 맨 위에 삽입
+                            # 오늘 날짜가 아직 확정 테이블에 안 올라왔을 경우 최상단에 잠정치 추가
                             if today_date not in str(daily_df.iloc[0]['날짜']):
                                 def fmt_v(v):
                                     if v > 0: return f"🔴 +{v:,}"
@@ -1310,10 +1309,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 
                                 est_f = est['forgn']
                                 est_i = est['inst']
-                                est_r = -(est_f + est_i) # 개인 수급은 외인+기관의 반대 포지션으로 추정
+                                est_r = -(est_f + est_i)
                                 
                                 try:
-                                    # 전일 종가와 현재가를 비교해 등락 계산
                                     prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
                                     curr_price = int(tech_result['현재가'])
                                     diff = curr_price - prev_close
@@ -1333,11 +1331,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                     "개인(추정)": fmt_v(est_r)
                                 }])
                                 daily_df = pd.concat([new_row, daily_df], ignore_index=True)
-                        # ------------------------------------------------
                                 
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
-                    else: 
-                        st.caption("수급 데이터를 제공하지 않는 종목입니다.")
+                    else: st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: st.error("데이터를 불러오지 못했습니다.")
 
 def display_sorted_results(results_list, tab_key, api_key=""):
@@ -1983,42 +1979,44 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
         
         if market_choice == "🇰🇷 국내 주식":
-            with st.spinner("국내 종목 데이터를 불러오는 중입니다..."):
-                krx_df = get_krx_stocks()
-                
+            krx_df = get_krx_stocks()
             if not krx_df.empty:
-                opts = ["🔍 분석할 국내 종목을 선택하거나 검색하세요."] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                col_s1, col_s2 = st.columns([8, 2])
+                with col_s1: 
+                    kr_query = st.text_input("👇 국내 종목명 또는 종목코드를 입력 후 엔터 (예: 삼성전자, 005930):", label_visibility="collapsed")
+                with col_s2: 
+                    kr_search_btn = st.button("🔍 검색", use_container_width=True)
                 
-                with st.form("kr_search_form"):
-                    col_s1, col_s2 = st.columns([8, 2])
-                    with col_s1: 
-                        kr_query = st.selectbox("👇 종목명 검색:", opts, label_visibility="collapsed")
-                    with col_s2: 
-                        kr_search_btn = st.form_submit_button("📊 분석 시작", use_container_width=True)
-                
-                if kr_search_btn and kr_query != "🔍 분석할 국내 종목을 선택하거나 검색하세요.":
-                    searched_name = kr_query.rsplit(" (", 1)[0]
-                    searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                # 검색 기록을 세션에 영구 저장 (창 꺼짐 완벽 방지)
+                if kr_query or kr_search_btn:
+                    st.session_state.kr_search_intent = kr_query
+
+                if st.session_state.get('kr_search_intent'):
+                    search_val = st.session_state.kr_search_intent
+                    match_df = krx_df[krx_df['Name'].str.contains(search_val, case=False, na=False) | krx_df['Code'].str.contains(search_val, na=False)]
                     
-                    st.success(f"✅ '{searched_name} ({searched_code})' 종목 분석을 시작합니다.")
-                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                        res = analyze_technical_pattern(searched_name, searched_code)
-                    if res: 
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                    else: 
-                        st.error("❌ 해당 종목의 차트 및 수급 데이터를 불러올 수 없습니다.")
+                    if not match_df.empty:
+                        searched_name = match_df.iloc[0]['Name']
+                        searched_code = match_df.iloc[0]['Code']
+                        st.success(f"✅ '{searched_name} ({searched_code})' 종목을 찾았습니다!")
+                        with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                            res = analyze_technical_pattern(searched_name, searched_code)
+                        if res: 
+                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                        else: 
+                            st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
+                    else:
+                        st.error(f"❌ '{search_val}' 검색 결과가 없습니다. 정확한 종목명을 입력해주세요.")
             else:
                 st.error("❌ 한국거래소(KRX) 종목 리스트를 불러오지 못했습니다. 잠시 후 좌측 하단의 '🔄 현재 화면 새로고침'을 눌러주세요.")
-                
         else:
-            with st.form("us_search_form"):
-                col_us1, col_us2 = st.columns([8, 2])
-                with col_us1: 
-                    us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL, 테슬라):", label_visibility="collapsed")
-                with col_us2: 
-                    us_search_btn = st.form_submit_button("🔍 검색", use_container_width=True)
+            col_us1, col_us2 = st.columns([8, 2])
+            with col_us1: 
+                us_query = st.text_input("👇 미국 주식 종목명/티커 입력 후 엔터 (예: AAPL, 테슬라):", label_visibility="collapsed")
+            with col_us2: 
+                us_search_btn = st.button("🔍 검색", use_container_width=True)
             
-            if us_search_btn and us_query:
+            if us_query or us_search_btn:
                 with st.spinner(f"📡 '{us_query}' 글로벌 종목 검색 중..."):
                     us_results = search_us_ticker(us_query)
                 if us_results:
@@ -2027,12 +2025,14 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                     st.error("❌ 해당 키워드로 미국 주식을 찾을 수 없습니다.")
             
             if "us_search_results" in st.session_state and st.session_state.us_search_results:
-                with st.form("us_select_form"):
-                    sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + st.session_state.us_search_results)
-                    analyze_btn = st.form_submit_button("📊 분석 시작", use_container_width=True)
+                sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + st.session_state.us_search_results)
+                analyze_btn = st.button("📊 분석 시작", use_container_width=True)
+                
+                if analyze_btn:
+                    st.session_state.us_analyze_intent = sel_us_opt
                     
-                if analyze_btn and sel_us_opt != "선택하세요":
-                    us_ticker = sel_us_opt.split(" ")[0]
+                if st.session_state.get('us_analyze_intent') and st.session_state.us_analyze_intent != "선택하세요":
+                    us_ticker = st.session_state.us_analyze_intent.split(" ")[0]
                     with st.spinner(f"📡 '{us_ticker}' 타점 및 재무 분석 중..."):
                         res = analyze_technical_pattern(us_ticker, us_ticker)
                     if res: 
