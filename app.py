@@ -268,7 +268,7 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         response = model.generate_content([prompt, image_obj])
         return response.text
     except Exception as e:
