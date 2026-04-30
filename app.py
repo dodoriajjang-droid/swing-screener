@@ -1294,10 +1294,15 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
                     if not daily_df.empty:
+                        
+                        # --- 💡 당일 추정치(잠정수급) 최상단 추가 로직 ---
                         if tech_result.get('장중잠정수급'):
                             est = tech_result['장중잠정수급']
+                            # 현재 날짜 포맷 (네이버 금융 기준 YYYY.MM.DD)
                             today_date = datetime.now().strftime('%Y.%m.%d')
-                            if daily_df.iloc[0]['날짜'] != today_date:
+                            
+                            # 이미 오늘자 확정 데이터가 반영되지 않은 장중에만 '잠정치' 행을 맨 위에 삽입
+                            if today_date not in str(daily_df.iloc[0]['날짜']):
                                 def fmt_v(v):
                                     if v > 0: return f"🔴 +{v:,}"
                                     elif v < 0: return f"🔵 {v:,}"
@@ -1305,10 +1310,11 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 
                                 est_f = est['forgn']
                                 est_i = est['inst']
-                                est_r = -(est_f + est_i)
+                                est_r = -(est_f + est_i) # 개인 수급은 외인+기관의 반대 포지션으로 추정
                                 
                                 try:
-                                    prev_close = int(daily_df.iloc[0]['종가'].replace(',', ''))
+                                    # 전일 종가와 현재가를 비교해 등락 계산
+                                    prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
                                     curr_price = int(tech_result['현재가'])
                                     diff = curr_price - prev_close
                                     diff_str = f"상승 {diff:,}" if diff > 0 else f"하락 {abs(diff):,}" if diff < 0 else "보합 0"
@@ -1318,7 +1324,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                     pct_str = "-"
                                     
                                 new_row = pd.DataFrame([{
-                                    "날짜": f"{today_date} ({est['time']} 잠정)",
+                                    "날짜": f"✨ {today_date} ({est['time']} 잠정)",
                                     "종가": f"{int(tech_result['현재가']):,}",
                                     "전일비": diff_str,
                                     "등락률": pct_str,
@@ -1327,9 +1333,11 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                     "개인(추정)": fmt_v(est_r)
                                 }])
                                 daily_df = pd.concat([new_row, daily_df], ignore_index=True)
+                        # ------------------------------------------------
                                 
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
-                    else: st.caption("수급 데이터를 제공하지 않는 종목입니다.")
+                    else: 
+                        st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: st.error("데이터를 불러오지 못했습니다.")
 
 def display_sorted_results(results_list, tab_key, api_key=""):
