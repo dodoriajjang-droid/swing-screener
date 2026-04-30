@@ -258,7 +258,7 @@ def ask_gemini(prompt, _api_key):
     try:
         genai.configure(api_key=_api_key)
         # [수정] 모델명 변경 (flash-lite-preview -> 1.5-flash)
-        return genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt).text
+        return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
             return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
