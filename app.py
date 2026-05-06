@@ -20,7 +20,7 @@ import concurrent.futures
 import os
 import calendar
 import PIL.Image
-import traceback # 에러 로깅용
+import traceback
 
 try:
     import PyPDF2
@@ -50,7 +50,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v6.2", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 # 세션 상태 초기화
@@ -87,7 +87,6 @@ if 'price_scan_results' not in st.session_state: st.session_state.price_scan_res
 # ==========================================
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
-    # 샘플 데이터 유지
     return pd.DataFrame({
         '테마': ['AI 반도체', '전력설비', '로봇/자동화', '저PBR/밸류업', '2차전지', '엔터', '건설'],
         '1M수익률': [15.2, 12.1, 8.5, 5.1, -5.4, -8.2, -12.5],
@@ -97,7 +96,6 @@ def analyze_theme_trends():
 
 @st.cache_data(ttl=86400)
 def get_nps_holdings_mock():
-    # [수정] 샘플 데이터 명시
     return pd.DataFrame({
         '종목명': ['삼성전자', 'SK하이닉스', '현대차', '기아', 'NAVER', '셀트리온'],
         '티커': ['005930', '000660', '005380', '000270', '035420', '068270'],
@@ -251,13 +249,11 @@ def get_dividend_portfolio(ex_rate):
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
 
-
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
         genai.configure(api_key=_api_key)
-        # [수정] 모델명 변경 (flash-lite-preview -> 1.5-flash)
         return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(prompt).text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
@@ -380,100 +376,6 @@ def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
         print(f"가치주 찾기 에러: {e}")
         return []
 
-# ==========================================
-# 🚀 미국장 전용 데이터 연동 및 AI 함수 추가
-# ==========================================
-@st.cache_data(ttl=10800)
-def get_us_trending_themes_with_ai(_api_key):
-    default_themes = ["AI 반도체 (NVIDIA 밸류체인)", "사이버보안", "비만치료제 (GLP-1)", "데이터센터 전력기기"]
-    if not _api_key: return default_themes
-    try:
-        prompt = "최근 미국 증시(NYSE/NASDAQ)에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 클라우드, 사이버보안, 제약바이오, 신재생에너지"
-        response = ask_gemini(prompt, _api_key)
-        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
-        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
-    except Exception as e: 
-        print(f"US 테마 분석 에러: {e}")
-        return default_themes
-
-@st.cache_data(ttl=3600)
-def get_us_theme_stocks_with_ai(theme_keyword, _api_key):
-    if not _api_key: return []
-    try:
-        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 미국 증시(NYSE/NASDAQ) 핵심 대장주 및 주요 수혜주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('NVIDIA', 'NVDA'), ('Microsoft', 'MSFT')]", _api_key)
-        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([A-Z]+)['\"]", response)
-        validated = []
-        seen = set()
-        for name, code in raw_list:
-            if code not in seen:
-                seen.add(code)
-                validated.append((name, code))
-        return validated[:20]
-    except Exception as e: 
-        print(f"US 테마 종목 찾기 에러: {e}")
-        return []
-
-@st.cache_data(ttl=3600)
-def get_us_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
-    if not _api_key: return []
-    try:
-        prompt = f"당신은 월스트리트의 15년차 시니어 펀드매니저입니다. 미국 증시(NYSE/NASDAQ)에서 다음 투자 전략에 가장 완벽하게 부합하는 우량주 20개를 발굴해주세요.\n- 투자 전략: {strategy}\n- 기업 규모: {cap_size}\n실제 비즈니스 모델과 경제적 해자가 우수한 종목만 엄선하세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('Apple', 'AAPL'), ('Johnson & Johnson', 'JNJ')]"
-        response = ask_gemini(prompt, _api_key)
-        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([A-Z]+)['\"]", response)
-        validated = []
-        seen = set()
-        for name, code in raw_list:
-            if code not in seen:
-                seen.add(code)
-                validated.append((name, code))
-        return validated[:20]
-    except Exception as e: 
-        print(f"US 가치주 찾기 에러: {e}")
-        return []
-
-@st.cache_data(ttl=300)
-def get_us_scan_targets(limit=50):
-    # 안정적인 파싱을 위한 디폴트 핵심 종목 리스트 (야후 통신 실패 시 대비용)
-    default_targets = [
-        ("Apple", "AAPL"), ("Microsoft", "MSFT"), ("NVIDIA", "NVDA"), ("Alphabet", "GOOGL"), 
-        ("Amazon", "AMZN"), ("Meta", "META"), ("Tesla", "TSLA"), ("Broadcom", "AVGO"), 
-        ("Berkshire Hathaway", "BRK-B"), ("Eli Lilly", "LLY"), ("JPMorgan", "JPM"), 
-        ("UnitedHealth", "UNH"), ("Visa", "V"), ("Exxon Mobil", "XOM"), ("Mastercard", "MA"), 
-        ("Johnson & Johnson", "JNJ"), ("Procter & Gamble", "PG"), ("Home Depot", "HD"), 
-        ("Costco", "COST"), ("Merck", "MRK"), ("AbbVie", "ABBV"), ("Chevron", "CVX"), 
-        ("Salesforce", "CRM"), ("AMD", "AMD"), ("Netflix", "NFLX"), ("Coca-Cola", "KO"), 
-        ("PepsiCo", "PEP"), ("Adobe", "ADBE"), ("Walmart", "WMT"), ("Cisco", "CSCO"), 
-        ("Qualcomm", "QCOM"), ("Intel", "INTC"), ("IBM", "IBM"), ("Oracle", "ORCL"), 
-        ("Palantir", "PLTR"), ("Super Micro", "SMCI"), ("ARM", "ARM"), ("Coinbase", "COIN"), 
-        ("Uber", "UBER"), ("Disney", "DIS")
-    ]
-    try:
-        # 야후 파이낸스 실시간 거래량 상위 액티브 종목 크롤링
-        response = requests.get('https://finance.yahoo.com/most-active', headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        tables = pd.read_html(StringIO(response.text))
-        raw_df = tables[0]
-        active_targets = []
-        for _, row in raw_df.iterrows():
-            row_vals = row.dropna().astype(str).tolist()
-            if len(row_vals) >= 2:
-                sym = row_vals[0].split()[0]
-                name = row_vals[1]
-                if sym.isalpha():  # 일반 주식 티커만 추출
-                    active_targets.append((name, sym))
-        
-        # 실시간 액티브 + 디폴트 리스트 중복 제거 병합
-        combined = active_targets + default_targets
-        seen = set()
-        final_targets = []
-        for n, s in combined:
-            if s not in seen:
-                seen.add(s)
-                final_targets.append((n, s))
-        return final_targets[:limit]
-    except Exception:
-        # 오류 시 디폴트 리스트 반환
-        return default_targets[:limit]
-
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
@@ -568,20 +470,27 @@ def get_us_top_gainers():
 def get_krx_stocks():
     try:
         df = fdr.StockListing('KRX')
+        
         if 'Sector' not in df.columns:
             df['Sector'] = '기타/분류불가'
+            
         df = df[['Name', 'Code', 'Sector']].copy()
         df['Code'] = df['Code'].astype(str).str.zfill(6)
+        
         return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+        
     except Exception as e1:
         try:
             url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
             df_kind = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')), header=0)[0]
+            
             df_kind = df_kind[['회사명', '종목코드', '업종']]
             df_kind.columns = ['Name', 'Code', 'Sector']
             df_kind['Code'] = df_kind['Code'].astype(str).str.zfill(6)
+                
             return df_kind.drop_duplicates(subset=['Name']).reset_index(drop=True)
+            
         except Exception as e2:
             print(f"KRX Stock List Error: {e1}, {e2}")
             return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
@@ -695,6 +604,19 @@ def get_scan_targets(limit=50):
     except Exception as e: 
         print(f"Scan Targets Error: {e}")
     return []
+
+# =========== [추가] 미국 주식 스캐너 상위 300 종목 ===========
+@st.cache_data(ttl=86400)
+def get_us_scan_targets(limit=300):
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        df = pd.read_html(StringIO(res.text))[0]
+        targets = df[['Security', 'Symbol']].head(limit).values.tolist()
+        return [(row[0], str(row[1]).replace('.', '-')) for row in targets]
+    except Exception:
+        return [('Apple', 'AAPL'), ('Microsoft', 'MSFT'), ('Nvidia', 'NVDA'), ('Tesla', 'TSLA')] * (limit // 4 + 1)
+# =============================================================
 
 @st.cache_data(ttl=300)
 def get_limit_stocks():
@@ -1066,6 +988,39 @@ def get_historical_data(ticker_code, days):
             except Exception: pass
     return df
 
+# =========== [추가] 고급 차트(다중 주기) 데이터 호출 ===========
+@st.cache_data(ttl=300)
+def get_advanced_chart_data(ticker_code, timeframe):
+    is_us = not str(ticker_code).isdigit()
+    yf_ticker = ticker_code if is_us else f"{ticker_code}.KS"
+    try:
+        if timeframe == "30분":
+            df = yf.Ticker(yf_ticker).history(period="1mo", interval="30m")
+        elif timeframe == "1시간":
+            df = yf.Ticker(yf_ticker).history(period="1mo", interval="60m")
+        elif timeframe == "4시간":
+            df = yf.Ticker(yf_ticker).history(period="2mo", interval="60m")
+            if not df.empty:
+                df = df.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+        elif timeframe == "일봉":
+            df = yf.Ticker(yf_ticker).history(period="6mo", interval="1d")
+        elif timeframe == "주봉":
+            df = yf.Ticker(yf_ticker).history(period="2y", interval="1wk")
+        elif timeframe == "1년":
+            df = yf.Ticker(yf_ticker).history(period="1y", interval="1d")
+        else:
+            df = yf.Ticker(yf_ticker).history(period="6mo", interval="1d")
+            
+        if not df.empty:
+            df.index = df.index.tz_localize(None)
+            if df.index.name == 'Datetime':
+                df.index.name = 'Date'
+        return df
+    except Exception as e:
+        print(f"Chart fetch error: {e}")
+        return pd.DataFrame()
+# =============================================================
+
 @st.cache_data(ttl=3600)
 def search_us_ticker(query):
     if not query: return []
@@ -1343,10 +1298,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         if fin_df is not None: st.dataframe(fin_df)
                         if peer_df is not None: st.dataframe(peer_df)
         
-        tf = st.radio("📅 차트 기간 선택", ["1개월", "3개월", "1년"], horizontal=True, key=f"tf_{key_suffix}", index=0)
-        days_dict = {"1개월": 30, "3개월": 90, "1년": 365}
-        with st.spinner(f"{tf} 차트 데이터 불러오는 중..."):
-            long_df = get_historical_data(tech_result['티커'], days_dict[tf])
+        # =========== [추가] 차트 주기 선택 & 피보나치 적용 ===========
+        tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
+        with st.spinner(f"{tf} 차트 데이터 및 피보나치 지표 불러오는 중..."):
+            long_df = get_advanced_chart_data(tech_result['티커'], tf)
             if not long_df.empty:
                 long_df = long_df.reset_index()
                 long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
@@ -1354,14 +1309,32 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 long_df['Std_20'] = long_df['Close'].rolling(window=20).std()
                 long_df['Bollinger_Upper'] = long_df['MA20'] + (long_df['Std_20'] * 2)
                 
-                x_col, x_type = ('Date_Str', 'category') if tf in ["1개월", "3개월"] else ('Date', 'date')
-                if tf in ["1개월", "3개월"]: long_df['Date_Str'] = long_df['Date'].dt.strftime('%m월 %d일')
+                if tf in ["30분", "1시간", "4시간"]:
+                    long_df['Date_Str'] = long_df['Date'].dt.strftime('%m/%d %H:%M')
+                else:
+                    long_df['Date_Str'] = long_df['Date'].dt.strftime('%y/%m/%d')
                 
+                x_col, x_type = ('Date_Str', 'category')
+                
+                max_p = float(long_df['High'].max())
+                min_p = float(long_df['Low'].min())
+                diff_p = max_p - min_p
+                f_382 = max_p - 0.382 * diff_p
+                f_500 = max_p - 0.500 * diff_p
+                f_618 = max_p - 0.618 * diff_p
+
                 ch1, ch2 = st.columns(2)
                 with ch1:
                     fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col], open=long_df['Open'], high=long_df['High'], low=long_df['Low'], close=long_df['Close'], increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
                     fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
                     fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
+                    
+                    fig_price.add_hline(y=max_p, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text="고점(1.0)")
+                    fig_price.add_hline(y=f_382, line_dash="dash", line_color="rgba(255,165,0,0.5)", annotation_text="Fib 0.382")
+                    fig_price.add_hline(y=f_500, line_dash="dash", line_color="rgba(0,128,0,0.5)", annotation_text="Fib 0.500")
+                    fig_price.add_hline(y=f_618, line_dash="dash", line_color="rgba(0,0,255,0.5)", annotation_text="Fib 0.618")
+                    fig_price.add_hline(y=min_p, line_dash="dash", line_color="rgba(128,128,128,0.5)", annotation_text="저점(0.0)")
+
                     fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis=dict(showgrid=False, type=x_type), height=250)
                     st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
                 with ch2:
@@ -1370,22 +1343,20 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
                     fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
+        # =============================================================
                 
             if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
                     
                     if not daily_df.empty:
-                        # 서버 시간 오류 방지를 위해 한국 시간(KST) 강제 고정
                         now_kst = datetime.utcnow() + timedelta(hours=9)
                         today_date = now_kst.strftime('%Y.%m.%d')
                         
-                        # 오늘(KST 기준) 날짜가 아직 확정 테이블에 안 올라왔을 경우 무조건 최상단에 생성
                         if today_date not in str(daily_df.iloc[0]['날짜']):
                             est = tech_result.get('장중잠정수급')
                             
                             try:
-                                # 전일 종가와 현재가를 비교해 실시간 등락 계산
                                 prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
                                 curr_price = int(tech_result['현재가'])
                                 diff = curr_price - prev_close
@@ -1395,7 +1366,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 diff_str = "-"
                                 pct_str = "-"
                                 
-                            # 네이버 잠정 수급 업데이트 시간에 맞춰 분기 처리
                             if est:
                                 def fmt_v(v):
                                     if v > 0: return f"🔴 +{v:,}"
@@ -1452,7 +1422,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v6.2")
+    st.title("📈 Jaemini PRO v6.1")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
     st.divider()
     
@@ -1829,28 +1799,27 @@ elif selected_menu == "🚀 실시간 퀀트 스캐너 & 백테스팅":
         show_beginner_guide()
         show_trading_guidelines()
         
-        market_choice_scan = st.radio("시장 선택 (스캐너)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, key="scan_market")
+        # =========== [수정] 스캐너 시장 선택 추가 ===========
+        scan_market = st.radio("시장 선택 (스캐너)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
+        # ====================================================
         
         col_c1, col_c2, col_c3, col_c4 = st.columns(4)
         with col_c1: cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입"); cond_pullback = st.checkbox("✅ 20일선 눌림목 (타점 근접)", value=True)
         with col_c2: cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (낙폭과대)"); cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 의심)")
-        with col_c3: 
-            if market_choice_scan == "🇰🇷 국내 주식":
-                cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수")
-            else:
-                cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수 (미지원)", disabled=True)
-        with col_c4: 
-            if market_choice_scan == "🇰🇷 국내 주식":
-                cond_pension = st.checkbox("👴 기관 3일 연속 순매수")
-            else:
-                cond_pension = st.checkbox("👴 기관 3일 연속 순매수 (미지원)", disabled=True)
+        with col_c3: cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수")
+        with col_c4: cond_pension = st.checkbox("👴 기관 3일 연속 순매수")
         
-        scan_limit = st.selectbox("스캔할 상위 종목 수", [50, 100, 200, 300] if market_choice_scan == "🇰🇷 국내 주식" else [50, 100], index=1)
+        # =========== [수정] 스캔 상위 종목 수 선택 확장 ===========
+        scan_limit = st.selectbox("스캔할 상위 종목 수", [50, 100, 200, 300], index=3) # 300 기본값
+        # ==========================================================
         
         if st.button("🚀 쾌속 병렬 스캔 시작", type="primary", use_container_width=True):
             with st.spinner(f"⚡ {scan_limit}개 종목 고속 필터링 중..."):
-                targets = get_scan_targets(scan_limit) if market_choice_scan == "🇰🇷 국내 주식" else get_us_scan_targets(scan_limit)
-                
+                if scan_market == "🇰🇷 국내 주식":
+                    targets = get_scan_targets(scan_limit)
+                else:
+                    targets = get_us_scan_targets(scan_limit)
+                    
                 if not targets: st.error("❌ 종목 데이터를 불러오지 못했습니다.")
                 else:
                     progress_bar = st.progress(0)
@@ -1866,10 +1835,8 @@ elif selected_menu == "🚀 실시간 퀀트 스캐너 & 백테스팅":
                             if cond_pullback and res['상태'] != "✅ 타점 근접 (분할 매수)": return None
                             if cond_rsi_bottom and res['RSI'] > 30: return None
                             if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": return None
-                            
-                            if market_choice_scan == "🇰🇷 국내 주식":
-                                if cond_twin_buy and ("+" not in str(res.get('기관수급','')) or "+" not in str(res.get('외인수급',''))): return None
-                                if cond_pension and res.get('연기금연속순매수', 0) < 3: return None
+                            if cond_twin_buy and ("+" not in str(res['기관수급']) or "+" not in str(res['외인수급'])): return None
+                            if cond_pension and res.get('연기금연속순매수', 0) < 3: return None
                             return res
                         return None
                     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -2018,10 +1985,8 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
                         else: st.error("❌ 해당 종목 데이터를 불러올 수 없습니다.")
 
 elif selected_menu == "💎 장기 가치주 스캐너":
-    st.markdown("## 💎 여의도/월스트리트 데스크: 기관급 가치주/성장주 스캐너")
+    st.markdown("## 💎 여의도 데스크: 기관급 가치주/성장주 스캐너")
     st.write("단순 테마가 아닌 실제 재무제표와 기업 가치를 분석하는 펀드매니저용 조건 검색기입니다.")
-    
-    market_choice_value = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, key="value_market")
     
     col_v1, col_v2 = st.columns([2, 1])
     with col_v1:
@@ -2032,10 +1997,7 @@ elif selected_menu == "💎 장기 가치주 스캐너":
             "🔄 턴어라운드 & 배당 (실적 바닥 탈출 또는 고배당 방어주)"
         ])
     with col_v2: 
-        if market_choice_value == "🇰🇷 국내 주식":
-            cap_size = st.selectbox("🏢 기업 규모 선택:", ["대/중/소형 상관없음", "코스피 대형우량주만", "코스닥 중소형 숨은진주"], index=0)
-        else:
-            cap_size = st.selectbox("🏢 기업 규모 선택:", ["대/중/소형 상관없음", "S&P 500 대형우량주만", "나스닥 러셀2000 중소형주"], index=0)
+        cap_size = st.selectbox("🏢 기업 규모 선택:", ["대/중/소형 상관없음", "코스피 대형우량주만", "코스닥 중소형 숨은진주"], index=0)
         
     if "그레이엄" in expert_strategy:
         max_per, max_pbr = 10.0, 1.0
@@ -2051,12 +2013,8 @@ elif selected_menu == "💎 장기 가치주 스캐너":
     if st.button("💎 딥 밸류 병렬 스캔 시작", type="primary", use_container_width=True):
         if not api_key_input: st.warning("API 키를 입력해주세요.")
         else:
-            with st.spinner("퀀트 알고리즘으로 스캔 중..."):
-                if market_choice_value == "🇰🇷 국내 주식":
-                    candidates = get_longterm_value_stocks_with_ai(expert_strategy, cap_size, api_key_input)
-                else:
-                    candidates = get_us_longterm_value_stocks_with_ai(expert_strategy, cap_size, api_key_input)
-                    
+            with st.spinner("여의도 퀀트 알고리즘으로 스캔 중..."):
+                candidates = get_longterm_value_stocks_with_ai(expert_strategy, cap_size, api_key_input)
                 if not candidates: st.error("❌ 관련 기업을 찾지 못했습니다.")
                 else:
                     progress_bar = st.progress(0)
@@ -2094,17 +2052,14 @@ elif selected_menu == "🔬 기업 정밀 분석기":
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
             if not krx_df.empty:
-                # 드롭다운 리스트 복구
                 opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
                 
                 col_s1, col_s2 = st.columns([8, 2])
                 with col_s1: 
-                    # Selectbox 자체가 타이핑 검색 및 엔터 입력 선택을 완벽히 지원합니다.
                     kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
                 with col_s2: 
                     kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
                 
-                # 사용자가 옵션을 선택(엔터)하거나 버튼을 눌렀을 때 실행
                 if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
                     searched_name = kr_query.rsplit(" (", 1)[0]
                     searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
@@ -2194,13 +2149,7 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
     
-    market_choice_theme = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, key="theme_market")
-    
-    if market_choice_theme == "🇰🇷 국내 주식":
-        hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
-    else:
-        hot_themes_tab5 = get_us_trending_themes_with_ai(api_key_input) if api_key_input else ["AI Semiconductor", "Cybersecurity", "Weight Loss Drugs", "Cloud Computing"]
-        
+    hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
     cols_d = st.columns(4)
     
     for idx, theme in enumerate(hot_themes_tab5[:4]):
@@ -2228,15 +2177,12 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 발굴기":
         st.markdown(f"### 🔎 '{st.session_state.deep_tech_query}' 테마/섹터 정밀 분석")
         
         with st.spinner("AI가 해당 테마의 시장 모멘텀과 핵심 촉매(Catalyst)를 분석 중입니다..."):
-            theme_brief_prompt = f"당신은 테마주/섹터 전문 퀀트 애널리스트입니다. '{st.session_state.deep_tech_query}' 테마에 대해 1) 최근 시장에서 주목받는 이유(핵심 모멘텀), 2) 향후 전망 및 트레이딩 관점에서의 리스크를 마크다운 형태의 3줄 이내로 핵심만 요약해주세요."
+            theme_brief_prompt = f"당신은 여의도 테마주/섹터 전문 퀀트 애널리스트입니다. '{st.session_state.deep_tech_query}' 테마에 대해 1) 최근 시장에서 주목받는 이유(핵심 모멘텀), 2) 향후 전망 및 트레이딩 관점에서의 리스크를 마크다운 형태의 3줄 이내로 핵심만 요약해주세요."
             st.session_state.deep_tech_brief = ask_gemini(theme_brief_prompt, api_key_input)
 
         with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 핵심 대장주 및 밸류체인 수혜주 발굴 중..."):
-            if market_choice_theme == "🇰🇷 국내 주식":
-                theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
-            else:
-                theme_stocks = get_us_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
-                
+            theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
+            
             if theme_stocks:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -2896,6 +2842,7 @@ elif selected_menu == "⚖️ 워런 버핏 퀀트 계산기":
         * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
         """)
 
+# =========== [수정] v6.0 메이저 업데이트 탭 코드 문법 오류 복구 ===========
 elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
     st.markdown("## 🚀 v6.0 메이저 업데이트 (Beta 테스트 룸)")
     st.write("기관 프랍 트레이더 수준의 거시경제 분석, AI 어닝 리포트 해독, 포트폴리오 최적화 등 하이엔드 기능을 제공합니다.")
@@ -2911,3 +2858,192 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
     with v6_t1:
         st.markdown("### 🌍 글로벌 매크로 & 지정학적 리스크 관제소 (The All-Seeing Eye)")
         st.write("금, 은, 구리, 비트코인 등 주요 자산의 최근 6개월 추세와 미국 10년-2년 장단기 금리차(경기침체 시그널)를 한눈에 파악합니다.")
+        
+        if st.button("📊 실시간 글로벌 매크로 데이터 연동", type="primary"):
+            with st.spinner("Yahoo Finance에서 원자재 및 국채 금리 데이터를 수집 중입니다..."):
+                try:
+                    tickers = {
+                        "금 (Gold)": "GC=F", 
+                        "은 (Silver)": "SI=F",
+                        "구리 (닥터 코퍼)": "HG=F", 
+                        "비트코인 (BTC)": "BTC-USD"
+                    }
+                    
+                    series_dict = {}
+                    for name, ticker in tickers.items():
+                        df_hist = yf.Ticker(ticker).history(period="6mo")
+                        if not df_hist.empty:
+                            df_hist.index = df_hist.index.tz_localize(None).normalize()
+                            normalized = (df_hist['Close'] / df_hist['Close'].iloc[0] - 1) * 100
+                            normalized = normalized[~normalized.index.duplicated(keep='first')]
+                            series_dict[name] = normalized
+                    
+                    if series_dict:
+                        macro_df = pd.DataFrame(series_dict).ffill().dropna()
+                        
+                        st.markdown("#### 🥇 원자재 & 암호화폐 슈퍼사이클 트래커 (6개월 상대수익률 %)")
+                        fig_macro = px.line(macro_df, x=macro_df.index, y=macro_df.columns)
+                        fig_macro.update_layout(height=400, yaxis_title="수익률 (%)", xaxis_title="날짜", hovermode="x unified")
+                        st.plotly_chart(fig_macro, use_container_width=True)
+                    
+                    df_10y = yf.Ticker("^TNX").history(period="6mo")
+                    df_2y = yf.Ticker("^IRX").history(period="6mo")
+                    
+                    if not df_10y.empty and not df_2y.empty:
+                        df_10y.index = df_10y.index.tz_localize(None).normalize()
+                        df_2y.index = df_2y.index.tz_localize(None).normalize()
+                        
+                        df_spread = (df_10y['Close'] - df_2y['Close']).dropna()
+                        st.markdown("#### 📉 미국채 10년-2년 장단기 금리차 (Yield Curve Spread)")
+                        fig_spread = go.Figure()
+                        fig_spread.add_trace(go.Scatter(x=df_spread.index, y=df_spread.values, mode='lines', name='10Y-2Y Spread', line=dict(color='purple', width=2)))
+                        fig_spread.add_hline(y=0, line_dash="dash", line_color="red", annotation_text="금리 역전 기준선")
+                        fig_spread.update_layout(height=300, yaxis_title="금리차 (%)", xaxis_title="날짜")
+                        st.plotly_chart(fig_spread, use_container_width=True)
+                        
+                        current_spread = df_spread.iloc[-1]
+                        if current_spread < 0:
+                            st.error(f"🚨 **현재 장단기 금리차: {current_spread:.2f}%** (금리 역전 상태 - 잠재적 경기침체 경고)")
+                        else:
+                            st.success(f"✅ **현재 장단기 금리차: {current_spread:.2f}%** (정상 커브)")
+                            
+                    if api_key_input:
+                        st.divider()
+                        prompt = f"당신은 수석 이코노미스트입니다. 현재 장단기 금리차가 {df_spread.iloc[-1] if not df_spread.empty else '알수없음'}%이고, 금, 은, 구리, 비트코인 차트를 보았을 때 현재 시장이 '인플레이션 베팅'인지 '경기침체 우려'인지 3줄로 명확하게 판단해주세요."
+                        st.info("💡 **AI 매크로 종합 해석:**\n" + ask_gemini(prompt, api_key_input))
+                        
+                except Exception as e:
+                    st.error(f"매크로 데이터 수집 중 오류 발생: {e}")
+
+    with v6_t2:
+        st.markdown("### 💼 스마트머니 딥(Deep) 트래커: 밸류업 & 파생 수급")
+        sub_t1, sub_t2 = st.tabs(["🔥 옵션 Put/Call 비율 (US)", "🚀 한국 밸류업 스캐너 (KR)"])
+        
+        with sub_t1:
+            st.write("미국 대형주의 가까운 만기일 옵션 체인을 분석해 하락(Put)과 상승(Call) 자금을 확인합니다.")
+            pc_ticker = st.text_input("분석할 미국 티커 (예: AAPL, NVDA)", value="NVDA").upper()
+            if st.button("⚖️ Put/Call 비율 연산"):
+                with st.spinner("옵션 체인 데이터 수집 중..."):
+                    try:
+                        tk = yf.Ticker(pc_ticker)
+                        expirations = tk.options
+                        if not expirations:
+                            st.error("해당 종목의 옵션 데이터가 없습니다.")
+                        else:
+                            opt = tk.option_chain(expirations[0])
+                            call_vol = opt.calls['volume'].sum()
+                            put_vol = opt.puts['volume'].sum()
+                            if call_vol > 0:
+                                pc_ratio = put_vol / call_vol
+                                c1, c2, c3 = st.columns(3)
+                                c1.metric("총 Call 거래량", f"{int(call_vol):,}")
+                                c2.metric("총 Put 거래량", f"{int(put_vol):,}")
+                                c3.metric("Put/Call Ratio", f"{pc_ratio:.2f}", "1.0 초과 시 약세 심리", delta_color="inverse" if pc_ratio > 1 else "normal")
+                                fig_pc = px.pie(values=[call_vol, put_vol], names=['Call (상승 기대)', 'Put (하락 기대)'], hole=0.5, color_discrete_sequence=['#2ca02c', '#d62728'])
+                                st.plotly_chart(fig_pc, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"옵션 연산 실패: {e}")
+                        
+        with sub_t2:
+            st.write("단순 PBR 1 이하 종목 중, ROE가 높은 밸류업 후보를 스캔합니다.")
+            if st.button("🚀 밸류업(Value-up) 잠재주 스캔"):
+                with st.spinner("재무제표 및 수익성 스크리닝 중..."):
+                    candidates = get_longterm_value_stocks_with_ai("PBR 0.8 이하이면서 ROE 10% 이상인 주주환원 유력 후보", "코스피/코스닥 대형주", api_key_input)
+                    if candidates:
+                        st.success(f"🎯 AI 밸류업 잠재 기업 포착")
+                        for name, code in candidates:
+                            res = analyze_technical_pattern(name, code)
+                            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=False, key_suffix=f"vup_{code}")
+                    else: st.error("후보를 찾지 못했습니다.")
+
+    with v6_t3:
+        st.markdown("### 🧠 AI 어닝콜 & 공시 원문(PDF) 딥리딩 룸")
+        if not HAS_PYPDF: st.warning("⚠️ PyPDF2 모듈이 없습니다. 텍스트를 직접 복사해서 넣어주세요.")
+        pdf_file = st.file_uploader("📄 PDF 리포트 업로드", type=["pdf"])
+        raw_text = ""
+        
+        if pdf_file and HAS_PYPDF:
+            with st.spinner("PDF 텍스트 추출 중..."):
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                for page in pdf_reader.pages: raw_text += page.extract_text() + "\n"
+        elif not HAS_PYPDF:
+            raw_text = st.text_area("📄 텍스트 직접 붙여넣기:", height=150)
+            
+        if raw_text and api_key_input:
+            if st.button("🤖 Gemini 리포트 해독 시작", type="primary"):
+                with st.spinner("AI 분석 중..."):
+                    prompt = f"당신은 리서치 애널리스트입니다. 다음 원문에서 1)목표주가 2)핵심투자포인트 3가지 3)리스크 2가지를 요약해주세요.\n\n{raw_text[:15000]}"
+                    st.info(ask_gemini(prompt, api_key_input))
+
+    with v6_t4:
+        st.markdown("### 🏆 노벨상 수상 알고리즘: '마코위츠' 포트폴리오 최적화 엔진")
+        port_input_m = st.text_input("포트폴리오 종목 (예: AAPL, MSFT, TSLA)", value="AAPL, MSFT, GOOGL, NVDA, TSLA")
+        if st.button("⚙️ 몬테카를로 시뮬레이션 (1,000번 반복)", type="primary"):
+            tickers_m = [t.strip() for t in port_input_m.split(",") if t.strip()]
+            if len(tickers_m) >= 2:
+                with st.spinner("최적 가중치 연산 중..."):
+                    try:
+                        data_m = pd.DataFrame()
+                        for t in tickers_m:
+                            df_t = yf.Ticker(t).history(period="1y")
+                            if not df_t.empty: data_m[t] = df_t['Close']
+                        data_m = data_m.dropna()
+                        
+                        if not data_m.empty:
+                            returns = data_m.pct_change().dropna()
+                            mean_returns = returns.mean() * 252
+                            cov_matrix = returns.cov() * 252
+                            
+                            num_portfolios = 1000
+                            results_m = np.zeros((3, num_portfolios))
+                            weights_record = []
+                            
+                            for i in range(num_portfolios):
+                                weights = np.random.random(len(tickers_m))
+                                weights /= np.sum(weights)
+                                weights_record.append(weights)
+                                portfolio_return = np.sum(mean_returns * weights)
+                                portfolio_std_dev = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+                                results_m[0,i] = portfolio_return
+                                results_m[1,i] = portfolio_std_dev
+                                results_m[2,i] = (portfolio_return - 0.02) / portfolio_std_dev
+                                
+                            results_df = pd.DataFrame(results_m.T, columns=['Return', 'Volatility', 'Sharpe'])
+                            max_sharpe_idx = results_df['Sharpe'].idxmax()
+                            max_sharpe_port = results_df.iloc[max_sharpe_idx]
+                            opt_weights = weights_record[max_sharpe_idx]
+                            
+                            fig_ef = px.scatter(results_df, x='Volatility', y='Return', color='Sharpe', title="효율적 전선 (Efficient Frontier)")
+                            fig_ef.add_trace(go.Scatter(x=[max_sharpe_port['Volatility']], y=[max_sharpe_port['Return']], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='최적점'))
+                            st.plotly_chart(fig_ef, use_container_width=True)
+                            
+                            col_w, col_s = st.columns([1, 1])
+                            with col_w:
+                                weight_df = pd.DataFrame({'종목': tickers_m, '비율(%)': (opt_weights * 100).round(2)})
+                                fig_w = px.pie(weight_df, values='비율(%)', names='종목', hole=0.4)
+                                st.plotly_chart(fig_w, use_container_width=True)
+                            with col_s:
+                                st.metric("예상 연평균 수익률", f"{max_sharpe_port['Return']*100:.2f}%")
+                                st.metric("예상 연 변동성", f"{max_sharpe_port['Volatility']*100:.2f}%")
+                                st.metric("샤프 지수", f"{max_sharpe_port['Sharpe']:.2f}")
+                    except Exception as e: st.error(f"오류: {e}")
+
+    with v6_t5:
+        st.markdown("### ⚡ 실시간 호가창 체결강도 & 모멘텀 (1분봉 틱 분석)")
+        tick_ticker = st.text_input("종목 티커 입력 (예: TSLA - 야후 파이낸스 1m 데이터)", value="TSLA").upper()
+        if st.button("🔎 1분봉 누적 거래량 델타(CVD) 분석"):
+            with st.spinner("야후 파이낸스 1분봉 데이터 추출 중..."):
+                try:
+                    df_tick = yf.Ticker(tick_ticker).history(period="1d", interval="1m")
+                    if df_tick.empty: st.error("1분봉 데이터가 없습니다.")
+                    else:
+                        delta_direction = np.sign(df_tick['Close'] - df_tick['Open'])
+                        delta_direction = delta_direction.replace(0, method='ffill').fillna(1)
+                        df_tick['CVD'] = (df_tick['Volume'] * delta_direction).cumsum()
+                        
+                        fig_tick = go.Figure()
+                        fig_tick.add_trace(go.Scatter(x=df_tick.index, y=df_tick['Close'], name='주가', line=dict(color='blue', width=2)))
+                        fig_tick.add_trace(go.Scatter(x=df_tick.index, y=df_tick['CVD'], name='누적 매수압력(CVD)', yaxis='y2', line=dict(color='orange', width=2, dash='dot')))
+                        fig_tick.update_layout(title=f"[{tick_ticker}] 당일 1분봉 주가 vs 누적 매수 압력(CVD)", yaxis=dict(title="주가"), yaxis2=dict(title="CVD", overlaying="y", side="right"), height=400, hovermode="x unified")
+                        st.plotly_chart(fig_tick, use_container_width=True)
+                except Exception as e: st.error(f"분석 실패: {e}")
