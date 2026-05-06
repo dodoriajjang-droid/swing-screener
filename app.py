@@ -524,7 +524,7 @@ def fetch_naver_volume(sosok, pages=1):
     return pd.DataFrame()
 
 @st.cache_data(ttl=300)
-def get_trading_value_kings():
+def get_trading_value_kings(limit=50):
     try:
         df_fdr = fdr.StockListing('KRX')
         if not df_fdr.empty and 'Amount' in df_fdr.columns:
@@ -533,7 +533,10 @@ def get_trading_value_kings():
             df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
             df_fdr['Close'] = pd.to_numeric(df_fdr['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
             df_fdr['ChagesRatio'] = pd.to_numeric(df_fdr['ChagesRatio'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
-            df_fdr = df_fdr.sort_values('Amount', ascending=False).head(20)
+            
+            # 파라미터로 받은 limit 값 적용
+            df_fdr = df_fdr.sort_values('Amount', ascending=False).head(limit)
+            
             df_fdr['Amount_Ouk'] = (df_fdr['Amount'] / 100000000).astype(int)
             df_fdr['Amount_Ouk'] = df_fdr['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
             krx = get_krx_stocks()
@@ -545,8 +548,10 @@ def get_trading_value_kings():
     except Exception: pass
 
     try:
-        df_kpi = fetch_naver_volume(0, 1)
-        df_kdq = fetch_naver_volume(1, 1)
+        # 네이버 금융 페이지수 조절 (1페이지당 100개이므로 limit에 맞춰 조절)
+        pages = 1 if limit <= 50 else 2
+        df_kpi = fetch_naver_volume(0, pages)
+        df_kdq = fetch_naver_volume(1, pages)
         df = pd.concat([df_kpi, df_kdq], ignore_index=True)
         if not df.empty:
             mask = df['종목명'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
@@ -560,7 +565,10 @@ def get_trading_value_kings():
             df['Volume'] = df['거래량'].apply(extract_num)
             df['Amount_Ouk'] = (df['Close'] * df['Volume'] / 100000000).astype(int)
             df['Amount_Ouk'] = df['Amount_Ouk'].apply(lambda x: x if x > 0 else 1) 
-            df = df.sort_values('Amount_Ouk', ascending=False).head(20)
+            
+            # 파라미터로 받은 limit 값 적용
+            df = df.sort_values('Amount_Ouk', ascending=False).head(limit)
+            
             krx = get_krx_stocks()
             if not krx.empty:
                 df = pd.merge(df, krx[['Name', 'Code', 'Sector']], on='Name', how='left')
@@ -1681,15 +1689,31 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
     st.subheader("🗺️ 시장 주도주 & 스마트머니 유입 섹터 히트맵")
     st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 상승 / 붉은색: 하락)")
     
-    with st.spinner("거래대금 상위 30종목 데이터 및 수급 스크래핑 중..."):
-        t_kings = get_trading_value_kings()
+    # [추가] 30, 50, 100개 선택 메뉴 추가
+    heatmap_limit = st.radio("🔥 히트맵 표시 종목 수 선택 (개)", [30, 50, 100], index=1, horizontal=True)
+    
+    with st.spinner(f"거래대금 상위 {heatmap_limit}종목 데이터 및 수급 스크래핑 중... (종목 수가 많을수록 수급 확인에 시간이 걸립니다)"):
+        # 파라미터로 선택한 limit 전달
+        t_kings = get_trading_value_kings(limit=heatmap_limit)
+        
         if not t_kings.empty:
-            t_kings = t_kings.head(50)
             pension_streaks = []
             
-            for idx, row in t_kings.iterrows():
+            # [추가] 100개일 때 오래 걸리므로 진행 상태 바(Progress Bar) 표시
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            total_k = len(t_kings)
+            
+            for i, (idx, row) in enumerate(t_kings.iterrows()):
                 _, streak = get_pension_fund_trend(row['Code'])
                 pension_streaks.append(streak)
+                # 진행률 업데이트
+                progress_bar.progress((i + 1) / total_k)
+                status_text.text(f"📊 종목 수급 파싱 중... ({i + 1}/{total_k})")
+            
+            # 파싱 완료 시 진행 바 숨기기
+            status_text.empty()
+            progress_bar.empty()
             
             t_kings['연속매수'] = pension_streaks
             t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
@@ -1705,7 +1729,9 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
                 custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수']
             )
             fig.update_traces(textinfo="text", texttemplate="%{customdata[2]}", hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억<br>연속매수: %{customdata[3]}일")
-            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=600)
+            
+            # 종목 수가 많아질 때를 대비하여 트리맵의 세로 높이(height)를 동적으로 확장
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=600 if heatmap_limit <= 50 else 800)
             st.plotly_chart(fig, use_container_width=True)
             
             st.markdown("### 📊 수급 동반 거래대금 상위 종목 타점 확인")
