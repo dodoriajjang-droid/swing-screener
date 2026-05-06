@@ -1028,6 +1028,10 @@ def get_advanced_chart_data(ticker_code, timeframe):
             df = yf.Ticker(yf_ticker).history(period="2y", interval="1wk")
         elif timeframe == "1년":
             df = yf.Ticker(yf_ticker).history(period="1y", interval="1d")
+        elif timeframe == "5년":
+            df = yf.Ticker(yf_ticker).history(period="5y", interval="1wk") # 5년은 주봉
+        elif timeframe == "10년":
+            df = yf.Ticker(yf_ticker).history(period="10y", interval="1mo") # 10년은 월봉
         else:
             df = yf.Ticker(yf_ticker).history(period="6mo", interval="1d")
             
@@ -1328,7 +1332,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         if peer_df is not None: st.dataframe(peer_df)
         
         # =========== [추가] 차트 주기 선택 & 피보나치 적용 ===========
-        tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
+        tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년", "5년", "10년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
         with st.spinner(f"{tf} 차트 데이터 및 피보나치 지표 불러오는 중..."):
             long_df = get_advanced_chart_data(tech_result['티커'], tf)
             if not long_df.empty:
