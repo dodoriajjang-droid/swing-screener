@@ -85,6 +85,18 @@ if 'price_scan_results' not in st.session_state: st.session_state.price_scan_res
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
+@st.cache_data(ttl=86400)
+def get_korean_name(en_name):
+    if not en_name or re.search('[가-힣]', str(en_name)): return en_name
+    try:
+        res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(str(en_name))}", timeout=2)
+        ko_name = res.json()[0][0][0]
+        # Inc., Corp. 등 불필요한 영문 수식어 깔끔하게 제거
+        return re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|Co\.|Company|plc|Plc|\(주\))', '', ko_name).strip()
+    except Exception:
+        return en_name
+
+
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
     return pd.DataFrame({
@@ -1042,17 +1054,26 @@ def search_us_ticker(query):
             if quote.get('quoteType') in ['EQUITY', 'ETF']:
                 sym = quote.get('symbol')
                 name = quote.get('shortname', 'Unknown')
+                # 👉 [추가] 검색된 영어 이름을 한글로 번역
+                ko_name = get_korean_name(name)
                 exch = quote.get('exchDisp', 'US')
-                results.append(f"{sym} ({name} / {exch})")
+                results.append(f"{sym} ({ko_name} / {exch})")
         return results
     except Exception: return []
 
 @st.cache_data(ttl=3600)
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
+    
+    # 👉 [추가] 미국 주식일 경우 카드에 들어갈 종목명을 한글로 강제 변환
+    is_us = not str(ticker_code).isdigit()
+    if is_us:
+        stock_name = get_korean_name(stock_name)
+        
     try:
         df = get_historical_data(ticker_code, 150)
         if df.empty or len(df) < 20 + offset_days: return None
+        # ... 이하 기존 코드 동일 ...
         
         today_close = float(df['Close'].iloc[-1]) 
         if offset_days > 0: analysis_df = df.iloc[:-offset_days].copy()
