@@ -1684,7 +1684,7 @@ elif selected_menu == "🗺️ 시장 자금 & 스마트머니 히트맵":
     with st.spinner("거래대금 상위 30종목 데이터 및 수급 스크래핑 중..."):
         t_kings = get_trading_value_kings()
         if not t_kings.empty:
-            t_kings = t_kings.head(30)
+            t_kings = t_kings.head(50)
             pension_streaks = []
             
             for idx, row in t_kings.iterrows():
