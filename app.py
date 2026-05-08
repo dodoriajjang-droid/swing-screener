@@ -102,7 +102,6 @@ def analyze_theme_trends():
         '6M수익률': [80.5, 60.2, 25.1, 15.4, -30.5, -25.4, -22.1]
     })
 
-# 👉 [실제 데이터 복구] FnGuide 연기금 실시간 데이터 
 @st.cache_data(ttl=86400)
 def get_nps_holdings():
     targets = [('삼성전자', '005930'), ('SK하이닉스', '000660'), ('LG에너지솔루션', '373220'), ('삼성바이오로직스', '207940'), ('현대차', '005380'), ('기아', '000270'), ('셀트리온', '068270'), ('POSCO홀딩스', '005490'), ('NAVER', '035420'), ('KB금융', '105560'), ('신한지주', '055550'), ('삼성물산', '028260'), ('현대모비스', '012330'), ('LG화학', '051910'), ('카카오', '035720'), ('삼성SDI', '006400'), ('하나금융지주', '086790'), ('메리츠금융지주', '138040'), ('한국전력', '015760'), ('HMM', '011200'), ('KT&G', '033780'), ('우리금융지주', '316140'), ('기업은행', '024110'), ('삼성생명', '032830'), ('두산에너빌리티', '034020')]
@@ -171,38 +170,40 @@ def get_naver_ipo_data():
     except Exception: pass
     return pd.DataFrame()
 
-# 👉 [완벽 복구] 야후 파이낸스 차단 우회 및 가격 소수점 제거
+# 👉 [완벽 복구] 야후 파이낸스 차단 우회 및 가격 소수점 제거 + 배당률 파싱 버그 완벽 수정
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
     headers = {'User-Agent': 'Mozilla/5.0'}
     
-    # 1. KRX 배당 스크래핑
+    # 1. KRX 배당 스크래핑 (동적 컬럼 매칭 추가)
     try:
         for page in range(1, 4): 
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
             res = requests.get(url, headers=headers, timeout=5)
             tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
             for t in tables:
-                if '종목명' in t.columns and ('수익률(%)' in t.columns or '수익률' in t.columns):
-                    target_col = '수익률(%)' if '수익률(%)' in t.columns else '수익률'
+                # '수익률' 키워드가 포함된 컬럼을 동적으로 찾도록 수정
+                target_col = next((col for col in t.columns if '수익률' in str(col)), None)
+                if '종목명' in t.columns and target_col:
                     df = t.dropna(subset=['종목명', target_col]).copy()
                     for _, row in df.iterrows():
                         name = str(row['종목명'])
                         if name != '종목명' and name.strip():
                             try:
                                 price_val = str(row['현재가']).replace(',', '').replace('원', '')
-                                # 💡 소수점 제거 후 정수로 포맷팅
                                 price_fmt = f"{int(float(price_val)):,}원"
                                 yield_val = str(row[target_col]).replace('%', '')
                                 if float(yield_val) > 0:
                                     krx_list.append({'종목명': name, '현재가': price_fmt, '배당수익률(예상)': f"{float(yield_val):.2f}%", '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
-    except Exception: pass
+    except Exception as e: 
+        print(f"KRX Dividend fetch error: {e}")
+
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
 
-    # 2. US & ETF 실시간 yfinance (야후 차단 방지를 위해 핵심 30종목으로 압축 및 속도 조절)
+    # 2. US & ETF 실시간 yfinance
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS", "NEE", "DUK", "SO", "D", "CL"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB"]
     
@@ -219,18 +220,20 @@ def get_dividend_portfolio(ex_rate):
             if price > 0 and div_yield and div_yield > 0:
                 name_ko = get_korean_name(info.get('shortName', ticker))
                 price_krw = int(price * ex_rate)
-                # 💡 소수점 제거 후 정수로 포맷팅 (달러와 환산 원화 동시 표시)
+                
+                # 💡 배당률 버그 수정: yfinance가 이미 퍼센트(예: 6.55)로 값을 반환하는 경우 방어 로직
+                display_yield = div_yield if div_yield > 1 else div_yield * 100
+                
                 return {
                     '종목명': f"{name_ko} ({ticker})", 
                     '현재가': f"${int(price):,} ({price_krw:,}원)", 
-                    '배당수익률(예상)': f"{div_yield*100:.2f}%",
+                    '배당수익률(예상)': f"{display_yield:.2f}%",
                     '비고': 'Yahoo 실시간'
                 }
         except Exception: pass
         return None
 
     us_list, etf_list = [], []
-    # 💡 max_workers를 3으로 낮춰서 야후 서버의 429 IP 차단을 우회
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         for r in executor.map(fetch_yf_dividend, us_tickers):
             if r: us_list.append(r)
@@ -248,7 +251,7 @@ def ask_gemini(prompt, _api_key):
     try:
         now_kst = datetime.utcnow() + timedelta(hours=9)
         today_str = now_kst.strftime("%Y년 %m월 %d일")
-        system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.\n\n"
+        system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.\n\n"
         
         genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
@@ -269,7 +272,8 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         response = model.generate_content([system_date_instruction + prompt, image_obj])
         return response.text
-    except Exception as e: return f"🚨 비전 분석 오류: {str(e)}"
+    except Exception as e: 
+        return f"🚨 비전 분석 오류: {str(e)}"
 
 @st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
@@ -501,7 +505,6 @@ def get_us_scan_targets(limit=300):
     except Exception:
         return [('Apple', 'AAPL'), ('Microsoft', 'MSFT'), ('Nvidia', 'NVDA'), ('Tesla', 'TSLA')] * (limit // 4 + 1)
 
-# 👉 [실제 데이터 복구] 상하한가 딕셔너리 및 데이터 KeyError 완벽 방어 처리
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     def fetch_naver_limit(url, is_upper):
@@ -1115,7 +1118,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=ai_btn_key):
                 st.session_state[ai_res_key] = "loading"
-                
+                 
             if st.session_state.get(ai_res_key):
                 if st.session_state[ai_res_key] == "loading":
                     with st.spinner("AI가 종합 분석 중입니다... (약 5~10초 소요)"):
@@ -1124,8 +1127,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
                             peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
                             prompt = f"""
-                            당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다.
-                            '{tech_result['종목명']}' 분석 리포트를 마크다운으로 작성하세요.
+                            당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다. '{tech_result['종목명']}' 분석 리포트를 마크다운으로 작성하세요.
                             [기술적 지표 및 수급]
                             - 현재가: {fmt_price(curr)}, 20일선: {fmt_price(tech_result['진입가_가이드'])} (상태: {tech_result['상태']})
                             - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
@@ -1266,6 +1268,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
     st.session_state.gainers_df = df
     st.session_state.ex_rate = ex_rate
     st.session_state.us_fetch_time = fetch_time
+
 # ==========================================
 # 4. 메인 화면 & 사이드바 메뉴 
 # ==========================================
@@ -1276,7 +1279,7 @@ with st.sidebar:
     
     menu_list = [
         "🎛️ 메인 대시보드",
-        "💼 내 포지션 관리 & 플래너", # ✅ 신규 추가된 메뉴
+        "💼 내 포지션 관리 & 플래너", 
         "🚀 v6.0 AI 퀀트 & 매크로 (Beta)",
         "👨‍🦳 연기금 그림자 매매 스캐너", 
         "🗺️ 시장 자금 & 스마트머니 히트맵", 
@@ -1327,7 +1330,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
     st.markdown("## 💼 내 포지션 관리 & 포트폴리오 리밸런싱")
     st.write("현재 보유 중인 종목들을 표에 입력하면, 단순 개별 분석이 아닌 **계좌 전체의 자산 배분(비중)과 리스크를 고려한 종합 리밸런싱 전략**을 AI가 진단해 드립니다.")
 
-    # 1. 메인 포트폴리오 입력 (물타기 제거됨)
     if "portfolio_df" not in st.session_state:
         st.session_state.portfolio_df = pd.DataFrame([
             {"종목명": "", "진입단가": 0, "보유수량": 0}
@@ -1348,7 +1350,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
 
     valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
 
-    # 2. 물타기 시뮬레이터 (독립된 섹션으로 분리)
     st.markdown("### 💧 2. 개별 종목 물타기 시뮬레이터 (선택 사항)")
     with st.expander("특정 종목의 추가 매수 시 평단가 변화를 계산하려면 여기를 펼쳐주세요."):
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -1376,7 +1377,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                 else:
                     st.warning("위 포트폴리오 표에 등록된 종목을 선택해야 기존 데이터와 합산하여 정확한 계산이 가능합니다.")
 
-    # 3. 포트폴리오 전체 종합 진단 로직
     if st.button("📊 계좌 전체 종합 진단 및 AI 리밸런싱", type="primary", use_container_width=True):
         if valid_rows.empty:
             st.warning("종목명과 진입단가, 보유수량을 최소 1개 이상 표에 정확히 입력해주세요.")
@@ -1625,30 +1625,26 @@ elif selected_menu == "🎛️ 메인 대시보드":
                     if macro_data:
                         macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()])
                     
-                    # 💡 하드코딩 방어막 제거 & 구글 검색 강제 지시
+                    # 💡 챗봇 프롬프트 전면 수정: 하드코딩 금지 및 구글 검색 강제 지시
                     sys_prompt = f"""
                     당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
-                    오늘 날짜는 정확히 {today_str}입니다.
+                    🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다.
                     
                     [절대 규칙 - 실시간 검색 및 팩트 기반 답변]
-                    사용자가 특정 기업의 신작(예: 붉은사막, GTA6), 실적 발표, 최신 뉴스, 주가 전망 등을 물어보면, 
-                    당신은 '구글 검색(Google Search)'을 통해 2024~2026년 사이의 가장 최신 기사와 공시를 확인하고 답변해야 합니다.
-                    "연기되었을 가능성이 있습니다"와 같이 과거 데이터에 의존한 모호한 추측이나 변명을 절대 하지 마세요. 
-                    검색된 결과를 바탕으로 확정된 사실(예: "2025년 O분기로 확정되었습니다" 등)만 명확하게 요약하여 답변하세요.
-
+                    1. 사용자의 질문에 대해 당신은 반드시 '구글 검색(Google Search)'을 실행하여 {today_str} 기준 가장 최신 기사와 공시를 확인해야 합니다.
+                    2. 과거 학습 데이터에 의존한 하드코딩된 답변이나 "연기되었을 가능성이 있습니다", "정확한 정보를 알 수 없습니다" 같은 추측성 변명을 절대 금지합니다.
+                    3. (예: 붉은사막 등) 게임 신작, 기업 일정 등을 물어보면 검색 결과를 바탕으로 확정된 '사실'만 명확하게 3~4줄로 요약하세요. 이미 과거에 발생/출시된 이벤트라면 과거형으로 정확히 답하세요.
+                    
                     [매크로 데이터]: {macro_context}
                     사용자 질문: {prompt}
                     """
                     
-                    # 💡 Gemini API에 구글 검색(Grounding) 도구를 쥐어줍니다.
                     try:
                         genai.configure(api_key=api_key_input)
-                        # 검색 기능이 완벽히 지원되는 1.5-flash 모델과 tools 파라미터 사용
                         model = genai.GenerativeModel('gemini-1.5-flash', tools='google_search_retrieval')
                         response = model.generate_content(sys_prompt)
                         reply = response.text
                     except Exception as e:
-                        # 만약 API 버전 문제로 실패할 경우 기존 방식으로 Fallback
                         reply = ask_gemini(sys_prompt, api_key_input)
                         
                     st.write(reply)
@@ -1789,8 +1785,7 @@ elif selected_menu == "🕸️ 실시간 3D 순환매 맵":
 
 elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
     st.markdown("## 🏛️ DART 공시 연동: 국민연금 코어 픽(Core Pick)")
-    nps_df = get_nps_holdings() # 👈 실시간 스크래핑 함수로 변경완료!
-    
+    nps_df = get_nps_holdings()
     tab_nps1, tab_nps2 = st.tabs(["📋 국민연금 5% 대량보유 현황", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
     
     with tab_nps1:
@@ -1987,7 +1982,7 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
                     col_v1, col_v2 = st.columns([8,2])
                     with col_v1: us_sub_query = st.selectbox("수혜주 차트 상태 확인:", opts_krx, key="us_sub_scan", label_visibility="collapsed")
                     with col_v2: vs_btn = st.form_submit_button("🔍 타점 확인", use_container_width=True)
-                        
+                    
                 if vs_btn and us_sub_query != "🔍 종목명 검색 후 엔터":
                     q_name = us_sub_query.rsplit(" (", 1)[0]
                     q_code = us_sub_query.rsplit("(", 1)[-1].replace(")", "").strip()
@@ -2130,7 +2125,8 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 else:
                     with st.spinner("AI가 차트의 패턴, 지지/저항선, 엘리어트 파동 등을 시각적으로 해독 중입니다... (약 10초 소요)"):
                         prompt = """
-                        당신은 월스트리트의 전설적인 차트 분석가입니다. 제시된 차트 이미지를 분석하여 다음 3가지를 도출해주세요:
+                        당신은 월스트리트의 전설적인 차트 분석가입니다.
+                        제시된 차트 이미지를 분석하여 다음 3가지를 도출해주세요:
                         1. 현재 캔들 패턴 및 전반적인 추세 (상승/하락/횡보)
                         2. 시각적으로 보이는 주요 지지선과 저항선 추정 구간
                         3. 이 패턴이 의미하는 향후 예상 시나리오와 단기 대응 전략
@@ -2677,7 +2673,7 @@ elif selected_menu == "⚖️ 워런 버핏 퀀트 계산기":
                     info = t_obj.info
                     shares = info.get('sharesOutstanding')
                     if shares: def_shares = shares / 1000000 if is_us_dcf else shares / 10000
-                        
+                    
                     cf = t_obj.cash_flow
                     if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                         fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
@@ -2867,7 +2863,7 @@ elif selected_menu == "🚀 v6.0 AI 퀀트 & 매크로 (Beta)":
                         current_spread = df_spread.iloc[-1]
                         if current_spread < 0: st.error(f"🚨 **현재 장단기 금리차: {current_spread:.2f}%** (금리 역전 상태 - 잠재적 경기침체 경고)")
                         else: st.success(f"✅ **현재 장단기 금리차: {current_spread:.2f}%** (정상 커브)")
-                         
+                        
                     if api_key_input:
                         st.divider()
                         prompt = f"당신은 수석 이코노미스트입니다. 현재 장단기 금리차가 {df_spread.iloc[-1] if not df_spread.empty else '알수없음'}%이고, 금, 은, 구리, 비트코인 차트를 보았을 때 현재 시장이 '인플레이션 베팅'인지 '경기침체 우려'인지 3줄로 명확하게 판단해주세요."
