@@ -174,7 +174,66 @@ def get_naver_ipo_data():
                 if not df.empty: return df[['종목명', '공모일정', '희망공모가', '주간사']].head(15).reset_index(drop=True)
     except Exception: pass
     return pd.DataFrame()
+@st.cache_data(ttl=86400)
+def get_dividend_portfolio(ex_rate):
+    krx_list = []
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    # 1. KRX 배당 스크래핑 (네이버 금융 1~3페이지)
+    try:
+        for page in range(1, 4): 
+            url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
+            res = requests.get(url, headers=headers, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
+            for t in tables:
+                if '종목명' in t.columns and ('수익률(%)' in t.columns or '수익률' in t.columns):
+                    target_col = '수익률(%)' if '수익률(%)' in t.columns else '수익률'
+                    df = t.dropna(subset=['종목명', target_col]).copy()
+                    for _, row in df.iterrows():
+                        name = str(row['종목명'])
+                        if name != '종목명' and name.strip():
+                            try:
+                                price_val = str(row['현재가']).replace(',', '').replace('원', '')
+                                price_fmt = f"{int(float(price_val)):,}원"
+                                yield_val = str(row[target_col]).replace('%', '')
+                                if float(yield_val) > 0:
+                                    krx_list.append({'종목명': name, '현재가': price_fmt, '배당수익률(예상)': f"{float(yield_val):.2f}%"})
+                            except Exception: pass
+                    break
+    except Exception: pass
+    krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']).head(100) if krx_list else pd.DataFrame()
 
+    # 2. US & ETF 실시간 yfinance 병렬 스크래핑
+    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "T", "VZ", "MMM", "MO", "PM", "CAT", "UPS", "LMT", "NEE", "DUK", "SO", "D", "KMB", "CL", "GILD", "AMGN", "BMY", "CVS", "SYY", "TGT", "WBA", "F", "GM", "O", "SPG", "DOW", "NUE", "EOG", "SLB", "VLO"]
+    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB", "IGIB", "MBB", "BIV", "BSV", "BNDX", "VWOB", "PCY", "EBND", "EMLC", "LEMB", "IGOV", "QLTA", "CRED", "CORP", "LKOR", "USCR", "VCEB", "HYLB", "FALN", "USHY"]
+    
+    def fetch_yf_dividend(ticker):
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info
+            price = info.get('previousClose', info.get('regularMarketPrice', 0))
+            div_yield = info.get('dividendYield', 0)
+            if div_yield is None or div_yield == 0: div_yield = info.get('trailingAnnualDividendYield', 0)
+            if price > 0 and div_yield and div_yield > 0:
+                name_ko = get_korean_name(info.get('shortName', ticker))
+                return {'종목명': f"{name_ko} ({ticker})", '현재가': f"${price:.2f}", '배당수익률(예상)': f"{div_yield*100:.2f}%"}
+        except Exception: pass
+        return None
+
+    us_list, etf_list = [], []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        us_res = executor.map(fetch_yf_dividend, us_tickers)
+        for r in us_res:
+            if r: us_list.append(r)
+        etf_res = executor.map(fetch_yf_dividend, etf_tickers)
+        for r in etf_res:
+            if r: etf_list.append(r)
+
+    us_df = pd.DataFrame(us_list).sort_values('배당수익률(예상)', ascending=False) if us_list else pd.DataFrame()
+    etf_df = pd.DataFrame(etf_list).sort_values('배당수익률(예상)', ascending=False) if etf_list else pd.DataFrame()
+
+    return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
+    
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     def fetch_naver_limit(url, is_upper):
