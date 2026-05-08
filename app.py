@@ -1265,46 +1265,79 @@ with st.sidebar:
 # ==========================================
 
 if selected_menu == "💼 내 포지션 관리 & 플래너":
-    st.markdown("## 💼 내 포지션 관리 & 실전 트레이딩 플래너")
-    st.write("여러 보유 종목의 진입가와 수량을 표에 한 번에 입력하면, AI가 일괄적으로 최적의 익절/손절 라인 및 대응 시나리오를 수립해 드립니다.")
+    st.markdown("## 💼 내 포지션 관리 & 포트폴리오 리밸런싱")
+    st.write("현재 보유 중인 종목들을 표에 입력하면, 단순 개별 분석이 아닌 **계좌 전체의 자산 배분(비중)과 리스크를 고려한 종합 리밸런싱 전략**을 AI가 진단해 드립니다.")
 
+    # 1. 메인 포트폴리오 입력 (물타기 제거됨)
     if "portfolio_df" not in st.session_state:
         st.session_state.portfolio_df = pd.DataFrame([
-            {"종목명": "", "진입단가": 0, "보유수량": 0, "물타기단가(선택)": 0, "물타기수량(선택)": 0}
+            {"종목명": "", "진입단가": 0, "보유수량": 0}
         ])
 
-    st.markdown("### 📊 내 포지션 입력 (표 아래 '➕ 추가'를 눌러 여러 종목 등록 가능)")
+    st.markdown("### 📊 1. 내 포트폴리오 입력 (표 아래 '➕ 추가'를 눌러 종목 추가)")
     
     edited_df = st.data_editor(
         st.session_state.portfolio_df, 
         num_rows="dynamic", 
         column_config={
-            "종목명": st.column_config.TextColumn("종목명 (예: 삼성전자, AAPL)", required=True),
+            "종목명": st.column_config.TextColumn("종목명 또는 티커", required=True),
             "진입단가": st.column_config.NumberColumn("내 진입단가", min_value=0, step=1, format="%d"),
             "보유수량": st.column_config.NumberColumn("보유 수량", min_value=0, step=1, format="%d"),
-            "물타기단가(선택)": st.column_config.NumberColumn("물타기 단가", min_value=0, step=1, format="%d"),
-            "물타기수량(선택)": st.column_config.NumberColumn("물타기 수량", min_value=0, step=1, format="%d"),
         },
         use_container_width=True
     )
 
-    if st.button("📊 포지션 일괄 진단 및 플랜 생성", type="primary", use_container_width=True):
-        valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
+    valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
+
+    # 2. 물타기 시뮬레이터 (독립된 섹션으로 분리)
+    st.markdown("### 💧 2. 개별 종목 물타기 시뮬레이터 (선택 사항)")
+    with st.expander("특정 종목의 추가 매수 시 평단가 변화를 계산하려면 여기를 펼쳐주세요."):
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        with col_m1:
+            sim_opts = ["직접 입력"] + valid_rows["종목명"].tolist() if not valid_rows.empty else ["직접 입력"]
+            sim_sel = st.selectbox("물타기 할 종목", sim_opts)
+        with col_m2:
+            sim_name = st.text_input("종목명", value="" if sim_sel == "직접 입력" else sim_sel, label_visibility="collapsed" if sim_sel != "직접 입력" else "visible")
+        with col_m3:
+            sim_add_price = st.number_input("추가 매수 단가", min_value=0, step=1, format="%d", key="sim_p")
+        with col_m4:
+            sim_add_qty = st.number_input("추가 매수 수량", min_value=0, step=1, format="%d", key="sim_q")
         
+        if st.button("🧮 평단가 계산하기"):
+            if sim_name and sim_add_price > 0 and sim_add_qty > 0:
+                orig_row = valid_rows[valid_rows["종목명"] == sim_name]
+                if not orig_row.empty:
+                    orig_price = int(orig_row.iloc[0]["진입단가"])
+                    orig_qty = int(orig_row.iloc[0]["보유수량"])
+                    orig_invest = orig_price * orig_qty
+                    add_invest = sim_add_price * sim_add_qty
+                    new_qty = orig_qty + sim_add_qty
+                    new_avg = int((orig_invest + add_invest) / new_qty)
+                    st.info(f"💡 **[{sim_name} 시뮬레이션]** 기존 {orig_qty}주(평단 {orig_price:,}) + 추가 {sim_add_qty}주(단가 {sim_add_price:,}) ➡️ **총 {new_qty}주, 조정 평단가: {new_avg:,}**")
+                else:
+                    st.warning("위 포트폴리오 표에 등록된 종목을 선택해야 기존 데이터와 합산하여 정확한 계산이 가능합니다.")
+
+    # 3. 포트폴리오 전체 종합 진단 로직
+    if st.button("📊 계좌 전체 종합 진단 및 AI 리밸런싱", type="primary", use_container_width=True):
         if valid_rows.empty:
-            st.warning("종목명과 진입단가, 보유수량을 최소 1개 이상 정확히 입력해주세요.")
+            st.warning("종목명과 진입단가, 보유수량을 최소 1개 이상 표에 정확히 입력해주세요.")
         elif not api_key_input:
             st.error("좌측 사이드바에 API 키를 입력해주세요.")
         else:
-            for idx, row in valid_rows.iterrows():
-                pos_name = str(row["종목명"]).strip()
-                entry_price = int(row["진입단가"])
-                quantity = int(row["보유수량"])
-                add_price = int(row["물타기단가(선택)"])
-                add_qty = int(row["물타기수량(선택)"])
-
-                st.markdown(f"---")
-                with st.spinner(f"'{pos_name}' 차트 분석 및 AI 시나리오 작성 중..."):
+            with st.spinner("전체 포트폴리오 구성 종목의 현재가 조회 및 자산 배분 비중을 분석 중입니다..."):
+                portfolio_summary = []
+                total_invested_all = 0
+                total_current_all = 0
+                
+                # 미국 주식이 섞여 있을 경우를 위한 환율 처리 (세션에 없으면 기본 1350원 적용)
+                ex_rate = st.session_state.get('ex_rate', 1350.0)
+                
+                # 개별 종목 데이터 취합
+                for idx, row in valid_rows.iterrows():
+                    pos_name = str(row["종목명"]).strip()
+                    entry_price = int(row["진입단가"])
+                    quantity = int(row["보유수량"])
+                    
                     is_us = re.search('[a-zA-Z]', pos_name) is not None
                     search_ticker = pos_name
                     pos_name_kr = pos_name
@@ -1315,7 +1348,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                             search_ticker = us_results[0].split(" ")[0]
                             pos_name_kr = us_results[0].split(" (")[1].split(" /")[0]
                         else:
-                            st.error(f"'{pos_name}' 미국 주식을 찾을 수 없습니다.")
                             search_ticker = None
                     else:
                         krx_df = get_krx_stocks()
@@ -1324,67 +1356,98 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                             search_ticker = match['Code'].iloc[0]
                             pos_name_kr = match['Name'].iloc[0]
                         else:
-                            st.error(f"'{pos_name}' 국내 주식을 찾을 수 없습니다.")
                             search_ticker = None
 
                     if search_ticker:
                         res = analyze_technical_pattern(pos_name_kr, search_ticker)
-
                         if res:
                             current_price = res['현재가']
-                            total_invested = entry_price * quantity
-                            current_value = current_price * quantity
-                            pnl_amount = current_value - total_invested
+                            invested = entry_price * quantity
+                            current_val = current_price * quantity
+                            
+                            # 총합 계산을 위해 달러는 원화로 강제 환산 합산
+                            if is_us:
+                                invested_krw = invested * ex_rate
+                                current_val_krw = current_val * ex_rate
+                            else:
+                                invested_krw = invested
+                                current_val_krw = current_val
+                            
+                            total_invested_all += invested_krw
+                            total_current_all += current_val_krw
+                            
                             pnl_pct = ((current_price - entry_price) / entry_price) * 100
+                            
+                            portfolio_summary.append({
+                                "종목명": pos_name_kr,
+                                "티커": search_ticker,
+                                "시장": "미국" if is_us else "한국",
+                                "진입단가": entry_price,
+                                "현재가": current_price,
+                                "수익률(%)": pnl_pct,
+                                "평가금액(원환산)": current_val_krw,
+                                "상태": res['상태'],
+                                "섹터": res.get('섹터', '기타')
+                            })
+                        else:
+                            st.error(f"'{pos_name}' 데이터를 수집할 수 없어 분석에서 제외되었습니다.")
+                            
+                # 계좌 대시보드 렌더링
+                if portfolio_summary:
+                    overall_pnl_pct = ((total_current_all - total_invested_all) / total_invested_all) * 100 if total_invested_all > 0 else 0
+                    overall_pnl_amt = total_current_all - total_invested_all
+                    
+                    st.markdown("---")
+                    st.markdown("### 🏦 종합 포트폴리오 대시보드")
+                    
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("총 매수 금액 (원화 환산)", f"{int(total_invested_all):,}원")
+                    m2.metric("총 평가 금액 (원화 환산)", f"{int(total_current_all):,}원")
+                    m3.metric("총 평가 손익", f"{int(overall_pnl_amt):,}원", f"{overall_pnl_pct:+.2f}%", delta_color="normal" if overall_pnl_amt > 0 else "inverse")
+                    m4.metric("보유 종목 수", f"{len(portfolio_summary)}개")
+                    
+                    # 데이터프레임 렌더링 (각 종목이 내 계좌에서 차지하는 '비중' 계산 추가)
+                    summary_df = pd.DataFrame(portfolio_summary)
+                    summary_df["비중(%)"] = (summary_df["평가금액(원환산)"] / total_current_all) * 100
+                    
+                    display_cols = ["종목명", "시장", "섹터", "수익률(%)", "비중(%)", "상태"]
+                    st.dataframe(summary_df[display_cols].style.format({
+                        "수익률(%)": "{:+.1f}%", 
+                        "비중(%)": "{:.1f}%"
+                    }), use_container_width=True)
 
-                            st.markdown(f"### 📈 **{pos_name_kr} ({search_ticker})** 포지션 요약")
+                    # AI에 '계좌 전체' 데이터를 던져서 리밸런싱 전략 요청
+                    with st.spinner("AI가 자산 배분 비중과 개별 종목 상태를 종합하여 포트폴리오 리밸런싱 전략을 수립 중입니다..."):
+                        now_kst = datetime.utcnow() + timedelta(hours=9)
+                        today_str = now_kst.strftime("%Y년 %m월 %d일")
+                        
+                        port_details_str = ""
+                        for item in portfolio_summary:
+                            weight = (item["평가금액(원환산)"] / total_current_all) * 100
+                            port_details_str += f"- {item['종목명']} ({item['시장']}, {item['섹터']}): 계좌 내 비중 {weight:.1f}%, 수익률 {item['수익률(%)']:+.1f}%, 현재 차트상태: {item['상태']}\n"
 
-                            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                            curr_fmt = f"${int(current_price):,}" if is_us else f"{int(current_price):,}원"
-                            entry_fmt = f"${entry_price:,}" if is_us else f"{entry_price:,}원"
-                            pnl_amt_fmt = f"${int(pnl_amount):,}" if is_us else f"{int(pnl_amount):,}원"
+                        ai_plan_prompt = f"""
+                        당신은 여의도의 냉철한 펀드매니저이자 자산 배분 전문가입니다.
+                        🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 
 
-                            metric_col1.metric("현재가", curr_fmt)
-                            metric_col2.metric("내 진입단가", entry_fmt)
-                            metric_col3.metric("평가 손익금", pnl_amt_fmt, f"{pnl_pct:+.1f}%", delta_color="normal" if pnl_pct > 0 else "inverse")
-                            metric_col4.metric("현재 기술적 상태", res['상태'].split(' ')[0])
+                        [포트폴리오 전체 요약]
+                        - 총 투자금액: {int(total_invested_all):,}원
+                        - 총 평가금액: {int(total_current_all):,}원
+                        - 계좌 전체 수익률: {overall_pnl_pct:+.2f}%
+                        
+                        [개별 구성 종목 상세 (비중 및 상태)]
+                        {port_details_str}
 
-                            add_simulation_text = ""
-                            if add_qty > 0 and add_price > 0:
-                                new_total_qty = quantity + add_qty
-                                new_total_invested = total_invested + (add_price * add_qty)
-                                new_avg_price = int(new_total_invested / new_total_qty)
-                                new_pnl_pct = ((current_price - new_avg_price) / new_avg_price) * 100
-                                
-                                new_avg_fmt = f"${new_avg_price:,}" if is_us else f"{new_avg_price:,}원"
-                                st.info(f"💧 **물타기 시뮬레이션:** {add_qty}주 추가 매수 시 총 **{new_total_qty}주**가 되며, 평단가는 **{new_avg_fmt}**(으)로 조정됩니다. (예상 수익률: **{new_pnl_pct:+.1f}%**)")
-                                
-                                add_simulation_text = f"- [물타기 시뮬레이션]: 사용자가 {add_price}에 {add_qty}주 추가 매수를 고려 중. 예상 평단가: {new_avg_fmt}"
-
-                            now_kst = datetime.utcnow() + timedelta(hours=9)
-                            today_str = now_kst.strftime("%Y년 %m월 %d일")
-
-                            ai_plan_prompt = f"""
-                            당신은 여의도의 냉철한 리스크 관리 책임자이자 퀀트 트레이더입니다.
-                            🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.
-
-                            [포지션 정보]
-                            - 종목명: {pos_name_kr} ({search_ticker})
-                            - 내 진입가: {entry_fmt}
-                            - 보유 수량: {quantity}주
-                            - 현재가: {curr_fmt} (수익률: {pnl_pct:+.1f}%)
-                            - 기술적 상태: {res['상태']}, RSI: {res['RSI']:.1f}, 배열: {res['배열상태']}
-                            {add_simulation_text}
-
-                            다음 항목을 마크다운으로 가독성 좋게 작성해주세요.
-                            1. 🛡️ **포지션 진단**: 현재 수익/손실 상태와 기술적 지표를 결합한 냉정한 평가 (1~2줄)
-                            2. 🎯 **익절/손절 목표가 (기계적 대응)**: 가격을 구체적으로 명시하되 소수점은 빼고 정수로 답변.
-                            3. 📝 **향후 대응 시나리오**: 상승 시나리오와 하락 시나리오(물타기 고려 포함) 분리 작성.
-                            4. 💡 **멘탈 관리를 위한 트레이딩 원칙 한 마디**.
-                            """
-                            plan_result = ask_gemini(ai_plan_prompt, api_key_input)
-                            st.success(f"✅ '{pos_name_kr}' 실전 트레이딩 플랜 수립 완료!")
-                            st.markdown(plan_result)
+                        위 포트폴리오를 '개별 종목'이 아닌 '전체 계좌' 관점에서 분석하여 마크다운으로 답변하세요.
+                        1. 🏦 **포트폴리오 종합 진단**: 현재 계좌의 자산 배분(특정 섹터에 쏠렸는지 등) 및 전체 수익/리스크 상태에 대한 평가.
+                        2. ⚖️ **비중 조절 & 리밸런싱 조언**: 
+                           - 현재 비중이 너무 높거나 리스크가 큰 종목은 얼마나 덜어낼 것인가?
+                           - 현금화해야 할 종목과 계속 홀딩할 종목 구분.
+                        3. 🛡️ **종목별 액션 플랜 요약**: 각 종목별로 유지(Hold), 비중축소(Reduce), 손절(Cut) 여부와 간략한 이유 명시.
+                        """
+                        plan_result = ask_gemini(ai_plan_prompt, api_key_input)
+                        st.success("✅ AI 포트폴리오 종합 진단 및 리밸런싱 플랜 수립 완료!")
+                        st.markdown(plan_result)
                         else:
                             st.error(f"'{pos_name_kr}' 데이터를 분석할 수 없습니다. 티커나 종목명을 다시 확인해주세요.")
 
