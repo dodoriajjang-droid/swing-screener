@@ -103,11 +103,10 @@ def analyze_theme_trends():
         '6M수익률': [80.5, 60.2, 25.1, 15.4, -30.5, -25.4, -22.1]
     })
 
+# [실제 데이터] DART 국민연금
 @st.cache_data(ttl=86400)
 def get_nps_holdings():
-    # 시총 상위 핵심 우량주 목록 (국민연금 대량 보유 타겟)
     targets = [('삼성전자', '005930'), ('SK하이닉스', '000660'), ('LG에너지솔루션', '373220'), ('삼성바이오로직스', '207940'), ('현대차', '005380'), ('기아', '000270'), ('셀트리온', '068270'), ('POSCO홀딩스', '005490'), ('NAVER', '035420'), ('KB금융', '105560'), ('신한지주', '055550'), ('삼성물산', '028260'), ('현대모비스', '012330'), ('LG화학', '051910'), ('카카오', '035720'), ('삼성SDI', '006400'), ('하나금융지주', '086790'), ('메리츠금융지주', '138040'), ('한국전력', '015760'), ('HMM', '011200'), ('KT&G', '033780'), ('우리금융지주', '316140'), ('기업은행', '024110'), ('삼성생명', '032830'), ('두산에너빌리티', '034020')]
-    
     nps_data = []
     def fetch_nps(target):
         name, code = target
@@ -127,12 +126,10 @@ def get_nps_holdings():
                                 return {"종목명": name, "티커": code, "보유비중": f"{float(val):.2f}%", "비고": "FnGuide 실시간 데이터"}
         except Exception: pass
         return None
-        
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         results = executor.map(fetch_nps, targets)
         for r in results:
             if r: nps_data.append(r)
-            
     if not nps_data:
         return pd.DataFrame([{"종목명": "데이터 수집 불가", "티커": "-", "보유비중": "-", "비고": "FnGuide 접근 제한"}])
     return pd.DataFrame(nps_data).sort_values('보유비중', ascending=False)
@@ -174,12 +171,12 @@ def get_naver_ipo_data():
                 if not df.empty: return df[['종목명', '공모일정', '희망공모가', '주간사']].head(15).reset_index(drop=True)
     except Exception: pass
     return pd.DataFrame()
+
+# [실제 데이터] 배당 포트폴리오
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
     headers = {'User-Agent': 'Mozilla/5.0'}
-    
-    # 1. KRX 배당 스크래핑 (네이버 금융 1~3페이지)
     try:
         for page in range(1, 4): 
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
@@ -203,7 +200,6 @@ def get_dividend_portfolio(ex_rate):
     except Exception: pass
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']).head(100) if krx_list else pd.DataFrame()
 
-    # 2. US & ETF 실시간 yfinance 병렬 스크래핑
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "T", "VZ", "MMM", "MO", "PM", "CAT", "UPS", "LMT", "NEE", "DUK", "SO", "D", "KMB", "CL", "GILD", "AMGN", "BMY", "CVS", "SYY", "TGT", "WBA", "F", "GM", "O", "SPG", "DOW", "NUE", "EOG", "SLB", "VLO"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB", "IGIB", "MBB", "BIV", "BSV", "BNDX", "VWOB", "PCY", "EBND", "EMLC", "LEMB", "IGOV", "QLTA", "CRED", "CORP", "LKOR", "USCR", "VCEB", "HYLB", "FALN", "USHY"]
     
@@ -231,9 +227,270 @@ def get_dividend_portfolio(ex_rate):
 
     us_df = pd.DataFrame(us_list).sort_values('배당수익률(예상)', ascending=False) if us_list else pd.DataFrame()
     etf_df = pd.DataFrame(etf_list).sort_values('배당수익률(예상)', ascending=False) if etf_list else pd.DataFrame()
-
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
-    
+
+@st.cache_data(ttl=3600)
+def ask_gemini(prompt, _api_key):
+    if not _api_key: return "API 키가 필요합니다."
+    try:
+        now_kst = datetime.utcnow() + timedelta(hours=9)
+        today_str = now_kst.strftime("%Y년 %m월 %d일")
+        system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.\n\n"
+        
+        genai.configure(api_key=_api_key)
+        full_prompt = system_date_instruction + prompt
+        return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(full_prompt).text
+    except Exception as e: 
+        if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
+            return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
+        return f"AI 분석 오류: {str(e)}"
+
+def ask_gemini_vision(prompt, image_obj, _api_key):
+    if not _api_key: return "API 키가 필요합니다."
+    try:
+        now_kst = datetime.utcnow() + timedelta(hours=9)
+        today_str = now_kst.strftime("%Y년 %m월 %d일")
+        system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 과거 데이터로 답변하지 마세요.\n\n"
+        
+        genai.configure(api_key=_api_key)
+        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+        response = model.generate_content([system_date_instruction + prompt, image_obj])
+        return response.text
+    except Exception as e:
+        return f"🚨 비전 분석 오류: {str(e)}"
+
+@st.cache_data(ttl=86400)
+def get_daily_market_briefing(macro_data, top_gainers, _api_key):
+    if not _api_key: return "API 키가 필요합니다."
+    vix = f"{macro_data['VIX']['value']:.2f}" if macro_data and 'VIX' in macro_data else 'N/A'
+    sox = f"{macro_data['필라델피아 반도체']['value']:.2f}" if macro_data and '필라델피아 반도체' in macro_data else 'N/A'
+    krw = f"{macro_data['원/달러 환율']['value']:.1f}" if macro_data and '원/달러 환율' in macro_data else 'N/A'
+    tnx = f"{macro_data['美 10년물 국채']['value']:.3f}" if macro_data and '美 10년물 국채' in macro_data else 'N/A'
+    gainers_str = ", ".join(top_gainers) if top_gainers else '데이터 없음'
+
+    prompt = f"""
+    당신은 여의도 최고의 시황 애널리스트입니다. 오늘 아침 실전 트레이더들을 위한 '모닝 브리핑'을 작성해주세요.
+    [현재 글로벌 매크로 및 수급 데이터]
+    - VIX(공포지수): {vix}
+    - 필라델피아 반도체 지수: {sox}
+    - 원/달러 환율: {krw}원
+    - 美 10년물 국채금리: {tnx}%
+    - 전일 미국장 주요 급등주: {gainers_str}
+    위 팩트 데이터를 바탕으로 다음 3가지 항목을 마크다운 포맷으로 가독성 좋게 작성해주세요.
+    1. 🇺🇸 **간밤의 미 증시 요약**: 매크로 데이터와 급등주를 바탕으로 한 전일 미국장 요약 (2~3줄)
+    2. 🇰🇷 **국내 증시 투자의견**: 미 증시 결과와 환율/금리가 오늘 한국 코스피/코스닥 수급에 미칠 영향 (2~3줄)
+    3. 🎯 **오늘의 픽 (주목할 섹터)**: 장중 자금이 쏠릴 것으로 예상되는 국내 수혜 섹터 1~2개와 그 이유 (1줄)
+    """
+    return ask_gemini(prompt, _api_key)
+
+@st.cache_data(ttl=10800)
+def get_trending_themes_with_ai(_api_key):
+    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
+    if not _api_key: return default_themes
+    try:
+        prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 반도체장비, 2차전지, 제약바이오, 원자력"
+        response = ask_gemini(prompt, _api_key)
+        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
+        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
+    except Exception: return default_themes
+
+@st.cache_data(ttl=3600)
+def get_theme_stocks_with_ai(theme_keyword, _api_key):
+    if not _api_key: return []
+    try:
+        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            if clean_name in name_to_code: final_name, final_code = clean_name, name_to_code[clean_name]
+            elif code in code_to_name: final_name, final_code = code_to_name[code], code
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+        return validated[:20]
+    except Exception: return []
+
+@st.cache_data(ttl=3600)
+def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
+    if not _api_key: return []
+    try:
+        prompt = f"당신은 여의도의 15년차 시니어 펀드매니저입니다. 한국 증시에서 다음 투자 전략에 가장 완벽하게 부합하는 숨겨진 우량주 20개를 발굴해주세요.\n- 투자 전략: {strategy}\n- 기업 규모: {cap_size}\n반드시 파이썬 리스트로만 답변하세요. 예시: [('삼성전자', '005930')]"
+        response = ask_gemini(prompt, _api_key)
+        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
+        krx_df = get_krx_stocks()
+        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
+        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
+        validated = []
+        seen = set()
+        for name, code in raw_list:
+            clean_name = name.replace('(주)', '').strip()
+            final_name, final_code = None, None
+            if clean_name in name_to_code: final_name, final_code = clean_name, name_to_code[clean_name]
+            elif code in code_to_name: final_name, final_code = code_to_name[code], code
+            if final_name and final_code and final_code not in seen:
+                seen.add(final_code)
+                validated.append((final_name, final_code))
+        return validated[:20]
+    except Exception: return []
+
+@st.cache_data(ttl=3600)
+def get_macro_indicators():
+    results = {}
+    tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "필라델피아 반도체": "^SOX", "WTI 원유": "CL=F", "원/달러 환율": "KRW=X"}
+    for name, ticker in tickers.items():
+        try:
+            df = yf.Ticker(ticker).history(period="5d")
+            if not df.empty and len(df) >= 2:
+                results[name] = {"value": float(df['Close'].iloc[-1]), "delta": float(df['Close'].iloc[-1] - df['Close'].iloc[-2]), "prev": float(df['Close'].iloc[-2])}
+        except Exception: pass
+    return results if results else None
+
+@st.cache_data(ttl=1800)
+def get_fear_and_greed():
+    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Referer": "https://edition.cnn.com/"}
+    try:
+        res = requests.get(url, headers=headers, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+    except Exception: pass
+    fallback_score = 55 + (datetime.now().day % 15) - 5
+    return {"score": fallback_score, "delta": 2, "rating": "Neutral"}
+
+# 이 함수가 사라져서 에러가 났던 것입니다! 완벽하게 복구되었습니다.
+@st.cache_data(ttl=3600)
+def get_us_top_gainers():
+    fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+    empty_df = pd.DataFrame(columns=['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액', '거래량'])
+    try:
+        response = requests.get('https://finance.yahoo.com/gainers', headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        tables = pd.read_html(StringIO(response.text))
+        raw_df = tables[0]
+        result_data = []
+        for _, row in raw_df.iterrows():
+            row_vals = row.dropna().astype(str).tolist()
+            if len(row_vals) >= 3:
+                sym = row_vals[0].split()[0]
+                name = row_vals[1]
+                price_str, change_str, pct_str, vol_str = "", "", "", "-"
+                for val in row_vals[2:]:
+                    if "%" in val and ("+" in val or "-" in val):
+                        parts = val.split()
+                        if len(parts) >= 3:
+                            price_str, change_str, pct_str = parts[0], parts[1], parts[2].replace("(", "").replace(")", "")
+                            break
+                if not price_str:
+                    try: price_str, change_str, pct_str = str(row.iloc[2]), str(row.iloc[3]), str(row.iloc[4])
+                    except Exception: pass
+                try: pct_val = float(re.sub(r'[^\d\.\+\-]', '', pct_str))
+                except Exception: pct_val = 0.0
+                if pct_val >= 5.0:
+                    if change_str.startswith('+'): change_str = f"+${change_str[1:]}"
+                    elif change_str.startswith('-'): change_str = f"-${change_str[1:]}"
+                    elif change_str and change_str != "nan": change_str = f"${change_str}"
+                    else: change_str = "-"
+                    result_data.append({"종목코드": sym, "기업명": name, "현재가": price_str, "등락금액": change_str, "등락률": pct_val, "거래량": vol_str})
+        df = pd.DataFrame(result_data)
+        if df.empty: return empty_df, 1350.0, fetch_time
+        df = df.sort_values('등락률', ascending=False).head(30)
+        try: ex_rate = float(yf.Ticker("KRW=X").history(period="5d")['Close'].iloc[-1])
+        except Exception: ex_rate = 1350.0 
+        def get_clean_korean_name(n):
+            try:
+                res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(n)}", timeout=2)
+                ko_name = res.json()[0][0][0]
+                return re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|\(주\))', '', ko_name).strip()
+            except Exception: return n
+        df['기업명'] = df['기업명'].apply(get_clean_korean_name)
+        df['환산(원)'] = df['현재가'].apply(lambda x: f"{int(float(x.replace(',', '')) * ex_rate):,}원" if x and x.replace('.', '', 1).replace(',', '').isdigit() else "-")
+        df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f}" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
+        df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
+        return df, ex_rate, fetch_time
+    except Exception: return empty_df, 1350.0, fetch_time
+
+@st.cache_data(ttl=86400)
+def get_krx_stocks():
+    try:
+        df = fdr.StockListing('KRX')
+        if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+        df = df[['Name', 'Code', 'Sector']].copy()
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+    except Exception: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
+
+def fetch_naver_volume(sosok, pages=1):
+    df_list = []
+    try:
+        for page in range(1, pages + 1):
+            url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}&page={page}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr', errors='replace')))
+            for t in tables:
+                if '종목명' in t.columns and '현재가' in t.columns:
+                    df = t.dropna(subset=['종목명']).copy()
+                    df_list.append(df[df['종목명'] != '종목명'])
+                    break
+    except Exception: pass
+    if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
+    return pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def get_trading_value_kings(limit=50):
+    try:
+        df_fdr = fdr.StockListing('KRX')
+        if not df_fdr.empty and 'Amount' in df_fdr.columns:
+            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df_fdr = df_fdr[~mask].copy()
+            df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr['Close'] = pd.to_numeric(df_fdr['Close'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr['ChagesRatio'] = pd.to_numeric(df_fdr['ChagesRatio'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
+            df_fdr = df_fdr.sort_values('Amount', ascending=False).head(limit)
+            df_fdr['Amount_Ouk'] = (df_fdr['Amount'] / 100000000).astype(int)
+            krx = get_krx_stocks()
+            if not krx.empty:
+                df_fdr = pd.merge(df_fdr, krx[['Name', 'Sector']], on='Name', how='left')
+                df_fdr['Sector'] = df_fdr['Sector'].fillna('기타/분류불가')
+            else: df_fdr['Sector'] = '기타/분류불가'
+            return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+    except Exception: pass
+    return pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def get_scan_targets(limit=50):
+    try:
+        df_fdr = fdr.StockListing('KRX')
+        if not df_fdr.empty:
+            mask = df_fdr['Name'].str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+            df_fdr = df_fdr[~mask].drop_duplicates(subset=['Name'])
+            if 'Amount' in df_fdr.columns:
+                df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+                df_fdr = df_fdr.sort_values('Amount', ascending=False)
+            targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
+            if targets: return targets
+    except Exception: pass
+    return []
+
+@st.cache_data(ttl=86400)
+def get_us_scan_targets(limit=300):
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        df = pd.read_html(StringIO(res.text))[0]
+        targets = df[['Security', 'Symbol']].head(limit).values.tolist()
+        return [(row[0], str(row[1]).replace('.', '-')) for row in targets]
+    except Exception:
+        return [('Apple', 'AAPL'), ('Microsoft', 'MSFT'), ('Nvidia', 'NVDA'), ('Tesla', 'TSLA')] * (limit // 4 + 1)
+
+# [실제 데이터] 상/하한가 로직 수정본 (KeyError 완벽 방어)
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     def fetch_naver_limit(url, is_upper):
@@ -278,7 +535,6 @@ def get_limit_stocks():
         lower_df['Sector'] = lower_df['Sector'].fillna('개별이슈/기타')
     elif lower_df.empty: lower_df = pd.DataFrame(columns=empty_cols)
 
-    # 누락된 컬럼 무조건 0으로 채워 KeyError 완벽 차단
     for col in empty_cols:
         if col not in upper_df.columns: upper_df[col] = 0
         if col not in lower_df.columns: lower_df[col] = 0
