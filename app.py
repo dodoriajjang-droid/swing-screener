@@ -1329,10 +1329,8 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                 total_invested_all = 0
                 total_current_all = 0
                 
-                # 미국 주식이 섞여 있을 경우를 위한 환율 처리 (세션에 없으면 기본 1350원 적용)
                 ex_rate = st.session_state.get('ex_rate', 1350.0)
                 
-                # 개별 종목 데이터 취합
                 for idx, row in valid_rows.iterrows():
                     pos_name = str(row["종목명"]).strip()
                     entry_price = int(row["진입단가"])
@@ -1365,7 +1363,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                             invested = entry_price * quantity
                             current_val = current_price * quantity
                             
-                            # 총합 계산을 위해 달러는 원화로 강제 환산 합산
                             if is_us:
                                 invested_krw = invested * ex_rate
                                 current_val_krw = current_val * ex_rate
@@ -1392,7 +1389,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                         else:
                             st.error(f"'{pos_name}' 데이터를 수집할 수 없어 분석에서 제외되었습니다.")
                             
-                # 계좌 대시보드 렌더링
                 if portfolio_summary:
                     overall_pnl_pct = ((total_current_all - total_invested_all) / total_invested_all) * 100 if total_invested_all > 0 else 0
                     overall_pnl_amt = total_current_all - total_invested_all
@@ -1406,7 +1402,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                     m3.metric("총 평가 손익", f"{int(overall_pnl_amt):,}원", f"{overall_pnl_pct:+.2f}%", delta_color="normal" if overall_pnl_amt > 0 else "inverse")
                     m4.metric("보유 종목 수", f"{len(portfolio_summary)}개")
                     
-                    # 데이터프레임 렌더링 (각 종목이 내 계좌에서 차지하는 '비중' 계산 추가)
                     summary_df = pd.DataFrame(portfolio_summary)
                     summary_df["비중(%)"] = (summary_df["평가금액(원환산)"] / total_current_all) * 100
                     
@@ -1416,7 +1411,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                         "비중(%)": "{:.1f}%"
                     }), use_container_width=True)
 
-                    # AI에 '계좌 전체' 데이터를 던져서 리밸런싱 전략 요청
                     with st.spinner("AI가 자산 배분 비중과 개별 종목 상태를 종합하여 포트폴리오 리밸런싱 전략을 수립 중입니다..."):
                         now_kst = datetime.utcnow() + timedelta(hours=9)
                         today_str = now_kst.strftime("%Y년 %m월 %d일")
@@ -1448,8 +1442,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                         plan_result = ask_gemini(ai_plan_prompt, api_key_input)
                         st.success("✅ AI 포트폴리오 종합 진단 및 리밸런싱 플랜 수립 완료!")
                         st.markdown(plan_result)
-                        else:
-                            st.error(f"'{pos_name_kr}' 데이터를 분석할 수 없습니다. 티커나 종목명을 다시 확인해주세요.")
 
 elif selected_menu == "🎛️ 메인 대시보드":
     macro_data = get_macro_indicators()
