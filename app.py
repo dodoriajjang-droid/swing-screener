@@ -1264,25 +1264,17 @@ with st.sidebar:
 # 각 탭별 실행 내용
 # ==========================================
 
-# ==========================================
-# ✅ [신규] 내 포지션 관리 및 물타기 시뮬레이터
-# ==========================================
-# ==========================================
-# 각 탭별 실행 내용
-# ==========================================
 if selected_menu == "💼 내 포지션 관리 & 플래너":
     st.markdown("## 💼 내 포지션 관리 & 실전 트레이딩 플래너")
     st.write("여러 보유 종목의 진입가와 수량을 표에 한 번에 입력하면, AI가 일괄적으로 최적의 익절/손절 라인 및 대응 시나리오를 수립해 드립니다.")
 
     if "portfolio_df" not in st.session_state:
-        # 소수점을 배제하기 위해 초기값을 모두 정수로 설정
         st.session_state.portfolio_df = pd.DataFrame([
             {"종목명": "", "진입단가": 0, "보유수량": 0, "물타기단가(선택)": 0, "물타기수량(선택)": 0}
         ])
 
     st.markdown("### 📊 내 포지션 입력 (표 아래 '➕ 추가'를 눌러 여러 종목 등록 가능)")
     
-    # st.data_editor를 활용한 다중 입력 UI 구현 및 소수점(format="%d") 제거
     edited_df = st.data_editor(
         st.session_state.portfolio_df, 
         num_rows="dynamic", 
@@ -1297,7 +1289,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
     )
 
     if st.button("📊 포지션 일괄 진단 및 플랜 생성", type="primary", use_container_width=True):
-        # 비어있지 않은 유효한 행만 필터링
         valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
         
         if valid_rows.empty:
@@ -1307,7 +1298,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
         else:
             for idx, row in valid_rows.iterrows():
                 pos_name = str(row["종목명"]).strip()
-                # 계산 시 강제 int 형변환으로 소수점 원천 차단
                 entry_price = int(row["진입단가"])
                 quantity = int(row["보유수량"])
                 add_price = int(row["물타기단가(선택)"])
@@ -1315,7 +1305,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
 
                 st.markdown(f"---")
                 with st.spinner(f"'{pos_name}' 차트 분석 및 AI 시나리오 작성 중..."):
-                    
                     is_us = re.search('[a-zA-Z]', pos_name) is not None
                     search_ticker = pos_name
                     pos_name_kr = pos_name
@@ -1351,7 +1340,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                             st.markdown(f"### 📈 **{pos_name_kr} ({search_ticker})** 포지션 요약")
 
                             metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                            # 소수점을 제외한 정수형(int) 포맷 적용
                             curr_fmt = f"${int(current_price):,}" if is_us else f"{int(current_price):,}원"
                             entry_fmt = f"${entry_price:,}" if is_us else f"{entry_price:,}원"
                             pnl_amt_fmt = f"${int(pnl_amount):,}" if is_us else f"{int(pnl_amount):,}원"
@@ -1399,8 +1387,6 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                             st.markdown(plan_result)
                         else:
                             st.error(f"'{pos_name_kr}' 데이터를 분석할 수 없습니다. 티커나 종목명을 다시 확인해주세요.")
-        else:
-            st.warning("종목명과 진입 단가를 정확히 입력해주세요.")
 
 elif selected_menu == "🎛️ 메인 대시보드":
     macro_data = get_macro_indicators()
@@ -1513,7 +1499,7 @@ elif selected_menu == "🎛️ 메인 대시보드":
         st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
         chat_container.chat_message("user").write(prompt)
         
-    if not api_key_input:
+        if not api_key_input:
             st.error("좌측 사이드바에 API 키를 입력해주세요.")
         else:
             with chat_container.chat_message("assistant"):
