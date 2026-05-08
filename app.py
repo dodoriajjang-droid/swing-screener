@@ -1267,118 +1267,135 @@ with st.sidebar:
 # ==========================================
 # ✅ [신규] 내 포지션 관리 및 물타기 시뮬레이터
 # ==========================================
-if selected_menu == "💼 내 포지션 관리 & 플래너":
+elif selected_menu == "💼 내 포지션 관리 & 플래너":
     st.markdown("## 💼 내 포지션 관리 & 실전 트레이딩 플래너")
-    st.write("현재 보유 중인 종목의 진입가와 수량을 입력하면, 실시간 수익률과 함께 AI가 최적의 익절/손절 라인 및 향후 대응 시나리오를 수립해 드립니다. '물타기 시뮬레이터'를 통해 추가 매수 시나리오도 점검해보세요.")
+    st.write("여러 보유 종목의 진입가와 수량을 표에 한 번에 입력하면, AI가 일괄적으로 최적의 익절/손절 라인 및 대응 시나리오를 수립해 드립니다.")
 
-    st.markdown("### 📊 현재 포지션 입력")
-    col_pos1, col_pos2, col_pos3 = st.columns(3)
-    with col_pos1:
-        pos_name = st.text_input("보유 종목명 또는 티커 (예: 삼성전자, AAPL)")
-    with col_pos2:
-        entry_price = st.number_input("나의 평균 진입 단가", min_value=0.0, value=0.0, step=100.0)
-    with col_pos3:
-        quantity = st.number_input("보유 수량", min_value=1, value=10)
+    if "portfolio_df" not in st.session_state:
+        # 소수점을 배제하기 위해 초기값을 모두 정수로 설정
+        st.session_state.portfolio_df = pd.DataFrame([
+            {"종목명": "", "진입단가": 0, "보유수량": 0, "물타기단가(선택)": 0, "물타기수량(선택)": 0}
+        ])
 
-    st.markdown("### 💧 물타기 (추가 매수) 시뮬레이터")
-    col_add1, col_add2 = st.columns(2)
-    with col_add1:
-        add_price = st.number_input("추가 매수 희망 단가 (현재가 부근)", min_value=0.0, value=0.0, step=100.0)
-    with col_add2:
-        add_qty = st.number_input("추가 매수 수량", min_value=0, value=0)
+    st.markdown("### 📊 내 포지션 입력 (표 아래 '➕ 추가'를 눌러 여러 종목 등록 가능)")
+    
+    # st.data_editor를 활용한 다중 입력 UI 구현 및 소수점(format="%d") 제거
+    edited_df = st.data_editor(
+        st.session_state.portfolio_df, 
+        num_rows="dynamic", 
+        column_config={
+            "종목명": st.column_config.TextColumn("종목명 (예: 삼성전자, AAPL)", required=True),
+            "진입단가": st.column_config.NumberColumn("내 진입단가", min_value=0, step=1, format="%d"),
+            "보유수량": st.column_config.NumberColumn("보유 수량", min_value=0, step=1, format="%d"),
+            "물타기단가(선택)": st.column_config.NumberColumn("물타기 단가", min_value=0, step=1, format="%d"),
+            "물타기수량(선택)": st.column_config.NumberColumn("물타기 수량", min_value=0, step=1, format="%d"),
+        },
+        use_container_width=True
+    )
 
-    if st.button("📊 내 포지션 정밀 진단 및 플랜 생성", type="primary", use_container_width=True):
-        if not api_key_input:
+    if st.button("📊 포지션 일괄 진단 및 플랜 생성", type="primary", use_container_width=True):
+        # 비어있지 않은 유효한 행만 필터링
+        valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
+        
+        if valid_rows.empty:
+            st.warning("종목명과 진입단가, 보유수량을 최소 1개 이상 정확히 입력해주세요.")
+        elif not api_key_input:
             st.error("좌측 사이드바에 API 키를 입력해주세요.")
-        elif pos_name and entry_price > 0:
-            with st.spinner(f"'{pos_name}' 현재가 조회 및 차트 분석 중..."):
-                
-                is_us = re.search('[a-zA-Z]', pos_name) is not None
-                search_ticker = pos_name
-                pos_name_kr = pos_name
+        else:
+            for idx, row in valid_rows.iterrows():
+                pos_name = str(row["종목명"]).strip()
+                # 계산 시 강제 int 형변환으로 소수점 원천 차단
+                entry_price = int(row["진입단가"])
+                quantity = int(row["보유수량"])
+                add_price = int(row["물타기단가(선택)"])
+                add_qty = int(row["물타기수량(선택)"])
 
-                if is_us:
-                    us_results = search_us_ticker(pos_name)
-                    if us_results:
-                        search_ticker = us_results[0].split(" ")[0]
-                        pos_name_kr = us_results[0].split(" (")[1].split(" /")[0]
+                st.markdown(f"---")
+                with st.spinner(f"'{pos_name}' 차트 분석 및 AI 시나리오 작성 중..."):
+                    
+                    is_us = re.search('[a-zA-Z]', pos_name) is not None
+                    search_ticker = pos_name
+                    pos_name_kr = pos_name
+
+                    if is_us:
+                        us_results = search_us_ticker(pos_name)
+                        if us_results:
+                            search_ticker = us_results[0].split(" ")[0]
+                            pos_name_kr = us_results[0].split(" (")[1].split(" /")[0]
+                        else:
+                            st.error(f"'{pos_name}' 미국 주식을 찾을 수 없습니다.")
+                            search_ticker = None
                     else:
-                        st.error("미국 주식을 찾을 수 없습니다. 정확한 티커를 입력해주세요.")
-                        search_ticker = None
-                else:
-                    krx_df = get_krx_stocks()
-                    match = krx_df[krx_df['Name'].str.contains(pos_name)]
-                    if not match.empty:
-                        search_ticker = match['Code'].iloc[0]
-                        pos_name_kr = match['Name'].iloc[0]
-                    else:
-                        st.error("국내 주식을 찾을 수 없습니다. 정확한 종목명을 입력해주세요.")
-                        search_ticker = None
+                        krx_df = get_krx_stocks()
+                        match = krx_df[krx_df['Name'].str.contains(pos_name)]
+                        if not match.empty:
+                            search_ticker = match['Code'].iloc[0]
+                            pos_name_kr = match['Name'].iloc[0]
+                        else:
+                            st.error(f"'{pos_name}' 국내 주식을 찾을 수 없습니다.")
+                            search_ticker = None
 
-                if search_ticker:
-                    res = analyze_technical_pattern(pos_name_kr, search_ticker)
+                    if search_ticker:
+                        res = analyze_technical_pattern(pos_name_kr, search_ticker)
 
-                    if res:
-                        current_price = res['현재가']
-                        total_invested = entry_price * quantity
-                        current_value = current_price * quantity
-                        pnl_amount = current_value - total_invested
-                        pnl_pct = ((current_price - entry_price) / entry_price) * 100
+                        if res:
+                            current_price = res['현재가']
+                            total_invested = entry_price * quantity
+                            current_value = current_price * quantity
+                            pnl_amount = current_value - total_invested
+                            pnl_pct = ((current_price - entry_price) / entry_price) * 100
 
-                        st.divider()
-                        st.markdown(f"### 📈 **{pos_name_kr} ({search_ticker})** 포지션 요약")
+                            st.markdown(f"### 📈 **{pos_name_kr} ({search_ticker})** 포지션 요약")
 
-                        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                        curr_fmt = f"${current_price:,.2f}" if is_us else f"{int(current_price):,}원"
-                        entry_fmt = f"${entry_price:,.2f}" if is_us else f"{int(entry_price):,}원"
-                        pnl_amt_fmt = f"${pnl_amount:,.2f}" if is_us else f"{int(pnl_amount):,}원"
+                            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+                            # 소수점을 제외한 정수형(int) 포맷 적용
+                            curr_fmt = f"${int(current_price):,}" if is_us else f"{int(current_price):,}원"
+                            entry_fmt = f"${entry_price:,}" if is_us else f"{entry_price:,}원"
+                            pnl_amt_fmt = f"${int(pnl_amount):,}" if is_us else f"{int(pnl_amount):,}원"
 
-                        metric_col1.metric("현재가", curr_fmt)
-                        metric_col2.metric("내 진입단가", entry_fmt)
-                        metric_col3.metric("평가 손익금", pnl_amt_fmt, f"{pnl_pct:+.2f}%", delta_color="normal" if pnl_pct > 0 else "inverse")
-                        metric_col4.metric("현재 기술적 상태", res['상태'].split(' ')[0])
+                            metric_col1.metric("현재가", curr_fmt)
+                            metric_col2.metric("내 진입단가", entry_fmt)
+                            metric_col3.metric("평가 손익금", pnl_amt_fmt, f"{pnl_pct:+.1f}%", delta_color="normal" if pnl_pct > 0 else "inverse")
+                            metric_col4.metric("현재 기술적 상태", res['상태'].split(' ')[0])
 
-                        # 물타기 시뮬레이션 결과 표시
-                        add_simulation_text = ""
-                        if add_qty > 0 and add_price > 0:
-                            new_total_qty = quantity + add_qty
-                            new_total_invested = total_invested + (add_price * add_qty)
-                            new_avg_price = new_total_invested / new_total_qty
-                            new_pnl_pct = ((current_price - new_avg_price) / new_avg_price) * 100
-                            
-                            new_avg_fmt = f"${new_avg_price:,.2f}" if is_us else f"{int(new_avg_price):,}원"
-                            st.info(f"💧 **물타기 시뮬레이션 결과:** {add_qty}주 추가 매수 시 총 수량은 **{new_total_qty}주**가 되며, 평균 단가는 **{new_avg_fmt}**로 조정됩니다. (예상 수익률: **{new_pnl_pct:+.2f}%**)")
-                            
-                            add_simulation_text = f"- [물타기 시뮬레이션]: 사용자가 {add_price}에 {add_qty}주 추가 매수를 고려 중입니다. (예상 평단가: {new_avg_fmt})"
+                            add_simulation_text = ""
+                            if add_qty > 0 and add_price > 0:
+                                new_total_qty = quantity + add_qty
+                                new_total_invested = total_invested + (add_price * add_qty)
+                                new_avg_price = int(new_total_invested / new_total_qty)
+                                new_pnl_pct = ((current_price - new_avg_price) / new_avg_price) * 100
+                                
+                                new_avg_fmt = f"${new_avg_price:,}" if is_us else f"{new_avg_price:,}원"
+                                st.info(f"💧 **물타기 시뮬레이션:** {add_qty}주 추가 매수 시 총 **{new_total_qty}주**가 되며, 평단가는 **{new_avg_fmt}**(으)로 조정됩니다. (예상 수익률: **{new_pnl_pct:+.1f}%**)")
+                                
+                                add_simulation_text = f"- [물타기 시뮬레이션]: 사용자가 {add_price}에 {add_qty}주 추가 매수를 고려 중. 예상 평단가: {new_avg_fmt}"
 
-                        with st.spinner("AI가 최적의 익절/손절 구간 및 시나리오를 작성 중입니다..."):
+                            now_kst = datetime.utcnow() + timedelta(hours=9)
+                            today_str = now_kst.strftime("%Y년 %m월 %d일")
+
                             ai_plan_prompt = f"""
                             당신은 여의도의 냉철한 리스크 관리 책임자이자 퀀트 트레이더입니다.
-                            사용자의 보유 포지션을 분석하고 구체적인 액션 플랜을 제시하세요.
+                            🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.
 
                             [포지션 정보]
                             - 종목명: {pos_name_kr} ({search_ticker})
                             - 내 진입가: {entry_fmt}
                             - 보유 수량: {quantity}주
-                            - 현재가: {curr_fmt} (수익률: {pnl_pct:+.2f}%)
+                            - 현재가: {curr_fmt} (수익률: {pnl_pct:+.1f}%)
                             - 기술적 상태: {res['상태']}, RSI: {res['RSI']:.1f}, 배열: {res['배열상태']}
                             {add_simulation_text}
 
                             다음 항목을 마크다운으로 가독성 좋게 작성해주세요.
                             1. 🛡️ **포지션 진단**: 현재 수익/손실 상태와 기술적 지표를 결합한 냉정한 평가 (1~2줄)
-                            2. 🎯 **익절/손절 목표가 (기계적 대응)**:
-                               - 1차, 2차 목표가 (비중 축소 및 익절 구간)
-                               - 마지노선 손절가 (리스크 관리)
-                            3. 📝 **향후 대응 시나리오 (Plan A & B)**:
-                               - 상승 시나리오 (어디서 절반을 팔고, 어디서 홀딩할지)
-                               - 하락 시나리오 (손절가 이탈 시 대응 방안 및 물타기 전략에 대한 코멘트)
+                            2. 🎯 **익절/손절 목표가 (기계적 대응)**: 가격을 구체적으로 명시하되 소수점은 빼고 정수로 답변.
+                            3. 📝 **향후 대응 시나리오**: 상승 시나리오와 하락 시나리오(물타기 고려 포함) 분리 작성.
                             4. 💡 **멘탈 관리를 위한 트레이딩 원칙 한 마디**.
                             """
                             plan_result = ask_gemini(ai_plan_prompt, api_key_input)
-                            st.success("✅ 실전 트레이딩 플랜 수립 완료!")
+                            st.success(f"✅ '{pos_name_kr}' 실전 트레이딩 플랜 수립 완료!")
                             st.markdown(plan_result)
-                    else:
-                        st.error("데이터를 분석할 수 없습니다. 티커나 종목명을 다시 확인해주세요.")
+                        else:
+                            st.error(f"'{pos_name_kr}' 데이터를 분석할 수 없습니다. 티커나 종목명을 다시 확인해주세요.")
         else:
             st.warning("종목명과 진입 단가를 정확히 입력해주세요.")
 
@@ -1493,22 +1510,30 @@ elif selected_menu == "🎛️ 메인 대시보드":
         st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
         chat_container.chat_message("user").write(prompt)
         
-        if not api_key_input:
+    if not api_key_input:
             st.error("좌측 사이드바에 API 키를 입력해주세요.")
         else:
             with chat_container.chat_message("assistant"):
                 with st.spinner("전문가 모드로 답변을 생성 중입니다..."):
-                    today_str = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y년 %m월 %d일")
+                    now_kst = datetime.utcnow() + timedelta(hours=9)
+                    today_str = now_kst.strftime("%Y년 %m월 %d일")
+                    
                     macro_context = ""
                     if macro_data:
                         macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()])
                     
                     sys_prompt = f"""
                     당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
-                    🚨 아주 중요: 오늘은 정확히 {today_str}입니다! 절대 과거 연도를 현재인 것처럼 말하지 마세요.
+                    
+                    🚨 [절대 규칙 1 - 타임라인 및 현실 반영]
+                    오늘 날짜는 정확히 {today_str}입니다. 현재는 2026년이므로, 당신의 과거 학습 데이터(2023~2024년)에 기반하여 '출시 예정', '개발 중'이라고 판단되는 제품이나 게임(예: 펄어비스의 붉은사막, GTA6 등)은 2026년 현재 '이미 출시된 상태'임을 반드시 논리적으로 추론하여 현실에 맞게 답변하세요. 과거의 정보를 현재 상황인 것처럼 환각(Hallucination)하여 말하면 안 됩니다.
+
+                    🚨 [절대 규칙 2 - 가격 정보 방어]
+                    당신은 현재 실시간 개별 종목 주가 검색 권한이 없습니다. 
+                    사용자가 특정 종목의 현재가나 목표가를 물어보면 임의로 숫자를 지어내지 말고 "정확한 실시간 주가와 목표가는 좌측의 '🔬 기업 정밀 분석기' 메뉴를 이용해 주세요"라고 안내하세요.
+
                     [매크로 데이터]: {macro_context}
-                    [주의사항] 당신은 현재 실시간 개별 종목 주가 검색 권한이 없습니다!
-                    사용자가 특정 종목의 현재가나 목표가를 물어보면, 절대 임의의 숫자를 지어내지 말고 "정확한 실시간 주가와 목표가는 좌측의 '🔬 기업 정밀 분석기' 메뉴를 이용해 주세요"라고 안내하세요.
+                    
                     사용자의 질문에 명확하고 날카롭게 답변하세요. 불필요한 서론은 빼고 핵심만 전달하세요.
                     사용자 질문: {prompt}
                     """
