@@ -91,8 +91,7 @@ def get_korean_name(en_name):
         res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(str(en_name))}", timeout=2)
         ko_name = res.json()[0][0][0]
         return re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|Co\.|Company|plc|Plc|\(주\))', '', ko_name).strip()
-    except Exception:
-        return en_name
+    except Exception: return en_name
 
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
@@ -103,7 +102,7 @@ def analyze_theme_trends():
         '6M수익률': [80.5, 60.2, 25.1, 15.4, -30.5, -25.4, -22.1]
     })
 
-# [실제 데이터] DART 국민연금
+# 👉 [실제 데이터 복구] FnGuide 연기금 실시간 데이터 
 @st.cache_data(ttl=86400)
 def get_nps_holdings():
     targets = [('삼성전자', '005930'), ('SK하이닉스', '000660'), ('LG에너지솔루션', '373220'), ('삼성바이오로직스', '207940'), ('현대차', '005380'), ('기아', '000270'), ('셀트리온', '068270'), ('POSCO홀딩스', '005490'), ('NAVER', '035420'), ('KB금융', '105560'), ('신한지주', '055550'), ('삼성물산', '028260'), ('현대모비스', '012330'), ('LG화학', '051910'), ('카카오', '035720'), ('삼성SDI', '006400'), ('하나금융지주', '086790'), ('메리츠금융지주', '138040'), ('한국전력', '015760'), ('HMM', '011200'), ('KT&G', '033780'), ('우리금융지주', '316140'), ('기업은행', '024110'), ('삼성생명', '032830'), ('두산에너빌리티', '034020')]
@@ -172,7 +171,7 @@ def get_naver_ipo_data():
     except Exception: pass
     return pd.DataFrame()
 
-# [실제 데이터] 배당 포트폴리오
+# 👉 [실제 데이터 복구] 야후 파이낸스 & 네이버 실시간 배당주 100개 추출 로직
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
@@ -227,6 +226,7 @@ def get_dividend_portfolio(ex_rate):
 
     us_df = pd.DataFrame(us_list).sort_values('배당수익률(예상)', ascending=False) if us_list else pd.DataFrame()
     etf_df = pd.DataFrame(etf_list).sort_values('배당수익률(예상)', ascending=False) if etf_list else pd.DataFrame()
+
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
 
 @st.cache_data(ttl=3600)
@@ -256,8 +256,7 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         response = model.generate_content([system_date_instruction + prompt, image_obj])
         return response.text
-    except Exception as e:
-        return f"🚨 비전 분석 오류: {str(e)}"
+    except Exception as e: return f"🚨 비전 분석 오류: {str(e)}"
 
 @st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
@@ -366,7 +365,6 @@ def get_fear_and_greed():
     fallback_score = 55 + (datetime.now().day % 15) - 5
     return {"score": fallback_score, "delta": 2, "rating": "Neutral"}
 
-# 이 함수가 사라져서 에러가 났던 것입니다! 완벽하게 복구되었습니다.
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
@@ -490,7 +488,7 @@ def get_us_scan_targets(limit=300):
     except Exception:
         return [('Apple', 'AAPL'), ('Microsoft', 'MSFT'), ('Nvidia', 'NVDA'), ('Tesla', 'TSLA')] * (limit // 4 + 1)
 
-# [실제 데이터] 상/하한가 로직 수정본 (KeyError 완벽 방어)
+# 👉 [실제 데이터 복구] 상하한가 딕셔너리 및 데이터 KeyError 완벽 방어 처리
 @st.cache_data(ttl=300)
 def get_limit_stocks():
     def fetch_naver_limit(url, is_upper):
@@ -1771,7 +1769,7 @@ elif selected_menu == "🕸️ 실시간 3D 순환매 맵":
 
 elif selected_menu == "🏛️ DART: 국민연금 코어픽 5%":
     st.markdown("## 🏛️ DART 공시 연동: 국민연금 코어 픽(Core Pick)")
-    nps_df = get_nps_holdings() # 👈 목업(샘플) 함수가 아닌 위에서 만든 실시간 함수 호출
+    nps_df = get_nps_holdings() # 👈 실시간 스크래핑 함수로 변경완료!
     
     tab_nps1, tab_nps2 = st.tabs(["📋 국민연금 5% 대량보유 현황", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
     
