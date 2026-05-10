@@ -1118,7 +1118,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             
             if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=ai_btn_key):
                 st.session_state[ai_res_key] = "loading"
-                 
+                
             if st.session_state.get(ai_res_key):
                 if st.session_state[ai_res_key] == "loading":
                     with st.spinner("AI가 종합 분석 중입니다... (약 5~10초 소요)"):
@@ -1494,7 +1494,7 @@ if selected_menu == "💼 내 포지션 관리 & 플래너":
                         위 포트폴리오를 '개별 종목'이 아닌 '전체 계좌' 관점에서 분석하여 마크다운으로 답변하세요.
                         1. 🏦 **포트폴리오 종합 진단**: 현재 계좌의 자산 배분(특정 섹터에 쏠렸는지 등) 및 전체 수익/리스크 상태에 대한 평가.
                         2. ⚖️ **비중 조절 & 리밸런싱 조언**: 
-                           - 현재 비중이 너무 높거나 리스크가 큰 종목은 얼마나 덜어낼 것인가?
+                           - 현재 비중이 너무 높거나 리스크가 큰 종목은 얼마나 덜어낼 거신가?
                            - 현금화해야 할 종목과 계속 홀딩할 종목 구분.
                         3. 🛡️ **종목별 액션 플랜 요약**: 각 종목별로 유지(Hold), 비중축소(Reduce), 손절(Cut) 여부와 간략한 이유 명시.
                         """
@@ -1566,8 +1566,8 @@ elif selected_menu == "🎛️ 메인 대시보드":
                     with st.expander(f"📊 '{q_name}' 퀵 타점 보기"):
                         res = analyze_technical_pattern(q_name, q_code)
                         if res:
-                            st.markdown(f"**현재가:** {res['현재가']:,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
-                            st.markdown(f"**진입가:** {res['진입가_가이드']:,}원 ｜ **손절가:** {res['손절가']:,}원")
+                            st.markdown(f"**현재가:** {int(res['현재가']):,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
+                            st.markdown(f"**진입가:** {int(res['진입가_가이드']):,}원 ｜ **손절가:** {int(res['손절가']):,}원")
                         else: st.error("❌ 데이터를 불러올 수 없습니다.")
         else:
             us_search_query = st.text_input("🔍 미국 주식 종목명(한/영) 또는 티커를 검색하세요 (예: 애플, Nvidia, TSLA)")
@@ -1597,9 +1597,14 @@ elif selected_menu == "🎛️ 메인 대시보드":
             for item in st.session_state.watchlist:
                 res = analyze_technical_pattern(item['종목명'], item['티커'])
                 if res:
-                    if res['현재가'] <= res['손절가']: st.error(f"🔴 **손절가 이탈 위험:** {item['종목명']} (현재: {res['현재가']:,}원 / 손절선: {res['손절가']:,}원)")
-                    elif res['현재가'] >= res['목표가1'] * 0.98: st.success(f"🟢 **익절 구간 도달:** {item['종목명']} (현재: {res['현재가']:,}원 / 1차목표: {res['목표가1']:,}원)")
-                    else: st.warning(f"🟡 **홀딩 대기중:** {item['종목명']} (현재: {res['현재가']:,}원)")
+                    is_us = not str(item['티커']).isdigit()
+                    cur_str = f"${res['현재가']:,.2f}" if is_us else f"{int(res['현재가']):,}원"
+                    sl_str = f"${res['손절가']:,.2f}" if is_us else f"{int(res['손절가']):,}원"
+                    tg_str = f"${res['목표가1']:,.2f}" if is_us else f"{int(res['목표가1']):,}원"
+                    
+                    if res['현재가'] <= res['손절가']: st.error(f"🔴 **손절가 이탈 위험:** {item['종목명']} (현재: {cur_str} / 손절선: {sl_str})")
+                    elif res['현재가'] >= res['목표가1'] * 0.98: st.success(f"🟢 **익절 구간 도달:** {item['종목명']} (현재: {cur_str} / 1차목표: {tg_str})")
+                    else: st.warning(f"🟡 **홀딩 대기중:** {item['종목명']} (현재: {cur_str})")
 
     st.divider()
     st.subheader("💬 실시간 퀀트 챗봇 (Interactive RAG & Google Search)")
@@ -1960,8 +1965,7 @@ elif selected_menu == "🔥 🇺🇸 미국 급등주":
             comp_name = sel_opt.split(" (")[1].replace(")", "")
             with st.spinner(f"✨ AI가 '{sel_tick}'의 공급망과 국장 수혜주를 입체적으로 분석 중입니다..."):
                 prompt = f"""
-                당신은 월스트리트와 여의도를 넘나드는 최고의 글로벌 매크로/퀀트 애널리스트입니다.
-                간밤에 미국 증시에서 '{comp_name}({sel_tick})' 종목이 급등했습니다.
+                당신은 월스트리트와 여의도를 넘나드는 최고의 글로벌 매크로/퀀트 애널리스트입니다. 간밤에 미국 증시에서 '{comp_name}({sel_tick})' 종목이 급등했습니다.
                 다음 4가지 관점에서 한국장 시초가 대응 리포트를 마크다운으로 작성해주세요.
                 1. 🏢 **급등 사유 & 모멘텀**: 이 기업이 왜 올랐는지 핵심만 2줄 요약. (시총이 너무 작은 잡주/바이오 임상 테마 등 국장 영향력이 없다고 판단되면 단호하게 "한국 증시 파급력 없음"이라고 명시할 거)
                 2. 🕸️ **글로벌 밸류체인 매핑**: 이 기업의 사업 모델과 직접적으로 연결되는 한국 코스피/코스닥의 핵심 수혜주 3~5개 및 그 이유.
@@ -2067,8 +2071,8 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                     st.success(f"✅ '{searched_name} ({searched_code})' 종목 분석을 시작합니다.")
                     with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
                         res = analyze_technical_pattern(searched_name, searched_code)
-                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                    else: st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                        else: st.error("❌ 해당 종목의 차트/수급 데이터를 불러올 수 없습니다.")
             else:
                 st.error("❌ 한국거래소(KRX) 종목 리스트를 불러오지 못했습니다. 잠시 후 좌측 하단의 '🔄 현재 화면 새로고침'을 눌러주세요.")
                 
@@ -2091,8 +2095,8 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                     us_ticker = sel_us_opt.split(" ")[0]
                     with st.spinner(f"📡 '{us_ticker}' 타점 및 재무 분석 중..."):
                         res = analyze_technical_pattern(us_ticker, us_ticker)
-                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
-                    else: st.error("❌ 해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 않는 종목입니다.")
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
+                        else: st.error("❌ 해당 티커의 데이터를 찾을 수 없거나 아직 지원되지 않는 종목입니다.")
 
     with ana_tab2:
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
@@ -2125,8 +2129,7 @@ elif selected_menu == "🔬 기업 정밀 분석기":
                 else:
                     with st.spinner("AI가 차트의 패턴, 지지/저항선, 엘리어트 파동 등을 시각적으로 해독 중입니다... (약 10초 소요)"):
                         prompt = """
-                        당신은 월스트리트의 전설적인 차트 분석가입니다.
-                        제시된 차트 이미지를 분석하여 다음 3가지를 도출해주세요:
+                        당신은 월스트리트의 전설적인 차트 분석가입니다. 제시된 차트 이미지를 분석하여 다음 3가지를 도출해주세요:
                         1. 현재 캔들 패턴 및 전반적인 추세 (상승/하락/횡보)
                         2. 시각적으로 보이는 주요 지지선과 저항선 추정 구간
                         3. 이 패턴이 의미하는 향후 예상 시나리오와 단기 대응 전략
