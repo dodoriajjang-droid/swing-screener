@@ -1331,14 +1331,33 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 
 # ==========================================
 # ==========================================
-# 4. 사이드바 메뉴 (UI/UX 트리 구조 개선)
+# ==========================================
+# 4. 사이드바 메뉴 (UI/UX 폰트 크기 및 디자인 커스텀)
 # ==========================================
 with st.sidebar:
     st.title("📈 Jaemini PRO v6.1")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
+    
+    # 💡 [핵심] CSS 강제 주입: 마크다운 굵은 글씨(**)가 적용된 텍스트만 찾아서 크기와 색상을 키웁니다.
+    st.markdown("""
+    <style>
+        /* 카테고리(분류명) 텍스트 폰트/색상 커스텀 */
+        div[role="radiogroup"] label strong {
+            font-size: 19px !important;  /* 분류 항목 글자 크기 대폭 확대 */
+            color: #1f77b4 !important;   /* 파란색 계열로 강조 (원하는 색상 코드로 변경 가능) */
+            display: block;
+            padding-top: 12px;           /* 위쪽 여백을 주어 그룹 간 간격 분리 */
+            padding-bottom: 2px;
+        }
+        /* 일반 하위 메뉴 텍스트 크기 */
+        div[role="radiogroup"] label {
+            font-size: 15px !important; 
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.divider()
     
-    # 💡 [UI 개선] 폴더 트리(Tree) 구조 기호(┣, ┗)를 사용하여 하위 메뉴임을 명확히 시각화
     menu_home = [
         " ┣ 🎛️ 홈: 종합 대시보드",
         " ┣ 💼 내 계좌 & 포트폴리오 진단",
@@ -1374,13 +1393,13 @@ with st.sidebar:
         " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
     
-    # 💡 [UI 개선] 대괄호 '[ ]' 와 📌 아이콘으로 카테고리 그룹명을 확실하게 강조
+    # 💡 마크다운 굵은 글씨(**) 문법 적용 (이 텍스트들만 위 CSS의 영향을 받아 커집니다)
     full_menu_list = (
-        [" 📌 [ 홈 & 자산 관리 ] "] + menu_home +
-        [" 📌 [ 시장 흐름 & 매크로 ] "] + menu_macro +
-        [" 📌 [ 퀀트 스캐너 & 종목 발굴 ] "] + menu_scanner +
-        [" 📌 [ 트레이딩 & 시장 경보 ] "] + menu_trading +
-        [" 📌 [ 심층 분석 & 도구 ] "] + menu_tools
+        ["**📌 [ 홈 & 자산 관리 ]**"] + menu_home +
+        ["**📌 [ 시장 흐름 & 매크로 ]**"] + menu_macro +
+        ["**📌 [ 퀀트 스캐너 & 종목 발굴 ]**"] + menu_scanner +
+        ["**📌 [ 트레이딩 & 시장 경보 ]**"] + menu_trading +
+        ["**📌 [ 심층 분석 & 도구 ]**"] + menu_tools
     )
     
     if "main_menu_radio" not in st.session_state:
@@ -1388,12 +1407,12 @@ with st.sidebar:
         
     selected_menu = st.radio("📌 메뉴 이동", full_menu_list, key="main_menu_radio", label_visibility="collapsed")
     
-    # 💡 분류 항목 클릭 시 경고문구를 띄우고 에러 방어
-    if " 📌 [" in selected_menu:
-        st.warning("☝️ 현재 [메뉴 그룹명]을 선택하셨습니다. 아래의 트리 기호(┣, ┗)가 있는 하위 메뉴를 클릭해 주세요.")
+    # 💡 분류 항목(굵은 글씨 `**`) 클릭 시 화면 이동 차단 및 경고문구 출력
+    if "**" in selected_menu:
+        st.warning("☝️ 현재 [메뉴 분류명]을 선택하셨습니다. 아래의 트리 기호(┣, ┗)가 있는 하위 메뉴를 클릭해 주세요.")
         clean_menu = "None"
     else:
-        # 5번 메인 로직과의 정상적인 텍스트 매핑을 위해 기호(┣, ┗)와 앞뒤 공백 제거
+        # 메인 로직과의 원활한 매핑을 위해 기호 제거
         clean_menu = selected_menu.replace(" ┣ ", "").replace(" ┗ ", "").strip()
         
     st.divider()
@@ -1413,6 +1432,11 @@ with st.sidebar:
     if st.button("🔄 현재 화면 새로고침", use_container_width=True): 
         st.cache_data.clear()
         st.rerun()
+
+# ==========================================
+# 5. 메인 로직 
+# ==========================================
+# (이하 기존 5번 영역 동일)
 
 # ==========================================
 # 5. 메인 로직 
