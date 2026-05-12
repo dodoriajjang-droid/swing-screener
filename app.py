@@ -2593,7 +2593,8 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
     cols_d = st.columns(4)
     
     for idx, theme in enumerate(hot_themes_tab5[:4]):
-        if cols_d[idx].button(f"🔥 {theme}", use_container_width=True): 
+        # 💡 [핵심 방어 1] AI의 중복 단어 반환으로 인한 DuplicateWidgetID 붉은색 에러 방지용 고유 key 부여
+        if cols_d[idx].button(f"🔥 {theme}", key=f"hot_theme_btn_{idx}", use_container_width=True): 
             st.session_state.deep_tech_query = theme
             st.session_state.deep_tech_results = None 
             st.session_state.deep_tech_brief = None
@@ -2602,14 +2603,14 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
         col_in1, col_in2 = st.columns([8, 2])
-        custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", value=st.session_state.deep_tech_input, placeholder="예: 양자암호, 전고체 배터리, 비만치료제")
+        # 💡 [핵심 방어 2] value= 파라미터 매핑으로 인한 StreamlitAPIException 충돌 방지 (key 네이티브 바인딩 적용)
+        custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", key="deep_tech_input", placeholder="예: 양자암호, 전고체 배터리, 비만치료제")
         submit_btn = col_in2.form_submit_button("🔍 대장주 발굴", use_container_width=True)
         
         if submit_btn and custom_query:
             st.session_state.deep_tech_query = custom_query
             st.session_state.deep_tech_results = None
             st.session_state.deep_tech_brief = None
-            st.session_state.deep_tech_input = custom_query
 
     # 2. 결과 연산 및 출력 영역
     if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
@@ -2623,22 +2624,26 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
             theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
             
             if theme_stocks:
-                progress_bar = st.progress(0)
+                progress_bar = st.progress(0.0)
                 status_text = st.empty()
                 theme_res_list = []
                 completed, total = 0, len(theme_stocks)
                 
                 def process_theme_stock(item):
-                    name, code = item
-                    time.sleep(0.1)
-                    return analyze_technical_pattern(name, code)
+                    # 💡 [핵심 방어 3] 언패킹 에러(ValueError: too many values to unpack) 방어
+                    if len(item) == 2:
+                        name, code = item
+                        time.sleep(0.1)
+                        return analyze_technical_pattern(name, code)
+                    return None
                 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     for future in concurrent.futures.as_completed({executor.submit(process_theme_stock, t): t for t in theme_stocks}):
                         res = future.result()
                         completed += 1
                         if res: theme_res_list.append(res)
-                        progress_bar.progress(completed / total)
+                        # 💡 [핵심 방어 4] 부동소수점 오차로 1.0 초과 시 발생하는 ValueError 붉은색 에러 완벽 차단
+                        progress_bar.progress(min(1.0, completed / total))
                         status_text.text(f"⚡ 차트 및 수급 데이터 초고속 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 종목 분석 완료")
                         
                 st.session_state.deep_tech_results = theme_res_list
