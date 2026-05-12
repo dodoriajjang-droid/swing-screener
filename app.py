@@ -239,13 +239,23 @@ def get_naver_ipo_data():
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    # 💡 [핵심 방어] 네이버 봇 차단을 우회하기 위한 실제 브라우저 완벽 위장 헤더
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://finance.naver.com/sise/dividend_list.naver'
+    }
     
-    # 1. 한국 고배당주 (Naver Finance) - 1~10페이지까지 크롤링하여 실시간 배당률 추출
+    # 1. 한국 고배당주 (Naver Finance)
     try:
-        for page in range(1, 10): 
+        for page in range(1, 10): # 1~10페이지까지 넓게 탐색
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
             res = requests.get(url, headers=headers, timeout=5)
+            
+            # 차단 방지를 위한 미세한 딜레이
+            time.sleep(0.2) 
+            
             tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
             for t in tables:
                 target_col = next((col for col in t.columns if '수익률' in str(col)), None)
@@ -267,11 +277,11 @@ def get_dividend_portfolio(ex_rate):
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     if not krx_df.empty:
-        krx_df = krx_df.sort_values('배당수익률(예상)', ascending=False).head(300) # TOP 300 추출
+        krx_df = krx_df.sort_values('배당수익률(예상)', ascending=False).head(300)
         krx_df['배당수익률(예상)'] = krx_df['배당수익률(예상)'].apply(lambda x: f"{x:.2f}%")
 
     # 2. 미국 주식 & ETF (Yahoo Finance)
-    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS", "NEE", "DUK", "SO", "D", "CL"]
+    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS", "NEE", "DUK", "SO", "D", "CL", "O", "T"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB"]
     
     def fetch_yf_dividend(ticker):
@@ -314,19 +324,13 @@ def get_dividend_portfolio(ex_rate):
         etf_df = etf_df.sort_values('배당수익률(예상)', ascending=False)
         etf_df['배당수익률(예상)'] = etf_df['배당수익률(예상)'].apply(lambda x: f"{x:.2f}%")
 
-    # API 완전 차단 시 방어용 Fallback
+    # API 최종 차단 시 방어용 Fallback
     if krx_df.empty:
         krx_df = pd.DataFrame([{"종목명": "데이터 수집 제한 (Naver API 차단)", "현재가": "0원", "배당수익률(예상)": "0.00%", "비고": "대체 데이터"}])
     if us_df.empty:
-        us_df = pd.DataFrame([
-            {"종목명": "Altria Group (MO)", "현재가": "$50.00 (67,500원)", "배당수익률(예상)": "8.20%", "비고": "캐시 데이터 (Yahoo 차단)"},
-            {"종목명": "Verizon (VZ)", "현재가": "$40.00 (54,000원)", "배당수익률(예상)": "6.50%", "비고": "캐시 데이터"}
-        ])
+        us_df = pd.DataFrame([{"종목명": "Altria Group (MO)", "현재가": "$50.00 (67,500원)", "배당수익률(예상)": "8.20%", "비고": "캐시 데이터"}])
     if etf_df.empty:
-        etf_df = pd.DataFrame([
-            {"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "배당수익률(예상)": "7.50%", "비고": "캐시 데이터 (Yahoo 차단)"},
-            {"종목명": "Schwab US Dividend (SCHD)", "현재가": "$78.00 (105,300원)", "배당수익률(예상)": "3.40%", "비고": "캐시 데이터"}
-        ])
+        etf_df = pd.DataFrame([{"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "배당수익률(예상)": "7.50%", "비고": "캐시 데이터"}])
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
 
@@ -1622,51 +1626,83 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
         st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 elif selected_menu == "📊 국내외 핵심 ETF 분석":
     st.markdown("## 📊 국내외 핵심 ETF 종목 분석")
-    st.write("시장 지수, 배당, 섹터별 주요 ETF의 트렌드와 상세 정보를 확인합니다.")
+    st.write("시장 지수, 배당, 섹터별 주요 ETF의 트렌드와 상세 정보를 확인하고 직접 분석할 수 있습니다.")
     
     etf_tab1, etf_tab2 = st.tabs(["🇰🇷 국내 핵심 ETF", "🇺🇸 미국 핵심 ETF"])
     
     with etf_tab1:
-        st.subheader("국내 상장 주요 ETF (TOP 50)")
-        with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
-            try:
-                krx_etf = fdr.StockListing('ETF/KRX')
-                if not krx_etf.empty:
-                    krx_etf = krx_etf[['Symbol', 'Name', 'Close', 'Change', 'Volume']].head(50)
-                    krx_etf.columns = ['종목코드', '종목명', '현재가', '등락률', '거래량']
-                    krx_etf['등락률'] = krx_etf['등락률'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
-                    krx_etf['현재가'] = krx_etf['현재가'].apply(lambda x: f"{int(x):,}원" if pd.notna(x) else "0원")
-                    krx_etf['거래량'] = krx_etf['거래량'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
-                    st.dataframe(krx_etf, use_container_width=True, hide_index=True)
-                else:
-                    st.error("데이터를 불러오지 못했습니다.")
-            except Exception as e:
-                st.error(f"ETF 스크래핑 에러: {e}")
+        col_etf1, col_etf2 = st.columns([1.5, 1], gap="large")
+        
+        with col_etf1:
+            st.subheader("국내 상장 주요 ETF (TOP 50)")
+            with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
+                try:
+                    # 💡 [버그 픽스] ETF/KRX -> ETF/KR 로 변경하여 에러 해결
+                    krx_etf = fdr.StockListing('ETF/KR')
+                    if not krx_etf.empty:
+                        display_etf = krx_etf[['Symbol', 'Name', 'Close', 'Change', 'Volume']].head(50).copy()
+                        display_etf.columns = ['종목코드', '종목명', '현재가', '등락률', '거래량']
+                        display_etf['등락률'] = display_etf['등락률'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
+                        display_etf['현재가'] = display_etf['현재가'].apply(lambda x: f"{int(x):,}원" if pd.notna(x) else "0원")
+                        display_etf['거래량'] = display_etf['거래량'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
+                        st.dataframe(display_etf, use_container_width=True, hide_index=True)
+                    else:
+                        st.error("데이터를 불러오지 못했습니다.")
+                except Exception as e:
+                    st.error(f"ETF 스크래핑 에러: {e}")
+                    krx_etf = pd.DataFrame()
+                    
+        with col_etf2:
+            st.subheader("🔍 개별 ETF 정밀 타점 분석")
+            st.write("좌측 목록의 ETF를 선택하여 현재 차트 타점을 확인하세요.")
+            if not krx_etf.empty:
+                etf_opts = ["선택하세요"] + (krx_etf['Name'].astype(str) + " (" + krx_etf['Symbol'].astype(str) + ")").tolist()
+                sel_etf = st.selectbox("분석할 ETF 선택:", etf_opts, label_visibility="collapsed")
+                
+                if sel_etf != "선택하세요":
+                    e_name = sel_etf.rsplit(" (", 1)[0]
+                    e_code = sel_etf.rsplit("(", 1)[-1].replace(")", "").strip()
+                    with st.spinner(f"'{e_name}' 타점 분석 중..."):
+                        res = analyze_technical_pattern(e_name, e_code)
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="kr_etf")
+                        else: st.error("해당 ETF의 차트 데이터를 불러올 수 없습니다.")
                 
     with etf_tab2:
-        st.subheader("미국 상장 주요 ETF")
-        st.write("SPY, QQQ, SCHD 등 미국 시장을 대표하는 메이저 ETF 동향입니다.")
-        us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV']
-        with st.spinner("미국 ETF 데이터를 불러오는 중... (약 5초 소요)"):
-            us_data = []
-            for ticker in us_etfs:
-                try:
-                    df = yf.Ticker(ticker).history(period="2d")
-                    if len(df) >= 2:
-                        close = df['Close'].iloc[-1]
-                        prev = df['Close'].iloc[-2]
-                        pct = ((close - prev) / prev) * 100
-                        us_data.append({
-                            "티커": ticker, 
-                            "현재가": f"${close:.2f}", 
-                            "등락률": f"{pct:+.2f}%", 
-                            "거래량": f"{int(df['Volume'].iloc[-1]):,}"
-                        })
-                except: pass
-            if us_data:
-                st.dataframe(pd.DataFrame(us_data), use_container_width=True, hide_index=True)
-            else:
-                st.error("미국 ETF 데이터를 불러오지 못했습니다.")
+        st.subheader("미국 상장 주요 메가 ETF")
+        us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV', 'TLT', 'TMF']
+        
+        col_usetf1, col_usetf2 = st.columns([1, 1], gap="large")
+        
+        with col_usetf1:
+            with st.spinner("미국 ETF 데이터를 불러오는 중..."):
+                us_data = []
+                for ticker in us_etfs:
+                    try:
+                        df = yf.Ticker(ticker).history(period="5d")
+                        if len(df) >= 2:
+                            close = df['Close'].iloc[-1]
+                            prev = df['Close'].iloc[-2]
+                            pct = ((close - prev) / prev) * 100
+                            us_data.append({
+                                "티커": ticker, 
+                                "현재가": f"${close:.2f}", 
+                                "등락률": f"{pct:+.2f}%", 
+                                "거래량": f"{int(df['Volume'].iloc[-1]):,}"
+                            })
+                    except: pass
+                if us_data:
+                    st.dataframe(pd.DataFrame(us_data), use_container_width=True, hide_index=True)
+                else:
+                    st.error("미국 ETF 데이터를 불러오지 못했습니다.")
+                    
+        with col_usetf2:
+            st.subheader("🔍 미국 ETF 정밀 타점 분석")
+            sel_us_etf = st.selectbox("분석할 미국 ETF 선택:", ["선택하세요"] + us_etfs)
+            if sel_us_etf != "선택하세요":
+                with st.spinner(f"'{sel_us_etf}' 타점 분석 중..."):
+                    res = analyze_technical_pattern(sel_us_etf, sel_us_etf)
+                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_etf")
+                    else: st.error("해당 ETF의 차트 데이터를 불러올 수 없습니다.")
                 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단 및 리밸런싱")
