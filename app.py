@@ -1336,49 +1336,47 @@ with st.sidebar:
     st.title("📈 Jaemini PRO v6.1")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
     
-    # Streamlit 버전에 상관없이 100% 작동하는 기호(Unicode) 기반 트리 구조
-    # 기존 코드의 "원본 메뉴명"을 그대로 유지하여 에러(빈 화면)를 완벽하게 방지합니다.
+    # 💡 [수정 완료] 하단 5번 로직의 if 조건문과 100% 일치하도록 '신규 메뉴명'으로 통일했습니다.
     menu_options = [
         "📂 [ 홈 & 자산 관리 ]",
-        " ┣ 🎛️ 메인 대시보드",
-        " ┣ 💼 내 포지션 관리 & 플래너",
-        " ┗ ⭐ 내 관심종목",
+        " ┣ 🎛️ 홈: 종합 대시보드",
+        " ┣ 💼 내 계좌 & 포트폴리오 진단",
+        " ┗ ⭐ 내 관심종목 모니터링",
         " ", # 여백
         "📂 [ 시장 흐름 & 매크로 ]",
-        " ┣ 🚀 v6.0 AI 퀀트 & 매크로 (Beta)",
-        " ┣ 🗺️ 시장 자금 & 스마트머니 히트맵",
-        " ┣ 🕸️ 실시간 3D 순환매 맵",
-        " ┗ 📅 IPO / 증시 일정",
-        "  ", # 여백 (중복 방지용 띄어쓰기 2칸)
+        " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
+        " ┣ 🗺️ 시장 주도주 자금 히트맵",
+        " ┣ 🕸️ 실시간 섹터 순환매 추적",
+        " ┗ 📅 핵심 증시 일정 & IPO 달력",
+        "  ", # 여백
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
-        " ┣ 🚀 실시간 퀀트 스캐너 & 백테스팅",
-        " ┣ 👨‍🦳 연기금 그림자 매매 스캐너",
-        " ┣ 🏛️ DART: 국민연금 코어픽 5%",
-        " ┣ 💎 장기 가치주 스캐너",
-        " ┗ ⚡ 메가트렌드 & 테마 발굴기",
-        "   ", # 여백 (띄어쓰기 3칸)
+        " ┣ 🚀 단기 스윙 퀀트 스캐너",
+        " ┣ 👨‍🦳 기관/외인 수급 스캐너",
+        " ┣ 🏛️ 국민연금 5% 대량보유 픽",
+        " ┣ 💎 장기 우량주 & 가치주 발굴",
+        " ┗ ⚡ 메가트렌드 & 테마 대장주",
+        "   ", # 여백
         "📂 [ 트레이딩 & 시장 경보 ]",
-        " ┣ 🔥 🇺🇸 미국 급등주",
-        " ┣ 🚨 상/하한가 분석",
-        " ┣ 🚦 거래량 급증 & 시장경보",
-        " ┗ 📰 실시간 속보/리포트",
-        "    ", # 여백 (띄어쓰기 4칸)
+        " ┣ 🔥 간밤의 미국 급등주 & 수혜주",
+        " ┣ 🚨 당일 상/하한가 분석",
+        " ┣ 🚦 거래량 급증 & 시장 경보",
+        " ┗ 📰 실시간 특징주 속보 & 리포트",
+        "    ", # 여백
         "📂 [ 심층 분석 & 도구 ]",
-        " ┣ 🔬 기업 정밀 분석기",
-        " ┣ 📊 글로벌 ETF 분석",
-        " ┣ 💰 배당 파이프라인 (TOP 300)",
-        " ┗ ⚖️ 워런 버핏 퀀트 계산기"
+        " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
+        " ┣ 📊 국내외 핵심 ETF 분석",
+        " ┣ 💰 고배당주 파이프라인 (TOP 300)",
+        " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
 
     # 초기값 설정
     if "main_menu_radio" not in st.session_state:
-        st.session_state.main_menu_radio = " ┣ 🎛️ 메인 대시보드"
+        st.session_state.main_menu_radio = " ┣ 🎛️ 홈: 종합 대시보드"
 
     selected_display_menu = st.radio("📌 메뉴 이동", menu_options, key="main_menu_radio", label_visibility="collapsed")
 
-    # 💡 [핵심 방어 로직] 사용자가 클릭한 메뉴를 뒷단의 실제 실행 코드 이름으로 안전하게 복원
+    # 💡 [핵심 방어 로직] 사용자가 클릭한 메뉴의 트리 기호(┣, ┗)만 잘라내어 원본 이름 추출
     if selected_display_menu.startswith(" ┣ ") or selected_display_menu.startswith(" ┗ "):
-        # 정상적인 하위 메뉴 클릭 시, 앞의 기호 3글자(" ┣ ", " ┗ ")를 잘라내어 원본 이름 추출
         selected_menu = selected_display_menu[3:] 
     elif selected_display_menu.strip() == "":
         st.sidebar.warning("☝️ 구분선입니다. 위아래의 실제 메뉴를 선택해주세요.")
@@ -2837,52 +2835,31 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
 
-elif selected_menu == "📊 국내외 핵심 ETF 분석":
-    st.subheader("📊 글로벌/국내 핵심 ETF & 포트폴리오 분석")
-    st.write("주도 섹터와 대표 지수를 추종하는 국내외 핵심 ETF의 타점을 진단하고 AI 분석을 받아보세요.")
+elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
+    st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
     
-    etf_categories = {
-        "📈 글로벌/국내 지수 대표": [
-            ("SPY", "SPDR S&P 500"), ("QQQ", "Invesco QQQ (나스닥)"),
-            ("069500", "KODEX 200"), ("232080", "TIGER 코스닥150"),
-            ("360750", "TIGER 미국S&P500"), ("379800", "KODEX 미국나스닥100TR")
-        ],
-        "🚀 반도체 & 딥테크": [
-            ("SOXX", "iShares Semiconductor"), ("XLK", "Technology Select Sector"),
-            ("091160", "KODEX 반도체"), ("381180", "TIGER 미국필라델피아반도체나스닥"),
-            ("446770", "TIGER 글로벌AI액티브")
-        ],
-        "💰 고배당 & 커버드콜": [
-            ("SCHD", "Schwab US Dividend Equity"), ("JEPI", "JPMorgan Equity Premium Income"),
-            ("458730", "TIGER 미국배당다우존스"), ("161510", "ARIRANG 고배당주"),
-            ("466950", "KODEX 미국배당프리미엄액티브")
-        ],
-        "🛡️ 채권 & 방어주": [
-            ("TLT", "iShares 20+ Year Treasury Bond"), ("GLD", "SPDR Gold Shares"),
-            ("304660", "KODEX 미국채울트라30년선물(H)"), ("329200", "TIGER 부동산인프라고배당")
-        ],
-        "🧬 2차전지 & 바이오": [
-            ("XLV", "Health Care Select Sector"),
-            ("305720", "KODEX 2차전지산업"), ("244580", "KODEX 바이오")
-        ]
-    }
+    with st.spinner("배당 데이터를 다운로드 중입니다..."): 
+        div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
+        
+    sort_opt = st.radio("⬇ 정렬 기준", ["기본 (분류순)", "배당수익률 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
     
-    c_cat, c_etf = st.columns([1, 1], gap="medium")
-    with c_cat: selected_category = st.selectbox("📂 ETF 카테고리 선택:", list(etf_categories.keys()))
-    etf_opts = ["🔍 분석할 ETF를 선택하세요."] + [f"{ticker} ({name})" for ticker, name in etf_categories[selected_category]]
-    with c_etf: selected_etf_str = st.selectbox("🔍 분석할 ETF 선택:", etf_opts)
-    
-    st.divider()
-    if selected_etf_str != "🔍 분석할 ETF를 선택하세요.":
-        selected_ticker = selected_etf_str.split(" ")[0]
-        with st.spinner(f"📡 '{selected_ticker}' 차트 및 기술적 지표 불러오는 중..."):
-            try:
-                clean_ticker = selected_ticker.replace(".KS", "")
-                res = analyze_technical_pattern(selected_etf_str.split(" (")[1].replace(")", ""), clean_ticker)
-                if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
-                else: st.error(f"❌ '{selected_ticker}' 데이터를 불러오지 못했습니다. (네트워크 오류 또는 지원 중단된 티커)")
-            except Exception as e:
-                st.error(f"❌ '{selected_ticker}' 분석 중 시스템 오류 발생: {str(e)}")
+    def apply_sort(df, opt):
+        if df.empty: return df
+        temp_df = df.copy()
+        if opt == "기본 (분류순)": return temp_df 
+        
+        def ex_val(val_str, iy=False):
+            try: return float(re.findall(r"[\d\.]+", str(val_str).split('(')[0])[-1] if iy else re.findall(r"[\d]+", str(val_str).split('(')[0].replace(',', ''))[0])
+            except: return 0.0
+            
+        temp_df['__sort'] = temp_df['배당수익률(예상)' if "수익률" in opt else '현재가'].apply(lambda x: ex_val(x, "수익률" in opt))
+        if opt == "현재가 낮은순": return pd.concat([temp_df[temp_df['__sort']>0].sort_values('__sort'), temp_df[temp_df['__sort']==0]]).drop(columns=['__sort'])
+        return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+
+    t1, t2, t3 = st.tabs(["🇰🇷 국장", "🇺🇸 미장", "📈 ETF"])
+    with t1: st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
+    with t2: st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
+    with t3: st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
     st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
