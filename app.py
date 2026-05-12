@@ -237,12 +237,14 @@ def get_naver_ipo_data():
     return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
+def @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     
+    # 1. 한국 고배당주 (Naver Finance) - 1~10페이지까지 크롤링하여 실시간 배당률 추출
     try:
-        for page in range(1, 4): 
+        for page in range(1, 10): 
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
             res = requests.get(url, headers=headers, timeout=5)
             tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
@@ -258,14 +260,18 @@ def get_dividend_portfolio(ex_rate):
                                 price_fmt = f"{int(float(price_val)):,}원"
                                 yield_val = str(row[target_col]).replace('%', '')
                                 if float(yield_val) > 0:
-                                    krx_list.append({'종목명': name, '현재가': price_fmt, '배당수익률(예상)': f"{float(yield_val):.2f}%", '비고': 'Naver 실시간'})
+                                    krx_list.append({'종목명': name, '현재가': price_fmt, '배당수익률(예상)': float(yield_val), '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
     except Exception as e: 
         print(f"KRX Dividend fetch error: {e}")
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
+    if not krx_df.empty:
+        krx_df = krx_df.sort_values('배당수익률(예상)', ascending=False).head(300) # TOP 300 추출
+        krx_df['배당수익률(예상)'] = krx_df['배당수익률(예상)'].apply(lambda x: f"{x:.2f}%")
 
+    # 2. 미국 주식 & ETF (Yahoo Finance)
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS", "NEE", "DUK", "SO", "D", "CL"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB"]
     
@@ -286,38 +292,41 @@ def get_dividend_portfolio(ex_rate):
                 return {
                     '종목명': f"{name_ko} ({ticker})", 
                     '현재가': f"${int(price):,} ({price_krw:,}원)", 
-                    '배당수익률(예상)': f"{display_yield:.2f}%",
+                    '배당수익률(예상)': float(display_yield),
                     '비고': 'Yahoo 실시간'
                 }
         except Exception: pass
         return None
 
     us_list, etf_list = [], []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         for r in executor.map(fetch_yf_dividend, us_tickers):
             if r: us_list.append(r)
         for r in executor.map(fetch_yf_dividend, etf_tickers):
             if r: etf_list.append(r)
 
-    us_df = pd.DataFrame(us_list).sort_values('배당수익률(예상)', ascending=False) if us_list else pd.DataFrame()
-    etf_df = pd.DataFrame(etf_list).sort_values('배당수익률(예상)', ascending=False) if etf_list else pd.DataFrame()
+    us_df = pd.DataFrame(us_list)
+    etf_df = pd.DataFrame(etf_list)
 
+    if not us_df.empty:
+        us_df = us_df.sort_values('배당수익률(예상)', ascending=False)
+        us_df['배당수익률(예상)'] = us_df['배당수익률(예상)'].apply(lambda x: f"{x:.2f}%")
+    if not etf_df.empty:
+        etf_df = etf_df.sort_values('배당수익률(예상)', ascending=False)
+        etf_df['배당수익률(예상)'] = etf_df['배당수익률(예상)'].apply(lambda x: f"{x:.2f}%")
+
+    # API 완전 차단 시 방어용 Fallback
     if krx_df.empty:
-        krx_df = pd.DataFrame([
-            {"종목명": "한국기업평가", "현재가": "8,500원", "배당수익률(예상)": "8.50%", "비고": "대체 데이터 (수집 제한)"},
-            {"종목명": "기업은행", "현재가": "15,000원", "배당수익률(예상)": "7.20%", "비고": "대체 데이터"},
-            {"종목명": "우리금융지주", "현재가": "14,500원", "배당수익률(예상)": "6.80%", "비고": "대체 데이터"}
-        ])
+        krx_df = pd.DataFrame([{"종목명": "데이터 수집 제한 (Naver API 차단)", "현재가": "0원", "배당수익률(예상)": "0.00%", "비고": "대체 데이터"}])
     if us_df.empty:
         us_df = pd.DataFrame([
-            {"종목명": "Altria Group (MO)", "현재가": "$50.00 (67,500원)", "배당수익률(예상)": "8.20%", "비고": "대체 데이터 (Yahoo 차단)"},
-            {"종목명": "Verizon (VZ)", "현재가": "$40.00 (54,000원)", "배당수익률(예상)": "6.50%", "비고": "대체 데이터"},
-            {"종목명": "AT&T (T)", "현재가": "$17.00 (22,950원)", "배당수익률(예상)": "6.40%", "비고": "대체 데이터"}
+            {"종목명": "Altria Group (MO)", "현재가": "$50.00 (67,500원)", "배당수익률(예상)": "8.20%", "비고": "캐시 데이터 (Yahoo 차단)"},
+            {"종목명": "Verizon (VZ)", "현재가": "$40.00 (54,000원)", "배당수익률(예상)": "6.50%", "비고": "캐시 데이터"}
         ])
     if etf_df.empty:
         etf_df = pd.DataFrame([
-            {"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "배당수익률(예상)": "7.50%", "비고": "대체 데이터 (Yahoo 차단)"},
-            {"종목명": "Schwab US Dividend (SCHD)", "현재가": "$78.00 (105,300원)", "배당수익률(예상)": "3.40%", "비고": "대체 데이터"}
+            {"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "배당수익률(예상)": "7.50%", "비고": "캐시 데이터 (Yahoo 차단)"},
+            {"종목명": "Schwab US Dividend (SCHD)", "현재가": "$78.00 (105,300원)", "배당수익률(예상)": "3.40%", "비고": "캐시 데이터"}
         ])
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
@@ -1612,7 +1621,54 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     st.write(reply)
             
         st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
-
+elif selected_menu == "📊 국내외 핵심 ETF 분석":
+    st.markdown("## 📊 국내외 핵심 ETF 종목 분석")
+    st.write("시장 지수, 배당, 섹터별 주요 ETF의 트렌드와 상세 정보를 확인합니다.")
+    
+    etf_tab1, etf_tab2 = st.tabs(["🇰🇷 국내 핵심 ETF", "🇺🇸 미국 핵심 ETF"])
+    
+    with etf_tab1:
+        st.subheader("국내 상장 주요 ETF (TOP 50)")
+        with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
+            try:
+                krx_etf = fdr.StockListing('ETF/KRX')
+                if not krx_etf.empty:
+                    krx_etf = krx_etf[['Symbol', 'Name', 'Close', 'Change', 'Volume']].head(50)
+                    krx_etf.columns = ['종목코드', '종목명', '현재가', '등락률', '거래량']
+                    krx_etf['등락률'] = krx_etf['등락률'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
+                    krx_etf['현재가'] = krx_etf['현재가'].apply(lambda x: f"{int(x):,}원" if pd.notna(x) else "0원")
+                    krx_etf['거래량'] = krx_etf['거래량'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
+                    st.dataframe(krx_etf, use_container_width=True, hide_index=True)
+                else:
+                    st.error("데이터를 불러오지 못했습니다.")
+            except Exception as e:
+                st.error(f"ETF 스크래핑 에러: {e}")
+                
+    with etf_tab2:
+        st.subheader("미국 상장 주요 ETF")
+        st.write("SPY, QQQ, SCHD 등 미국 시장을 대표하는 메이저 ETF 동향입니다.")
+        us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV']
+        with st.spinner("미국 ETF 데이터를 불러오는 중... (약 5초 소요)"):
+            us_data = []
+            for ticker in us_etfs:
+                try:
+                    df = yf.Ticker(ticker).history(period="2d")
+                    if len(df) >= 2:
+                        close = df['Close'].iloc[-1]
+                        prev = df['Close'].iloc[-2]
+                        pct = ((close - prev) / prev) * 100
+                        us_data.append({
+                            "티커": ticker, 
+                            "현재가": f"${close:.2f}", 
+                            "등락률": f"{pct:+.2f}%", 
+                            "거래량": f"{int(df['Volume'].iloc[-1]):,}"
+                        })
+                except: pass
+            if us_data:
+                st.dataframe(pd.DataFrame(us_data), use_container_width=True, hide_index=True)
+            else:
+                st.error("미국 ETF 데이터를 불러오지 못했습니다.")
+                
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단 및 리밸런싱")
     st.write("현재 보유 중인 종목들을 표에 입력하면, 단순 개별 분석이 아닌 **계좌 전체의 자산 배분(비중)과 리스크를 고려한 종합 리밸런싱 전략**을 AI가 진단해 드립니다.")
