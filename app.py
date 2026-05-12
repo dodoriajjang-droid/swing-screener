@@ -359,16 +359,23 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     """
     return ask_gemini(prompt, _api_key)
 
-@st.cache_data(ttl=10800)
+@st.cache_data(ttl=3600)  # 트렌드가 빨리 반영되도록 캐시 시간을 1시간으로 단축
 def get_trending_themes_with_ai(_api_key):
     default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
-    if not _api_key: return default_themes
+    if not _api_key: return default_themes[:4]
     try:
-        prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 단어 형태로 1줄로 출력하세요. 부연설명, 번호표, 특수문자 절대 금지. 예시: 반도체장비, 2차전지, 제약바이오, 원자력"
+        # 💡 [로직 전면 개편] 단순 AI의 예측이 아닌, '당일 실제 거래대금' 상위 30개 종목 추출
+        kings_df = get_trading_value_kings(30)
+        if kings_df.empty:
+            prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 1줄로 출력하세요."
+        else:
+            hot_stocks = ", ".join(kings_df['Name'].tolist())
+            prompt = f"오늘 한국 증시에서 실제 거래대금이 폭발한 상위 30개 종목입니다: [{hot_stocks}]. 이 종목들의 면면을 분석하여, 현재 시장의 돈이 집중적으로 몰리고 있는 구체적인 핵심 메가트렌드(테마) 4개만 쉼표(,)로 구분하여 단어로 출력하세요. (예: HBM, 비만치료제, 전력기기)"
+        
         response = ask_gemini(prompt, _api_key)
         valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
         return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
-    except Exception: return default_themes
+    except Exception: return default_themes[:4]
 
 @st.cache_data(ttl=3600)
 def get_theme_stocks_with_ai(theme_keyword, _api_key):
@@ -2488,11 +2495,12 @@ elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
                     st.rerun()
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
-elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
+elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
-    st.write("단순 관련주 나열을 넘어, AI가 테마의 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
+    st.write("단순 관련주 나열을 넘어, **당일 실제 거래대금(돈)이 몰린 데이터를 AI가 역추적**하여 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
     
-    hot_themes_tab5 = get_trending_themes_with_ai(api_key_input) if api_key_input else ["AI 반도체", "데이터센터", "바이오", "로봇"]
+    # 1. 핫 테마 버튼 영역
+    hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
     cols_d = st.columns(4)
     
     for idx, theme in enumerate(hot_themes_tab5[:4]):
@@ -2501,7 +2509,7 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
             st.session_state.deep_tech_results = None 
             st.session_state.deep_tech_brief = None
             st.session_state.deep_tech_input = ""
-            st.rerun()
+            # 🚫 Rerun 제거: 붉은색 시스템 에러 깜빡임 완벽 해결
             
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
@@ -2514,8 +2522,9 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
             st.session_state.deep_tech_results = None
             st.session_state.deep_tech_brief = None
             st.session_state.deep_tech_input = custom_query
-            st.rerun()
+            # 🚫 Rerun 제거: 붉은색 시스템 에러 깜빡임 완벽 해결
 
+    # 2. 결과 연산 및 출력 영역
     if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
         st.markdown(f"### 🔎 '{st.session_state.deep_tech_query}' 테마/섹터 정밀 분석")
         
@@ -2546,11 +2555,12 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
                         status_text.text(f"⚡ 차트 및 수급 데이터 초고속 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 종목 분석 완료")
                         
                 st.session_state.deep_tech_results = theme_res_list
-                st.rerun()
+                # 🚫 Rerun 제거: state가 즉시 하단으로 전달되어 에러 없이 렌더링됨
             else:
                 st.error(f"❌ '{st.session_state.deep_tech_query}' 관련 종목을 찾지 못했습니다.")
                 st.session_state.deep_tech_query = None 
                 
+    # 3. 렌더링
     if st.session_state.deep_tech_results is not None:
         if st.session_state.get('deep_tech_brief'):
             st.info(f"**💡 AI 테마 인사이트:**\n{st.session_state.deep_tech_brief}")
