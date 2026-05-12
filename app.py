@@ -237,7 +237,6 @@ def get_naver_ipo_data():
     return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
-def @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
