@@ -1171,17 +1171,32 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 pbr_val = tech_result.get('PBR', 'N/A')
                 st.markdown(f"🏢 **핵심 펀더멘털 (TTM)**<br>**PER:** `{per_val}` ｜ **PBR:** `{pbr_val}`", unsafe_allow_html=True)
         
+        # 💡 [AI 버튼 영역 수정] 버튼을 2개로 분리하여 심층 분석 기능 추가
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
+            
+            col_ai1, col_ai2 = st.columns(2)
+            
             ai_btn_key = f"ai_btn_{tech_result['티커']}_{key_suffix}"
             ai_res_key = f"ai_res_{ai_btn_key}"
             
-            if st.button(f"🤖 '{tech_result['종목명']}' AI 딥다이브 정밀 분석 (차트+재무+컨센서스)", key=ai_btn_key):
-                st.session_state[ai_res_key] = "loading"
-                
+            biz_btn_key = f"biz_btn_{tech_result['티커']}_{key_suffix}"
+            biz_res_key = f"biz_res_{biz_btn_key}"
+            
+            with col_ai1:
+                if st.button(f"🤖 차트·수급·재무 정밀 진단", key=ai_btn_key, use_container_width=True):
+                    st.session_state[ai_res_key] = "loading"
+                    st.session_state[biz_res_key] = None # 다른 창 닫기
+                    
+            with col_ai2:
+                if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, use_container_width=True):
+                    st.session_state[biz_res_key] = "loading"
+                    st.session_state[ai_res_key] = None # 다른 창 닫기
+                    
+            # 1. 기존 기술적 분석 로직
             if st.session_state.get(ai_res_key):
                 if st.session_state[ai_res_key] == "loading":
-                    with st.spinner("AI가 종합 분석 중입니다... (약 5~10초 소요)"):
+                    with st.spinner("AI가 차트 및 재무 데이터를 바탕으로 종합 분석 중입니다... (약 5~10초 소요)"):
                         if str(tech_result['티커']).isdigit():
                             fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                             fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
@@ -1207,7 +1222,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{fmt_price(curr)}, 20일선:{fmt_price(tech_result['진입가_가이드'])}, RSI:{tech_result['RSI']:.1f}\n1. ⚡ 단기 트레이딩 관점\n2. 🛡️ 스윙/가치 투자 관점\n3. 🎯 종합 요약 (1줄):"
                             st.session_state[ai_res_key] = ask_gemini(prompt, api_key_str)
                             
-                st.success("✅ AI 정밀 분석 완료!")
+                st.success("✅ AI 기술적 정밀 분석 완료!")
                 st.markdown(st.session_state[ai_res_key])
                 
                 if not is_us:
@@ -1216,6 +1231,25 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         st.write("✅ **증권사 목표가 컨센서스:**", cons)
                         if fin_df is not None: st.dataframe(fin_df)
                         if peer_df is not None: st.dataframe(peer_df)
+            
+            # 2. 신규 비즈니스 심층 분석 로직
+            if st.session_state.get(biz_res_key):
+                if st.session_state[biz_res_key] == "loading":
+                    with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
+                        prompt = f"""
+                        당신은 여의도 최고의 기업 분석 리서치 센터장입니다. '{tech_result['종목명']}' 기업에 대해 심층 분석 리포트를 마크다운으로 작성하세요.
+                        
+                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익을 창출하는지 초보자도 알기 쉽게 설명.
+                        2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
+                        3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
+                        4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
+                        
+                        단순 주가 예측이 아닌 '비즈니스 모델'과 '기업의 본질적인 펀더멘털'에 집중하여 통찰력 있게 작성해 주세요.
+                        """
+                        st.session_state[biz_res_key] = ask_gemini(prompt, api_key_str)
+                        
+                st.success("✅ AI 비즈니스 심층 분석 완료!")
+                st.markdown(st.session_state[biz_res_key])
         
         # 차트 주기 선택 & 피보나치 적용
         tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년", "5년", "10년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
