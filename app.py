@@ -1371,13 +1371,14 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
     st.session_state.us_fetch_time = fetch_time
 
 # ==========================================
-# 4. 사이드바 메뉴 (에러 없는 직관적 트리 UI)
+# ==========================================
+# 4. 사이드바 메뉴 (에러 및 빈 화면 완벽 방지)
 # ==========================================
 with st.sidebar:
     st.title("📈 Jaemini PRO v6.1")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
     
-    # 💡 [수정 완료] 하단 5번 로직의 if 조건문과 100% 일치하도록 '신규 메뉴명'으로 통일했습니다.
+    # 💡 하단 5번 메인 로직의 이름과 100% 일치하도록 '신규 메뉴명'으로 텍스트 통일
     menu_options = [
         "📂 [ 홈 & 자산 관리 ]",
         " ┣ 🎛️ 홈: 종합 대시보드",
@@ -1416,15 +1417,19 @@ with st.sidebar:
 
     selected_display_menu = st.radio("📌 메뉴 이동", menu_options, key="main_menu_radio", label_visibility="collapsed")
 
-    # 💡 [핵심 방어 로직] 사용자가 클릭한 메뉴의 트리 기호(┣, ┗)만 잘라내어 원본 이름 추출
+    # 💡 [핵심 방어 로직] 기호(┣, ┗)를 잘라낸 '순수 메뉴명'을 추출
     if selected_display_menu.startswith(" ┣ ") or selected_display_menu.startswith(" ┗ "):
-        selected_menu = selected_display_menu[3:] 
+        pure_menu_name = selected_display_menu[3:] 
     elif selected_display_menu.strip() == "":
         st.sidebar.warning("☝️ 구분선입니다. 위아래의 실제 메뉴를 선택해주세요.")
-        selected_menu = "None"
+        pure_menu_name = "None"
     else:
         st.sidebar.info("☝️ [카테고리]를 누르셨습니다. 아래 하위 메뉴(┣, ┗)를 클릭해주세요.")
-        selected_menu = "None"
+        pure_menu_name = "None"
+        
+    # 🎯 [NameError 해결!] 하단 5번 로직이 어떤 변수명을 쓰더라도 무조건 작동하도록 두 변수 모두에 할당!
+    selected_menu = pure_menu_name
+    clean_menu = pure_menu_name
 
     st.divider()
     
@@ -1447,6 +1452,7 @@ with st.sidebar:
 # ==========================================
 # 5. 각 탭별 실행 내용
 # ==========================================
+# (이 아래부터는 기존 코드인 if selected_menu == ... 또는 elif clean_menu == ... 로 그대로 이어지면 됩니다!)
 # (이 아래부터는 기존 코드인 if selected_menu == "🎛️ 메인 대시보드": 로 그대로 이어지면 됩니다!)
 
 # ==========================================
