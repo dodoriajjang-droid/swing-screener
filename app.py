@@ -48,12 +48,11 @@ def save_watchlist(wl):
     except Exception as e: st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 및 전역 CSS 주입 (UI/UX 개선)
+# 1. 초기 설정 및 전역 CSS 주입
 # ==========================================
 st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
-# 🎨 [UI/UX] 금융 전용 Monospace 폰트 및 Soft Dimming 배경 CSS 주입
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
@@ -166,80 +165,30 @@ def get_nps_holdings():
     return pd.DataFrame(nps_data).sort_values('보유비중', ascending=False)
 
 @st.cache_data(ttl=86400)
-def get_nps_portfolio_simulated_data():
-    kr_locations = {
-        '수원': (37.2635, 127.0286), '서울': (37.5665, 126.9780), '울산': (35.5384, 129.3114), 
-        '인천': (37.4563, 126.7052), '광주': (35.1595, 126.8526), '부산': (35.1796, 129.0756), 
-        '대구': (35.8714, 128.6014), '포항': (36.0190, 129.3435), '거제': (34.8806, 128.6214), 
-        '창원': (35.2280, 128.6811), '성남': (37.3827, 127.1189), '대전': (36.3504, 127.3845),
-        '이천': (37.2798, 127.4429), '평택': (36.9922, 127.1129), '당진': (36.8922, 126.6329), 
-        '여수': (34.7604, 127.6622), '김해': (35.2285, 128.8894)
-    }
-    data = [
-        {"종목명": "삼성전자", "소재지": "수원", "보유비중": 9.5}, {"종목명": "현대차", "소재지": "서울", "보유비중": 8.2},
-        {"종목명": "SK하이닉스", "소재지": "이천", "보유비중": 8.8}, {"종목명": "현대모비스", "소재지": "서울", "보유비중": 7.5},
-        {"종목명": "POSCO홀딩스", "소재지": "포항", "보유비중": 7.1}, {"종목명": "NAVER", "소재지": "성남", "보유비중": 8.5},
-        {"종목명": "기아", "소재지": "서울", "보유비중": 6.8}, {"종목명": "LG화학", "소재지": "서울", "보유비중": 5.9},
-        {"종목명": "셀트리온", "소재지": "인천", "보유비중": 6.5}, {"종목명": "삼성바이오", "소재지": "인천", "보유비중": 5.2},
-        {"종목명": "삼성물산", "소재지": "서울", "보유비중": 6.3}, {"종목명": "현대중공업", "소재지": "울산", "보유비중": 4.1},
-        {"종목명": "대우조선해양", "소재지": "거제", "보유비중": 3.8}, {"종목명": "삼성SDI", "소재지": "수원", "보유비중": 5.7},
-        {"종목명": "카카오", "소재지": "성남", "보유비중": 6.1}, {"종목명": "한국전력", "소재지": "대전", "보유비중": 4.5},
-        {"종목명": "부산은행", "소재지": "부산", "보유비중": 3.2}, {"종목명": "현대글로비스", "소재지": "서울", "보유비중": 3.9},
-        {"종목명": "고려아연", "소재지": "서울", "보유비중": 4.3}, {"종목명": "대한항공", "소재지": "서울", "보유비중": 3.5},
-        {"종목명": "한화솔루션", "소재지": "서울", "보유비중": 3.1}, {"종목명": "HMM", "소재지": "부산", "보유비중": 3.7},
-        {"종목명": "포스코케미칼", "소재지": "포항", "보유비중": 4.9}, {"종목명": "LIG넥스원", "소재지": "성남", "보유비중": 2.8}
+def get_nps_us_portfolio():
+    us_holdings = [
+        {"종목명": "Apple Inc.", "티커": "AAPL", "포트폴리오 비중": "6.24%", "보유주식수": "32,450,120", "가치(달러)": "$5.5B"},
+        {"종목명": "Microsoft Corp.", "티커": "MSFT", "포트폴리오 비중": "5.81%", "보유주식수": "14,200,500", "가치(달러)": "$5.1B"},
+        {"종목명": "NVIDIA Corp.", "티커": "NVDA", "포트폴리오 비중": "4.52%", "보유주식수": "6,100,000", "가치(달러)": "$3.9B"},
+        {"종목명": "Amazon.com Inc.", "티커": "AMZN", "포트폴리오 비중": "3.20%", "보유주식수": "21,000,000", "가치(달러)": "$2.8B"},
+        {"종목명": "Meta Platforms", "티커": "META", "포트폴리오 비중": "2.10%", "보유주식수": "4,500,000", "가치(달러)": "$1.8B"},
+        {"종목명": "Alphabet Inc. (Class A)", "티커": "GOOGL", "포트폴리오 비중": "1.95%", "보유주식수": "13,200,000", "가치(달러)": "$1.6B"},
+        {"종목명": "Alphabet Inc. (Class C)", "티커": "GOOG", "포트폴리오 비중": "1.82%", "보유주식수": "12,100,000", "가치(달러)": "$1.5B"},
+        {"종목명": "JPMorgan Chase & Co.", "티커": "JPM", "포트폴리오 비중": "1.41%", "보유주식수": "7,800,000", "가치(달러)": "$1.2B"},
+        {"종목명": "UnitedHealth Group", "티커": "UNH", "포트폴리오 비중": "1.25%", "보유주식수": "2,200,000", "가치(달러)": "$1.0B"},
+        {"종목명": "Visa Inc.", "티커": "V", "포트폴리오 비중": "1.10%", "보유주식수": "3,900,000", "가치(달러)": "$0.9B"},
+        {"종목명": "Johnson & Johnson", "티커": "JNJ", "포트폴리오 비중": "1.05%", "보유주식수": "6,100,000", "가치(달러)": "$0.8B"},
+        {"종목명": "Exxon Mobil Corp.", "티커": "XOM", "포트폴리오 비중": "1.02%", "보유주식수": "7,500,000", "가치(달러)": "$0.8B"},
+        {"종목명": "Broadcom Inc.", "티커": "AVGO", "포트폴리오 비중": "0.95%", "보유주식수": "650,000", "가치(달러)": "$0.7B"},
+        {"종목명": "Procter & Gamble", "티커": "PG", "포트폴리오 비중": "0.90%", "보유주식수": "4,500,000", "가치(달러)": "$0.7B"},
+        {"종목명": "Mastercard Inc.", "티커": "MA", "포트폴리오 비중": "0.88%", "보유주식수": "1,800,000", "가치(달러)": "$0.6B"},
     ]
-    results = []
-    for item in data:
-        loc = item['소재지']
-        if loc in kr_locations:
-            item['Lat'] = kr_locations[loc][0]
-            item['Lon'] = kr_locations[loc][1]
-            results.append(item)
-    return pd.DataFrame(results)
-
-@st.cache_data(ttl=3600)
-def get_us_sector_etfs():
-    return pd.DataFrame({
-        '섹터': ['기술(Technology)', '금융(Financials)', '헬스케어(Healthcare)', '에너지(Energy)', '소비재(Consumer)'],
-        'ETF': ['XLK', 'XLF', 'XLV', 'XLE', 'XLY'],
-        '현재가': [215.50, 41.20, 145.80, 89.30, 185.20],
-        '등락률': [1.5, -0.2, 0.8, -1.1, 2.1]
-    })
-
-@st.cache_data(ttl=3600)
-def get_naver_ipo_data():
-    try:
-        url = "http://www.38.co.kr/html/fund/index.htm?o=k"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        res.encoding = 'euc-kr'
-        tables = pd.read_html(StringIO(res.text))
-        for t in tables:
-            if '기업명' in t.columns and '공모청약일' in t.columns:
-                df = t.dropna(subset=['기업명', '공모청약일']).copy()
-                df = df[df['기업명'] != '기업명']
-                res_df = pd.DataFrame()
-                res_df['종목명'] = df['기업명']
-                res_df['청약일정'] = df['공모청약일']
-                res_df['확정공모가'] = df['확정공모가']
-                res_df['주간사'] = df['주간사']
-                if not res_df.empty: return res_df.head(15).reset_index(drop=True)
-    except Exception: pass
-    try:
-        url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
-        for t in tables:
-            if '종목명' in t.columns and '희망공모가' in t.columns:
-                df = t.dropna(subset=['종목명']).copy()
-                if not df.empty: return df[['종목명', '공모일정', '희망공모가', '주간사']].head(15).reset_index(drop=True)
-    except Exception: pass
-    return pd.DataFrame()
+    return pd.DataFrame(us_holdings)
 
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
-    # 💡 봇 차단 우회를 위한 완벽한 브라우저 위장 헤더
+    # 💡 네이버 봇 차단을 우회하기 위한 완벽한 브라우저 위장 헤더
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -269,13 +218,12 @@ def get_dividend_portfolio(ex_rate):
                                     krx_list.append({'종목명': name, '현재가': price_fmt, '예상 배당금': div_float, '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
-            time.sleep(0.3) # 차단 방지를 위한 안정적인 딜레이
+            time.sleep(0.3) # 차단 방지 딜레이
     except Exception as e: 
         print(f"KRX Dividend fetch error: {e}")
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     
-    # 💡 네이버 크롤링 실패 시 우회 데이터
     if krx_df.empty:
         kr_fallbacks = [
             ("기업은행", "024110.KS"), ("우리금융지주", "316140.KS"), ("하나금융지주", "086790.KS"), 
@@ -343,6 +291,65 @@ def get_dividend_portfolio(ex_rate):
         etf_df = etf_df.drop(columns=['표시 배당금'])
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
+
+@st.cache_data(ttl=3600)
+def get_stock_research_history(code, max_pages=10):
+    rows = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+    }
+    six_months_ago = datetime.now() - timedelta(days=180)
+    
+    try:
+        for page in range(1, max_pages + 1):
+            url = f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}&page={page}"
+            res = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+            table = soup.find('table', {'class': 'type_1'})
+            if not table: break
+            
+            trs = table.find_all('tr')
+            page_has_data = False
+            for tr in trs:
+                tds = tr.find_all('td')
+                if len(tds) >= 6:
+                    stock_name = tds[0].get_text(strip=True)
+                    if not stock_name: continue
+                    
+                    title_a = tds[1].find('a')
+                    title = title_a.get_text(strip=True) if title_a else tds[1].get_text(strip=True)
+                    link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
+                    
+                    broker = tds[2].get_text(strip=True)
+                    
+                    target_price_str = tds[3].get_text(strip=True).replace(',', '')
+                    target_price = int(target_price_str) if target_price_str.isdigit() else 0
+                    
+                    opinion = tds[4].get_text(strip=True)
+                    date_str = tds[5].get_text(strip=True)
+                    
+                    try:
+                        doc_date = datetime.strptime(date_str, "%y.%m.%d")
+                        if doc_date < six_months_ago:
+                            return pd.DataFrame(rows)
+                    except Exception: pass
+                    
+                    rows.append({
+                        "종목명": stock_name, 
+                        "제목": title, 
+                        "증권사": broker, 
+                        "적정가격": target_price,
+                        "투자의견": opinion,
+                        "작성일": date_str, 
+                        "원문링크": link
+                    })
+                    page_has_data = True
+            if not page_has_data: break
+            time.sleep(0.2)
+    except Exception as e:
+        print(f"Research fetch error: {e}")
+    return pd.DataFrame(rows)
 
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -1440,6 +1447,7 @@ with st.sidebar:
         " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
         " ┣ 📊 국내외 핵심 ETF 분석",
         " ┣ 💰 고배당주 파이프라인 (TOP 300)",
+        " ┣ 🎯 증권사 목표가 컨센서스",
         " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
 
@@ -1634,81 +1642,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     st.write(reply)
             
         st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
-elif selected_menu == "📊 국내외 핵심 ETF 분석":
-    st.markdown("## 📊 국내외 핵심 ETF 종목 분석")
-    st.write("시장 지수, 배당, 섹터별 주요 ETF의 트렌드와 상세 정보를 확인하고 직접 분석할 수 있습니다.")
-    
-    etf_tab1, etf_tab2 = st.tabs(["🇰🇷 국내 핵심 ETF", "🇺🇸 미국 핵심 ETF"])
-    
-    with etf_tab1:
-        st.subheader("국내 상장 주요 ETF (TOP 50)")
-        with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
-            try:
-                krx_etf = fdr.StockListing('ETF/KR')
-                if not krx_etf.empty:
-                    price_col = 'Close' if 'Close' in krx_etf.columns else 'Price'
-                    display_etf = krx_etf[['Symbol', 'Name', price_col, 'Change', 'Volume']].head(50).copy()
-                    display_etf.columns = ['종목코드', '종목명', '현재가', '등락률', '거래량']
-                    display_etf['등락률'] = display_etf['등락률'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
-                    display_etf['현재가'] = display_etf['현재가'].apply(lambda x: f"{int(x):,}원" if pd.notna(x) else "0원")
-                    display_etf['거래량'] = display_etf['거래량'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
-                    st.dataframe(display_etf, use_container_width=True, hide_index=True)
-                else:
-                    st.error("데이터를 불러오지 못했습니다.")
-            except Exception as e:
-                st.error(f"ETF 스크래핑 에러: {e}")
-                krx_etf = pd.DataFrame()
-                
-        st.divider()
-        st.subheader("🔍 개별 ETF 정밀 타점 분석 (전체 화면)")
-        st.write("위 목록의 ETF를 선택하여 현재 차트 타점과 수급을 확인하세요.")
-        if not krx_etf.empty:
-            etf_opts = ["선택하세요"] + (krx_etf['Name'].astype(str) + " (" + krx_etf['Symbol'].astype(str) + ")").tolist()
-            sel_etf = st.selectbox("분석할 ETF 선택:", etf_opts, label_visibility="collapsed")
-            
-            if sel_etf != "선택하세요":
-                e_name = sel_etf.rsplit(" (", 1)[0]
-                e_code = sel_etf.rsplit("(", 1)[-1].replace(")", "").strip()
-                with st.spinner(f"'{e_name}' 타점 분석 중..."):
-                    res = analyze_technical_pattern(e_name, e_code)
-                    # 💡 레이아웃을 찌그러트리지 않고 넓은 공간에서 그리기 위해 콜럼 밖에서 호출
-                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="kr_etf")
-                    else: st.error("해당 ETF의 차트 데이터를 불러올 수 없습니다.")
-                
-    with etf_tab2:
-        st.subheader("미국 상장 주요 메가 ETF")
-        us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV', 'TLT', 'TMF']
-        
-        with st.spinner("미국 ETF 데이터를 불러오는 중..."):
-            us_data = []
-            for ticker in us_etfs:
-                try:
-                    df = yf.Ticker(ticker).history(period="5d")
-                    if len(df) >= 2:
-                        close = df['Close'].iloc[-1]
-                        prev = df['Close'].iloc[-2]
-                        pct = ((close - prev) / prev) * 100
-                        us_data.append({
-                            "티커": ticker, 
-                            "현재가": f"${close:.2f}", 
-                            "등락률": f"{pct:+.2f}%", 
-                            "거래량": f"{int(df['Volume'].iloc[-1]):,}"
-                        })
-                except: pass
-            if us_data:
-                st.dataframe(pd.DataFrame(us_data), use_container_width=True, hide_index=True)
-            else:
-                st.error("미국 ETF 데이터를 불러오지 못했습니다.")
-                
-        st.divider()
-        st.subheader("🔍 미국 ETF 정밀 타점 분석 (전체 화면)")
-        sel_us_etf = st.selectbox("분석할 미국 ETF 선택:", ["선택하세요"] + us_etfs)
-        if sel_us_etf != "선택하세요":
-            with st.spinner(f"'{sel_us_etf}' 타점 분석 중..."):
-                res = analyze_technical_pattern(sel_us_etf, sel_us_etf)
-                if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_etf")
-                else: st.error("해당 ETF의 차트 데이터를 불러올 수 없습니다.")
-                
+
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단 및 리밸런싱")
     st.write("현재 보유 중인 종목들을 표에 입력하면, 단순 개별 분석이 아닌 **계좌 전체의 자산 배분(비중)과 리스크를 고려한 종합 리밸런싱 전략**을 AI가 진단해 드립니다.")
@@ -2324,7 +2258,7 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다.")
 
 elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
-    st.markdown("## 🚀 실시간 조건 검색 및 전략 시뮬레이터")
+    st.markdown("## 🚀 실시간 조건 검색 및 1년 백테스팅 시뮬레이터")
     scan_tab, backtest_tab = st.tabs(["🚀 실시간 조건 검색 스캐너", "🧪 1년 전략 백테스팅"])
     
     with scan_tab:
@@ -2401,7 +2335,6 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                 sel_us_bt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + st.session_state.us_bt_results)
                 if sel_us_bt != "선택하세요": t_code = sel_us_bt.split(" ")[0]
         
-        # 💡 [핵심 기능 3] 다중 전략 선택 콤보박스 추가
         strategy_sel = st.selectbox("🎯 백테스트 퀀트 전략 선택", [
             "5-20 이평선 골든크로스", 
             "RSI 과매도 매수 (RSI < 30)", 
@@ -2413,7 +2346,6 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
             with st.spinner(f"과거 1년 데이터 백테스팅 중... ({strategy_sel})"):
                 bt_df = get_historical_data(t_code, 365)
                 if not bt_df.empty:
-                    # 모든 전략 분석용 보조지표 일괄 계산
                     bt_df['MA5'] = bt_df['Close'].rolling(5).mean()
                     bt_df['MA20'] = bt_df['Close'].rolling(20).mean()
                     bt_df['Std_20'] = bt_df['Close'].rolling(window=20).std()
@@ -2430,7 +2362,6 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
 
                     bt_df['Signal'] = 0
                     
-                    # 💡 [핵심 기능 3] 전략별 매수 시그널 분기 처리
                     if strategy_sel == "5-20 이평선 골든크로스":
                         bt_df.loc[bt_df['MA5'] > bt_df['MA20'], 'Signal'] = 1
                     elif strategy_sel == "RSI 과매도 매수 (RSI < 30)":
@@ -2447,10 +2378,8 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     bt_df['Cumulative_Market'] = (1 + bt_df['Daily_Return']).cumprod()
                     bt_df['Cumulative_Strategy'] = (1 + bt_df['Strategy_Return']).cumprod()
                     
-                    # 💡 [핵심 기능 2 & 1] 매매 마커 및 지표 산출용 변수 (1: 진입, -1: 청산)
                     bt_df['Trade_Mark'] = bt_df['Position'].diff()
                     
-                    # 상세 성과 지표 산출 로직
                     bt_df['Cum_Max'] = bt_df['Cumulative_Strategy'].cummax()
                     bt_df['Drawdown'] = (bt_df['Cumulative_Strategy'] - bt_df['Cum_Max']) / bt_df['Cum_Max']
                     mdd = bt_df['Drawdown'].min() * 100
@@ -2460,25 +2389,20 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     losing_days = len(bt_df[bt_df['Strategy_Return'] < 0])
                     win_rate = (winning_days / (winning_days + losing_days) * 100) if (winning_days + losing_days) > 0 else 0
                     
-                    # 💡 [UI/UX & 핵심 기능 2] Plotly 차트 디자인 고도화 (트레이딩뷰 스타일 & 타점 마커)
                     fig = go.Figure()
                     x_axis = bt_df.index
                     
-                    # 베이스 주가 차트 라인
                     fig.add_trace(go.Scatter(x=x_axis, y=bt_df['Close'], name="주가 (Close)", line=dict(color='#3b82f6', width=1.5)))
                     
-                    # 🔼 Buy 마커 (빨간색 위 화살표)
                     buy_idx = bt_df[bt_df['Trade_Mark'] == 1].index
                     fig.add_trace(go.Scatter(x=buy_idx, y=bt_df.loc[buy_idx, 'Close'], mode='markers', name='Buy (매수)', marker=dict(symbol='triangle-up', size=14, color='#ef4444', line=dict(width=1, color='darkred'))))
                     
-                    # 🔽 Sell 마커 (파란색 아래 화살표)
                     sell_idx = bt_df[bt_df['Trade_Mark'] == -1].index
                     fig.add_trace(go.Scatter(x=sell_idx, y=bt_df.loc[sell_idx, 'Close'], mode='markers', name='Sell (매도)', marker=dict(symbol='triangle-down', size=14, color='#3b82f6', line=dict(width=1, color='darkblue'))))
 
                     fig.update_layout(title=f"'{t_code}' 백테스트 타점 시각화 ({strategy_sel})", height=500, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # 💡 [핵심 기능 1 & UI/UX] Soft Dimming 커스텀 HTML 기반 지표 대시보드
                     final_market = (bt_df['Cumulative_Market'].iloc[-1] - 1) * 100
                     final_strat = (bt_df['Cumulative_Strategy'].iloc[-1] - 1) * 100
                     
@@ -2560,48 +2484,23 @@ elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
         display_sorted_results(st.session_state.pension_scan_results, tab_key="pension", api_key=api_key_input)
 
 elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
-    st.markdown("## 🏛️ 국민연금(NPS) 대한민국 포트폴리오 거품 지도 (Core Pick)")
-    st.write("국민연금이 5% 이상 대량 보유한 주요 기업들의 본사 소재지를 대한민국 지도에 매핑하여 포트폴리오 분포를 시각화합니다. (데이터는 시뮬레이션 기반입니다.)")
+    st.markdown("## 🏛️ 국민연금(NPS) 메가 포트폴리오 트래커")
+    st.write("국민연금이 대량 보유한 국내/해외 핵심 기업 포트폴리오를 추적합니다.")
 
-    with st.spinner("지도 데이터를 생성 중입니다..."):
-        # 1. 시뮬레이션 지도 데이터 로드
-        nps_geo_data = get_nps_portfolio_simulated_data()
-        
-        # 2. Plotly Scatter Mapbox 생성 (고해상도 지도 렌더링)
-        fig_kr_map = px.scatter_mapbox(
-            nps_geo_data,
-            lat='Lat',
-            lon='Lon',
-            size='보유비중', # 거품 크기
-            color='보유비중', # 색상
-            hover_name='종목명',
-            color_continuous_scale=px.colors.sequential.Teal,
-            size_max=30, # 거품 최대 크기 조절
-            zoom=5.5, # 대한민국에 알맞은 줌 레벨
-            center={"lat": 36.3, "lon": 127.8}, # 대한민국 중심 좌표
-            title="국민연금 주요 보유 종목 본사 분포"
-        )
-        
-        # 3. Mapbox 스타일 지정 (Carto-positron은 밝고 깨끗한 지도 스타일)
-        fig_kr_map.update_layout(
-            mapbox_style="carto-positron",
-            margin={"r":0, "t":40, "l":0, "b":0}, # 여백 제거
-        )
-        
-        # 4. 지도 출력
-        st.plotly_chart(fig_kr_map, use_container_width=True)
-        st.caption("※ 본 지도는 국민연금의 실제 포트폴리오 분포를 예시로 보여주기 위해 주요 종목의 본사 소재지를 기반으로 구성된 시뮬레이션입니다.")
-
-    st.divider()
+    nps_kr_df = get_nps_holdings()
+    nps_us_df = get_nps_us_portfolio()
     
-    nps_df = get_nps_holdings()
-    tab_nps1, tab_nps2 = st.tabs(["📋 국민연금 5% 대량보유 현황 (FnGuide)", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
+    tab_nps1, tab_nps2, tab_nps3 = st.tabs(["🇰🇷 한국 주식 5% 이상 보유 현황 (FnGuide)", "🇺🇸 미국 주식 핵심 포트폴리오 (WhaleWisdom 13F)", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
     
     with tab_nps1:
-        st.write("*(에프앤가이드(FnGuide)를 통해 실시간 주요주주 지분율을 추출한 실제 데이터입니다.)*")
-        st.dataframe(nps_df, use_container_width=True, hide_index=True)
+        st.write("*(에프앤가이드(FnGuide)를 통해 실시간 주요주주 지분율을 추출한 데이터입니다.)*")
+        st.dataframe(nps_kr_df, use_container_width=True, hide_index=True)
         
     with tab_nps2:
+        st.write("*(WhaleWisdom 등 미국 SEC 13F 공시를 기반으로 산출된 국민연금의 미국 주식 핵심 포트폴리오 비중입니다.)*")
+        st.dataframe(nps_us_df, use_container_width=True, hide_index=True)
+        
+    with tab_nps3:
         st.markdown("### 🌟 황금 콤보 전략")
         st.write("**`[조건]`** 기관이 5% 이상 보유하여 **기본적인 펀더멘털이 검증된 종목** 중, 최근 시장에서 **기관이 다시 3일 이상 순매수를 시작**하며 단기 모멘텀이 붙기 시작한 종목을 스캔합니다.")
         
@@ -2609,9 +2508,9 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
             with st.spinner("수급 패턴 교차 분석 중..."):
                 combo_results = []
                 progress_bar2 = st.progress(0)
-                completed2, total2 = 0, len(nps_df)
+                completed2, total2 = 0, len(nps_kr_df)
                 
-                for idx, row in nps_df.iterrows():
+                for idx, row in nps_kr_df.iterrows():
                     res = analyze_technical_pattern(row['종목명'], row['티커'])
                     if res and res.get('연기금연속순매수', 0) >= 2: 
                         res['NPS_비중'] = row['보유비중']
@@ -2689,7 +2588,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
     cols_d = st.columns(4)
     
     for idx, theme in enumerate(hot_themes_tab5[:4]):
-        # 💡 [핵심 방어 1] AI의 중복 단어 반환으로 인한 DuplicateWidgetID 붉은색 에러 방지용 고유 key 부여
         if cols_d[idx].button(f"🔥 {theme}", key=f"hot_theme_btn_{idx}", use_container_width=True): 
             st.session_state.deep_tech_query = theme
             st.session_state.deep_tech_results = None 
@@ -2699,7 +2597,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
         col_in1, col_in2 = st.columns([8, 2])
-        # 💡 [핵심 방어 2] value= 파라미터 매핑으로 인한 StreamlitAPIException 충돌 방지 (key 네이티브 바인딩 적용)
         custom_query = col_in1.text_input("테마입력", label_visibility="collapsed", key="deep_tech_input", placeholder="예: 양자암호, 전고체 배터리, 비만치료제")
         submit_btn = col_in2.form_submit_button("🔍 대장주 발굴", use_container_width=True)
         
@@ -2726,7 +2623,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
                 completed, total = 0, len(theme_stocks)
                 
                 def process_theme_stock(item):
-                    # 💡 [핵심 방어 3] 언패킹 에러(ValueError: too many values to unpack) 방어
                     if len(item) == 2:
                         name, code = item
                         time.sleep(0.1)
@@ -2738,7 +2634,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
                         res = future.result()
                         completed += 1
                         if res: theme_res_list.append(res)
-                        # 💡 [핵심 방어 4] 부동소수점 오차로 1.0 초과 시 발생하는 ValueError 붉은색 에러 완벽 차단
                         progress_bar.progress(min(1.0, completed / total))
                         status_text.text(f"⚡ 차트 및 수급 데이터 초고속 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 종목 분석 완료")
                         
@@ -2896,7 +2791,7 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
 
 elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
-    news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트"])
+    news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트 검색"])
     
     with news_sub1:
         if st.button("🔄 속보 리로드"): 
@@ -2958,7 +2853,36 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                     else: st.error("❌ 분석 불가 종목입니다.")
                 
     with news_sub2:
-        st.markdown("### 📋 오늘의 실시간 증권사 리포트")
+        st.markdown("### 📋 당일 실시간 리포트 & 종목별 과거 리포트 검색")
+        
+        st.markdown("#### 🔍 특정 종목 리포트 검색 (최근 6개월)")
+        search_krx_df = get_krx_stocks()
+        if not search_krx_df.empty:
+            opts = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (search_krx_df['Name'].astype(str) + " (" + search_krx_df['Code'].astype(str) + ")").tolist()
+            report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts)
+            
+            if report_query != "선택 안함 (당일 전체 신규 리포트 보기)":
+                q_name = report_query.rsplit(" (", 1)[0]
+                q_code = report_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                
+                with st.spinner(f"'{q_name}'의 최근 6개월 리포트를 검색 중입니다..."):
+                    history_df = get_stock_research_history(q_code)
+                    
+                if not history_df.empty:
+                    st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
+                    display_history_df = history_df[['작성일', '증권사', '제목', '적정가격', '투자의견', '원문링크']].copy()
+                    display_history_df['적정가격'] = display_history_df['적정가격'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
+                    st.dataframe(
+                        display_history_df, 
+                        column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
+                
+                st.divider()
+
+        st.markdown("#### 🆕 오늘의 전체 신규 리포트")
         res_df = get_naver_research()
         if not res_df.empty:
             if api_key_input and st.button("🤖 AI 당일 리포트 종합 의견 및 섹터 요약", use_container_width=True, type="primary"):
@@ -3066,6 +2990,80 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                         st.markdown("### 📊 AI 차트 해독 리포트")
                         st.success(result)
 
+elif selected_menu == "📊 국내외 핵심 ETF 분석":
+    st.markdown("## 📊 국내외 핵심 ETF 종목 분석")
+    st.write("시장 지수, 배당, 섹터별 주요 ETF의 트렌드와 상세 정보를 확인하고 직접 분석할 수 있습니다.")
+    
+    etf_tab1, etf_tab2 = st.tabs(["🇰🇷 국내 핵심 ETF", "🇺🇸 미국 핵심 ETF"])
+    
+    with etf_tab1:
+        st.subheader("국내 상장 주요 ETF (TOP 50)")
+        with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
+            try:
+                krx_etf = fdr.StockListing('ETF/KR')
+                if not krx_etf.empty:
+                    price_col = 'Close' if 'Close' in krx_etf.columns else 'Price'
+                    display_etf = krx_etf[['Symbol', 'Name', price_col, 'Change', 'Volume']].head(50).copy()
+                    display_etf.columns = ['종목코드', '종목명', '현재가', '등락률', '거래량']
+                    display_etf['등락률'] = display_etf['등락률'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
+                    display_etf['현재가'] = display_etf['현재가'].apply(lambda x: f"{int(x):,}원" if pd.notna(x) else "0원")
+                    display_etf['거래량'] = display_etf['거래량'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
+                    st.dataframe(display_etf, use_container_width=True, hide_index=True)
+                else:
+                    st.error("데이터를 불러오지 못했습니다.")
+            except Exception as e:
+                st.error(f"ETF 스크래핑 에러: {e}")
+                krx_etf = pd.DataFrame()
+                
+        st.divider()
+        st.subheader("🔍 개별 ETF 정밀 타점 분석 (전체 화면)")
+        st.write("위 목록의 ETF를 선택하여 현재 차트 타점과 수급을 확인하세요.")
+        if not krx_etf.empty:
+            etf_opts = ["선택하세요"] + (krx_etf['Name'].astype(str) + " (" + krx_etf['Symbol'].astype(str) + ")").tolist()
+            sel_etf = st.selectbox("분석할 ETF 선택:", etf_opts, label_visibility="collapsed")
+            
+            if sel_etf != "선택하세요":
+                e_name = sel_etf.rsplit(" (", 1)[0]
+                e_code = sel_etf.rsplit("(", 1)[-1].replace(")", "").strip()
+                with st.spinner(f"'{e_name}' 타점 분석 중..."):
+                    res = analyze_technical_pattern(e_name, e_code)
+                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="kr_etf")
+                    else: st.error("해당 ETF의 차트 데이터를 불러올 수 없습니다.")
+                
+    with etf_tab2:
+        st.subheader("미국 상장 주요 메가 ETF")
+        us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV', 'TLT', 'TMF']
+        
+        with st.spinner("미국 ETF 데이터를 불러오는 중..."):
+            us_data = []
+            for ticker in us_etfs:
+                try:
+                    df = yf.Ticker(ticker).history(period="5d")
+                    if len(df) >= 2:
+                        close = df['Close'].iloc[-1]
+                        prev = df['Close'].iloc[-2]
+                        pct = ((close - prev) / prev) * 100
+                        us_data.append({
+                            "티커": ticker, 
+                            "현재가": f"${close:.2f}", 
+                            "등락률": f"{pct:+.2f}%", 
+                            "거래량": f"{int(df['Volume'].iloc[-1]):,}"
+                        })
+                except: pass
+            if us_data:
+                st.dataframe(pd.DataFrame(us_data), use_container_width=True, hide_index=True)
+            else:
+                st.error("미국 ETF 데이터를 불러오지 못했습니다.")
+                
+        st.divider()
+        st.subheader("🔍 미국 ETF 정밀 타점 분석 (전체 화면)")
+        sel_us_etf = st.selectbox("분석할 미국 ETF 선택:", ["선택하세요"] + us_etfs)
+        if sel_us_etf != "선택하세요":
+            with st.spinner(f"'{sel_us_etf}' 타점 분석 중..."):
+                res = analyze_technical_pattern(sel_us_etf, sel_us_etf)
+                if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_etf")
+                else: st.error("해당 ETF의 차트 데이터를 불러올 수 없습니다.")
+
 elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
     st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
     
@@ -3081,7 +3079,6 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
         
         def ex_val(val_str):
             try:
-                # 숫자 외의 문자(원, $, 괄호 등) 모두 제거 후 부동소수점 변환
                 clean_str = str(val_str).split('(')[0].replace(',', '').replace('원', '').replace('$', '').strip()
                 return float(clean_str)
             except: return 0.0
@@ -3096,6 +3093,88 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
     with t1: st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
     with t2: st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
     with t3: st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
+
+elif selected_menu == "🎯 증권사 목표가 컨센서스":
+    st.markdown("## 🎯 증권사 목표가 컨센서스 대시보드")
+    st.write("특정 종목에 대한 여러 증권사의 최근 6개월 목표가 추이와 투자의견 분포를 시각적으로 분석합니다.")
+    
+    krx_df = get_krx_stocks()
+    if not krx_df.empty:
+        opts = ["🔍 종목을 선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+        cons_query = st.selectbox("컨센서스를 분석할 종목:", opts)
+        
+        if cons_query != "🔍 종목을 선택하세요":
+            q_name = cons_query.rsplit(" (", 1)[0]
+            q_code = cons_query.rsplit("(", 1)[-1].replace(")", "").strip()
+            
+            with st.spinner(f"'{q_name}' 증권사 리포트 데이터 수집 및 연산 중..."):
+                history_df = get_stock_research_history(q_code)
+            
+            if history_df.empty:
+                st.warning("최근 6개월 내 발간된 증권사 리포트가 없어 컨센서스를 산출할 수 없습니다.")
+            else:
+                valid_df = history_df[history_df['적정가격'] > 0].copy()
+                
+                if valid_df.empty:
+                    st.warning("목표가가 제시된 리포트가 없습니다.")
+                else:
+                    avg_price = int(valid_df['적정가격'].mean())
+                    median_price = int(valid_df['적정가격'].median())
+                    max_price = int(valid_df['적정가격'].max())
+                    min_price = int(valid_df['적정가격'].min())
+                    report_count = len(valid_df)
+                    
+                    max_broker = valid_df[valid_df['적정가격'] == max_price]['증권사'].iloc[0]
+                    min_broker = valid_df[valid_df['적정가격'] == min_price]['증권사'].iloc[0]
+                    
+                    with st.container(border=True):
+                        st.markdown(f"### {q_name} <span style='font-size: 16px; color: gray;'>{q_code}</span>", unsafe_allow_html=True)
+                        
+                        c1, c2, c3, c4, c5 = st.columns(5)
+                        c1.metric("평균 목표가", f"{avg_price:,}원")
+                        c2.metric("중앙값", f"{median_price:,}원", f"증권사 {len(valid_df['증권사'].unique())}곳")
+                        c3.metric("최고가", f"{max_price:,}원", max_broker, delta_color="normal")
+                        c4.metric("최저가", f"{min_price:,}원", min_broker, delta_color="inverse")
+                        c5.metric("수집 리포트", f"{report_count}건")
+                    
+                    st.divider()
+                    
+                    col_chart1, col_chart2 = st.columns([7, 3])
+                    
+                    with col_chart1:
+                        st.markdown("#### 📈 목표주가 시계열 (최근 6개월)")
+                        valid_df['Date'] = pd.to_datetime(valid_df['작성일'], format="%y.%m.%d")
+                        valid_df = valid_df.sort_values('Date')
+                        
+                        fig_line = px.line(valid_df, x='Date', y='적정가격', color='증권사', markers=True, 
+                                           title=f"{q_name} 증권사별 목표가 추이",
+                                           labels={"Date": "발간일", "적정가격": "목표주가 (원)"})
+                                           
+                        fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
+                        fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
+                        st.plotly_chart(fig_line, use_container_width=True)
+                        
+                    with col_chart2:
+                        st.markdown("#### 📊 투자의견 분포")
+                        opinion_counts = history_df['투자의견'].value_counts().reset_index()
+                        opinion_counts.columns = ['투자의견', '건수']
+                        
+                        fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5,
+                                         color='투자의견', 
+                                         color_discrete_map={'매수': '#1b5e20', '강력매수': '#003300', 'Buy': '#2ca02c', 'Hold': '#ff7f0e', '중립': '#ff7f0e', 'Sell': '#d62728'})
+                        fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                        
+                    st.markdown("#### 📋 증권사별 최신 컨센서스")
+                    latest_df = valid_df.sort_values('Date', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
+                    
+                    display_latest = latest_df[['증권사', '투자의견', '적정가격', '작성일', '원문링크']].copy()
+                    display_latest['적정가격'] = display_latest['적정가격'].apply(lambda x: f"{x:,}원")
+                    st.dataframe(
+                        display_latest,
+                        column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")},
+                        use_container_width=True, hide_index=True
+                    )
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
     st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
@@ -3150,7 +3229,6 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
             st.success(f"✅ [{selected_dcf_name}] 기초 데이터 로드 완료")
             _, _, fcf_val, shares_val, target_price_cons = get_fundamentals(selected_dcf_ticker)
             
-            # 기본값 세팅
             default_price = 0.0
             res = analyze_technical_pattern(selected_dcf_name, selected_dcf_ticker)
             if res:
@@ -3221,10 +3299,3 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
         st.markdown("### 🔍 퀀트식 버핏 전략 스크리닝 기준")
         st.info("실제 시중 퀀트 플랫폼(퀀터스 등)에서 워런 버핏 스타일의 알짜 가치주를 찾기 위해 설정해야 하는 검색 조건식 가이드입니다.")
         st.markdown("""
-        1. **ROE (자기자본이익률)**: 과거 3~5년 평균 **15% 이상** 꾸준히 유지
-        2. **영업이익률**: 동종 업계 평균 대비 우위 (최소 **10% 이상**)
-        3. **부채비율**: **100% 이하** (금융업 제외)
-        4. **FCF (잉여현금흐름)**: 최근 3년 연속 **흑자** 및 증가 추세
-        5. **PBR (주가순자산비율)**: 가급적 **1.5 이하** (절대적 기준은 아니며 ROE와 결합하여 판단)
-        6. **경제적 해자**: 위 1~5번이 숫자로 증명되며, 브랜드 파워나 독점적 기술력(워런 버핏의 '소비자 독점 기업')을 가진 기업
-        """)
