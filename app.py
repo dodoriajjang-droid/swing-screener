@@ -1330,26 +1330,22 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
     st.session_state.us_fetch_time = fetch_time
 
 # ==========================================
-# ==========================================
-# ==========================================
-# 4. 사이드바 메뉴 (UI/UX 폰트 크기 및 디자인 커스텀)
+# 4. 사이드바 메뉴 (UI/UX 커스텀 및 실행 오류 완벽 수정)
 # ==========================================
 with st.sidebar:
     st.title("📈 Jaemini PRO v6.1")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
     
-    # 💡 [핵심] CSS 강제 주입: 마크다운 굵은 글씨(**)가 적용된 텍스트만 찾아서 크기와 색상을 키웁니다.
+    # 💡 CSS 강제 주입: 마크다운 굵은 글씨(**)가 적용된 카테고리만 크기와 색상 변경
     st.markdown("""
     <style>
-        /* 카테고리(분류명) 텍스트 폰트/색상 커스텀 */
         div[role="radiogroup"] label strong {
-            font-size: 19px !important;  /* 분류 항목 글자 크기 대폭 확대 */
-            color: #1f77b4 !important;   /* 파란색 계열로 강조 (원하는 색상 코드로 변경 가능) */
+            font-size: 19px !important;  
+            color: #1f77b4 !important;   
             display: block;
-            padding-top: 12px;           /* 위쪽 여백을 주어 그룹 간 간격 분리 */
+            padding-top: 12px;           
             padding-bottom: 2px;
         }
-        /* 일반 하위 메뉴 텍스트 크기 */
         div[role="radiogroup"] label {
             font-size: 15px !important; 
         }
@@ -1393,7 +1389,6 @@ with st.sidebar:
         " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
     
-    # 💡 마크다운 굵은 글씨(**) 문법 적용 (이 텍스트들만 위 CSS의 영향을 받아 커집니다)
     full_menu_list = (
         ["**📌 [ 홈 & 자산 관리 ]**"] + menu_home +
         ["**📌 [ 시장 흐름 & 매크로 ]**"] + menu_macro +
@@ -1405,15 +1400,40 @@ with st.sidebar:
     if "main_menu_radio" not in st.session_state:
         st.session_state.main_menu_radio = " ┣ 🎛️ 홈: 종합 대시보드"
         
-    selected_menu = st.radio("📌 메뉴 이동", full_menu_list, key="main_menu_radio", label_visibility="collapsed")
+    selected_display_menu = st.radio("📌 메뉴 이동", full_menu_list, key="main_menu_radio", label_visibility="collapsed")
     
-    # 💡 분류 항목(굵은 글씨 `**`) 클릭 시 화면 이동 차단 및 경고문구 출력
-    if "**" in selected_menu:
+    # 💡 [핵심 해결] 겉으로 보이는 이름(신규)과 실제 실행되는 이름(기존 5번 로직)을 연결
+    menu_mapping = {
+        "🎛️ 홈: 종합 대시보드": "🎛️ 메인 대시보드",
+        "💼 내 계좌 & 포트폴리오 진단": "💼 내 포지션 관리 & 플래너",
+        "⭐ 내 관심종목 모니터링": "⭐ 내 관심종목",
+        "🌍 글로벌 매크로 & AI 분석 (v6.0)": "🚀 v6.0 AI 퀀트 & 매크로 (Beta)",
+        "🗺️ 시장 주도주 자금 히트맵": "🗺️ 시장 자금 & 스마트머니 히트맵",
+        "🕸️ 실시간 섹터 순환매 추적": "🕸️ 실시간 3D 순환매 맵",
+        "📅 핵심 증시 일정 & IPO 달력": "📅 IPO / 증시 일정",
+        "🚀 단기 스윙 퀀트 스캐너": "🚀 실시간 퀀트 스캐너 & 백테스팅",
+        "👨‍🦳 기관/외인 수급 스캐너": "👨‍🦳 연기금 그림자 매매 스캐너",
+        "🏛️ 국민연금 5% 대량보유 픽": "🏛️ DART: 국민연금 코어픽 5%",
+        "💎 장기 우량주 & 가치주 발굴": "💎 장기 가치주 스캐너",
+        "⚡ 메가트렌드 & 테마 대장주": "⚡ 메가트렌드 & 테마 발굴기",
+        "🔥 간밤의 미국 급등주 & 수혜주": "🔥 🇺🇸 미국 급등주",
+        "🚨 당일 상/하한가 분석": "🚨 상/하한가 분석",
+        "🚦 거래량 급증 & 시장 경보": "🚦 거래량 급증 & 시장경보",
+        "📰 실시간 특징주 속보 & 리포트": "📰 실시간 속보/리포트",
+        "🔬 개별 기업 정밀 진단 (AI 비전)": "🔬 기업 정밀 분석기",
+        "📊 국내외 핵심 ETF 분석": "📊 글로벌 ETF 분석",
+        "💰 고배당주 파이프라인 (TOP 300)": "💰 배당 파이프라인 (TOP 300)",
+        "⚖️ 적정 주가 계산기 (버핏 모델)": "⚖️ 워런 버핏 퀀트 계산기"
+    }
+    
+    if "**" in selected_display_menu:
         st.warning("☝️ 현재 [메뉴 분류명]을 선택하셨습니다. 아래의 트리 기호(┣, ┗)가 있는 하위 메뉴를 클릭해 주세요.")
-        clean_menu = "None"
+        selected_menu = "None"
     else:
-        # 메인 로직과의 원활한 매핑을 위해 기호 제거
-        clean_menu = selected_menu.replace(" ┣ ", "").replace(" ┗ ", "").strip()
+        # 기호 제거 후 순수 메뉴명 추출
+        clean_name = selected_display_menu.replace(" ┣ ", "").replace(" ┗ ", "").strip()
+        # 5번 메인 로직이 기존 이름으로 정상 동작하도록 `selected_menu` 덮어쓰기!
+        selected_menu = menu_mapping.get(clean_name, "None")
         
     st.divider()
     
@@ -1432,6 +1452,11 @@ with st.sidebar:
     if st.button("🔄 현재 화면 새로고침", use_container_width=True): 
         st.cache_data.clear()
         st.rerun()
+
+# ==========================================
+# 5. 각 탭별 실행 내용 (기존 코드 유지)
+# ==========================================
+# (이하 기존 코드는 수정 없이 그대로 두시면 됩니다!)
 
 # ==========================================
 # 5. 메인 로직 
