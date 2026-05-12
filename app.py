@@ -48,10 +48,28 @@ def save_watchlist(wl):
     except Exception as e: st.error(f"관심종목 저장 실패: {e}")
 
 # ==========================================
-# 1. 초기 설정 
+# 1. 초기 설정 및 전역 CSS 주입 (UI/UX 개선)
 # ==========================================
 st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
+
+# 🎨 [UI/UX] 금융 전용 Monospace 폰트 및 Soft Dimming 배경 CSS 주입
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+/* 전체 숫자 지표에 JetBrains Mono 고정폭 폰트 적용 */
+.stMetricValue, .stMetricDelta, table, .stDataFrame {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* 데이터 프레임 헤더 스타일링 */
+th {
+    font-weight: 700 !important;
+    background-color: rgba(100, 100, 100, 0.05) !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # 세션 상태 초기화
 for key in ['seen_links', 'seen_titles', 'news_data']:
@@ -130,7 +148,6 @@ def get_nps_holdings():
         for r in results:
             if r: nps_data.append(r)
             
-    # FnGuide 스크래핑 실패 시 보여줄 Fallback 데이터 (데이터 수집 불가 방지)
     if not nps_data:
         fallback_data = [
             {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.45%", "비고": "최근 공시 기준 (대체 데이터)"},
@@ -359,12 +376,11 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     """
     return ask_gemini(prompt, _api_key)
 
-@st.cache_data(ttl=3600)  # 트렌드가 빨리 반영되도록 캐시 시간을 1시간으로 단축
+@st.cache_data(ttl=3600)  
 def get_trending_themes_with_ai(_api_key):
     default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
     if not _api_key: return default_themes[:4]
     try:
-        # 💡 [로직 전면 개편] 단순 AI의 예측이 아닌, '당일 실제 거래대금' 상위 30개 종목 추출
         kings_df = get_trading_value_kings(30)
         if kings_df.empty:
             prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 1줄로 출력하세요."
@@ -385,6 +401,7 @@ def get_theme_stocks_with_ai(theme_keyword, _api_key):
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
         if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+    
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
         validated = []
@@ -1119,7 +1136,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             bg_color = "rgba(255, 75, 75, 0.1)" if pnl > 0 else "rgba(31, 119, 180, 0.1)"
             st.markdown(f"""<div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {color};">
                 <h3 style="margin:0; color: {color};">⏰ 타임머신 검증 결과</h3>
-                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b>{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b>{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color};">({pnl:+.2f}%)</span></p>
+                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b style="font-family:'JetBrains Mono',monospace;">{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b style="font-family:'JetBrains Mono',monospace;">{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color}; font-family:'JetBrains Mono',monospace;">({pnl:+.2f}%)</span></p>
             </div>""", unsafe_allow_html=True)
             
         col_btn1, col_btn3 = st.columns([8, 2])
@@ -1178,7 +1195,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 pbr_val = tech_result.get('PBR', 'N/A')
                 st.markdown(f"🏢 **핵심 펀더멘털 (TTM)**<br>**PER:** `{per_val}` ｜ **PBR:** `{pbr_val}`", unsafe_allow_html=True)
         
-        # 💡 [AI 버튼 영역 수정] 버튼을 2개로 분리하여 심층 분석 기능 추가
         if api_key_str:
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -1193,14 +1209,13 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             with col_ai1:
                 if st.button(f"🤖 차트·수급·재무 정밀 진단", key=ai_btn_key, use_container_width=True):
                     st.session_state[ai_res_key] = "loading"
-                    st.session_state[biz_res_key] = None # 다른 창 닫기
+                    st.session_state[biz_res_key] = None
                     
             with col_ai2:
                 if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, use_container_width=True):
                     st.session_state[biz_res_key] = "loading"
-                    st.session_state[ai_res_key] = None # 다른 창 닫기
+                    st.session_state[ai_res_key] = None
                     
-            # 1. 기존 기술적 분석 로직
             if st.session_state.get(ai_res_key):
                 if st.session_state[ai_res_key] == "loading":
                     with st.spinner("AI가 차트 및 재무 데이터를 바탕으로 종합 분석 중입니다... (약 5~10초 소요)"):
@@ -1239,7 +1254,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         if fin_df is not None: st.dataframe(fin_df)
                         if peer_df is not None: st.dataframe(peer_df)
             
-            # 2. 신규 비즈니스 심층 분석 로직
             if st.session_state.get(biz_res_key):
                 if st.session_state[biz_res_key] == "loading":
                     with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
@@ -1250,7 +1264,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
                         3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
                         4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
-                        
                         단순 주가 예측이 아닌 '비즈니스 모델'과 '기업의 본질적인 펀더멘털'에 집중하여 통찰력 있게 작성해 주세요.
                         """
                         st.session_state[biz_res_key] = ask_gemini(prompt, api_key_str)
@@ -1258,7 +1271,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 st.success("✅ AI 비즈니스 심층 분석 완료!")
                 st.markdown(st.session_state[biz_res_key])
         
-        # 차트 주기 선택 & 피보나치 적용
         tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년", "5년", "10년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
         with st.spinner(f"{tf} 차트 데이터 및 피보나치 지표 불러오는 중..."):
             long_df = get_advanced_chart_data(tech_result['티커'], tf)
@@ -1371,39 +1383,37 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
     st.session_state.us_fetch_time = fetch_time
 
 # ==========================================
-# ==========================================
-# 4. 사이드바 메뉴 (에러 및 빈 화면 완벽 방지)
+# 4. 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
     st.title("📈 Jaemini PRO v6.1")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
     
-    # 💡 하단 5번 메인 로직의 이름과 100% 일치하도록 '신규 메뉴명'으로 텍스트 통일
     menu_options = [
         "📂 [ 홈 & 자산 관리 ]",
         " ┣ 🎛️ 홈: 종합 대시보드",
         " ┣ 💼 내 계좌 & 포트폴리오 진단",
         " ┗ ⭐ 내 관심종목 모니터링",
-        " ", # 여백
+        " ", 
         "📂 [ 시장 흐름 & 매크로 ]",
         " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
         " ┣ 🗺️ 시장 주도주 자금 히트맵",
         " ┣ 🕸️ 실시간 섹터 순환매 추적",
         " ┗ 📅 핵심 증시 일정 & IPO 달력",
-        "  ", # 여백
+        "  ", 
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
         " ┣ 🚀 단기 스윙 퀀트 스캐너",
         " ┣ 👨‍🦳 기관/외인 수급 스캐너",
         " ┣ 🏛️ 국민연금 5% 대량보유 픽",
         " ┣ 💎 장기 우량주 & 가치주 발굴",
         " ┗ ⚡ 메가트렌드 & 테마 대장주",
-        "   ", # 여백
+        "   ", 
         "📂 [ 트레이딩 & 시장 경보 ]",
         " ┣ 🔥 간밤의 미국 급등주 & 수혜주",
         " ┣ 🚨 당일 상/하한가 분석",
         " ┣ 🚦 거래량 급증 & 시장 경보",
         " ┗ 📰 실시간 특징주 속보 & 리포트",
-        "    ", # 여백
+        "    ", 
         "📂 [ 심층 분석 & 도구 ]",
         " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
         " ┣ 📊 국내외 핵심 ETF 분석",
@@ -1411,13 +1421,11 @@ with st.sidebar:
         " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
 
-    # 초기값 설정
     if "main_menu_radio" not in st.session_state:
         st.session_state.main_menu_radio = " ┣ 🎛️ 홈: 종합 대시보드"
 
     selected_display_menu = st.radio("📌 메뉴 이동", menu_options, key="main_menu_radio", label_visibility="collapsed")
 
-    # 💡 [핵심 방어 로직] 기호(┣, ┗)를 잘라낸 '순수 메뉴명'을 추출
     if selected_display_menu.startswith(" ┣ ") or selected_display_menu.startswith(" ┗ "):
         pure_menu_name = selected_display_menu[3:] 
     elif selected_display_menu.strip() == "":
@@ -1427,7 +1435,6 @@ with st.sidebar:
         st.sidebar.info("☝️ [카테고리]를 누르셨습니다. 아래 하위 메뉴(┣, ┗)를 클릭해주세요.")
         pure_menu_name = "None"
         
-    # 🎯 [NameError 해결!] 하단 5번 로직이 어떤 변수명을 쓰더라도 무조건 작동하도록 두 변수 모두에 할당!
     selected_menu = pure_menu_name
     clean_menu = pure_menu_name
 
@@ -1448,12 +1455,6 @@ with st.sidebar:
     if st.button("🔄 현재 화면 새로고침", use_container_width=True): 
         st.cache_data.clear()
         st.rerun()
-
-# ==========================================
-# 5. 각 탭별 실행 내용
-# ==========================================
-# (이 아래부터는 기존 코드인 if selected_menu == ... 또는 elif clean_menu == ... 로 그대로 이어지면 됩니다!)
-# (이 아래부터는 기존 코드인 if selected_menu == "🎛️ 메인 대시보드": 로 그대로 이어지면 됩니다!)
 
 # ==========================================
 # 5. 메인 로직 
@@ -1609,7 +1610,8 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                         reply = ask_gemini(sys_prompt, api_key_input)
                         
                     st.write(reply)
-                    st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
+            
+        st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단 및 리밸런싱")
@@ -1732,7 +1734,7 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                             })
                         else:
                             st.error(f"'{pos_name}' 데이터를 수집할 수 없어 분석에서 제외되었습니다.")
-                            
+                        
                 if portfolio_summary:
                     overall_pnl_pct = ((total_current_all - total_invested_all) / total_invested_all) * 100 if total_invested_all > 0 else 0
                     overall_pnl_amt = total_current_all - total_invested_all
@@ -2226,7 +2228,7 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다.")
 
 elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
-    st.markdown("## 🚀 실시간 조건 검색 및 1년 백테스팅 시뮬레이터")
+    st.markdown("## 🚀 실시간 조건 검색 및 전략 시뮬레이터")
     scan_tab, backtest_tab = st.tabs(["🚀 실시간 조건 검색 스캐너", "🧪 1년 전략 백테스팅"])
     
     with scan_tab:
@@ -2280,7 +2282,7 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
 
     with backtest_tab:
         st.markdown("### 🧪 단기 스윙 전략 시뮬레이터")
-        st.write("과거 1년 데이터를 기반으로 '5일-20일 이평선 골든크로스 매수, 데드크로스 매도' 시의 실제 수익률을 검증합니다.")
+        st.write("과거 1년 데이터를 기반으로 다양한 퀀트 전략의 실제 수익률과 타점을 검증합니다.")
         
         market_choice_bt = st.radio("시장 선택 (백테스트)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, label_visibility="collapsed")
         
@@ -2303,14 +2305,45 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                 sel_us_bt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + st.session_state.us_bt_results)
                 if sel_us_bt != "선택하세요": t_code = sel_us_bt.split(" ")[0]
         
+        # 💡 [핵심 기능 3] 다중 전략 선택 콤보박스 추가
+        strategy_sel = st.selectbox("🎯 백테스트 퀀트 전략 선택", [
+            "5-20 이평선 골든크로스", 
+            "RSI 과매도 매수 (RSI < 30)", 
+            "볼린저밴드 하단 매수", 
+            "MACD 교차"
+        ])
+        
         if t_code and st.button("▶️ 시뮬레이션 돌리기", type="primary"):
-            with st.spinner("과거 1년 데이터 백테스팅 중..."):
+            with st.spinner(f"과거 1년 데이터 백테스팅 중... ({strategy_sel})"):
                 bt_df = get_historical_data(t_code, 365)
                 if not bt_df.empty:
+                    # 모든 전략 분석용 보조지표 일괄 계산
                     bt_df['MA5'] = bt_df['Close'].rolling(5).mean()
                     bt_df['MA20'] = bt_df['Close'].rolling(20).mean()
+                    bt_df['Std_20'] = bt_df['Close'].rolling(window=20).std()
+                    bt_df['Bollinger_Lower'] = bt_df['MA20'] - (bt_df['Std_20'] * 2)
+                    
+                    delta = bt_df['Close'].diff()
+                    rs = (delta.where(delta > 0, 0.0).rolling(14).mean()) / (-delta.where(delta < 0, 0.0).rolling(14).mean())
+                    bt_df['RSI'] = 100 - (100 / (1 + rs))
+                    
+                    exp1 = bt_df['Close'].ewm(span=12, adjust=False).mean()
+                    exp2 = bt_df['Close'].ewm(span=26, adjust=False).mean()
+                    bt_df['MACD'] = exp1 - exp2
+                    bt_df['Signal_Line'] = bt_df['MACD'].ewm(span=9, adjust=False).mean()
+
                     bt_df['Signal'] = 0
-                    bt_df.loc[bt_df['MA5'] > bt_df['MA20'], 'Signal'] = 1
+                    
+                    # 💡 [핵심 기능 3] 전략별 매수 시그널 분기 처리
+                    if strategy_sel == "5-20 이평선 골든크로스":
+                        bt_df.loc[bt_df['MA5'] > bt_df['MA20'], 'Signal'] = 1
+                    elif strategy_sel == "RSI 과매도 매수 (RSI < 30)":
+                        bt_df.loc[bt_df['RSI'] < 30, 'Signal'] = 1
+                    elif strategy_sel == "볼린저밴드 하단 매수":
+                        bt_df.loc[bt_df['Close'] < bt_df['Bollinger_Lower'], 'Signal'] = 1
+                    elif strategy_sel == "MACD 교차":
+                        bt_df.loc[bt_df['MACD'] > bt_df['Signal_Line'], 'Signal'] = 1
+
                     bt_df['Position'] = bt_df['Signal'].shift(1).fillna(0)
                     bt_df['Daily_Return'] = bt_df['Close'].pct_change()
                     bt_df['Strategy_Return'] = bt_df['Position'] * bt_df['Daily_Return']
@@ -2318,19 +2351,69 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     bt_df['Cumulative_Market'] = (1 + bt_df['Daily_Return']).cumprod()
                     bt_df['Cumulative_Strategy'] = (1 + bt_df['Strategy_Return']).cumprod()
                     
+                    # 💡 [핵심 기능 2 & 1] 매매 마커 및 지표 산출용 변수 (1: 진입, -1: 청산)
+                    bt_df['Trade_Mark'] = bt_df['Position'].diff()
+                    
+                    # 상세 성과 지표 산출 로직
+                    bt_df['Cum_Max'] = bt_df['Cumulative_Strategy'].cummax()
+                    bt_df['Drawdown'] = (bt_df['Cumulative_Strategy'] - bt_df['Cum_Max']) / bt_df['Cum_Max']
+                    mdd = bt_df['Drawdown'].min() * 100
+                    
+                    total_trades = len(bt_df[bt_df['Trade_Mark'] == 1])
+                    winning_days = len(bt_df[bt_df['Strategy_Return'] > 0])
+                    losing_days = len(bt_df[bt_df['Strategy_Return'] < 0])
+                    win_rate = (winning_days / (winning_days + losing_days) * 100) if (winning_days + losing_days) > 0 else 0
+                    
+                    # 💡 [UI/UX & 핵심 기능 2] Plotly 차트 디자인 고도화 (트레이딩뷰 스타일 & 타점 마커)
                     fig = go.Figure()
                     x_axis = bt_df.index
-                    fig.add_trace(go.Scatter(x=x_axis, y=bt_df['Cumulative_Market'], name="단순 보유 (Buy & Hold)", line=dict(color='gray')))
-                    fig.add_trace(go.Scatter(x=x_axis, y=bt_df['Cumulative_Strategy'], name="골든크로스 전략", line=dict(color='#ff4b4b', width=2)))
-                    fig.update_layout(title="전략 누적 수익률 비교", height=400)
+                    
+                    # 베이스 주가 차트 라인
+                    fig.add_trace(go.Scatter(x=x_axis, y=bt_df['Close'], name="주가 (Close)", line=dict(color='#3b82f6', width=1.5)))
+                    
+                    # 🔼 Buy 마커 (빨간색 위 화살표)
+                    buy_idx = bt_df[bt_df['Trade_Mark'] == 1].index
+                    fig.add_trace(go.Scatter(x=buy_idx, y=bt_df.loc[buy_idx, 'Close'], mode='markers', name='Buy (매수)', marker=dict(symbol='triangle-up', size=14, color='#ef4444', line=dict(width=1, color='darkred'))))
+                    
+                    # 🔽 Sell 마커 (파란색 아래 화살표)
+                    sell_idx = bt_df[bt_df['Trade_Mark'] == -1].index
+                    fig.add_trace(go.Scatter(x=sell_idx, y=bt_df.loc[sell_idx, 'Close'], mode='markers', name='Sell (매도)', marker=dict(symbol='triangle-down', size=14, color='#3b82f6', line=dict(width=1, color='darkblue'))))
+
+                    fig.update_layout(title=f"'{t_code}' 백테스트 타점 시각화 ({strategy_sel})", height=500, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
                     
+                    # 💡 [핵심 기능 1 & UI/UX] Soft Dimming 커스텀 HTML 기반 지표 대시보드
                     final_market = (bt_df['Cumulative_Market'].iloc[-1] - 1) * 100
                     final_strat = (bt_df['Cumulative_Strategy'].iloc[-1] - 1) * 100
                     
-                    c1, c2 = st.columns(2)
-                    c1.metric("단순 보유 시 수익률", f"{final_market:.2f}%")
-                    c2.metric("골든크로스 전략 적용 수익률", f"{final_strat:.2f}%", f"{final_strat - final_market:.2f}%p 대비")
+                    st.markdown("### 📊 백테스트 성과 리포트")
+                    c1, c2, c3, c4 = st.columns(4)
+                    
+                    def metric_card(title, value, delta=None, is_red=False, is_green=False):
+                        bg_color = "rgba(100, 100, 100, 0.05)"
+                        border_color = "#888"
+                        if is_red:
+                            bg_color = "rgba(220, 38, 38, 0.08)"
+                            border_color = "#dc2626"
+                        elif is_green:
+                            bg_color = "rgba(22, 163, 74, 0.08)"
+                            border_color = "#16a34a"
+                            
+                        delta_html = f"<div style='font-size:0.85em; margin-top:5px; color:#555;'>{delta}</div>" if delta else ""
+                        html = f"""
+                        <div style='background-color: {bg_color}; padding: 15px; border-radius: 8px; border-left: 4px solid {border_color}; margin-bottom: 10px;'>
+                            <div style='font-size:0.9em; color:#555; font-weight:bold;'>{title}</div>
+                            <div style='font-size:1.6em; font-weight:bold; font-family:"JetBrains Mono", monospace; margin-top:5px;'>{value}</div>
+                            {delta_html}
+                        </div>
+                        """
+                        return html
+
+                    with c1: st.markdown(metric_card("전략 누적 수익률", f"{final_strat:.2f}%", f"단순 보유 대비 {final_strat - final_market:+.2f}%p", is_red=(final_strat>0), is_green=(final_strat<0)), unsafe_allow_html=True) 
+                    with c2: st.markdown(metric_card("최대 낙폭 (MDD)", f"{mdd:.2f}%", "계좌 최대 하락률", is_green=(mdd<-20)), unsafe_allow_html=True)
+                    with c3: st.markdown(metric_card("총 매매 횟수", f"{total_trades}회", "신규 진입 기준"), unsafe_allow_html=True)
+                    with c4: st.markdown(metric_card("승률 (Win Rate)", f"{win_rate:.1f}%", "수익 마감 거래일 기준", is_red=(win_rate>50)), unsafe_allow_html=True)
+
                 else:
                     st.error("❌ 데이터를 가져오지 못했습니다. (API 제한 또는 지원하지 않는 티커)")
 
@@ -2504,7 +2587,7 @@ elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
 elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     st.write("단순 관련주 나열을 넘어, **당일 실제 거래대금(돈)이 몰린 데이터를 AI가 역추적**하여 핵심 모멘텀을 분석하고 전체 밸류체인 내의 수혜주 타점을 병렬로 초고속 스크리닝합니다.")
-    
+
     # 1. 핫 테마 버튼 영역
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
     cols_d = st.columns(4)
@@ -2515,7 +2598,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
             st.session_state.deep_tech_results = None 
             st.session_state.deep_tech_brief = None
             st.session_state.deep_tech_input = ""
-            # 🚫 Rerun 제거: 붉은색 시스템 에러 깜빡임 완벽 해결
             
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
@@ -2528,7 +2610,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
             st.session_state.deep_tech_results = None
             st.session_state.deep_tech_brief = None
             st.session_state.deep_tech_input = custom_query
-            # 🚫 Rerun 제거: 붉은색 시스템 에러 깜빡임 완벽 해결
 
     # 2. 결과 연산 및 출력 영역
     if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None and api_key_input:
@@ -2561,7 +2642,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
                         status_text.text(f"⚡ 차트 및 수급 데이터 초고속 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 종목 분석 완료")
                         
                 st.session_state.deep_tech_results = theme_res_list
-                # 🚫 Rerun 제거: state가 즉시 하단으로 전달되어 에러 없이 렌더링됨
             else:
                 st.error(f"❌ '{st.session_state.deep_tech_query}' 관련 종목을 찾지 못했습니다.")
                 st.session_state.deep_tech_query = None 
@@ -2937,9 +3017,9 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
                     with col_dcf1: query = st.selectbox("👇 종목명 검색:", opts, key="dcf_kr_search", label_visibility="collapsed")
                     with col_dcf2: dcf_kr_btn = st.form_submit_button("🔍 데이터 로드", use_container_width=True)
                         
-                if dcf_kr_btn and query != "🔍 평가할 국내 종목을 선택하세요.":
-                    selected_dcf_name = query.rsplit(" (", 1)[0]
-                    selected_dcf_ticker = query.rsplit("(", 1)[-1].replace(")", "").strip()
+                    if dcf_kr_btn and query != "🔍 평가할 국내 종목을 선택하세요.":
+                        selected_dcf_name = query.rsplit(" (", 1)[0]
+                        selected_dcf_ticker = query.rsplit("(", 1)[-1].replace(")", "").strip()
         else:
             with st.form("dcf_us_form"):
                 col_dcf_us1, col_dcf_us2 = st.columns([8, 2])
@@ -2949,165 +3029,4 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
             if dcf_us_search_btn and us_query:
                 with st.spinner("검색 중..."):
                     us_results = search_us_ticker(us_query)
-                if us_results: st.session_state.dcf_us_results = us_results
-                else: st.error("검색 결과가 없습니다.")
-                    
-            if "dcf_us_results" in st.session_state and st.session_state.dcf_us_results:
-                with st.form("dcf_us_select_form"):
-                    sel_us_opt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + st.session_state.dcf_us_results, key="dcf_us_select")
-                    dcf_us_btn = st.form_submit_button("📊 데이터 로드", use_container_width=True)
-                    
-                if dcf_us_btn and sel_us_opt != "선택하세요":
-                    selected_dcf_ticker = sel_us_opt.split(" ")[0]
-                    selected_dcf_name = sel_us_opt.split(" (")[1].split(" /")[0]
-        
-        def_price = st.session_state.dcf_target_price
-        def_fcf = st.session_state.dcf_target_fcf
-        def_shares = st.session_state.dcf_target_shares
-        
-        if selected_dcf_ticker and selected_dcf_ticker != st.session_state.dcf_target_ticker:
-            with st.spinner("재무 데이터 연동 중..."):
-                hist_df = get_historical_data(selected_dcf_ticker, 10)
-                if not hist_df.empty:
-                    def_price = float(hist_df['Close'].iloc[-1])
-                    
-                yf_ticker = selected_dcf_ticker if is_us_dcf else f"{selected_dcf_ticker}.KS"
-                try:
-                    t_obj = yf.Ticker(yf_ticker)
-                    info = t_obj.info
-                    shares = info.get('sharesOutstanding')
-                    if shares: def_shares = shares / 1000000 if is_us_dcf else shares / 10000
-                    
-                    cf = t_obj.cash_flow
-                    if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
-                        fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
-                        if pd.notna(fcf_raw): def_fcf = fcf_raw / 1000000 if is_us_dcf else fcf_raw / 100000000
-                except Exception: pass
-                
-            st.success(f"✅ **{selected_dcf_name} ({selected_dcf_ticker})** 재무 데이터 기본값 세팅 완료! (정확하지 않을 수 있으니 DART/SEC 공시와 교차 검증하세요)")
-            
-        with st.container(border=True):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown("**[기업 기본 정보]**")
-                unit_fcf = "백만$" if is_us_dcf else "억원"
-                unit_shares = "백만 주" if is_us_dcf else "만 주"
-                unit_price = "달러" if is_us_dcf else "원"
-                
-                current_fcf = st.number_input(f"올해 예상 잉여현금흐름 (FCF, {unit_fcf})", value=float(def_fcf), step=10.0, format="%.2f")
-                shares_out = st.number_input(f"유통 주식수 ({unit_shares})", value=float(def_shares), step=10.0, format="%.2f")
-                current_price = st.number_input(f"현재 주가 ({unit_price})", value=float(def_price), step=1.0, format="%.2f")
-            with c2:
-                st.markdown("**[성장성 가정]**")
-                growth_rate = st.slider("향후 5년 연평균 예상 성장률 (%)", min_value=1, max_value=50, value=10)
-                terminal_rate = st.slider("5년 이후 영구 성장률 (%)", min_value=1, max_value=5, value=2)
-            with c3:
-                st.markdown("**[할인율(요구수익률) 가정]**")
-                discount_rate = st.slider("할인율 (투자자 요구수익률, %)", min_value=5, max_value=20, value=10)
-            
-            st.divider()
-            if st.button("📈 기업 내재가치 산출하기", type="primary", use_container_width=True):
-                dcf_val = 0
-                cf = current_fcf
-                
-                for i in range(1, 6):
-                    cf = cf * (1 + growth_rate/100)
-                    dcf_val += cf / ((1 + discount_rate/100)**i)
-                
-                if discount_rate <= terminal_rate:
-                    st.error("할인율은 영구 성장률보다 커야 계산이 가능합니다.")
-                else:
-                    tv = (cf * (1 + terminal_rate/100)) / ((discount_rate - terminal_rate)/100)
-                    tv_discounted = tv / ((1 + discount_rate/100)**5)
-                    total_value = dcf_val + tv_discounted
-                    
-                    if shares_out > 0:
-                        if is_us_dcf: value_per_share = total_value / shares_out
-                        else: value_per_share = (total_value * 10000) / shares_out
-                    else: value_per_share = 0
-                    
-                    margin_of_safety = ((value_per_share - current_price) / value_per_share) * 100 if value_per_share > 0 else 0
-                    
-                    st.success("✅ 현금흐름 기반 내재가치 평가 완료!")
-                    res_c1, res_c2, res_c3 = st.columns(3)
-                    
-                    if is_us_dcf:
-                        res_c1.metric("계산된 1주당 적정 가치", f"${value_per_share:,.2f}")
-                        res_c2.metric("현재 주가", f"${current_price:,.2f}", f"${current_price - value_per_share:,.2f} (적정가 대비)", delta_color="inverse")
-                    else:
-                        res_c1.metric("계산된 1주당 적정 가치", f"{int(value_per_share):,}원")
-                        res_c2.metric("현재 주가", f"{int(current_price):,}원", f"{int(current_price - value_per_share):,}원 (적정가 대비)", delta_color="inverse")
-                    
-                    if margin_of_safety > 30: mos_color = "normal"; mos_text = "🟢 초강력 매수 구간 (매우 저평가)"
-                    elif margin_of_safety > 10: mos_color = "normal"; mos_text = "🟡 분할 매수 고려 (저평가)"
-                    else: mos_color = "inverse"; mos_text = "🔴 고평가 또는 적정 수준 (매수 보류)"
-                        
-                    res_c3.metric("안전 마진 (저평가율)", f"{margin_of_safety:.1f}%", mos_text, delta_color=mos_color)
-                    
-                    with st.expander("세부 계산 내역 보기"):
-                        st.write(f"- 향후 5년 현금흐름 현재가치 합산: **{dcf_val:,.2f} {unit_fcf}**")
-                        st.write(f"- 영구가치 현재가치 환산: **{tv_discounted:,.2f} {unit_fcf}**")
-                        st.write(f"- 총 기업 내재가치: **{total_value:,.2f} {unit_fcf}**")
-
-    with b_tab2:
-        st.markdown("### 📈 버핏 지수 (시장 전체 거시적 평가)")
-        st.write("`버핏 지수 = (주식시장 전체 시가총액 / 명목 GDP) × 100`\n\n지수가 100%를 초과하면 고평가, 80% 미만이면 저평가 국면으로 해석합니다.")
-        
-        c_buf1, c_buf2 = st.columns(2)
-        with c_buf1: market_cap = st.number_input("해당 국가 주식시장 총 시가총액 (단위: 조 달러/원)", value=55.0)
-        with c_buf2: gdp = st.number_input("해당 국가 명목 GDP (단위: 조 달러/원)", value=27.0)
-        
-        buffett_ratio = (market_cap / gdp) * 100
-        
-        fig_gauge = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = buffett_ratio,
-            title = {'text': "<b>Buffett Indicator (%)</b>"},
-            gauge = {
-                'axis': {'range': [0, 200]},
-                'bar': {'color': "black", 'thickness': 0.15},
-                'steps': [
-                    {'range': [0, 80], 'color': "lightgreen", 'name': "저평가"},
-                    {'range': [80, 100], 'color': "yellow"},
-                    {'range': [100, 120], 'color': "orange"},
-                    {'range': [120, 200], 'color': "red", 'name': "고평가 (버블)"}
-                ],
-                'threshold': {'line': {'color': "black", 'width': 4}, 'thickness': 0.75, 'value': buffett_ratio}
-            }
-        ))
-        fig_gauge.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10))
-        st.plotly_chart(fig_gauge, use_container_width=True)
-        
-        if buffett_ratio > 120: st.error("🚨 시장이 상당한 과열 상태입니다. (버블 경고)")
-        elif buffett_ratio > 100: st.warning("⚠️ 시장이 약간 고평가 상태입니다. 현금 비중을 늘리는 것을 고려하세요.")
-        elif buffett_ratio > 80: st.success("✅ 시장이 적정 가치 구간에 있습니다.")
-        else: st.info("💰 시장이 저평가 상태입니다. 적극적인 매수 기회일 수 있습니다.")
-            
-        st.divider()
-        st.markdown("### ⏱️ 복리 계산기 (72의 법칙)")
-        st.write("알베르트 아인슈타인이 '세계 8대 불가사의'라 부른 복리의 마법입니다. 연평균 수익률에 따라 내 자산이 2배가 되는 데 걸리는 시간을 계산합니다.")
-        return_rate = st.slider("목표 연평균 수익률 (%)", min_value=1.0, max_value=30.0, value=15.0, step=0.5)
-        
-        years_to_double = 72 / return_rate
-        st.markdown(f"👉 연수익률 **{return_rate}%** 유지 시, 원금이 2배가 되는 데 약 **<span style='color:#ff4b4b; font-size:24px;'>{years_to_double:.1f}년</span>**이 걸립니다.", unsafe_allow_html=True)
-
-    with b_tab3:
-        st.markdown("### 🔍 퀀트식 버핏 전략 스크리닝 기준")
-        st.info("실제 시중 퀀트 플랫폼(퀀터스 등)에서 워런 버핏 스타일의 알짜 가치주를 찾기 위해 설정해야 하는 검색 조건식 가이드입니다.")
-        
-        st.markdown("""
-        #### 1. 수익성 (돈을 잘 버는가?)
-        * **ROE (자기자본이익률):** 최근 3년 평균 **15% 이상** * *버핏의 핵심 지표입니다. 회사가 주주들의 돈으로 얼마나 효율적으로 이익을 창출하는지 보여줍니다.*
-
-        #### 2. 안정성 (망하지 않을 기업인가?)
-        * **부채비율:** **50% 미만** (또는 최소한 해당 업종 평균 이하)
-          * *위기가 왔을 때 버틸 수 있는 재무적 체력을 의미합니다.*
-
-        #### 3. 가격 (싸게 사고 있는가?)
-        * **PBR (주가순자산비율):** **1.5 이하**
-        * **PER (주가수익비율):** **15 미만** (동일 업종 내 저평가 종목)
-          * *아무리 훌륭한 기업도 너무 비싸게 사면 수익을 내기 어렵습니다.*
-          
-        #### 4. 비재무적 해자 (Economic Moat)
-        * 퀀트 수치로 걸러진 종목 중 **브랜드 파워, 전환 비용, 네트워크 효과, 원가 우위** 등 경쟁사가 쉽게 침범할 수 없는 독점력을 가진 기업을 최종 선택합니다.
-        """)
+                if us
