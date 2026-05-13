@@ -223,21 +223,32 @@ def get_us_sector_etfs():
 @st.cache_data(ttl=3600)
 def get_naver_ipo_data():
     try:
-        url = "http://www.38.co.kr/html/fund/index.htm?o=k"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        res.encoding = 'euc-kr'
-        tables = pd.read_html(StringIO(res.text))
+        url = "https://finance.naver.com/sise/ipo.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        # 네이버 금융의 표준 인코딩(euc-kr) 적용
+        tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
+        
         for t in tables:
-            if '기업명' in t.columns and '공모청약일' in t.columns:
-                df = t.dropna(subset=['기업명', '공모청약일']).copy()
-                df = df[df['기업명'] != '기업명']
+            # 네이버 신규상장 테이블 구조 파싱
+            if '종목명' in t.columns and '상장일' in t.columns:
+                df = t.dropna(subset=['종목명', '상장일']).copy()
+                df = df[df['종목명'] != '종목명'] # 헤더 중복 제거
+                
                 res_df = pd.DataFrame()
-                res_df['종목명'] = df['기업명']
-                res_df['청약일정'] = df['공모청약일']
-                res_df['확정공모가'] = df['확정공모가']
-                res_df['주간사'] = df['주간사']
-                if not res_df.empty: return res_df.head(15).reset_index(drop=True)
+                res_df['종목명'] = df['종목명']
+                
+                # 💡 기존 UI 및 AI 프롬프트와의 호환을 위해 '상장일'을 '청약일정' 컬럼명으로 유지
+                res_df['청약일정'] = df['상장일'] 
+                res_df['확정공모가'] = df['공모가']
+                
+                # 상장이 완료된 종목들이므로 현재가와 상장 후 등락률 정보를 추가로 제공
+                res_df['현재가'] = df['현재가']
+                res_df['등락률'] = df['등락률']
+                
+                if not res_df.empty: 
+                    return res_df.head(15).reset_index(drop=True)
     except Exception: pass
+    
     return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
