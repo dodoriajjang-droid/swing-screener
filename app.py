@@ -422,7 +422,7 @@ def ask_gemini(prompt, _api_key):
         full_prompt = system_date_instruction + prompt
         
         # 💡 [수정] 실험적 모델명 대신 안정적인 최신 모델명 사용 권장
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         
         response = model.generate_content(full_prompt)
         
@@ -1713,11 +1713,19 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     """
                     try:
                         genai.configure(api_key=api_key_input)
-                        model = genai.GenerativeModel('gemini-1.5-flash', tools='google_search_retrieval')
+                        # 💡 구글 검색 도구 호출 시 발생하는 에러를 방지하기 위해 로직 강화
+                        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview', tools='google_search_retrieval')
                         response = model.generate_content(sys_prompt)
-                        reply = response.text
+                        
+                        # 💡 응답 데이터(Part)가 정상적으로 생성되었는지 먼저 확인 (finish_reason 10 에러 방지)
+                        if response.candidates and response.candidates[0].content.parts:
+                            reply = response.text
+                        else:
+                            # 검색 실패 시 일반 AI 답변으로 즉시 우회
+                            reply = ask_gemini(prompt, api_key_input)
                     except Exception:
-                        reply = ask_gemini(sys_prompt, api_key_input)
+                        # 예외 발생 시 일반 AI 답변으로 즉시 우회
+                        reply = ask_gemini(prompt, api_key_input)
                     st.write(reply)
             
         st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
