@@ -2813,7 +2813,7 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                         column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
                         use_container_width=True, hide_index=True
                     )
-                else:
+        else:
                     st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
                 
                 st.divider()
