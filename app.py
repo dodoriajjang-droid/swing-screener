@@ -363,11 +363,7 @@ def get_dividend_portfolio(ex_rate):
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     rows = []
-    # 네이버 봇 차단 회피용 헤더
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
     six_months_ago = datetime.now() - timedelta(days=180)
     
     try:
@@ -389,18 +385,26 @@ def get_stock_research_history(code, stock_name=""):
                     title_a = tds[1].find('a')
                     title = title_a.get_text(strip=True) if title_a else tds[1].get_text(strip=True)
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
-                    
                     broker = tds[2].get_text(strip=True)
+                    
+                    # 목표가 1차 추출
                     price_str = tds[3].get_text(strip=True).replace(',', '')
                     target_price = int(price_str) if price_str.isdigit() else 0
                     
+                    # 목표가가 0원이면 리포트 제목에서 2차 추출 (정규식)
+                    if target_price == 0 and title:
+                        match = re.search(r'(\d{1,3}(,\d{3})+)원?|(\d{4,7})원?', title)
+                        if match:
+                            extracted = match.group(0).replace(',', '').replace('원', '')
+                            if extracted.isdigit(): target_price = int(extracted)
+                            
                     opinion = tds[4].get_text(strip=True)
                     date_str = tds[5].get_text(strip=True)
                     
                     try:
                         doc_date = datetime.strptime(date_str, "%y.%m.%d")
                         if doc_date < six_months_ago:
-                            return pd.DataFrame(rows) # 6개월 이전 리포트면 즉시 스크래핑 중단
+                            return pd.DataFrame(rows) # 6개월 넘어가면 탐색 종료
                     except Exception: pass
                     
                     rows.append({
@@ -410,7 +414,7 @@ def get_stock_research_history(code, stock_name=""):
                     })
                     page_has_data = True
             if not page_has_data: break
-            time.sleep(0.2)
+            time.sleep(0.1)
     except Exception as e:
         print(f"Research fetch error: {e}")
         
@@ -427,15 +431,13 @@ def ask_gemini(prompt, _api_key):
         genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
         
-        # 💡 [수정] 실험적 모델명 대신 안정적인 최신 모델명 사용 권장
+        # 언어 모델 3.1-flash-lite-preview 로 통일
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
-        
         response = model.generate_content(full_prompt)
         
-        # 💡 [핵심] 응답 파트가 있는지 먼저 확인하여 response.text 에러 방지
+        # 💡 [핵심 방어] 응답 파트가 있는지 먼저 확인하여 finish_reason 10 에러 원천 차단
         if not response.candidates or not response.candidates[0].content.parts:
-            reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
-            return f"🚨 AI 응답 생성에 실패했습니다. (사유: {reason}). 다시 시도하거나 질문을 수정해주세요."
+            return "🚨 AI 응답 생성에 실패했습니다. 내부 안전 필터에 걸렸거나 검색 도구 호출 중 오류가 발생했습니다. 질문을 약간 수정해주세요."
             
         return response.text
     except Exception as e: 
@@ -644,6 +646,7 @@ def get_us_top_gainers():
     except Exception: return empty_df, 1350.0, fetch_time
 
 @st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400)
 def get_krx_stocks():
     # 1순위: KRX 전체 호출
     try:
@@ -655,7 +658,7 @@ def get_krx_stocks():
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
     except Exception: pass
     
-    # 2순위: KOSPI / KOSDAQ 분리 호출 우회 (에러 방어)
+    # 2순위: KOSPI / KOSDAQ 분리 호출 우회
     try:
         df_kospi = fdr.StockListing('KOSPI')
         df_kosdaq = fdr.StockListing('KOSDAQ')
@@ -667,16 +670,14 @@ def get_krx_stocks():
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
     except Exception: pass
 
-    # 3순위: 라이브러리 완전 먹통 시 흰 화면(에러) 방지용 안전장치 (UI 알림 제거)
+    # 3순위: 라이브러리 완전 먹통 시 하얀 화면(에러) 방지용 안전장치
     return pd.DataFrame([
         {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
         {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
         {'Name': 'LG에너지솔루션', 'Code': '373220', 'Sector': '전기전자'},
         {'Name': '현대차', 'Code': '005380', 'Sector': '운수장비'},
         {'Name': '기아', 'Code': '000270', 'Sector': '운수장비'},
-        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'},
-        {'Name': '카카오', 'Code': '035720', 'Sector': '서비스업'},
-        {'Name': '아이티센', 'Code': '232830', 'Sector': 'IT서비스'}
+        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'}
     ])
 
 def fetch_naver_volume(sosok, pages=1):
@@ -2981,24 +2982,22 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
             q_name = cons_query.rsplit(" (", 1)[0]
             q_code = cons_query.rsplit("(", 1)[-1].replace(")", "").strip()
             
-            with st.spinner(f"'{q_name}' 증권사 리포트 데이터 연산 중..."):
+            with st.spinner(f"'{q_name}' 증권사 리포트 데이터 수집 및 연산 중..."):
                 history_df = get_stock_research_history(q_code, q_name)
             
             if history_df.empty:
-                st.warning("최근 6개월 내 발간된 증권사 리포트가 없어 컨센서스를 산출할 수 없습니다.")
+                st.warning("🚨 해당 종목은 최근 6개월 내 발간된 증권사 리포트가 없어 컨센서스를 산출할 수 없습니다.")
             else:
                 valid_df = history_df[history_df['적정가격'] > 0].copy()
                 
                 if valid_df.empty:
-                    st.warning("목표가가 제시된 리포트가 없습니다.")
+                    st.warning("🚨 리포트는 존재하나, 구체적인 목표가가 제시된 리포트가 없습니다.")
                 else:
-                    # 상단 KPI 지표 계산
                     avg_price = int(valid_df['적정가격'].mean())
                     median_price = int(valid_df['적정가격'].median())
                     max_price = int(valid_df['적정가격'].max())
                     min_price = int(valid_df['적정가격'].min())
                     report_count = len(valid_df)
-                    
                     max_broker = valid_df[valid_df['적정가격'] == max_price]['증권사'].iloc[0]
                     min_broker = valid_df[valid_df['적정가격'] == min_price]['증권사'].iloc[0]
                     
@@ -3013,19 +3012,13 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         c5.metric("수집 리포트", f"{report_count}건")
                     
                     st.divider()
-                    
-                    # 📈 차트 영역
                     col_chart1, col_chart2 = st.columns([7, 3])
                     
                     with col_chart1:
                         st.markdown("#### 📈 목표주가 시계열 (최근 6개월)")
                         valid_df['Date'] = pd.to_datetime(valid_df['작성일'], format="%y.%m.%d")
                         valid_df = valid_df.sort_values('Date')
-                        
-                        fig_line = px.line(valid_df, x='Date', y='적정가격', color='증권사', markers=True, 
-                                           title=f"{q_name} 증권사별 목표가 추이",
-                                           labels={"Date": "발간일", "적정가격": "목표주가 (원)"})
-                                           
+                        fig_line = px.line(valid_df, x='Date', y='적정가격', color='증권사', markers=True, title=f"{q_name} 증권사별 목표가 추이", labels={"Date": "발간일", "적정가격": "목표주가 (원)"})
                         fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
                         fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
                         st.plotly_chart(fig_line, use_container_width=True)
@@ -3034,24 +3027,16 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         st.markdown("#### 📊 투자의견 분포")
                         opinion_counts = history_df['투자의견'].value_counts().reset_index()
                         opinion_counts.columns = ['투자의견', '건수']
-                        
-                        fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5,
-                                         color='투자의견', 
-                                         color_discrete_map={'매수': '#1b5e20', '강력매수': '#003300', 'Buy': '#2ca02c', 'Hold': '#ff7f0e', '중립': '#ff7f0e', 'Sell': '#d62728'})
+                        fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5, color='투자의견', color_discrete_map={'매수': '#1b5e20', '강력매수': '#003300', 'Buy': '#2ca02c', 'Hold': '#ff7f0e', '중립': '#ff7f0e', 'Sell': '#d62728'})
                         fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                         st.plotly_chart(fig_pie, use_container_width=True)
                         
-                    # 📋 데이터 테이블 영역
                     st.markdown("#### 📋 증권사별 최신 컨센서스")
                     latest_df = valid_df.sort_values('Date', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
-                    
                     display_latest = latest_df[['증권사', '투자의견', '적정가격', '작성일', '원문링크']].copy()
                     display_latest['적정가격'] = display_latest['적정가격'].apply(lambda x: f"{x:,}원")
-                    st.dataframe(
-                        display_latest,
-                        column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")},
-                        use_container_width=True, hide_index=True
-                    )
+                    display_latest = display_latest.rename(columns={'적정가격': '목표가'})
+                    st.dataframe(display_latest, column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")}, use_container_width=True, hide_index=True)
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
     st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
