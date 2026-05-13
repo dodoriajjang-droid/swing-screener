@@ -2750,7 +2750,9 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
         
         st.markdown("#### 🔍 특정 종목 리포트 검색 (최근 6개월)")
         search_krx_df = get_krx_stocks()
+        
         if not search_krx_df.empty:
+            # 💡 이 부분이 검색창(Selectbox)을 렌더링하는 핵심 코드입니다.
             opts = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (search_krx_df['Name'].astype(str) + " (" + search_krx_df['Code'].astype(str) + ")").tolist()
             report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts)
             
@@ -2764,7 +2766,6 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                 if not history_df.empty:
                     st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
                     
-                    # 💡 들여쓰기 및 DataFrame 렌더링 로직 정상화
                     display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
                     display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
                     
@@ -2775,8 +2776,10 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                     )
                 else:
                     st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
-                
-                st.divider()
+        else:
+            st.error("종목 데이터를 불러오지 못해 검색 기능을 활성화할 수 없습니다.")
+            
+        st.divider()
 
         st.markdown("#### 🆕 오늘의 전체 신규 리포트")
         res_df = get_naver_research()
