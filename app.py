@@ -376,12 +376,9 @@ def get_stock_research_history(code, stock_name=""):
                 res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
                 soup = BeautifulSoup(res.text, 'html.parser')
                 current_price = float(soup.select_one('.no_today .blind').text.replace(',', ''))
-            except Exception: current_price = 5000 # 아이티센 등 코스닥 종목 방어용 기본값
+            except Exception: current_price = 50000 # 아이티센 등 코스닥 종목 방어용 기본값 상향
 
-        # 현재가 기준으로 컨센서스 생성
-        target_price = int(current_price * 1.2)
-        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권"]
-        opinions = ["Buy", "매수", "강력매수", "Hold"]
+        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권", "신한투자증권", "대신증권"]
         
         rows = []
         now = datetime.now()
@@ -390,21 +387,36 @@ def get_stock_research_history(code, stock_name=""):
         for i in range(np.random.randint(10, 20)):
             days_ago = np.random.randint(1, 180)
             date = now - timedelta(days=days_ago)
-            mock_price = int(target_price * np.random.uniform(0.85, 1.15))
             
-            # 호가 단위 반올림 (5원/10원 등)
+            # 1. 증권사 통일 (제목과 증권사 컬럼 일치)
+            selected_broker = np.random.choice(brokers)
+            
+            # 2. 현실적인 목표가 생성 (현재가 대비 -5% ~ +40%)
+            mock_price = int(current_price * np.random.uniform(0.95, 1.40))
+            
+            # 호가 단위 반올림
             if mock_price < 5000: mock_price = round(mock_price / 10) * 10
-            elif mock_price < 20000: mock_price = round(mock_price / 50) * 50
-            else: mock_price = round(mock_price / 100) * 100
+            elif mock_price < 50000: mock_price = round(mock_price / 50) * 50
+            elif mock_price < 100000: mock_price = round(mock_price / 100) * 100
+            else: mock_price = round(mock_price / 500) * 500
+            
+            # 3. 목표가 괴리율에 따른 논리적인 투자의견 부여
+            if mock_price >= current_price * 1.20:
+                opinion = np.random.choice(["Buy", "강력매수"])
+            elif mock_price >= current_price * 1.05:
+                opinion = "Buy"
+            else:
+                opinion = "Hold"
             
             rows.append({
                 "종목명": stock_name if stock_name else code,
-                "제목": f"[{np.random.choice(brokers)}] 목표가 {mock_price:,}원 유지",
-                "증권사": np.random.choice(brokers),
+                "제목": f"[{selected_broker}] 목표가 {mock_price:,}원 제시",
+                "증권사": selected_broker,
                 "적정가격": mock_price,
-                "투자의견": np.random.choice(opinions),
+                "투자의견": opinion,
                 "작성일": date.strftime("%y.%m.%d"),
-                "원문링크": f"https://finance.naver.com/item/coinfo.naver?code={code}"
+                # 4. URL 수정: 해당 종목의 네이버 금융 리서치(종목분석) 리스트 페이지로 직접 연결
+                "원문링크": f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}"
             })
             
         return pd.DataFrame(rows).sort_values('작성일', ascending=False)
