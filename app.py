@@ -639,29 +639,55 @@ def get_us_top_gainers():
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
+    import os
+    cache_file = "krx_stocks_cache.csv"
+
+    # 🌟 0순위: 로컬 캐시 파일이 있으면 무조건 우선 사용 (KRX 방화벽 차단 완벽 방어)
+    if os.path.exists(cache_file):
+        try:
+            df = pd.read_csv(cache_file, dtype={'Code': str})
+            return df
+        except Exception: pass
+
+    # 1순위: KRX 전체 호출
     try:
         df = fdr.StockListing('KRX')
-        if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-        df = df[['Name', 'Code', 'Sector']].copy()
-        df['Code'] = df['Code'].astype(str).str.zfill(6)
-        return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-    except Exception: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
-
-def fetch_naver_volume(sosok, pages=1):
-    df_list = []
-    try:
-        for page in range(1, pages + 1):
-            url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}&page={page}"
-            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-            tables = pd.read_html(StringIO(res.content.decode('euc-kr', errors='replace')))
-            for t in tables:
-                if '종목명' in t.columns and '현재가' in t.columns:
-                    df = t.dropna(subset=['종목명']).copy()
-                    df_list.append(df[df['종목명'] != '종목명'])
-                    break
+        if not df.empty and 'Name' in df.columns:
+            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df = df[['Name', 'Code', 'Sector']].copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            res_df = df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+            
+            # 💾 통신 성공 시 로컬 서버에 파일로 영구 저장
+            res_df.to_csv(cache_file, index=False, encoding='utf-8-sig')
+            return res_df
     except Exception: pass
-    if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
-    return pd.DataFrame()
+
+    # 2순위: KOSPI / KOSDAQ 분리 호출 우회
+    try:
+        df_kospi = fdr.StockListing('KOSPI')
+        df_kosdaq = fdr.StockListing('KOSDAQ')
+        df = pd.concat([df_kospi, df_kosdaq], ignore_index=True)
+        if not df.empty and 'Name' in df.columns:
+            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df = df[['Name', 'Code', 'Sector']].copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            res_df = df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+            
+            # 💾 통신 성공 시 로컬 서버에 파일로 영구 저장
+            res_df.to_csv(cache_file, index=False, encoding='utf-8-sig')
+            return res_df
+    except Exception: pass
+
+    # 3순위: 라이브러리 완전 먹통 시 하얀 화면(에러) 방지용 안전장치
+    return pd.DataFrame([
+        {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
+        {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
+        {'Name': 'LG에너지솔루션', 'Code': '373220', 'Sector': '전기전자'},
+        {'Name': '현대차', 'Code': '005380', 'Sector': '운수장비'},
+        {'Name': '기아', 'Code': '000270', 'Sector': '운수장비'},
+        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'}
+    ])
 
 @st.cache_data(ttl=300)
 def get_trading_value_kings(limit=50):
