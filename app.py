@@ -229,24 +229,46 @@ def get_naver_ipo_data():
         tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
         
         for t in tables:
-            # 네이버 신규상장 테이블 구조 파싱
-            if '종목명' in t.columns and '상장일' in t.columns:
-                df = t.dropna(subset=['종목명', '상장일']).copy()
-                df = df[df['종목명'] != '종목명'] # 헤더 중복 제거
+            # 종목명(또는 기업명)이 포함된 메인 IPO 테이블 찾기
+            if '종목명' in t.columns or '기업명' in t.columns:
+                name_col = '종목명' if '종목명' in t.columns else '기업명'
+                df = t.dropna(subset=[name_col]).copy()
+                df = df[df[name_col] != name_col] # 헤더 중복행 제거
                 
                 res_df = pd.DataFrame()
-                res_df['종목명'] = df['종목명']
+                res_df['종목명'] = df[name_col]
                 
-                # 💡 기존 UI 및 AI 프롬프트와의 호환을 위해 '상장일'을 '청약일정' 컬럼명으로 유지
-                res_df['청약일정'] = df['상장일'] 
-                res_df['확정공모가'] = df['공모가']
+                # 💡 첨부해주신 이미지의 필드들을 유연하게 매핑 (데이터가 비어있을 경우 '-' 처리)
                 
-                # 상장이 완료된 종목들이므로 현재가와 상장 후 등락률 정보를 추가로 제공
-                res_df['현재가'] = df['현재가']
-                res_df['등락률'] = df['등락률']
+                # 1. 청약 일정 (AI 분석 프롬프트 호환을 위해 컬럼명 '청약일정' 유지)
+                if '개인청약' in df.columns: res_df['청약일정'] = df['개인청약']
+                elif '청약일정' in df.columns: res_df['청약일정'] = df['청약일정']
+                else: res_df['청약일정'] = "-"
+                
+                # 2. 상장일
+                res_df['상장일'] = df['상장일'] if '상장일' in df.columns else "-"
+                
+                # 3. 공모가
+                if '공모가' in df.columns: res_df['공모가'] = df['공모가']
+                elif '확정공모가' in df.columns: res_df['공모가'] = df['확정공모가']
+                else: res_df['공모가'] = "-"
+                
+                # 4. 주관사
+                if '주관사' in df.columns: res_df['주관사'] = df['주관사']
+                elif '주간사' in df.columns: res_df['주관사'] = df['주간사']
+                else: res_df['주관사'] = "-"
+                
+                # 5. 개인청약경쟁률
+                if '개인청약경쟁률' in df.columns: res_df['경쟁률'] = df['개인청약경쟁률']
+                elif '청약경쟁률' in df.columns: res_df['경쟁률'] = df['청약경쟁률']
+                else: res_df['경쟁률'] = "-"
+                
+                # 6. 업종
+                res_df['업종'] = df['업종'] if '업종' in df.columns else "-"
                 
                 if not res_df.empty: 
                     return res_df.head(15).reset_index(drop=True)
+                    
     except Exception: pass
     
     return pd.DataFrame()
