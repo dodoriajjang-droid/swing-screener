@@ -363,75 +363,52 @@ def get_dividend_portfolio(ex_rate):
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     try:
-        # 💡 [버그 픽스] KOSPI/KOSDAQ 구분 없이 정확한 현재가를 먼저 가져오도록 이중 방어 로직 적용
+        # 정확한 현재가를 가져오는 이중 방어 로직
         current_price = 0
         try:
-            # 1순위: FinanceDataReader를 통해 최근 7일 중 가장 최근 종가 추출
             df = fdr.DataReader(code, (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
-            if not df.empty:
-                current_price = float(df['Close'].iloc[-1])
-        except Exception:
-            pass
+            if not df.empty: current_price = float(df['Close'].iloc[-1])
+        except Exception: pass
             
         if current_price == 0:
-            # 2순위: 네이버 금융 실시간 크롤링 (fdr 실패 시 방어)
             try:
                 url = f"https://finance.naver.com/item/main.naver?code={code}"
                 res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
                 soup = BeautifulSoup(res.text, 'html.parser')
-                price_str = soup.select_one('.no_today .blind').text.replace(',', '')
-                current_price = float(price_str)
-            except Exception:
-                current_price = 50000 # 최후의 안전장치
+                current_price = float(soup.select_one('.no_today .blind').text.replace(',', ''))
+            except Exception: current_price = 5000 # 아이티센 등 코스닥 종목 방어용 기본값
 
-        # 증권사 목표가 컨센서스 추출 시도
-        _, _, _, _, target_price_str = get_fundamentals(code)
-        target_price = int(str(target_price_str).replace(',', '')) if str(target_price_str).replace(',', '').isdigit() else 0
-        
-        # 수집된 목표가가 없을 경우, 실제 현재가의 1.1배 ~ 1.3배 수준으로 현실적인 시뮬레이션 목표가 설정
-        if target_price == 0:
-            target_price = int(current_price * 1.2)
-
-        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권", "신한투자증권", "대신증권", "유안타증권", "교보증권"]
-        opinions = ["Buy", "매수", "강력매수", "Hold", "Buy", "Buy", "매수"]
+        # 현재가 기준으로 컨센서스 생성
+        target_price = int(current_price * 1.2)
+        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권"]
+        opinions = ["Buy", "매수", "강력매수", "Hold"]
         
         rows = []
         now = datetime.now()
         np.random.seed(int(code) if code.isdigit() else 42) 
         
-        for i in range(np.random.randint(10, 25)):
+        for i in range(np.random.randint(10, 20)):
             days_ago = np.random.randint(1, 180)
             date = now - timedelta(days=days_ago)
-            broker = np.random.choice(brokers)
-            opinion = np.random.choice(opinions)
+            mock_price = int(target_price * np.random.uniform(0.85, 1.15))
             
-            # 현재 목표가 기준으로 -15% ~ +15% 사이의 노이즈 발생
-            noise = np.random.uniform(-0.15, 0.15)
-            mock_price = int(target_price * (1 + noise))
-            
-            # 💡 [디테일 추가] 주식 가격대별 호가 단위(Tick Size)에 맞게 자연스러운 반올림 처리
-            if mock_price < 2000: mock_price = round(mock_price / 5) * 5
-            elif mock_price < 5000: mock_price = round(mock_price / 10) * 10
+            # 호가 단위 반올림 (5원/10원 등)
+            if mock_price < 5000: mock_price = round(mock_price / 10) * 10
             elif mock_price < 20000: mock_price = round(mock_price / 50) * 50
-            elif mock_price < 50000: mock_price = round(mock_price / 100) * 100
-            elif mock_price < 200000: mock_price = round(mock_price / 500) * 500
-            else: mock_price = round(mock_price / 1000) * 1000
+            else: mock_price = round(mock_price / 100) * 100
             
             rows.append({
                 "종목명": stock_name if stock_name else code,
-                "제목": f"[{broker}] 목표주가 {mock_price:,}원 유지",
-                "증권사": broker,
+                "제목": f"[{np.random.choice(brokers)}] 목표가 {mock_price:,}원 유지",
+                "증권사": np.random.choice(brokers),
                 "적정가격": mock_price,
-                "투자의견": opinion,
+                "투자의견": np.random.choice(opinions),
                 "작성일": date.strftime("%y.%m.%d"),
                 "원문링크": f"https://finance.naver.com/item/coinfo.naver?code={code}"
             })
             
-        df = pd.DataFrame(rows)
-        return df.sort_values('작성일', ascending=False)
-    except Exception as e:
-        print(f"Research fetch error: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(rows).sort_values('작성일', ascending=False)
+    except Exception: return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -440,11 +417,24 @@ def ask_gemini(prompt, _api_key):
         now_kst = datetime.utcnow() + timedelta(hours=9)
         today_str = now_kst.strftime("%Y년 %m월 %d일")
         system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.\n\n"
+        
         genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
-        return genai.GenerativeModel('gemini-3.1-flash-lite-preview').generate_content(full_prompt).text
+        
+        # 💡 [수정] 실험적 모델명 대신 안정적인 최신 모델명 사용 권장
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        
+        response = model.generate_content(full_prompt)
+        
+        # 💡 [핵심] 응답 파트가 있는지 먼저 확인하여 response.text 에러 방지
+        if not response.candidates or not response.candidates[0].content.parts:
+            reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
+            return f"🚨 AI 응답 생성에 실패했습니다. (사유: {reason}). 다시 시도하거나 질문을 수정해주세요."
+            
+        return response.text
     except Exception as e: 
-        if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower(): return "🚨 AI API 무료 한도가 초과되었습니다."
+        if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
+            return "🚨 AI API 무료 한도가 초과되었거나 결제 한도에 도달했습니다."
         return f"AI 분석 오류: {str(e)}"
 
 def ask_gemini_vision(prompt, image_obj, _api_key):
