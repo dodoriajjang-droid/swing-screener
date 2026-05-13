@@ -895,6 +895,11 @@ def get_naver_research():
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
         table = soup.find('table', {'class': 'type_1'})
+        
+        # 💡 [핵심 방어] 표를 찾지 못했을 때(None) 발생하는 치명적 에러 원천 차단
+        if not table: 
+            return pd.DataFrame()
+            
         rows = []
         for tr in table.find_all('tr'):
             tds = tr.find_all('td')
@@ -908,7 +913,8 @@ def get_naver_research():
                 date = tds[4].get_text(strip=True)
                 rows.append({"종목명": stock_name, "제목": title, "증권사": broker, "작성일": date, "원문링크": link})
         return pd.DataFrame(rows).head(30)
-    except Exception: return pd.DataFrame()
+    except Exception: 
+        return pd.DataFrame()
 
 @st.cache_data(ttl=86400)
 def get_financial_deep_data(code):
