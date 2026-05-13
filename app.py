@@ -360,7 +360,6 @@ def get_dividend_portfolio(ex_rate):
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
 
-# 💡 [핵심 수정] 목표주가/목표가 키워드 정밀 추출 및 날짜 포맷 에러 완벽 방어
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     rows = []
@@ -373,13 +372,19 @@ def get_stock_research_history(code, stock_name=""):
             res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
             table = soup.find('table', {'class': 'type_1'})
-            if not table: break
             
+            # 💡 [핵심 방어 1] 표를 찾지 못했을 때 에러 발생 원천 차단 (이 부분이 빠져서 에러가 났습니다)
+            if not table: 
+                break
+                
             trs = table.find_all('tr')
             page_has_data = False
+            
             for tr in trs:
                 tds = tr.find_all('td')
-                if len(tds) >= 7: # 💡 6에서 7로 수정 (첨부파일 컬럼 포함 7개 이상)
+                
+                # 💡 [핵심 방어 2] 컬럼이 7개 이상일 때만 작동 (첨부파일 컬럼 밀림 현상 해결)
+                if len(tds) >= 7: 
                     name = tds[0].get_text(strip=True)
                     if not name: continue
                     
@@ -388,7 +393,7 @@ def get_stock_research_history(code, stock_name=""):
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
                     broker = tds[2].get_text(strip=True)
                     
-                    # 목표가 1순위: 리포트 제목에서 영끌 추출
+                    # 목표가 1순위: 제목에서 영끌 추출
                     target_price = 0
                     if title:
                         match = re.search(r'목표(?:주)?가[^\d]*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)', title)
@@ -396,15 +401,14 @@ def get_stock_research_history(code, stock_name=""):
                             extracted = match.group(1).replace(',', '')
                             if extracted.isdigit(): target_price = int(extracted)
                             
-                    # 💡 [핵심 수정] 2순위: 인덱스를 1칸씩 뒤로 미룸 (tds[3]은 첨부파일 아이콘임)
+                    # 목표가 2순위: 4번째 칸에서 숫자만 추출 (첨부파일로 인해 인덱스 tds[3] -> tds[4]로 변경)
                     if target_price == 0:
-                        raw_price = re.sub(r'[^\d]', '', tds[4].get_text(strip=True)) # tds[3] -> tds[4] (적정가격)
+                        raw_price = re.sub(r'[^\d]', '', tds[4].get_text(strip=True)) 
                         target_price = int(raw_price) if raw_price else 0
 
-                    opinion = tds[5].get_text(strip=True)   # tds[4] -> tds[5] (투자의견)
-                    date_str = tds[6].get_text(strip=True)  # tds[5] -> tds[6] (작성일)
+                    opinion = tds[5].get_text(strip=True)   # tds[5] (투자의견)
+                    date_str = tds[6].get_text(strip=True)  # tds[6] (작성일)
                     
-                    # 💡 [버그 픽스] 날짜 포맷 에러 방어 (yy.mm.dd 와 yyyy.mm.dd 혼용 대비)
                     try:
                         if len(date_str.split('.')[0]) == 4:
                             doc_date = datetime.strptime(date_str, "%Y.%m.%d")
@@ -414,16 +418,18 @@ def get_stock_research_history(code, stock_name=""):
                         if doc_date < six_months_ago:
                             return pd.DataFrame(rows)
                     except Exception: 
-                        doc_date = datetime.now() # 파싱 실패 시 현재 시간 임시 할당
+                        doc_date = datetime.now()
                     
                     rows.append({
                         "종목명": name, "제목": title, "증권사": broker, 
-                        "목표가": target_price, "투자의견": opinion, # '적정가격' -> '목표가'로 변경
-                        "작성일": doc_date, "원문링크": link # Date 형식으로 바로 저장
+                        "목표가": target_price, "투자의견": opinion, 
+                        "작성일": doc_date, "원문링크": link 
                     })
                     page_has_data = True
+                    
             if not page_has_data: break
             time.sleep(0.1)
+            
     except Exception as e:
         print(f"Research fetch error: {e}")
         
