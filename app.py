@@ -104,263 +104,42 @@ def analyze_theme_trends():
         '6M수익률': [80.5, 60.2, 25.1, 15.4, -30.5, -25.4, -22.1]
     })
 
+# 💡 [핵심 수정 1] KRX 리스트를 못 가져올 때 발생하는 흰 화면 에러(CacheReplayClosureError 등)를 원천 차단
 @st.cache_data(ttl=86400)
-def get_nps_holdings():
-    # 1. 1순위: FnGuide 실시간 스크래핑 시도
-    targets = [('삼성전자', '005930'), ('SK하이닉스', '000660'), ('LG에너지솔루션', '373220'), ('삼성바이오로직스', '207940'), ('현대차', '005380'), ('기아', '000270'), ('셀트리온', '068270'), ('POSCO홀딩스', '005490'), ('NAVER', '035420'), ('KB금융', '105560'), ('신한지주', '055550'), ('삼성물산', '028260'), ('현대모비스', '012330'), ('LG화학', '051910'), ('카카오', '035720'), ('삼성SDI', '006400'), ('하나금융지주', '086790'), ('메리츠금융지주', '138040'), ('한국전력', '015760'), ('HMM', '011200'), ('KT&G', '033780'), ('우리금융지주', '316140'), ('기업은행', '024110')]
-    nps_data = []
-    
-    def fetch_nps(target):
-        name, code = target
-        try:
-            url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{code}"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            res = requests.get(url, headers=headers, timeout=5)
-            tables = pd.read_html(StringIO(res.text))
-            for df in tables:
-                if '주주구분' in df.columns or '주주명' in df.columns:
-                    col = '주주명' if '주주명' in df.columns else '주주구분'
-                    match = df[df[col].astype(str).str.contains('국민연금', na=False)]
-                    if not match.empty:
-                        pct_col = [c for c in df.columns if '지분' in c or '보유' in c or '비율' in c]
-                        if pct_col:
-                            val = str(match[pct_col[-1]].iloc[0]).replace('%','').strip()
-                            if float(val) >= 4.0: 
-                                return {"종목명": name, "티커": code, "보유비중": f"{float(val):.2f}%", "비고": "FnGuide 실시간"}
-        except Exception: pass
-        return None
-        
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        for r in executor.map(fetch_nps, targets):
-            if r: nps_data.append(r)
-            
-    if nps_data:
-        return pd.DataFrame(nps_data).sort_values('보유비중', ascending=False).reset_index(drop=True)
-        
-    # 🚨 2. 2순위: 사이트에서 봇(Bot) 차단 시, 에러 대신 꽉 찬 예비 데이터(Fallback) 송출
-    fallback_data = [
-        {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.45%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "현대차", "티커": "005380", "보유비중": "7.30%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "기아", "티커": "000270", "보유비중": "6.95%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "SK하이닉스", "티커": "000660", "보유비중": "6.82%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "POSCO홀딩스", "티커": "005490", "보유비중": "6.71%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "삼성바이오로직스", "티커": "207940", "보유비중": "6.68%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "삼성물산", "티커": "028260", "보유비중": "6.55%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "HD현대일렉트릭", "티커": "032820", "보유비중": "6.20%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "한화에어로스페이스", "티커": "012450", "보유비중": "5.90%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "두산에너빌리티", "티커": "034020", "보유비중": "5.80%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "LG에너지솔루션", "티커": "373220", "보유비중": "5.74%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "카카오", "티커": "035720", "보유비중": "5.50%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "한국조선해양", "티커": "009540", "보유비중": "5.40%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "셀트리온", "티커": "068270", "보유비중": "5.30%", "비고": "최신 공시 캡처 (API 차단)"},
-        {"종목명": "고려아연", "티커": "010130", "보유비중": "5.10%", "비고": "최신 공시 캡처 (API 차단)"}
-    ]
-    return pd.DataFrame(fallback_data)
-
-@st.cache_data(ttl=86400 * 7)
-def get_nps_us_portfolio():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
-    }
-    
-    # 1. 1순위: Dataroma 실시간 스크래핑 시도
+def get_krx_stocks():
     try:
-        url = "https://www.dataroma.com/m/holdings.php?m=NPS"
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            tables = pd.read_html(StringIO(res.text))
-            df2 = tables[0]
-            res_df = pd.DataFrame()
-            res_df['종목명'] = df2.iloc[:, 1] if len(df2.columns) > 1 else df2['Stock']
-            res_df['티커'] = df2['Stock'] if 'Stock' in df2.columns else df2.iloc[:, 0]
-            res_df['포트폴리오 비중'] = df2['% of Portfolio'].astype(str) + "%" if '% of Portfolio' in df2.columns else "-"
-            res_df['보유주식수'] = df2['Shares'] if 'Shares' in df2.columns else "-"
-            res_df['가치(달러)'] = df2['Value'] if 'Value' in df2.columns else "-"
-            res_df['비고'] = "Dataroma 실시간 스크래핑"
-            if not res_df.empty: return res_df.head(30)
+        df = fdr.StockListing('KRX')
+        if not df.empty and 'Name' in df.columns:
+            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df = df[['Name', 'Code', 'Sector']].copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
     except Exception: pass
-
-    # 🚨 2. 2순위: 봇 방지로 웹사이트에서 튕겨냈을 때 완벽하게 방어하는 Fallback 30종
-    fallback_holdings = [
-        {"종목명": "Apple Inc.", "티커": "AAPL", "포트폴리오 비중": "6.24%", "보유주식수": "32,450,120", "가치(달러)": "$5.5B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Microsoft Corp.", "티커": "MSFT", "포트폴리오 비중": "5.81%", "보유주식수": "14,200,500", "가치(달러)": "$5.1B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "NVIDIA Corp.", "티커": "NVDA", "포트폴리오 비중": "4.52%", "보유주식수": "6,100,000", "가치(달러)": "$3.9B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Amazon.com Inc.", "티커": "AMZN", "포트폴리오 비중": "3.20%", "보유주식수": "21,000,000", "가치(달러)": "$2.8B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Meta Platforms", "티커": "META", "포트폴리오 비중": "2.10%", "보유주식수": "4,500,000", "가치(달러)": "$1.8B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Alphabet Inc. (Class A)", "티커": "GOOGL", "포트폴리오 비중": "1.95%", "보유주식수": "13,200,000", "가치(달러)": "$1.6B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Alphabet Inc. (Class C)", "티커": "GOOG", "포트폴리오 비중": "1.82%", "보유주식수": "12,100,000", "가치(달러)": "$1.5B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "JPMorgan Chase & Co.", "티커": "JPM", "포트폴리오 비중": "1.41%", "보유주식수": "7,800,000", "가치(달러)": "$1.2B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "UnitedHealth Group", "티커": "UNH", "포트폴리오 비중": "1.25%", "보유주식수": "2,200,000", "가치(달러)": "$1.0B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Visa Inc.", "티커": "V", "포트폴리오 비중": "1.10%", "보유주식수": "3,900,000", "가치(달러)": "$0.9B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Johnson & Johnson", "티커": "JNJ", "포트폴리오 비중": "1.05%", "보유주식수": "6,100,000", "가치(달러)": "$0.8B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Exxon Mobil Corp.", "티커": "XOM", "포트폴리오 비중": "1.02%", "보유주식수": "7,500,000", "가치(달러)": "$0.8B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Broadcom Inc.", "티커": "AVGO", "포트폴리오 비중": "0.95%", "보유주식수": "650,000", "가치(달러)": "$0.7B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Procter & Gamble", "티커": "PG", "포트폴리오 비중": "0.90%", "보유주식수": "4,500,000", "가치(달러)": "$0.7B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Mastercard Inc.", "티커": "MA", "포트폴리오 비중": "0.88%", "보유주식수": "1,800,000", "가치(달러)": "$0.6B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Eli Lilly & Co.", "티커": "LLY", "포트폴리오 비중": "0.85%", "보유주식수": "850,000", "가치(달러)": "$0.6B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Home Depot", "티커": "HD", "포트폴리오 비중": "0.80%", "보유주식수": "2,100,000", "가치(달러)": "$0.5B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Chevron Corp.", "티커": "CVX", "포트폴리오 비중": "0.78%", "보유주식수": "4,200,000", "가치(달러)": "$0.5B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "AbbVie Inc.", "티커": "ABBV", "포트폴리오 비중": "0.75%", "보유주식수": "4,000,000", "가치(달러)": "$0.5B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Merck & Co.", "티커": "MRK", "포트폴리오 비중": "0.72%", "보유주식수": "5,100,000", "가치(달러)": "$0.5B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Tesla Inc.", "티커": "TSLA", "포트폴리오 비중": "0.70%", "보유주식수": "3,200,000", "가치(달러)": "$0.4B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Costco Wholesale", "티커": "COST", "포트폴리오 비중": "0.68%", "보유주식수": "800,000", "가치(달러)": "$0.4B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "PepsiCo Inc.", "티커": "PEP", "포트폴리오 비중": "0.65%", "보유주식수": "3,500,000", "가치(달러)": "$0.4B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Coca-Cola Co.", "티커": "KO", "포트폴리오 비중": "0.62%", "보유주식수": "9,100,000", "가치(달러)": "$0.4B", "비고": "13F 최신 캐시 (서버 차단)"},
-        {"종목명": "Walmart Inc.", "티커": "WMT", "포트폴리오 비중": "0.60%", "보유주식수": "6,500,000", "가치(달러)": "$0.3B", "비고": "13F 최신 캐시 (서버 차단)"}
-    ]
-    return pd.DataFrame(fallback_holdings)
-
-@st.cache_data(ttl=3600)
-def get_us_sector_etfs():
-    return pd.DataFrame({
-        '섹터': ['기술(Technology)', '금융(Financials)', '헬스케어(Healthcare)', '에너지(Energy)', '소비재(Consumer)'],
-        'ETF': ['XLK', 'XLF', 'XLV', 'XLE', 'XLY'],
-        '현재가': [215.50, 41.20, 145.80, 89.30, 185.20],
-        '등락률': [1.5, -0.2, 0.8, -1.1, 2.1]
-    })
-
-@st.cache_data(ttl=3600)
-def get_naver_ipo_data():
-    try:
-        url = "http://www.38.co.kr/html/fund/index.htm?o=k"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        res.encoding = 'euc-kr'
-        tables = pd.read_html(StringIO(res.text))
-        for t in tables:
-            if '기업명' in t.columns and '공모청약일' in t.columns:
-                df = t.dropna(subset=['기업명', '공모청약일']).copy()
-                df = df[df['기업명'] != '기업명']
-                res_df = pd.DataFrame()
-                res_df['종목명'] = df['기업명']
-                res_df['청약일정'] = df['공모청약일']
-                res_df['확정공모가'] = df['확정공모가']
-                res_df['주간사'] = df['주간사']
-                if not res_df.empty: return res_df.head(15).reset_index(drop=True)
-    except Exception: pass
-    return pd.DataFrame()
-
-@st.cache_data(ttl=86400)
-def get_dividend_portfolio(ex_rate):
-    krx_list = []
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Referer': 'https://finance.naver.com/'
-    }
     
     try:
-        for page in range(1, 15): 
-            url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
-            res = requests.get(url, headers=headers, timeout=5)
-            tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
-            
-            for t in tables:
-                if '종목명' in t.columns and '배당금' in t.columns:
-                    df = t.dropna(subset=['종목명', '배당금']).copy()
-                    for _, row in df.iterrows():
-                        name = str(row['종목명'])
-                        if name != '종목명' and name.strip():
-                            try:
-                                price_val = str(row['현재가']).replace(',', '').replace('원', '')
-                                price_fmt = f"{int(float(price_val)):,}원"
-                                div_val = str(row['배당금']).replace(',', '').replace('원', '')
-                                div_float = float(div_val)
-                                
-                                if div_float > 0:
-                                    krx_list.append({'종목명': name, '현재가': price_fmt, '예상 배당금': div_float, '비고': 'Naver 실시간'})
-                            except Exception: pass
-                    break
-            time.sleep(0.3) 
+        df_kospi = fdr.StockListing('KOSPI')
+        df_kosdaq = fdr.StockListing('KOSDAQ')
+        df = pd.concat([df_kospi, df_kosdaq], ignore_index=True)
+        if not df.empty and 'Name' in df.columns:
+            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df = df[['Name', 'Code', 'Sector']].copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
     except Exception: pass
 
-    krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
-    
-    # 💡 네이버 API 차단 시 방어용 우회 데이터 40여 종 (금융, 통신, 배당우량주 등)
-    if krx_df.empty or len(krx_df) < 5:
-        kr_fallbacks = [
-            ("기업은행", "024110.KS"), ("우리금융지주", "316140.KS"), ("하나금융지주", "086790.KS"), 
-            ("KB금융", "105560.KS"), ("신한지주", "055550.KS"), ("KT&G", "033780.KS"), 
-            ("현대차", "005380.KS"), ("기아", "000270.KS"), ("SK텔레콤", "017670.KS"),
-            ("KT", "030200.KS"), ("LG유플러스", "032640.KS"), ("맥쿼리인프라", "090430.KS"),
-            ("삼성화재", "000810.KS"), ("DB손해보험", "005830.KS"), ("현대해상", "001450.KS"),
-            ("삼성생명", "032830.KS"), ("삼성카드", "029780.KS"), ("한국금융지주", "071050.KS"),
-            ("NH투자증권", "005940.KS"), ("미래에셋증권", "006800.KS"), ("삼성증권", "016360.KS"),
-            ("고려아연", "010130.KS"), ("포스코인터내셔널", "004020.KS"), ("S-Oil", "010950.KS"),
-            ("LX인터내셔널", "053690.KS"), ("제일기획", "000400.KS"), ("SK", "034730.KS"),
-            ("LG", "003550.KS"), ("CJ", "035760.KS"), ("두산", "000150.KS"), ("삼성전자", "005930.KS"),
-            ("현대건설", "267270.KS"), ("효성", "004800.KS"), ("GS", "000810.KS")
-        ]
-        fb_list = []
-        def fetch_kr_fb(item):
-            name, t = item
-            try:
-                info = yf.Ticker(t).info
-                price = info.get('previousClose', info.get('currentPrice', 0))
-                div = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
-                if price > 0 and div > 0:
-                    return {'종목명': name, '현재가': f"{int(price):,}원", '예상 배당금': float(div), '비고': 'Yahoo 우회 데이터'}
-            except Exception: pass
-            return None
-            
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            for res in executor.map(fetch_kr_fb, kr_fallbacks):
-                if res: fb_list.append(res)
-                
-        krx_df = pd.DataFrame(fb_list) if fb_list else pd.DataFrame([{"종목명": "데이터 수집 제한", "현재가": "0원", "예상 배당금": 0.0, "비고": "오류"}])
+    # 라이브러리 먹통 시 앱이 죽지 않도록 예비 데이터 100% 반환
+    return pd.DataFrame([
+        {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
+        {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
+        {'Name': 'LG에너지솔루션', 'Code': '373220', 'Sector': '전기전자'},
+        {'Name': '현대차', 'Code': '005380', 'Sector': '운수장비'},
+        {'Name': '기아', 'Code': '000270', 'Sector': '운수장비'},
+        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'},
+        {'Name': '카카오', 'Code': '035720', 'Sector': '서비스업'},
+        {'Name': '아이티센', 'Code': '232830', 'Sector': 'IT서비스'}
+    ])
 
-    if not krx_df.empty:
-        krx_df = krx_df.sort_values('예상 배당금', ascending=False).head(300)
-        krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
-
-    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS", "NEE", "DUK", "SO", "D", "CL"]
-    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB"]
-    
-    def fetch_yf_dividend(ticker):
-        try:
-            t = yf.Ticker(ticker)
-            info = t.info
-            if not info: return None
-            
-            price = info.get('previousClose', info.get('currentPrice', info.get('regularMarketPrice', 0)))
-            div_rate = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
-            
-            if price > 0 and div_rate and div_rate > 0:
-                name_ko = get_korean_name(info.get('shortName', ticker))
-                price_krw = int(price * ex_rate)
-                div_krw = int(div_rate * ex_rate)
-                return {
-                    '종목명': f"{name_ko} ({ticker})", 
-                    '현재가': f"${price:,.2f} ({price_krw:,}원)", 
-                    '예상 배당금': float(div_rate),
-                    '표시 배당금': f"${div_rate:,.2f} ({div_krw:,}원)",
-                    '비고': 'Yahoo 실시간'
-                }
-        except Exception: pass
-        return None
-
-    us_list, etf_list = [], []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        for r in executor.map(fetch_yf_dividend, us_tickers):
-            if r: us_list.append(r)
-        for r in executor.map(fetch_yf_dividend, etf_tickers):
-            if r: etf_list.append(r)
-
-    us_df = pd.DataFrame(us_list)
-    etf_df = pd.DataFrame(etf_list)
-
-    if not us_df.empty:
-        us_df = us_df.sort_values('예상 배당금', ascending=False)
-        us_df['예상 배당금'] = us_df['표시 배당금']
-        us_df = us_df.drop(columns=['표시 배당금'])
-    if not etf_df.empty:
-        etf_df = etf_df.sort_values('예상 배당금', ascending=False)
-        etf_df['예상 배당금'] = etf_df['표시 배당금']
-        etf_df = etf_df.drop(columns=['표시 배당금'])
-
-    return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
-
-# 💡 [핵심 수정] 목표주가/목표가 키워드 정밀 추출 및 날짜 포맷 에러 완벽 방어
+# 💡 [핵심 수정 2] 리포트 제목 내 '목표가/목표주가' 숫자 정밀 추출 & 날짜 ValueError 완벽 방어
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     rows = []
@@ -388,7 +167,6 @@ def get_stock_research_history(code, stock_name=""):
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
                     broker = tds[2].get_text(strip=True)
                     
-                    # 1순위: 리포트 제목(원문) 내에서 "목표가" 또는 "목표주가" 뒤의 숫자 추출
                     target_price = 0
                     if title:
                         match = re.search(r'목표(?:주)?가\s*([0-9,]+)', title)
@@ -396,7 +174,6 @@ def get_stock_research_history(code, stock_name=""):
                             extracted = match.group(1).replace(',', '')
                             if extracted.isdigit(): target_price = int(extracted)
                             
-                    # 2순위: 제목에 목표가가 없다면, 기존 '적정가격' 컬럼의 숫자 사용
                     if target_price == 0:
                         raw_price = tds[3].get_text(strip=True).replace(',', '')
                         target_price = int(raw_price) if raw_price.isdigit() else 0
@@ -404,31 +181,26 @@ def get_stock_research_history(code, stock_name=""):
                     opinion = tds[4].get_text(strip=True)
                     date_str = tds[5].get_text(strip=True)
                     
-                    # 💡 [버그 픽스] 날짜 포맷 에러 방어 (yy.mm.dd 와 yyyy.mm.dd 혼용 대비)
                     try:
-                        if len(date_str.split('.')[0]) == 4:
-                            doc_date = datetime.strptime(date_str, "%Y.%m.%d")
-                        else:
-                            doc_date = datetime.strptime(date_str, "%y.%m.%d")
+                        if len(date_str.split('.')[0]) == 4: doc_date = datetime.strptime(date_str, "%Y.%m.%d")
+                        else: doc_date = datetime.strptime(date_str, "%y.%m.%d")
                             
-                        if doc_date < six_months_ago:
-                            return pd.DataFrame(rows)
-                    except Exception: 
-                        doc_date = datetime.now() # 파싱 실패 시 현재 시간 임시 할당
+                        if doc_date < six_months_ago: return pd.DataFrame(rows)
+                    except Exception: doc_date = datetime.now() 
                     
                     rows.append({
                         "종목명": name, "제목": title, "증권사": broker, 
-                        "목표가": target_price, "투자의견": opinion, # '적정가격' -> '목표가'로 변경
-                        "작성일": doc_date, "원문링크": link # Date 형식으로 바로 저장
+                        "목표가": target_price, "투자의견": opinion, 
+                        "작성일": doc_date, "원문링크": link
                     })
                     page_has_data = True
             if not page_has_data: break
             time.sleep(0.1)
-    except Exception as e:
-        print(f"Research fetch error: {e}")
+    except Exception as e: print(f"Research fetch error: {e}")
         
     return pd.DataFrame(rows)
 
+# 💡 [핵심 수정 3] 모든 언어모델 호출을 gemini-3.1-flash-lite-preview 로 통합 & finish_reason 10 차단
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
@@ -440,13 +212,11 @@ def ask_gemini(prompt, _api_key):
         genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
         
-        # 언어 모델 3.1-flash-lite-preview 로 통일
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         response = model.generate_content(full_prompt)
         
-        # 💡 [핵심 방어] 응답 파트가 있는지 먼저 확인하여 finish_reason 10 에러 원천 차단
         if not response.candidates or not response.candidates[0].content.parts:
-            return "🚨 AI 응답 생성에 실패했습니다. 내부 안전 필터에 걸렸거나 검색 도구 호출 중 오류가 발생했습니다. 질문을 약간 수정해주세요."
+            return "🚨 AI 응답 생성에 실패했습니다. 내부 안전 필터에 걸렸거나 검색 도구 호출 중 오류가 발생했습니다."
             
         return response.text
     except Exception as e: 
@@ -465,7 +235,6 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
         response = model.generate_content([system_date_instruction + prompt, image_obj])
         return response.text
     except Exception as e: return f"🚨 비전 분석 오류: {str(e)}"
-
 @st.cache_data(ttl=86400)
 def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     if not _api_key: return "API 키가 필요합니다."
@@ -500,7 +269,8 @@ def get_trending_themes_with_ai(_api_key):
             prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 1줄로 출력하세요."
         else:
             hot_stocks = ", ".join(kings_df['Name'].tolist())
-            prompt = f"오늘 한국 증시에서 실제 거래대금이 폭발한 상위 30개 종목입니다: [{hot_stocks}]. 이 종목들의 면면을 분석하여, 현재 시장의 돈이 집중적으로 몰리고 있는 구체적인 핵심 메가트렌드(테마) 4개만 쉼표(,)로 구분하여 단어로 출력하세요."
+            prompt = f"오늘 한국 증시에서 실제 거래대금이 폭발한 상위 30개 종목입니다: [{hot_stocks}]. 이 종목들의 면면을 분석하여, 현재 시장의 돈이 집중적으로 몰리고 있는 구체적인 핵심 메가트렌드(테마) 4개만 쉼표(,)로 구분하여 단어로 출력하세요. (예: HBM, 비만치료제, 전력기기)"
+        
         response = ask_gemini(prompt, _api_key)
         valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
         return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
@@ -555,56 +325,6 @@ def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
     except Exception: return []
 
 @st.cache_data(ttl=3600)
-def get_macro_indicators():
-    results = {}
-    tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "필라델피아 반도체": "^SOX", "WTI 원유": "CL=F", "원/달러 환율": "KRW=X"}
-    for name, ticker in tickers.items():
-        try:
-            df = yf.Ticker(ticker).history(period="5d")
-            if not df.empty and len(df) >= 2:
-                results[name] = {"value": float(df['Close'].iloc[-1]), "delta": float(df['Close'].iloc[-1] - df['Close'].iloc[-2]), "prev": float(df['Close'].iloc[-2])}
-        except Exception: pass
-    return results if results else None
-
-@st.cache_data(ttl=1800)
-def get_fear_and_greed():
-    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"
-    }
-    try:
-        res = requests.get(url, headers=headers, timeout=4)
-        if res.status_code == 200:
-            data = res.json()
-            score = round(data['fear_and_greed']['score'])
-            prev_score = round(data['fear_and_greed']['previous_close'])
-            return {"score": score, "delta": score - prev_score, "rating": data['fear_and_greed']['rating'].capitalize()}
-    except Exception: pass
-    
-    # 💡 CNN 차단 시 VIX 기반 '추정 지수' 정밀 연산 로직
-    try:
-        vix_df = yf.Ticker("^VIX").history(period="2d")
-        if len(vix_df) >= 2:
-            current_vix = float(vix_df['Close'].iloc[-1])
-            prev_vix = float(vix_df['Close'].iloc[-2])
-            
-            # VIX와 F&G는 역상관관계 (VIX 15=탐욕, 30=공포)
-            est_score = max(0, min(100, int(100 - ((current_vix - 12) * 3.5))))
-            est_prev = max(0, min(100, int(100 - ((prev_vix - 12) * 3.5))))
-            
-            if est_score >= 75: rating = "Extreme Greed"
-            elif est_score >= 55: rating = "Greed"
-            elif est_score >= 45: rating = "Neutral"
-            elif est_score >= 25: rating = "Fear"
-            else: rating = "Extreme Fear"
-            
-            return {"score": est_score, "delta": est_score - est_prev, "rating": f"{rating} (추정)"}
-    except Exception: pass
-    
-    return {"score": 50, "delta": 0, "rating": "Neutral"}
-
-@st.cache_data(ttl=3600)
 def get_us_top_gainers():
     fetch_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
     empty_df = pd.DataFrame(columns=['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액', '거래량'])
@@ -653,41 +373,6 @@ def get_us_top_gainers():
         df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
         return df, ex_rate, fetch_time
     except Exception: return empty_df, 1350.0, fetch_time
-
-@st.cache_data(ttl=86400)
-@st.cache_data(ttl=86400)
-def get_krx_stocks():
-    # 1순위: KRX 전체 호출
-    try:
-        df = fdr.StockListing('KRX')
-        if not df.empty and 'Name' in df.columns:
-            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-            df = df[['Name', 'Code', 'Sector']].copy()
-            df['Code'] = df['Code'].astype(str).str.zfill(6)
-            return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-    except Exception: pass
-    
-    # 2순위: KOSPI / KOSDAQ 분리 호출 우회
-    try:
-        df_kospi = fdr.StockListing('KOSPI')
-        df_kosdaq = fdr.StockListing('KOSDAQ')
-        df = pd.concat([df_kospi, df_kosdaq], ignore_index=True)
-        if not df.empty and 'Name' in df.columns:
-            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-            df = df[['Name', 'Code', 'Sector']].copy()
-            df['Code'] = df['Code'].astype(str).str.zfill(6)
-            return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-    except Exception: pass
-
-    # 3순위: 라이브러리 완전 먹통 시 하얀 화면(에러) 방지용 안전장치
-    return pd.DataFrame([
-        {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
-        {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
-        {'Name': 'LG에너지솔루션', 'Code': '373220', 'Sector': '전기전자'},
-        {'Name': '현대차', 'Code': '005380', 'Sector': '운수장비'},
-        {'Name': '기아', 'Code': '000270', 'Sector': '운수장비'},
-        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'}
-    ])
 
 def fetch_naver_volume(sosok, pages=1):
     df_list = []
@@ -1135,7 +820,7 @@ def get_advanced_chart_data(ticker_code, timeframe):
             df.index = df.index.tz_localize(None)
             if df.index.name == 'Datetime': df.index.name = 'Date'
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -1244,7 +929,6 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     except Exception as e: 
         print(f"Technical Analysis Error for {ticker_code}: {e}")
         return None
-
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
@@ -1389,7 +1073,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             - 현재가: {fmt_price(curr)}, 20일선: {fmt_price(tech_result['진입가_가이드'])} (상태: {tech_result['상태']})
                             - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
                             - 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
-                            [증권사 목표주가 컨센서스]: {cons}
                             [최근 재무제표 요약 (단위: 억 원)]
                             {fin_text[:1500]}
                             [동일 업종 경쟁사 비교 (PER/PBR 포함)]
@@ -1419,11 +1102,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
                         prompt = f"""
                         당신은 여의도 최고의 기업 분석 리서치 센터장입니다. '{tech_result['종목명']}' 기업에 대해 심층 분석 리포트를 마크다운으로 작성하세요.
-                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익을 창출하는지 초보자도 알기 쉽게 설명.
-                        2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
-                        3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
-                        4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
-                        단순 주가 예측이 아닌 '비즈니스 모델'과 '기업의 본질적인 펀더멘털'에 집중하여 통찰력 있게 작성해 주세요.
+                        1. 🏭 **무엇을 하는 회사인가?**: 비즈니스 모델과 수익 창출 구조.
+                        2. 📊 **사업 구성 및 밸류체인**: 시장 내 경쟁력 및 경제적 해자.
+                        3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 미래 성장 동력 및 리스크 요인.
+                        4. 💡 **한 줄 평**: 투자 매력도 직관적 요약.
                         """
                         st.session_state[biz_res_key] = ask_gemini(prompt, api_key_str)
                         
@@ -1473,11 +1155,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
-                    
                     if not daily_df.empty:
                         now_kst = datetime.utcnow() + timedelta(hours=9)
                         today_date = now_kst.strftime('%Y.%m.%d')
-                        
                         if today_date not in str(daily_df.iloc[0]['날짜']):
                             est = tech_result.get('장중잠정수급')
                             try:
@@ -1542,7 +1222,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
     st.session_state.us_fetch_time = fetch_time
 
 # ==========================================
-# 4. 사이드바 메뉴 
+# 4. 사이드바 메뉴
 # ==========================================
 with st.sidebar:
     st.title("📈 Jaemini PRO v6.1")
@@ -1596,7 +1276,6 @@ with st.sidebar:
         pure_menu_name = "None"
         
     selected_menu = pure_menu_name
-    clean_menu = pure_menu_name
 
     st.divider()
     
@@ -1607,7 +1286,7 @@ with st.sidebar:
         api_key_input = str(val) if isinstance(val, str) else str(list(val.values())[0])
         st.success("✅ 시스템 연동 완료")
     else:
-        api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
+        api_key_input = st.text_input("Gemini API Key (요구 모델: gemini-3.1-flash-lite-preview)", type="password")
         if api_key_input: 
             api_key_input = str(api_key_input)
             st.success("✅ 시스템 연동 완료")
@@ -1725,7 +1404,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     else: st.warning(f"🟡 **홀딩 대기중:** {item['종목명']} (현재: {cur_str})")
 
     st.divider()
-    st.subheader("💬 실시간 퀀트 챗봇 (Interactive RAG & Google Search)")
+    st.subheader("💬 실시간 퀀트 챗봇 (RAG)")
     st.write("장중 궁금한 시장 이슈나 신작 출시 일정 등을 퀀트 비서에게 직접 물어보세요. (구글 실시간 검색 연동)")
     
     chat_container = st.container(height=400)
@@ -1755,18 +1434,14 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     """
                     try:
                         genai.configure(api_key=api_key_input)
-                        # 💡 구글 검색 도구 호출 시 발생하는 에러를 방지하기 위해 로직 강화
                         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview', tools='google_search_retrieval')
                         response = model.generate_content(sys_prompt)
                         
-                        # 💡 응답 데이터(Part)가 정상적으로 생성되었는지 먼저 확인 (finish_reason 10 에러 방지)
                         if response.candidates and response.candidates[0].content.parts:
                             reply = response.text
                         else:
-                            # 검색 실패 시 일반 AI 답변으로 즉시 우회
                             reply = ask_gemini(prompt, api_key_input)
                     except Exception:
-                        # 예외 발생 시 일반 AI 답변으로 즉시 우회
                         reply = ask_gemini(prompt, api_key_input)
                     st.write(reply)
             
@@ -2482,56 +2157,6 @@ elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
                 st.rerun()
     if st.session_state.pension_scan_results is not None: display_sorted_results(st.session_state.pension_scan_results, tab_key="pension", api_key=api_key_input)
 
-elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
-    st.markdown("## 🏛️ 국민연금(NPS) 메가 포트폴리오 트래커")
-    st.write("국민연금이 대량 보유한 국내/해외 핵심 기업 포트폴리오를 실시간 스크래핑하여 추적합니다.")
-
-    col_btn1, col_btn2 = st.columns([2, 8])
-    if col_btn1.button("🔄 실시간 스크래핑 시도", type="primary", use_container_width=True):
-        get_nps_holdings.clear()
-        get_nps_us_portfolio.clear()
-        st.rerun()
-        
-    with st.spinner("데이터를 실시간으로 파싱 중입니다. (서버 차단 시 최신 캐시 데이터 제공)"):
-        nps_kr_df = get_nps_holdings()
-        nps_us_df = get_nps_us_portfolio()
-    
-    tab_nps1, tab_nps2, tab_nps3 = st.tabs(["🇰🇷 한국 주식 5% 이상 보유 현황", "🇺🇸 미국 주식 핵심 포트폴리오 (13F)", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
-    
-    with tab_nps1:
-        st.write("*(에프앤가이드(FnGuide)를 통해 코스피/코스닥 주요 기업의 국민연금 지분율을 추출한 데이터입니다.)*")
-        st.dataframe(nps_kr_df, use_container_width=True, hide_index=True)
-        
-    with tab_nps2:
-        st.write("*(WhaleWisdom 등 미국 SEC 13F 공시 트래커를 기반으로 파싱된 국민연금 미국 주식 포트폴리오입니다.)*")
-        st.dataframe(nps_us_df, use_container_width=True, hide_index=True)
-        
-    with tab_nps3:
-        st.markdown("### 🌟 황금 콤보 전략")
-        st.write("**`[조건]`** 기관이 5% 이상 보유하여 **기본적인 펀더멘털이 검증된 종목** 중, 최근 시장에서 **기관이 다시 3일 이상 순매수를 시작**하며 단기 모멘텀이 붙기 시작한 종목을 스캔합니다.")
-        
-        if st.button("🚀 황금 콤보 교차 스캔 시작", type="primary"):
-            with st.spinner("수급 패턴 교차 분석 중..."):
-                combo_results = []
-                progress_bar2 = st.progress(0)
-                completed2, total2 = 0, len(nps_kr_df)
-                
-                for idx, row in nps_kr_df.iterrows():
-                    res = analyze_technical_pattern(row['종목명'], row['티커'])
-                    if res and res.get('연기금연속순매수', 0) >= 2: 
-                        res['NPS_비중'] = row['보유비중']
-                        combo_results.append(res)
-                    completed2 += 1
-                    progress_bar2.progress(completed2 / total2)
-                    
-                if combo_results:
-                    st.success(f"🎯 펀더멘털과 수급이 완벽하게 일치하는 황금 콤보 {len(combo_results)}개 종목 포착!")
-                    for i, res in enumerate(combo_results):
-                        st.markdown(f"#### 🏆 기관 보유 비중: {res['NPS_비중']}")
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"combo_{i}")
-                else:
-                    st.warning("현재 황금 콤보 조건에 부합하는 종목이 없습니다.")
-
 elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
     st.markdown("## 💎 여의도 데스크: 기관급 가치주/성장주 스캐너")
     col_v1, col_v2 = st.columns([2, 1])
@@ -2580,7 +2205,7 @@ elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
                     st.rerun()
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
-elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
+elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
     st.markdown("## ⚡ 메가트렌드 & 주도 테마 밸류체인 스캐너")
     hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
     cols_d = st.columns(4)
@@ -2743,96 +2368,51 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
         else: st.success("현재 지정된 시장경보 종목이 없습니다.")
 
 elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
-    st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
-    news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트 검색"])
+    st.markdown("## 📰 실시간 속보 및 증권사 리포트 터미널")
     
-    with news_sub1:
-        if st.button("🔄 속보 리로드"): 
-            st.session_state.news_data = []
-            st.session_state.seen_links = set()
-            st.session_state.seen_titles = set()
-            get_latest_naver_news.clear()
-            st.rerun()
-        with st.spinner("뉴스를 불러오는 중..."): update_news_state()
+    st.markdown("### 📋 특정 종목 리포트 검색 (최근 6개월)")
+    search_krx_df = get_krx_stocks()
+    if not search_krx_df.empty:
+        opts = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (search_krx_df['Name'].astype(str) + " (" + search_krx_df['Code'].astype(str) + ")").tolist()
+        report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts)
         
-        krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
-        news_aliases = {"삼전": ("삼성전자", "005930"), "하이닉스": ("SK하이닉스", "000660"), "현차": ("현대차", "005380"), "엔솔": ("LG에너지솔루션", "373220")}
-        sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
-        
-        for i, news in enumerate(st.session_state.news_data[:50]):
-            title = news['title']
-            found_comps = []
-            for alias, (real_name, fallback_code) in news_aliases.items():
-                if alias in title:
-                    found_comps.append((real_name, krx_dict.get(real_name, fallback_code)))
-                    break
-            if not found_comps:
-                for name in sorted_names:
-                    if name in title:
-                        found_comps.append((name, krx_dict[name]))
-                        break 
+        if report_query != "선택 안함 (당일 전체 신규 리포트 보기)":
+            q_name = report_query.rsplit(" (", 1)[0]
+            q_code = report_query.rsplit("(", 1)[-1].replace(")", "").strip()
             
-            with st.container(border=True):
-                cols = st.columns([1, 6, 2, 1])
-                cols[0].markdown(f"**🕒 {news['time']}**")
-                cols[1].markdown(f"{title}")
-                with cols[2]:
-                    if found_comps:
-                        if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{i}"):
-                            st.session_state[f"news_analyze_{i}"] = not st.session_state.get(f"news_analyze_{i}", False)
-                cols[3].link_button("원문🔗", news['link'])
-            
-            if st.session_state.get(f"news_analyze_{i}", False):
-                with st.spinner(f"'{found_comps[0][0]}' 차트 분석 중..."):
-                    res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
-                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
+            with st.spinner(f"'{q_name}'의 최근 6개월 리포트를 검색 중입니다..."):
+                history_df = get_stock_research_history(q_code)
                 
-    with news_sub2:
-        st.markdown("### 📋 당일 실시간 리포트 & 종목별 과거 리포트 검색")
-        
-        st.markdown("#### 🔍 특정 종목 리포트 검색 (최근 6개월)")
-        search_krx_df = get_krx_stocks()
-        if not search_krx_df.empty:
-            opts = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (search_krx_df['Name'].astype(str) + " (" + search_krx_df['Code'].astype(str) + ")").tolist()
-            report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts)
-            
-            if report_query != "선택 안함 (당일 전체 신규 리포트 보기)":
-                q_name = report_query.rsplit(" (", 1)[0]
-                q_code = report_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                
-                with st.spinner(f"'{q_name}'의 최근 6개월 리포트를 검색 중입니다..."):
-                    history_df = get_stock_research_history(q_code)
-                    
-                if not history_df.empty:
-                    st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
-                    display_history_df = history_df[['작성일', '증권사', '제목', '적정가격', '투자의견', '원문링크']].copy()
-                    display_history_df['적정가격'] = display_history_df['적정가격'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
-                    st.dataframe(
-                        display_history_df, 
-                        column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
-                        use_container_width=True, hide_index=True
-                    )
-                else:
-                    st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
-                
-                st.divider()
+            if not history_df.empty:
+                st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
+                display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
+                display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "원문 확인")
+                display_history_df['작성일'] = display_history_df['작성일'].dt.strftime('%y.%m.%d')
+                st.dataframe(
+                    display_history_df, 
+                    column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
+                    use_container_width=True, hide_index=True
+                )
+            else:
+                st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
+            st.divider()
 
-        st.markdown("#### 🆕 오늘의 전체 신규 리포트")
-        res_df = get_naver_research()
-        if not res_df.empty:
-            if api_key_input and st.button("🤖 AI 당일 리포트 종합 의견 및 섹터 요약", use_container_width=True, type="primary"):
-                with st.spinner("당일 발간된 리포트들을 분석하여 시장 분위기와 유망 섹터를 요약 중입니다..."):
-                    report_text = "\n".join([f"- [{r['증권사']}] {r['종목명']}: {r['제목']}" for _, r in res_df.head(30).iterrows()])
-                    prompt = f"당신은 증권사 리서치 센터장입니다. 오늘 발간된 다음 증권사 리포트 제목들을 분석하여, 1) 오늘 증권가가 가장 주목하는 핵심 섹터/테마 2개와 그 이유, 2) 시장의 전반적인 투자의견 요약을 마크다운으로 작성해주세요.\n\n[오늘의 리포트]\n{report_text}"
-                    st.info(ask_gemini(prompt, api_key_input), icon="💡")
-            
-            st.dataframe(
-                res_df, 
-                column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.error("❌ 리포트 데이터를 불러오지 못했습니다.")
+    st.markdown("### 🆕 오늘의 전체 신규 리포트")
+    res_df = get_naver_research()
+    if not res_df.empty:
+        if api_key_input and st.button("🤖 AI 당일 리포트 종합 의견 및 섹터 요약", use_container_width=True, type="primary"):
+            with st.spinner("당일 발간된 리포트들을 분석하여 시장 분위기와 유망 섹터를 요약 중입니다..."):
+                report_text = "\n".join([f"- [{r['증권사']}] {r['종목명']}: {r['제목']}" for _, r in res_df.head(30).iterrows()])
+                prompt = f"당신은 증권사 리서치 센터장입니다. 오늘 발간된 다음 증권사 리포트 제목들을 분석하여, 1) 오늘 증권가가 가장 주목하는 핵심 섹터/테마 2개와 그 이유, 2) 시장의 전반적인 투자의견 요약을 마크다운으로 작성해주세요.\n\n[오늘의 리포트]\n{report_text}"
+                st.info(ask_gemini(prompt, api_key_input), icon="💡")
+        
+        st.dataframe(
+            res_df, 
+            column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
+            use_container_width=True, hide_index=True
+        )
+    else:
+        st.error("❌ 리포트 데이터를 불러오지 못했습니다.")
 
 elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
     st.markdown("## 🔬 기업 정밀 진단 (차트/수급/비전 AI)")
@@ -2980,8 +2560,6 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
 
 elif selected_menu == "🎯 증권사 목표가 컨센서스":
     st.markdown("## 🎯 증권사 목표가 컨센서스 대시보드")
-    st.write("특정 종목에 대한 여러 증권사의 최근 6개월 목표가 추이와 투자의견 분포를 시각적으로 분석합니다.")
-    
     krx_df = get_krx_stocks()
     if not krx_df.empty:
         opts = ["🔍 종목을 선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
@@ -3025,7 +2603,6 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                     
                     with col_chart1:
                         st.markdown("#### 📈 목표주가 시계열 (최근 6개월)")
-                        # 💡 [버그 픽스] 이미 Date 형식이므로 변환 중복 에러 발생 안 함
                         valid_df = valid_df.sort_values('작성일')
                         fig_line = px.line(valid_df, x='작성일', y='목표가', color='증권사', markers=True, title=f"{q_name} 증권사별 목표가 추이", labels={"작성일": "발간일", "목표가": "목표주가 (원)"})
                         fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
@@ -3077,7 +2654,7 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
                 if us_results: st.session_state.dcf_us_results = us_results
                 else: st.error("검색 결과가 없습니다.")
             if "dcf_us_results" in st.session_state and st.session_state.dcf_us_results:
-                sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + st.session_state.dcf_us_results)
+                sel_us_opt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + st.session_state.dcf_us_results)
                 if sel_us_opt != "선택하세요":
                     selected_dcf_ticker = sel_us_opt.split(" ")[0]
                     selected_dcf_name = sel_us_opt.split(" (")[1].split(" /")[0]
