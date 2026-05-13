@@ -246,12 +246,25 @@ def get_naver_ipo_data():
             # 종목명 찾기 (주로 바로 위에 있는 제목 태그나, 리스트의 첫 번째 단어)
             name = "이름없음"
             name_tag = container.find_previous(['h3', 'h4', 'h5', 'strong'])
-            if name_tag: name = name_tag.get_text(strip=True)
+            if name_tag: name = name_tag.get_text(separator=' ', strip=True)
             elif text_tokens: name = text_tokens[0]
             name = re.sub(r'\[.*?\]', '', name).strip()
             
-            # 기본 데이터셋 준비
-            row_data = {'종목명': name, '청약일정': '-', '상장일': '-', '공모가': '-', '주관사': '-', '경쟁률': '-', '업종': '-'}
+            # 🔥 종목명에 붙어있는 시장 구분자(코스닥, 유가증권, 코넥스) 분리 로직
+            market = "-"
+            name_clean = name.strip()
+            if name_clean.startswith("코스닥"):
+                market = "코스닥"
+                name = name_clean[3:].strip()
+            elif name_clean.startswith("유가증권"):
+                market = "유가증권"
+                name = name_clean[4:].strip()
+            elif name_clean.startswith("코넥스"):
+                market = "코넥스"
+                name = name_clean[3:].strip()
+            
+            # 기본 데이터셋 준비 (시장 컬럼 추가)
+            row_data = {'시장': market, '종목명': name, '청약일정': '-', '상장일': '-', '공모가': '-', '주관사': '-', '경쟁률': '-', '업종': '-'}
             
             # 추출한 텍스트 토큰들 사이에서 키워드와 값을 매칭
             for i, token in enumerate(text_tokens):
@@ -284,7 +297,24 @@ def get_naver_ipo_data():
                 t = t[t[name_col].astype(str) != str(name_col)] 
                 
                 res_df = pd.DataFrame()
-                res_df['종목명'] = t[name_col]
+                
+                # 🔥 표 형태로 가져왔을 때도 종목명과 시장 분리
+                def extract_market(x):
+                    x_str = str(x).replace(" ", "")
+                    if x_str.startswith("코스닥"): return "코스닥"
+                    if x_str.startswith("유가증권"): return "유가증권"
+                    if x_str.startswith("코넥스"): return "코넥스"
+                    return "-"
+                    
+                def clean_name(x):
+                    x_str = str(x).strip()
+                    if x_str.startswith("코스닥"): return x_str[3:].strip()
+                    if x_str.startswith("유가증권"): return x_str[4:].strip()
+                    if x_str.startswith("코넥스"): return x_str[3:].strip()
+                    return x_str
+
+                res_df['시장'] = t[name_col].apply(extract_market)
+                res_df['종목명'] = t[name_col].apply(clean_name)
                 
                 for col in t.columns:
                     c_str = str(col).replace(' ', '')
@@ -313,6 +343,7 @@ def get_naver_ipo_data():
                 df = t.dropna(subset=['기업명', '공모청약일']).copy()
                 df = df[df['기업명'] != '기업명']
                 res_df = pd.DataFrame()
+                res_df['시장'] = "-" # 38 데이터는 시장이 명확히 안 나오므로 기본값
                 res_df['종목명'] = df['기업명']
                 res_df['청약일정'] = df['공모청약일']
                 res_df['상장일'] = "-"
