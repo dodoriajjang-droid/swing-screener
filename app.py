@@ -363,32 +363,59 @@ def get_dividend_portfolio(ex_rate):
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     try:
+        # 💡 [버그 픽스] KOSPI/KOSDAQ 구분 없이 정확한 현재가를 먼저 가져오도록 이중 방어 로직 적용
+        current_price = 0
+        try:
+            # 1순위: FinanceDataReader를 통해 최근 7일 중 가장 최근 종가 추출
+            df = fdr.DataReader(code, (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
+            if not df.empty:
+                current_price = float(df['Close'].iloc[-1])
+        except Exception:
+            pass
+            
+        if current_price == 0:
+            # 2순위: 네이버 금융 실시간 크롤링 (fdr 실패 시 방어)
+            try:
+                url = f"https://finance.naver.com/item/main.naver?code={code}"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                price_str = soup.select_one('.no_today .blind').text.replace(',', '')
+                current_price = float(price_str)
+            except Exception:
+                current_price = 50000 # 최후의 안전장치
+
+        # 증권사 목표가 컨센서스 추출 시도
         _, _, _, _, target_price_str = get_fundamentals(code)
         target_price = int(str(target_price_str).replace(',', '')) if str(target_price_str).replace(',', '').isdigit() else 0
         
+        # 수집된 목표가가 없을 경우, 실제 현재가의 1.1배 ~ 1.3배 수준으로 현실적인 시뮬레이션 목표가 설정
         if target_price == 0:
-            try:
-                current_price = float(yf.Ticker(f"{code}.KS").info.get('currentPrice', 50000))
-                target_price = int(current_price * 1.2)
-            except:
-                target_price = 50000
+            target_price = int(current_price * 1.2)
 
-        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권", "신한투자증권", "대신증권"]
+        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권", "신한투자증권", "대신증권", "유안타증권", "교보증권"]
         opinions = ["Buy", "매수", "강력매수", "Hold", "Buy", "Buy", "매수"]
         
         rows = []
         now = datetime.now()
         np.random.seed(int(code) if code.isdigit() else 42) 
         
-        for i in range(np.random.randint(10, 20)):
+        for i in range(np.random.randint(10, 25)):
             days_ago = np.random.randint(1, 180)
             date = now - timedelta(days=days_ago)
             broker = np.random.choice(brokers)
             opinion = np.random.choice(opinions)
             
+            # 현재 목표가 기준으로 -15% ~ +15% 사이의 노이즈 발생
             noise = np.random.uniform(-0.15, 0.15)
             mock_price = int(target_price * (1 + noise))
-            mock_price = round(mock_price / 500) * 500 
+            
+            # 💡 [디테일 추가] 주식 가격대별 호가 단위(Tick Size)에 맞게 자연스러운 반올림 처리
+            if mock_price < 2000: mock_price = round(mock_price / 5) * 5
+            elif mock_price < 5000: mock_price = round(mock_price / 10) * 10
+            elif mock_price < 20000: mock_price = round(mock_price / 50) * 50
+            elif mock_price < 50000: mock_price = round(mock_price / 100) * 100
+            elif mock_price < 200000: mock_price = round(mock_price / 500) * 500
+            else: mock_price = round(mock_price / 1000) * 1000
             
             rows.append({
                 "종목명": stock_name if stock_name else code,
