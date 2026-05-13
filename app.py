@@ -363,22 +363,7 @@ def get_dividend_portfolio(ex_rate):
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     try:
-        # 1. 정확한 현재가를 가져오는 로직 (목표가 가공용)
-        current_price = 0
-        try:
-            df = fdr.DataReader(code, (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
-            if not df.empty: current_price = float(df['Close'].iloc[-1])
-        except Exception: pass
-            
-        if current_price == 0:
-            try:
-                url = f"https://finance.naver.com/item/main.naver?code={code}"
-                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-                soup = BeautifulSoup(res.text, 'html.parser')
-                current_price = float(soup.select_one('.no_today .blind').text.replace(',', ''))
-            except Exception: current_price = 50000
-
-        # 2. 🔥 실제 네이버 증권 해당 종목 리포트 목록 크롤링
+        # 1. 🔥 실제 네이버 증권 해당 종목 리포트 목록 크롤링
         search_url = f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}"
         res = requests.get(search_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
@@ -394,35 +379,45 @@ def get_stock_research_history(code, stock_name=""):
                     title_tag = tds[1].find('a')
                     if not title_tag: continue
                     
-                    # 실제 데이터 추출 (제목, 진짜 개별 링크, 증권사, 날짜)
+                    # 리스트 표에서 기본 정보 추출
                     real_title = title_tag.text.strip()
                     real_link = "https://finance.naver.com/research/" + title_tag['href']
                     real_broker = tds[2].text.strip()
                     real_date = tds[4].text.strip()
                     
-                    # 3. 목표가 및 투자의견 연산 (리스트 표면에는 없으므로 현재가 기반 논리적 생성)
-                    np.random.seed(int(code) + len(rows)) # 고정 시드이나 row마다 다르게
-                    mock_price = int(current_price * np.random.uniform(0.95, 1.40))
+                    # 2. 🔥 개별 리포트 원문 페이지로 들어가서 '실제' 목표가와 투자의견 파싱
+                    real_price = 0
+                    real_opinion = "-"
                     
-                    # 호가 단위 반올림
-                    if mock_price < 5000: mock_price = round(mock_price / 10) * 10
-                    elif mock_price < 50000: mock_price = round(mock_price / 50) * 50
-                    elif mock_price < 100000: mock_price = round(mock_price / 100) * 100
-                    else: mock_price = round(mock_price / 500) * 500
-                    
-                    if mock_price >= current_price * 1.20:
-                        opinion = np.random.choice(["Buy", "강력매수"])
-                    elif mock_price >= current_price * 1.05:
-                        opinion = "Buy"
-                    else:
-                        opinion = "Hold"
+                    try:
+                        # 잦은 크롤링 요청으로 인한 IP 차단 방지를 위해 0.1초 딜레이
+                        time.sleep(0.1) 
+                        detail_res = requests.get(real_link, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                        detail_soup = BeautifulSoup(detail_res.content.decode('euc-kr', 'replace'), 'html.parser')
+                        
+                        # 페이지 전체 텍스트에서 정규식을 이용해 목표가와 투자의견 추출
+                        detail_text = detail_soup.get_text(separator=' ', strip=True)
+                        
+                        # "목표가 1,000,000" 형태에서 숫자만 추출
+                        price_match = re.search(r'목표가\s*([0-9,]+)', detail_text)
+                        if price_match:
+                            real_price = int(price_match.group(1).replace(',', ''))
+                            
+                        # "투자의견 Buy" 또는 "투자의견 매수" 형태에서 단어 추출
+                        opinion_match = re.search(r'투자의견\s*([A-Za-z가-힣]+)', detail_text)
+                        if opinion_match:
+                            real_opinion = opinion_match.group(1).strip()
+                            
+                    except Exception:
+                        # 개별 페이지 접속 실패 시 기본값(목표가 0, 투자의견 "-") 유지 (에러 방지)
+                        pass 
                         
                     rows.append({
                         "종목명": stock_name if stock_name else code,
                         "제목": real_title,
                         "증권사": real_broker,
-                        "적정가격": mock_price,
-                        "투자의견": opinion,
+                        "적정가격": real_price, # 0일 경우 UI 표출단에서 자동으로 "-" 로 변환됨
+                        "투자의견": real_opinion,
                         "작성일": real_date,
                         "원문링크": real_link
                     })
@@ -430,9 +425,9 @@ def get_stock_research_history(code, stock_name=""):
         if rows:
             return pd.DataFrame(rows)
         else:
-            return pd.DataFrame() # 리포트가 없는 경우 빈 표 반환
+            return pd.DataFrame()
             
-    except Exception as e: 
+    except Exception: 
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
