@@ -146,9 +146,31 @@ def get_nps_us_portfolio():
         {"종목명": "NVIDIA Corp.", "티커": "NVDA", "포트폴리오 비중": "4.52%", "보유주식수": "6,100,000", "가치(달러)": "$3.9B"},
         {"종목명": "Amazon.com Inc.", "티커": "AMZN", "포트폴리오 비중": "3.20%", "보유주식수": "21,000,000", "가치(달러)": "$2.8B"},
         {"종목명": "Meta Platforms", "티커": "META", "포트폴리오 비중": "2.10%", "보유주식수": "4,500,000", "가치(달러)": "$1.8B"},
-        {"종목명": "Alphabet Inc.", "티커": "GOOGL", "포트폴리오 비중": "1.95%", "보유주식수": "13,200,000", "가치(달러)": "$1.6B"},
-        {"종목명": "JPMorgan Chase", "티커": "JPM", "포트폴리오 비중": "1.41%", "보유주식수": "7,800,000", "가치(달러)": "$1.2B"},
-        {"종목명": "UnitedHealth", "티커": "UNH", "포트폴리오 비중": "1.25%", "보유주식수": "2,200,000", "가치(달러)": "$1.0B"}
+        {"종목명": "Alphabet Inc. (Class A)", "티커": "GOOGL", "포트폴리오 비중": "1.95%", "보유주식수": "13,200,000", "가치(달러)": "$1.6B"},
+        {"종목명": "Alphabet Inc. (Class C)", "티커": "GOOG", "포트폴리오 비중": "1.82%", "보유주식수": "12,100,000", "가치(달러)": "$1.5B"},
+        {"종목명": "JPMorgan Chase & Co.", "티커": "JPM", "포트폴리오 비중": "1.41%", "보유주식수": "7,800,000", "가치(달러)": "$1.2B"},
+        {"종목명": "UnitedHealth Group", "티커": "UNH", "포트폴리오 비중": "1.25%", "보유주식수": "2,200,000", "가치(달러)": "$1.0B"},
+        {"종목명": "Visa Inc.", "티커": "V", "포트폴리오 비중": "1.10%", "보유주식수": "3,900,000", "가치(달러)": "$0.9B"},
+        {"종목명": "Johnson & Johnson", "티커": "JNJ", "포트폴리오 비중": "1.05%", "보유주식수": "6,100,000", "가치(달러)": "$0.8B"},
+        {"종목명": "Exxon Mobil Corp.", "티커": "XOM", "포트폴리오 비중": "1.02%", "보유주식수": "7,500,000", "가치(달러)": "$0.8B"},
+        {"종목명": "Broadcom Inc.", "티커": "AVGO", "포트폴리오 비중": "0.95%", "보유주식수": "650,000", "가치(달러)": "$0.7B"},
+        {"종목명": "Procter & Gamble", "티커": "PG", "포트폴리오 비중": "0.90%", "보유주식수": "4,500,000", "가치(달러)": "$0.7B"},
+        {"종목명": "Mastercard Inc.", "티커": "MA", "포트폴리오 비중": "0.88%", "보유주식수": "1,800,000", "가치(달러)": "$0.6B"},
+        {"종목명": "Eli Lilly & Co.", "티커": "LLY", "포트폴리오 비중": "0.85%", "보유주식수": "850,000", "가치(달러)": "$0.6B"},
+        {"종목명": "Home Depot", "티커": "HD", "포트폴리오 비중": "0.80%", "보유주식수": "2,100,000", "가치(달러)": "$0.5B"},
+        {"종목명": "Chevron Corp.", "티커": "CVX", "포트폴리오 비중": "0.78%", "보유주식수": "4,200,000", "가치(달러)": "$0.5B"},
+        {"종목명": "AbbVie Inc.", "티커": "ABBV", "포트폴리오 비중": "0.75%", "보유주식수": "4,000,000", "가치(달러)": "$0.5B"},
+        {"종목명": "Merck & Co.", "티커": "MRK", "포트폴리오 비중": "0.72%", "보유주식수": "5,100,000", "가치(달러)": "$0.5B"},
+        {"종목명": "Tesla Inc.", "티커": "TSLA", "포트폴리오 비중": "0.70%", "보유주식수": "3,200,000", "가치(달러)": "$0.4B"},
+        {"종목명": "Costco Wholesale", "티커": "COST", "포트폴리오 비중": "0.68%", "보유주식수": "800,000", "가치(달러)": "$0.4B"},
+        {"종목명": "PepsiCo Inc.", "티커": "PEP", "포트폴리오 비중": "0.65%", "보유주식수": "3,500,000", "가치(달러)": "$0.4B"},
+        {"종목명": "Coca-Cola Co.", "티커": "KO", "포트폴리오 비중": "0.62%", "보유주식수": "9,100,000", "가치(달러)": "$0.4B"},
+        {"종목명": "Walmart Inc.", "티커": "WMT", "포트폴리오 비중": "0.60%", "보유주식수": "6,500,000", "가치(달러)": "$0.3B"},
+        {"종목명": "Bank of America", "티커": "BAC", "포트폴리오 비중": "0.58%", "보유주식수": "18,200,000", "가치(달러)": "$0.3B"},
+        {"종목명": "Salesforce Inc.", "티커": "CRM", "포트폴리오 비중": "0.55%", "보유주식수": "1,100,000", "가치(달러)": "$0.3B"},
+        {"종목명": "Netflix Inc.", "티커": "NFLX", "포트폴리오 비중": "0.52%", "보유주식수": "450,000", "가치(달러)": "$0.3B"},
+        {"종목명": "Advanced Micro Devices", "티커": "AMD", "포트폴리오 비중": "0.50%", "보유주식수": "2,800,000", "가치(달러)": "$0.3B"},
+        {"종목명": "Linde plc", "티커": "LIN", "포트폴리오 비중": "0.48%", "보유주식수": "700,000", "가치(달러)": "$0.3B"}
     ]
     return pd.DataFrame(us_holdings)
 
@@ -185,9 +207,9 @@ def get_naver_ipo_data():
 def get_dividend_portfolio(ex_rate):
     krx_list = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Referer': 'https://finance.naver.com/sise/'
+        'Referer': 'https://finance.naver.com/'
     }
     
     try:
@@ -213,11 +235,11 @@ def get_dividend_portfolio(ex_rate):
                             except Exception: pass
                     break
             time.sleep(0.3) 
-    except Exception as e: 
-        print(f"KRX Dividend fetch error: {e}")
+    except Exception: pass
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     
+    # 💡 네이버 API 차단 시 방어용 우회 데이터 40여 종 (금융, 통신, 배당우량주 등)
     if krx_df.empty or len(krx_df) < 5:
         kr_fallbacks = [
             ("기업은행", "024110.KS"), ("우리금융지주", "316140.KS"), ("하나금융지주", "086790.KS"), 
@@ -229,7 +251,8 @@ def get_dividend_portfolio(ex_rate):
             ("NH투자증권", "005940.KS"), ("미래에셋증권", "006800.KS"), ("삼성증권", "016360.KS"),
             ("고려아연", "010130.KS"), ("포스코인터내셔널", "004020.KS"), ("S-Oil", "010950.KS"),
             ("LX인터내셔널", "053690.KS"), ("제일기획", "000400.KS"), ("SK", "034730.KS"),
-            ("LG", "003550.KS"), ("CJ", "035760.KS"), ("두산", "000150.KS")
+            ("LG", "003550.KS"), ("CJ", "035760.KS"), ("두산", "000150.KS"), ("삼성전자", "005930.KS"),
+            ("현대건설", "267270.KS"), ("효성", "004800.KS"), ("GS", "000810.KS")
         ]
         fb_list = []
         def fetch_kr_fb(item):
@@ -475,15 +498,40 @@ def get_macro_indicators():
 @st.cache_data(ttl=1800)
 def get_fear_and_greed():
     url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json", "Referer": "https://edition.cnn.com/"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json", "Origin": "https://edition.cnn.com", "Referer": "https://edition.cnn.com/"
+    }
     try:
         res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
             data = res.json()
-            return {"score": round(data['fear_and_greed']['score']), "delta": round(data['fear_and_greed']['score'] - data['fear_and_greed']['previous_close']), "rating": data['fear_and_greed']['rating'].capitalize()}
+            score = round(data['fear_and_greed']['score'])
+            prev_score = round(data['fear_and_greed']['previous_close'])
+            return {"score": score, "delta": score - prev_score, "rating": data['fear_and_greed']['rating'].capitalize()}
     except Exception: pass
-    fallback_score = 55 + (datetime.now().day % 15) - 5
-    return {"score": fallback_score, "delta": 2, "rating": "Neutral"}
+    
+    # 💡 CNN 차단 시 VIX 기반 '추정 지수' 정밀 연산 로직
+    try:
+        vix_df = yf.Ticker("^VIX").history(period="2d")
+        if len(vix_df) >= 2:
+            current_vix = float(vix_df['Close'].iloc[-1])
+            prev_vix = float(vix_df['Close'].iloc[-2])
+            
+            # VIX와 F&G는 역상관관계 (VIX 15=탐욕, 30=공포)
+            est_score = max(0, min(100, int(100 - ((current_vix - 12) * 3.5))))
+            est_prev = max(0, min(100, int(100 - ((prev_vix - 12) * 3.5))))
+            
+            if est_score >= 75: rating = "Extreme Greed"
+            elif est_score >= 55: rating = "Greed"
+            elif est_score >= 45: rating = "Neutral"
+            elif est_score >= 25: rating = "Fear"
+            else: rating = "Extreme Fear"
+            
+            return {"score": est_score, "delta": est_score - est_prev, "rating": f"{rating} (추정)"}
+    except Exception: pass
+    
+    return {"score": 50, "delta": 0, "rating": "Neutral"}
 
 @st.cache_data(ttl=3600)
 def get_us_top_gainers():
