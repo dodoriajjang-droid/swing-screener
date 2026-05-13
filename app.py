@@ -667,8 +667,7 @@ def get_krx_stocks():
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
     except Exception: pass
 
-    # 3순위: 라이브러리 완전 먹통 시 흰 화면(에러) 방지용 안전장치
-    st.toast("⚠️ 한국거래소(KRX) 데이터를 불러오지 못해 필수 종목만 표시됩니다.")
+    # 3순위: 라이브러리 완전 먹통 시 흰 화면(에러) 방지용 안전장치 (UI 알림 제거)
     return pd.DataFrame([
         {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
         {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
