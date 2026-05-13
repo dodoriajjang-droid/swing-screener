@@ -373,9 +373,7 @@ def get_stock_research_history(code, stock_name=""):
             soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
             table = soup.find('table', {'class': 'type_1'})
             
-            # 💡 [핵심 방어 1] 표를 찾지 못했을 때 에러 발생 원천 차단 (이 부분이 빠져서 에러가 났습니다)
-            if not table: 
-                break
+            if not table: break
                 
             trs = table.find_all('tr')
             page_has_data = False
@@ -383,8 +381,8 @@ def get_stock_research_history(code, stock_name=""):
             for tr in trs:
                 tds = tr.find_all('td')
                 
-                # 💡 [핵심 방어 2] 컬럼이 7개 이상일 때만 작동 (첨부파일 컬럼 밀림 현상 해결)
-                if len(tds) >= 7: 
+                # 💡 [수정] 네이버 금융 리포트 게시판의 실제 컬럼(6개)에 맞게 파싱 
+                if len(tds) >= 6: 
                     name = tds[0].get_text(strip=True)
                     if not name: continue
                     
@@ -393,21 +391,15 @@ def get_stock_research_history(code, stock_name=""):
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
                     broker = tds[2].get_text(strip=True)
                     
-                    # 목표가 1순위: 제목에서 영끌 추출
                     target_price = 0
                     if title:
                         match = re.search(r'목표(?:주)?가[^\d]*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)', title)
                         if match:
                             extracted = match.group(1).replace(',', '')
                             if extracted.isdigit(): target_price = int(extracted)
-                            
-                    # 목표가 2순위: 4번째 칸에서 숫자만 추출 (첨부파일로 인해 인덱스 tds[3] -> tds[4]로 변경)
-                    if target_price == 0:
-                        raw_price = re.sub(r'[^\d]', '', tds[4].get_text(strip=True)) 
-                        target_price = int(raw_price) if raw_price else 0
-
-                    opinion = tds[5].get_text(strip=True)   # tds[5] (투자의견)
-                    date_str = tds[6].get_text(strip=True)  # tds[6] (작성일)
+                    
+                    opinion = "Buy" if target_price > 0 else "-" 
+                    date_str = tds[4].get_text(strip=True) # 💡 작성일은 5번째 컬럼 (tds[4])
                     
                     try:
                         if len(date_str.split('.')[0]) == 4:
@@ -429,7 +421,6 @@ def get_stock_research_history(code, stock_name=""):
                     
             if not page_has_data: break
             time.sleep(0.1)
-            
     except Exception as e:
         print(f"Research fetch error: {e}")
         
@@ -2756,79 +2747,117 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
 
 elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
+    
+    # 💡 하드코딩 제거를 위한 새로운 종목별 뉴스 검색 함수 추가
+    @st.cache_data(ttl=120)
+    def get_stock_specific_news(code):
+        articles = []
+        try:
+            url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+            for tr in soup.select("table.type5 tbody tr"):
+                if 'class' in tr.attrs and 'relation_tit' in tr['class']: continue
+                title_td = tr.select_one("td.title a")
+                if title_td:
+                    title = title_td.get_text(strip=True)
+                    link = "https://finance.naver.com" + title_td['href']
+                    date_td = tr.select_one("td.date")
+                    pub_time = date_td.get_text(strip=True) if date_td else ""
+                    articles.append({"title": title, "link": link, "time": pub_time})
+        except Exception: pass
+        return articles
+
     news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트 검색"])
     
     with news_sub1:
-        if st.button("🔄 속보 리로드"): 
-            st.session_state.news_data = []
-            st.session_state.seen_links = set()
-            st.session_state.seen_titles = set()
-            get_latest_naver_news.clear()
-            st.rerun()
-        with st.spinner("뉴스를 불러오는 중..."): update_news_state()
+        st.markdown("#### 🔍 종목별 실시간 속보 검색")
+        krx_df = get_krx_stocks()
+        opts = ["전체 시장 속보 보기"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist() if not krx_df.empty else ["전체 시장 속보 보기"]
         
-        krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
-        news_aliases = {"삼전": ("삼성전자", "005930"), "하이닉스": ("SK하이닉스", "000660"), "현차": ("현대차", "005380"), "엔솔": ("LG에너지솔루션", "373220")}
+        col_n1, col_n2 = st.columns([8, 2])
+        with col_n1:
+            news_query = st.selectbox("뉴스를 검색할 종목을 선택하세요:", opts, label_visibility="collapsed")
+        with col_n2:
+            if st.button("🔄 속보 리로드", use_container_width=True): 
+                st.session_state.news_data = []
+                st.session_state.seen_links = set()
+                st.session_state.seen_titles = set()
+                get_latest_naver_news.clear()
+                get_stock_specific_news.clear()
+                st.rerun()
+        
+        if news_query == "전체 시장 속보 보기":
+            with st.spinner("전체 시장 뉴스를 불러오는 중..."): 
+                update_news_state()
+                news_list = st.session_state.news_data[:50]
+        else:
+            q_name = news_query.rsplit(" (", 1)[0]
+            q_code = news_query.rsplit("(", 1)[-1].replace(")", "").strip()
+            with st.spinner(f"'{q_name}' 관련 실시간 뉴스를 불러오는 중..."):
+                news_list = get_stock_specific_news(q_code)
+
+        krx_dict = {row['Name']: row['Code'] for _, row in krx_df.iterrows() if len(str(row['Name'])) > 1}
         sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
         
-        for i, news in enumerate(st.session_state.news_data[:50]):
-            title = news['title']
-            found_comps = []
-            for alias, (real_name, fallback_code) in news_aliases.items():
-                if alias in title:
-                    found_comps.append((real_name, krx_dict.get(real_name, fallback_code)))
-                    break
-            if not found_comps:
-                for name in sorted_names:
-                    if name in title:
-                        found_comps.append((name, krx_dict[name]))
-                        break 
-            
-            with st.container(border=True):
-                cols = st.columns([1, 6, 2, 1])
-                cols[0].markdown(f"**🕒 {news['time']}**")
-                cols[1].markdown(f"{title}")
-                with cols[2]:
-                    if found_comps:
-                        if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{i}"):
-                            st.session_state[f"news_analyze_{i}"] = not st.session_state.get(f"news_analyze_{i}", False)
-                cols[3].link_button("원문🔗", news['link'])
-            
-            if st.session_state.get(f"news_analyze_{i}", False):
-                with st.spinner(f"'{found_comps[0][0]}' 차트 분석 중..."):
-                    res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
-                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
+        if not news_list:
+            st.info("해당 종목의 최근 뉴스가 없습니다.")
+        else:
+            for i, news in enumerate(news_list):
+                title = news['title']
+                found_comps = []
                 
+                if news_query != "전체 시장 속보 보기":
+                    found_comps.append((q_name, q_code))
+                else:
+                    for name in sorted_names:
+                        if name in title:
+                            found_comps.append((name, krx_dict[name]))
+                            break 
+                            
+                with st.container(border=True):
+                    cols = st.columns([1, 6, 2, 1])
+                    cols[0].markdown(f"**🕒 {news['time']}**")
+                    cols[1].markdown(f"{title}")
+                    with cols[2]:
+                        if found_comps:
+                            if st.button(f"🔍 {found_comps[0][0]} 분석", key=f"qa_{news_query}_{i}"):
+                                st.session_state[f"news_analyze_{i}"] = not st.session_state.get(f"news_analyze_{i}", False)
+                    cols[3].link_button("원문🔗", news['link'])
+                
+                if st.session_state.get(f"news_analyze_{i}", False) and found_comps:
+                    with st.spinner(f"'{found_comps[0][0]}' 차트 분석 중..."):
+                        res = analyze_technical_pattern(found_comps[0][0], found_comps[0][1])
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix=f"news_qa_{i}")
+                        
     with news_sub2:
         st.markdown("### 📋 당일 실시간 리포트 & 종목별 과거 리포트 검색")
-        
         st.markdown("#### 🔍 특정 종목 리포트 검색 (최근 6개월)")
-        search_krx_df = get_krx_stocks()
-        if not search_krx_df.empty:
-            opts = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (search_krx_df['Name'].astype(str) + " (" + search_krx_df['Code'].astype(str) + ")").tolist()
-            report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts)
+        if not krx_df.empty:
+            opts_rep = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+            report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts_rep)
             
-        if report_query != "선택 안함 (당일 전체 신규 리포트 보기)":
-                    q_name = report_query.rsplit(" (", 1)[0]
-                    q_code = report_query.rsplit("(", 1)[-1].replace(")", "").strip()
+            if report_query != "선택 안함 (당일 전체 신규 리포트 보기)":
+                q_name = report_query.rsplit(" (", 1)[0]
+                q_code = report_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                
+                with st.spinner(f"'{q_name}'의 최근 6개월 리포트를 검색 중입니다..."):
+                    history_df = get_stock_research_history(q_code)
                     
-                    with st.spinner(f"'{q_name}'의 최근 6개월 리포트를 검색 중입니다..."):
-                        history_df = get_stock_research_history(q_code)
-                        
-                    if not history_df.empty:
-                        st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
-                        display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
-                        display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
-                        
-                        st.dataframe(
-                            display_history_df, 
-                            column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
-                            use_container_width=True, hide_index=True
-                        )
-                    else:
-                        st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
-                        
-                    st.divider()
+                if not history_df.empty:
+                    st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
+                    display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
+                    display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
+                    
+                    st.dataframe(
+                        display_history_df, 
+                        column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
+                    
+                st.divider()
 
         st.markdown("#### 🆕 오늘의 전체 신규 리포트")
         res_df = get_naver_research()
