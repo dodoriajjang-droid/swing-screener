@@ -225,50 +225,102 @@ def get_naver_ipo_data():
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        # 네이버 금융의 표준 인코딩(euc-kr) 적용
-        tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
+        html_text = res.content.decode('euc-kr', 'replace')
         
+        # 1. 🔥 가장 강력한 BeautifulSoup 텍스트 파싱 (표 형태가 깨져있어도 텍스트만 있으면 추출)
+        soup = BeautifulSoup(html_text, 'html.parser')
+        rows = []
+        
+        # '공모가' 또는 '상장일' 텍스트를 포함하는 가장 가까운 영역을 찾음
+        for tag in soup.find_all(string=re.compile('공모가|상장일')):
+            container = tag.find_parent(['table', 'tbody', 'dl', 'ul', 'div'])
+            if not container or getattr(container, 'processed', False): continue
+            
+            # 페이지 전체를 감싸는 너무 큰 껍데기 영역은 스킵
+            if len(container.get_text()) > 1000: continue
+            
+            # 중복 파싱 방지
+            container.processed = True
+            text_tokens = [t.strip() for t in container.stripped_strings if t.strip()]
+            
+            # 종목명 찾기 (주로 바로 위에 있는 제목 태그나, 리스트의 첫 번째 단어)
+            name = "이름없음"
+            name_tag = container.find_previous(['h3', 'h4', 'h5', 'strong'])
+            if name_tag: name = name_tag.get_text(strip=True)
+            elif text_tokens: name = text_tokens[0]
+            name = re.sub(r'\[.*?\]', '', name).strip()
+            
+            # 기본 데이터셋 준비
+            row_data = {'종목명': name, '청약일정': '-', '상장일': '-', '공모가': '-', '주관사': '-', '경쟁률': '-', '업종': '-'}
+            
+            # 추출한 텍스트 토큰들 사이에서 키워드와 값을 매칭
+            for i, token in enumerate(text_tokens):
+                for key, mapped_key in [('공모가', '공모가'), ('업종', '업종'), ('주관사', '주관사'), ('주간사', '주관사'), 
+                                        ('경쟁률', '경쟁률'), ('개인청약', '청약일정'), ('청약일', '청약일정'), ('상장일', '상장일')]:
+                    if key in token:
+                        val = token.replace(key, '', 1).replace(':', '').strip()
+                        if val: row_data[mapped_key] = val
+                        elif i + 1 < len(text_tokens): row_data[mapped_key] = text_tokens[i+1]
+                        
+            # 공모가나 상장일 데이터가 하나라도 있으면 정상적인 데이터로 간주하고 저장
+            if row_data['공모가'] != '-' or row_data['상장일'] != '-':
+                rows.append(row_data)
+                
+        if rows:
+            return pd.DataFrame(rows).head(15)
+            
+        # 2. ⚡ 위 방법이 실패했을 경우, pandas의 기본 표 추출 방식으로 우회 (폴백 로직)
+        tables = pd.read_html(StringIO(html_text))
         for t in tables:
-            # 종목명(또는 기업명)이 포함된 메인 IPO 테이블 찾기
-            if '종목명' in t.columns or '기업명' in t.columns:
-                name_col = '종목명' if '종목명' in t.columns else '기업명'
-                df = t.dropna(subset=[name_col]).copy()
-                df = df[df[name_col] != name_col] # 헤더 중복행 제거
+            t_str = t.to_string()
+            if '공모가' in t_str and ('청약' in t_str or '상장일' in t_str):
+                # 헤더에 이름이 명확하지 않은 경우 첫 번째 컬럼을 종목명으로 강제 지정
+                name_col = None
+                for c in t.columns:
+                    if any(k in str(c) for k in ['종목', '기업', '회사']): name_col = c; break
+                if not name_col: name_col = t.columns[0] 
+                
+                t = t.dropna(subset=[name_col]).copy()
+                t = t[t[name_col].astype(str) != str(name_col)] 
                 
                 res_df = pd.DataFrame()
-                res_df['종목명'] = df[name_col]
+                res_df['종목명'] = t[name_col]
                 
-                # 💡 첨부해주신 이미지의 필드들을 유연하게 매핑 (데이터가 비어있을 경우 '-' 처리)
-                
-                # 1. 청약 일정 (AI 분석 프롬프트 호환을 위해 컬럼명 '청약일정' 유지)
-                if '개인청약' in df.columns: res_df['청약일정'] = df['개인청약']
-                elif '청약일정' in df.columns: res_df['청약일정'] = df['청약일정']
-                else: res_df['청약일정'] = "-"
-                
-                # 2. 상장일
-                res_df['상장일'] = df['상장일'] if '상장일' in df.columns else "-"
-                
-                # 3. 공모가
-                if '공모가' in df.columns: res_df['공모가'] = df['공모가']
-                elif '확정공모가' in df.columns: res_df['공모가'] = df['확정공모가']
-                else: res_df['공모가'] = "-"
-                
-                # 4. 주관사
-                if '주관사' in df.columns: res_df['주관사'] = df['주관사']
-                elif '주간사' in df.columns: res_df['주관사'] = df['주간사']
-                else: res_df['주관사'] = "-"
-                
-                # 5. 개인청약경쟁률
-                if '개인청약경쟁률' in df.columns: res_df['경쟁률'] = df['개인청약경쟁률']
-                elif '청약경쟁률' in df.columns: res_df['경쟁률'] = df['청약경쟁률']
-                else: res_df['경쟁률'] = "-"
-                
-                # 6. 업종
-                res_df['업종'] = df['업종'] if '업종' in df.columns else "-"
-                
-                if not res_df.empty: 
-                    return res_df.head(15).reset_index(drop=True)
+                for col in t.columns:
+                    c_str = str(col).replace(' ', '')
+                    if '청약' in c_str: res_df['청약일정'] = t[col]
+                    elif '상장일' in c_str: res_df['상장일'] = t[col]
+                    elif '공모가' in c_str: res_df['공모가'] = t[col]
+                    elif '주관' in c_str or '주간' in c_str: res_df['주관사'] = t[col]
+                    elif '경쟁률' in c_str: res_df['경쟁률'] = t[col]
+                    elif '업종' in c_str: res_df['업종'] = t[col]
                     
+                for req_col in ['청약일정', '상장일', '공모가', '주관사', '경쟁률', '업종']:
+                    if req_col not in res_df.columns: res_df[req_col] = '-'
+                    
+                return res_df.head(15).reset_index(drop=True)
+
+    except Exception: pass
+    
+    # 3. 🛡️ 네이버 금융 IP 차단 등 궁극의 에러 시 38.co.kr 백업 데이터 호출 (앱 튕김 방지)
+    try:
+        url = "http://www.38.co.kr/html/fund/index.htm?o=k"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        res.encoding = 'euc-kr'
+        tables = pd.read_html(StringIO(res.text))
+        for t in tables:
+            if '기업명' in t.columns and '공모청약일' in t.columns:
+                df = t.dropna(subset=['기업명', '공모청약일']).copy()
+                df = df[df['기업명'] != '기업명']
+                res_df = pd.DataFrame()
+                res_df['종목명'] = df['기업명']
+                res_df['청약일정'] = df['공모청약일']
+                res_df['상장일'] = "-"
+                res_df['공모가'] = df['확정공모가'] if '확정공모가' in df.columns else "-"
+                res_df['주관사'] = df['주간사'] if '주간사' in df.columns else "-"
+                res_df['경쟁률'] = "-"
+                res_df['업종'] = "-"
+                if not res_df.empty: return res_df.head(15).reset_index(drop=True)
     except Exception: pass
     
     return pd.DataFrame()
