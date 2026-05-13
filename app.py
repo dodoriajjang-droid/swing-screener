@@ -408,9 +408,6 @@ def get_stock_research_history(code, stock_name=""):
             else:
                 opinion = "Hold"
                 
-            # 4. 가상의 리포트 ID(nid) 생성
-            mock_nid = np.random.randint(70000, 99999)
-            
             rows.append({
                 "종목명": stock_name if stock_name else code,
                 "제목": f"[{selected_broker}] 목표가 {mock_price:,}원 제시",
@@ -418,8 +415,8 @@ def get_stock_research_history(code, stock_name=""):
                 "적정가격": mock_price,
                 "투자의견": opinion,
                 "작성일": date.strftime("%y.%m.%d"),
-                # 5. URL 수정: 알려주신 개별 리포트(company_read) 형식 완벽 적용
-                "원문링크": f"https://finance.naver.com/research/company_read.naver?nid={mock_nid}&page=1&searchType=itemCode&itemCode={code}"
+                # 4. URL 수정: 임의의 nid 부여로 인한 오류를 막기 위해, 해당 종목의 '실제' 리포트가 모여있는 검색 결과 목록으로 연결
+                "원문링크": f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}"
             })
             
         return pd.DataFrame(rows).sort_values('작성일', ascending=False)
