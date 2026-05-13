@@ -379,7 +379,7 @@ def get_stock_research_history(code, stock_name=""):
             page_has_data = False
             for tr in trs:
                 tds = tr.find_all('td')
-                if len(tds) >= 6:
+                if len(tds) >= 7: # 💡 6에서 7로 수정 (첨부파일 컬럼 포함 7개 이상)
                     name = tds[0].get_text(strip=True)
                     if not name: continue
                     
@@ -388,7 +388,7 @@ def get_stock_research_history(code, stock_name=""):
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
                     broker = tds[2].get_text(strip=True)
                     
-                    # ⬇️ 이렇게 수정하세요 (정규식 및 예외처리 강화) ⬇️
+                    # 목표가 1순위: 리포트 제목에서 영끌 추출
                     target_price = 0
                     if title:
                         match = re.search(r'목표(?:주)?가[^\d]*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)', title)
@@ -396,13 +396,13 @@ def get_stock_research_history(code, stock_name=""):
                             extracted = match.group(1).replace(',', '')
                             if extracted.isdigit(): target_price = int(extracted)
                             
-                    # 2순위: 제목에 목표가가 없다면, 기존 '적정가격' 컬럼의 숫자 사용
+                    # 💡 [핵심 수정] 2순위: 인덱스를 1칸씩 뒤로 미룸 (tds[3]은 첨부파일 아이콘임)
                     if target_price == 0:
-                        raw_price = re.sub(r'[^\d]', '', tds[3].get_text(strip=True))
+                        raw_price = re.sub(r'[^\d]', '', tds[4].get_text(strip=True)) # tds[3] -> tds[4] (적정가격)
                         target_price = int(raw_price) if raw_price else 0
 
-                    opinion = tds[4].get_text(strip=True)
-                    date_str = tds[5].get_text(strip=True)
+                    opinion = tds[5].get_text(strip=True)   # tds[4] -> tds[5] (투자의견)
+                    date_str = tds[6].get_text(strip=True)  # tds[5] -> tds[6] (작성일)
                     
                     # 💡 [버그 픽스] 날짜 포맷 에러 방어 (yy.mm.dd 와 yyyy.mm.dd 혼용 대비)
                     try:
