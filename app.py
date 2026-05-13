@@ -388,18 +388,18 @@ def get_stock_research_history(code, stock_name=""):
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
                     broker = tds[2].get_text(strip=True)
                     
-                    # 1순위: 리포트 제목(원문) 내에서 "목표가" 또는 "목표주가" 뒤의 숫자 추출
+                    # ⬇️ 이렇게 수정하세요 (정규식 및 예외처리 강화) ⬇️
                     target_price = 0
                     if title:
-                        match = re.search(r'목표(?:주)?가\s*([0-9,]+)', title)
+                        match = re.search(r'목표(?:주)?가[^\d]*([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)', title)
                         if match:
                             extracted = match.group(1).replace(',', '')
                             if extracted.isdigit(): target_price = int(extracted)
                             
                     # 2순위: 제목에 목표가가 없다면, 기존 '적정가격' 컬럼의 숫자 사용
                     if target_price == 0:
-                        raw_price = tds[3].get_text(strip=True).replace(',', '')
-                        target_price = int(raw_price) if raw_price.isdigit() else 0
+                        raw_price = re.sub(r'[^\d]', '', tds[3].get_text(strip=True))
+                        target_price = int(raw_price) if raw_price else 0
 
                     opinion = tds[4].get_text(strip=True)
                     date_str = tds[5].get_text(strip=True)
@@ -2805,8 +2805,9 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                     
                 if not history_df.empty:
                     st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
-                    display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
-                    display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
+                # ⬇️ 이렇게 수정하세요 ⬇️
+                display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
+                display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
                     st.dataframe(
                         display_history_df, 
                         column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
@@ -2997,55 +2998,61 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
             if history_df.empty:
                 st.warning("🚨 해당 종목은 최근 6개월 내 발간된 증권사 리포트가 없어 컨센서스를 산출할 수 없습니다.")
             else:
+# ⬇️ 여기서부터 복사해서 덮어쓰세요 ⬇️
                 valid_df = history_df[history_df['목표가'] > 0].copy()
                 
-                if valid_df.empty:
-                    st.warning("🚨 리포트는 존재하나, 구체적인 목표가가 제시된 리포트가 없습니다.")
-                else:
-                    avg_price = int(valid_df['목표가'].mean())
-                    median_price = int(valid_df['목표가'].median())
-                    max_price = int(valid_df['목표가'].max())
-                    min_price = int(valid_df['목표가'].min())
-                    report_count = len(valid_df)
-                    max_broker = valid_df[valid_df['목표가'] == max_price]['증권사'].iloc[0]
-                    min_broker = valid_df[valid_df['목표가'] == min_price]['증권사'].iloc[0]
+                with st.container(border=True):
+                    st.markdown(f"### {q_name} <span style='font-size: 16px; color: gray;'>{q_code}</span>", unsafe_allow_html=True)
                     
-                    with st.container(border=True):
-                        st.markdown(f"### {q_name} <span style='font-size: 16px; color: gray;'>{q_code}</span>", unsafe_allow_html=True)
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    if not valid_df.empty:
+                        avg_price = int(valid_df['목표가'].mean())
+                        median_price = int(valid_df['목표가'].median())
+                        max_price = int(valid_df['목표가'].max())
+                        min_price = int(valid_df['목표가'].min())
+                        max_broker = valid_df[valid_df['목표가'] == max_price]['증권사'].iloc[0]
+                        min_broker = valid_df[valid_df['목표가'] == min_price]['증권사'].iloc[0]
                         
-                        c1, c2, c3, c4, c5 = st.columns(5)
                         c1.metric("평균 목표가", f"{avg_price:,}원")
                         c2.metric("중앙값", f"{median_price:,}원", f"증권사 {len(valid_df['증권사'].unique())}곳")
                         c3.metric("최고가", f"{max_price:,}원", max_broker, delta_color="normal")
                         c4.metric("최저가", f"{min_price:,}원", min_broker, delta_color="inverse")
-                        c5.metric("수집 리포트", f"{report_count}건")
+                    else:
+                        c1.metric("평균 목표가", "제시 안됨")
+                        c2.metric("중앙값", "제시 안됨")
+                        c3.metric("최고가", "제시 안됨")
+                        c4.metric("최저가", "제시 안됨")
+                        
+                    c5.metric("수집 리포트", f"{len(history_df)}건")
                     
-                    st.divider()
-                    col_chart1, col_chart2 = st.columns([7, 3])
-                    
-                    with col_chart1:
-                        st.markdown("#### 📈 목표주가 시계열 (최근 6개월)")
-                        # 💡 [버그 픽스] 이미 Date 형식이므로 변환 중복 에러 발생 안 함
+                st.divider()
+                col_chart1, col_chart2 = st.columns([7, 3])
+                
+                with col_chart1:
+                    st.markdown("#### 📈 목표주가 시계열 (최근 6개월)")
+                    if not valid_df.empty:
                         valid_df = valid_df.sort_values('작성일')
                         fig_line = px.line(valid_df, x='작성일', y='목표가', color='증권사', markers=True, title=f"{q_name} 증권사별 목표가 추이", labels={"작성일": "발간일", "목표가": "목표주가 (원)"})
                         fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
                         fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
                         st.plotly_chart(fig_line, use_container_width=True)
+                    else:
+                        st.info("💡 증권사에서 구체적인 목표가를 제시하지 않은 종목이라 시계열 차트를 생성할 수 없습니다.")
                         
-                    with col_chart2:
-                        st.markdown("#### 📊 투자의견 분포")
-                        opinion_counts = history_df['투자의견'].value_counts().reset_index()
-                        opinion_counts.columns = ['투자의견', '건수']
-                        fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5, color='투자의견', color_discrete_map={'매수': '#1b5e20', '강력매수': '#003300', 'Buy': '#2ca02c', 'Hold': '#ff7f0e', '중립': '#ff7f0e', 'Sell': '#d62728'})
-                        fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-                        st.plotly_chart(fig_pie, use_container_width=True)
-                        
-                    st.markdown("#### 📋 증권사별 최신 컨센서스")
-                    latest_df = valid_df.sort_values('작성일', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
-                    display_latest = latest_df[['증권사', '투자의견', '목표가', '작성일', '원문링크']].copy()
-                    display_latest['목표가'] = display_latest['목표가'].apply(lambda x: f"{x:,}원")
-                    display_latest['작성일'] = display_latest['작성일'].dt.strftime("%y.%m.%d")
-                    st.dataframe(display_latest, column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")}, use_container_width=True, hide_index=True)
+                with col_chart2:
+                    st.markdown("#### 📊 투자의견 분포")
+                    opinion_counts = history_df['투자의견'].value_counts().reset_index()
+                    opinion_counts.columns = ['투자의견', '건수']
+                    fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5, color='투자의견', color_discrete_map={'매수': '#1b5e20', '강력매수': '#003300', 'Buy': '#2ca02c', 'Hold': '#ff7f0e', '중립': '#ff7f0e', 'Sell': '#d62728'})
+                    fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                    
+                st.markdown("#### 📋 증권사별 최신 컨센서스")
+                latest_df = history_df.sort_values('작성일', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
+                display_latest = latest_df[['증권사', '투자의견', '목표가', '작성일', '원문링크']].copy()
+                display_latest['목표가'] = display_latest['목표가'].apply(lambda x: f"{int(x):,}원" if x > 0 else "제시 안됨")
+                display_latest['작성일'] = display_latest['작성일'].dt.strftime("%y.%m.%d")
+                st.dataframe(display_latest, column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")}, use_container_width=True, hide_index=True)
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
     st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
