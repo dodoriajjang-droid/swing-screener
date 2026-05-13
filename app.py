@@ -2804,20 +2804,35 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
     
     with ana_tab1:
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
+        
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
-            if not krx_df.empty:
-                opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-                col_s1, col_s2 = st.columns([8, 2])
-                with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
-                with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
-                if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
-                    searched_name = kr_query.rsplit(" (", 1)[0]
-                    searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                        res = analyze_technical_pattern(searched_name, searched_code)
-                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                        else: st.error("❌ 데이터 로드 실패")
+            
+            # 🚨 [무적 방어 코드] 데이터가 비어있어도 화면이 절대 사라지지 않도록 예비 종목 강제 주입
+            if krx_df is None or krx_df.empty:
+                krx_df = pd.DataFrame([
+                    {'Name': '삼성전자', 'Code': '005930'},
+                    {'Name': 'SK하이닉스', 'Code': '000660'},
+                    {'Name': 'LG에너지솔루션', 'Code': '373220'},
+                    {'Name': '현대차', 'Code': '005380'},
+                    {'Name': '기아', 'Code': '000270'},
+                    {'Name': 'NAVER', 'Code': '035420'}
+                ])
+                st.warning("⚠️ 한국거래소(KRX) 통신 지연으로 전체 종목을 불러오지 못해 비상용 핵심 종목만 활성화됩니다.")
+
+            # 이제 UI가 무조건 렌더링 됩니다.
+            opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+            col_s1, col_s2 = st.columns([8, 2])
+            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
+            with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
+            
+            if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
+                searched_name = kr_query.rsplit(" (", 1)[0]
+                searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                    res = analyze_technical_pattern(searched_name, searched_code)
+                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                    else: st.error("❌ 데이터 로드 실패")
         else:
             col_us1, col_us2 = st.columns([8, 2])
             with col_us1: us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
