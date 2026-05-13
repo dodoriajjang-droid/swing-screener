@@ -360,6 +360,7 @@ def get_dividend_portfolio(ex_rate):
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
 
+# 💡 [핵심 수정] 목표주가/목표가 키워드 정밀 추출 및 날짜 포맷 에러 완벽 방어
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     rows = []
@@ -367,7 +368,7 @@ def get_stock_research_history(code, stock_name=""):
     six_months_ago = datetime.now() - timedelta(days=180)
     
     try:
-        for page in range(1, 15): 
+        for page in range(1, 10): 
             url = f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}&page={page}"
             res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
@@ -387,30 +388,38 @@ def get_stock_research_history(code, stock_name=""):
                     link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
                     broker = tds[2].get_text(strip=True)
                     
-                    # 목표가 1차 추출
-                    price_str = tds[3].get_text(strip=True).replace(',', '')
-                    target_price = int(price_str) if price_str.isdigit() else 0
-                    
-                    # 목표가가 0원이면 리포트 제목에서 2차 추출 (정규식)
-                    if target_price == 0 and title:
-                        match = re.search(r'(\d{1,3}(,\d{3})+)원?|(\d{4,7})원?', title)
+                    # 1순위: 리포트 제목(원문) 내에서 "목표가" 또는 "목표주가" 뒤의 숫자 추출
+                    target_price = 0
+                    if title:
+                        match = re.search(r'목표(?:주)?가\s*([0-9,]+)', title)
                         if match:
-                            extracted = match.group(0).replace(',', '').replace('원', '')
+                            extracted = match.group(1).replace(',', '')
                             if extracted.isdigit(): target_price = int(extracted)
                             
+                    # 2순위: 제목에 목표가가 없다면, 기존 '적정가격' 컬럼의 숫자 사용
+                    if target_price == 0:
+                        raw_price = tds[3].get_text(strip=True).replace(',', '')
+                        target_price = int(raw_price) if raw_price.isdigit() else 0
+
                     opinion = tds[4].get_text(strip=True)
                     date_str = tds[5].get_text(strip=True)
                     
+                    # 💡 [버그 픽스] 날짜 포맷 에러 방어 (yy.mm.dd 와 yyyy.mm.dd 혼용 대비)
                     try:
-                        doc_date = datetime.strptime(date_str, "%y.%m.%d")
+                        if len(date_str.split('.')[0]) == 4:
+                            doc_date = datetime.strptime(date_str, "%Y.%m.%d")
+                        else:
+                            doc_date = datetime.strptime(date_str, "%y.%m.%d")
+                            
                         if doc_date < six_months_ago:
-                            return pd.DataFrame(rows) # 6개월 넘어가면 탐색 종료
-                    except Exception: pass
+                            return pd.DataFrame(rows)
+                    except Exception: 
+                        doc_date = datetime.now() # 파싱 실패 시 현재 시간 임시 할당
                     
                     rows.append({
                         "종목명": name, "제목": title, "증권사": broker, 
-                        "적정가격": target_price, "투자의견": opinion, 
-                        "작성일": date_str, "원문링크": link
+                        "목표가": target_price, "투자의견": opinion, # '적정가격' -> '목표가'로 변경
+                        "작성일": doc_date, "원문링크": link # Date 형식으로 바로 저장
                     })
                     page_has_data = True
             if not page_has_data: break
@@ -2988,18 +2997,18 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
             if history_df.empty:
                 st.warning("🚨 해당 종목은 최근 6개월 내 발간된 증권사 리포트가 없어 컨센서스를 산출할 수 없습니다.")
             else:
-                valid_df = history_df[history_df['적정가격'] > 0].copy()
+                valid_df = history_df[history_df['목표가'] > 0].copy()
                 
                 if valid_df.empty:
                     st.warning("🚨 리포트는 존재하나, 구체적인 목표가가 제시된 리포트가 없습니다.")
                 else:
-                    avg_price = int(valid_df['적정가격'].mean())
-                    median_price = int(valid_df['적정가격'].median())
-                    max_price = int(valid_df['적정가격'].max())
-                    min_price = int(valid_df['적정가격'].min())
+                    avg_price = int(valid_df['목표가'].mean())
+                    median_price = int(valid_df['목표가'].median())
+                    max_price = int(valid_df['목표가'].max())
+                    min_price = int(valid_df['목표가'].min())
                     report_count = len(valid_df)
-                    max_broker = valid_df[valid_df['적정가격'] == max_price]['증권사'].iloc[0]
-                    min_broker = valid_df[valid_df['적정가격'] == min_price]['증권사'].iloc[0]
+                    max_broker = valid_df[valid_df['목표가'] == max_price]['증권사'].iloc[0]
+                    min_broker = valid_df[valid_df['목표가'] == min_price]['증권사'].iloc[0]
                     
                     with st.container(border=True):
                         st.markdown(f"### {q_name} <span style='font-size: 16px; color: gray;'>{q_code}</span>", unsafe_allow_html=True)
@@ -3016,9 +3025,9 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                     
                     with col_chart1:
                         st.markdown("#### 📈 목표주가 시계열 (최근 6개월)")
-                        valid_df['Date'] = pd.to_datetime(valid_df['작성일'], format="%y.%m.%d")
-                        valid_df = valid_df.sort_values('Date')
-                        fig_line = px.line(valid_df, x='Date', y='적정가격', color='증권사', markers=True, title=f"{q_name} 증권사별 목표가 추이", labels={"Date": "발간일", "적정가격": "목표주가 (원)"})
+                        # 💡 [버그 픽스] 이미 Date 형식이므로 변환 중복 에러 발생 안 함
+                        valid_df = valid_df.sort_values('작성일')
+                        fig_line = px.line(valid_df, x='작성일', y='목표가', color='증권사', markers=True, title=f"{q_name} 증권사별 목표가 추이", labels={"작성일": "발간일", "목표가": "목표주가 (원)"})
                         fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
                         fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
                         st.plotly_chart(fig_line, use_container_width=True)
@@ -3032,10 +3041,10 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         st.plotly_chart(fig_pie, use_container_width=True)
                         
                     st.markdown("#### 📋 증권사별 최신 컨센서스")
-                    latest_df = valid_df.sort_values('Date', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
-                    display_latest = latest_df[['증권사', '투자의견', '적정가격', '작성일', '원문링크']].copy()
-                    display_latest['적정가격'] = display_latest['적정가격'].apply(lambda x: f"{x:,}원")
-                    display_latest = display_latest.rename(columns={'적정가격': '목표가'})
+                    latest_df = valid_df.sort_values('작성일', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
+                    display_latest = latest_df[['증권사', '투자의견', '목표가', '작성일', '원문링크']].copy()
+                    display_latest['목표가'] = display_latest['목표가'].apply(lambda x: f"{x:,}원")
+                    display_latest['작성일'] = display_latest['작성일'].dt.strftime("%y.%m.%d")
                     st.dataframe(display_latest, column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")}, use_container_width=True, hide_index=True)
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
