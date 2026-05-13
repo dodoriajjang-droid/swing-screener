@@ -362,53 +362,59 @@ def get_dividend_portfolio(ex_rate):
 
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
+    rows = []
+    # 네이버 봇 차단 회피용 헤더
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+    }
+    six_months_ago = datetime.now() - timedelta(days=180)
+    
     try:
-        # 정확한 현재가를 가져오는 이중 방어 로직
-        current_price = 0
-        try:
-            df = fdr.DataReader(code, (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
-            if not df.empty: current_price = float(df['Close'].iloc[-1])
-        except Exception: pass
+        for page in range(1, 15): 
+            url = f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}&page={page}"
+            res = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+            table = soup.find('table', {'class': 'type_1'})
+            if not table: break
             
-        if current_price == 0:
-            try:
-                url = f"https://finance.naver.com/item/main.naver?code={code}"
-                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-                soup = BeautifulSoup(res.text, 'html.parser')
-                current_price = float(soup.select_one('.no_today .blind').text.replace(',', ''))
-            except Exception: current_price = 5000 # 아이티센 등 코스닥 종목 방어용 기본값
-
-        # 현재가 기준으로 컨센서스 생성
-        target_price = int(current_price * 1.2)
-        brokers = ["삼성증권", "NH투자증권", "미래에셋증권", "한국투자증권", "KB증권", "하나증권", "키움증권"]
-        opinions = ["Buy", "매수", "강력매수", "Hold"]
+            trs = table.find_all('tr')
+            page_has_data = False
+            for tr in trs:
+                tds = tr.find_all('td')
+                if len(tds) >= 6:
+                    name = tds[0].get_text(strip=True)
+                    if not name: continue
+                    
+                    title_a = tds[1].find('a')
+                    title = title_a.get_text(strip=True) if title_a else tds[1].get_text(strip=True)
+                    link = "https://finance.naver.com/research/" + title_a['href'] if title_a and 'href' in title_a.attrs else ""
+                    
+                    broker = tds[2].get_text(strip=True)
+                    price_str = tds[3].get_text(strip=True).replace(',', '')
+                    target_price = int(price_str) if price_str.isdigit() else 0
+                    
+                    opinion = tds[4].get_text(strip=True)
+                    date_str = tds[5].get_text(strip=True)
+                    
+                    try:
+                        doc_date = datetime.strptime(date_str, "%y.%m.%d")
+                        if doc_date < six_months_ago:
+                            return pd.DataFrame(rows) # 6개월 이전 리포트면 즉시 스크래핑 중단
+                    except Exception: pass
+                    
+                    rows.append({
+                        "종목명": name, "제목": title, "증권사": broker, 
+                        "적정가격": target_price, "투자의견": opinion, 
+                        "작성일": date_str, "원문링크": link
+                    })
+                    page_has_data = True
+            if not page_has_data: break
+            time.sleep(0.2)
+    except Exception as e:
+        print(f"Research fetch error: {e}")
         
-        rows = []
-        now = datetime.now()
-        np.random.seed(int(code) if code.isdigit() else 42) 
-        
-        for i in range(np.random.randint(10, 20)):
-            days_ago = np.random.randint(1, 180)
-            date = now - timedelta(days=days_ago)
-            mock_price = int(target_price * np.random.uniform(0.85, 1.15))
-            
-            # 호가 단위 반올림 (5원/10원 등)
-            if mock_price < 5000: mock_price = round(mock_price / 10) * 10
-            elif mock_price < 20000: mock_price = round(mock_price / 50) * 50
-            else: mock_price = round(mock_price / 100) * 100
-            
-            rows.append({
-                "종목명": stock_name if stock_name else code,
-                "제목": f"[{np.random.choice(brokers)}] 목표가 {mock_price:,}원 유지",
-                "증권사": np.random.choice(brokers),
-                "적정가격": mock_price,
-                "투자의견": np.random.choice(opinions),
-                "작성일": date.strftime("%y.%m.%d"),
-                "원문링크": f"https://finance.naver.com/item/coinfo.naver?code={code}"
-            })
-            
-        return pd.DataFrame(rows).sort_values('작성일', ascending=False)
-    except Exception: return pd.DataFrame()
+    return pd.DataFrame(rows)
 
 @st.cache_data(ttl=3600)
 def ask_gemini(prompt, _api_key):
@@ -639,13 +645,40 @@ def get_us_top_gainers():
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
+    # 1순위: KRX 전체 호출
     try:
         df = fdr.StockListing('KRX')
-        if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-        df = df[['Name', 'Code', 'Sector']].copy()
-        df['Code'] = df['Code'].astype(str).str.zfill(6)
-        return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-    except Exception: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
+        if not df.empty and 'Name' in df.columns:
+            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df = df[['Name', 'Code', 'Sector']].copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+    except Exception: pass
+    
+    # 2순위: KOSPI / KOSDAQ 분리 호출 우회 (에러 방어)
+    try:
+        df_kospi = fdr.StockListing('KOSPI')
+        df_kosdaq = fdr.StockListing('KOSDAQ')
+        df = pd.concat([df_kospi, df_kosdaq], ignore_index=True)
+        if not df.empty and 'Name' in df.columns:
+            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df = df[['Name', 'Code', 'Sector']].copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+    except Exception: pass
+
+    # 3순위: 라이브러리 완전 먹통 시 흰 화면(에러) 방지용 안전장치
+    st.toast("⚠️ 한국거래소(KRX) 데이터를 불러오지 못해 필수 종목만 표시됩니다.")
+    return pd.DataFrame([
+        {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
+        {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
+        {'Name': 'LG에너지솔루션', 'Code': '373220', 'Sector': '전기전자'},
+        {'Name': '현대차', 'Code': '005380', 'Sector': '운수장비'},
+        {'Name': '기아', 'Code': '000270', 'Sector': '운수장비'},
+        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'},
+        {'Name': '카카오', 'Code': '035720', 'Sector': '서비스업'},
+        {'Name': '아이티센', 'Code': '232830', 'Sector': 'IT서비스'}
+    ])
 
 def fetch_naver_volume(sosok, pages=1):
     df_list = []
