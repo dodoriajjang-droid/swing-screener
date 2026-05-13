@@ -2805,8 +2805,8 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                     
                 if not history_df.empty:
                     st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
-                    display_history_df = history_df[['작성일', '증권사', '제목', '적정가격', '투자의견', '원문링크']].copy()
-                    display_history_df['적정가격'] = display_history_df['적정가격'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
+                    display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
+                    display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
                     st.dataframe(
                         display_history_df, 
                         column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
