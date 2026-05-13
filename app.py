@@ -2808,7 +2808,7 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                 # ⬇️ 이렇게 수정하세요 ⬇️
                 display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
                 display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
-                    st.dataframe(
+        st.dataframe(
                         display_history_df, 
                         column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
                         use_container_width=True, hide_index=True
