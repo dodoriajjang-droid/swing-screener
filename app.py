@@ -639,55 +639,29 @@ def get_us_top_gainers():
 
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
-    import os
-    cache_file = "krx_stocks_cache.csv"
-
-    # 🌟 0순위: 로컬 캐시 파일이 있으면 무조건 우선 사용 (KRX 방화벽 차단 완벽 방어)
-    if os.path.exists(cache_file):
-        try:
-            df = pd.read_csv(cache_file, dtype={'Code': str})
-            return df
-        except Exception: pass
-
-    # 1순위: KRX 전체 호출
     try:
         df = fdr.StockListing('KRX')
-        if not df.empty and 'Name' in df.columns:
-            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-            df = df[['Name', 'Code', 'Sector']].copy()
-            df['Code'] = df['Code'].astype(str).str.zfill(6)
-            res_df = df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-            
-            # 💾 통신 성공 시 로컬 서버에 파일로 영구 저장
-            res_df.to_csv(cache_file, index=False, encoding='utf-8-sig')
-            return res_df
-    except Exception: pass
+        if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+        df = df[['Name', 'Code', 'Sector']].copy()
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+    except Exception: return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
-    # 2순위: KOSPI / KOSDAQ 분리 호출 우회
+def fetch_naver_volume(sosok, pages=1):
+    df_list = []
     try:
-        df_kospi = fdr.StockListing('KOSPI')
-        df_kosdaq = fdr.StockListing('KOSDAQ')
-        df = pd.concat([df_kospi, df_kosdaq], ignore_index=True)
-        if not df.empty and 'Name' in df.columns:
-            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-            df = df[['Name', 'Code', 'Sector']].copy()
-            df['Code'] = df['Code'].astype(str).str.zfill(6)
-            res_df = df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-            
-            # 💾 통신 성공 시 로컬 서버에 파일로 영구 저장
-            res_df.to_csv(cache_file, index=False, encoding='utf-8-sig')
-            return res_df
+        for page in range(1, pages + 1):
+            url = f"https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}&page={page}"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            tables = pd.read_html(StringIO(res.content.decode('euc-kr', errors='replace')))
+            for t in tables:
+                if '종목명' in t.columns and '현재가' in t.columns:
+                    df = t.dropna(subset=['종목명']).copy()
+                    df_list.append(df[df['종목명'] != '종목명'])
+                    break
     except Exception: pass
-
-    # 3순위: 라이브러리 완전 먹통 시 하얀 화면(에러) 방지용 안전장치
-    return pd.DataFrame([
-        {'Name': '삼성전자', 'Code': '005930', 'Sector': '전기전자'},
-        {'Name': 'SK하이닉스', 'Code': '000660', 'Sector': '전기전자'},
-        {'Name': 'LG에너지솔루션', 'Code': '373220', 'Sector': '전기전자'},
-        {'Name': '현대차', 'Code': '005380', 'Sector': '운수장비'},
-        {'Name': '기아', 'Code': '000270', 'Sector': '운수장비'},
-        {'Name': 'NAVER', 'Code': '035420', 'Sector': '서비스업'}
-    ])
+    if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
+    return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def get_trading_value_kings(limit=50):
@@ -2776,9 +2750,7 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
         
         st.markdown("#### 🔍 특정 종목 리포트 검색 (최근 6개월)")
         search_krx_df = get_krx_stocks()
-        
         if not search_krx_df.empty:
-            # 💡 이 부분이 검색창(Selectbox)을 렌더링하는 핵심 코드입니다.
             opts = ["선택 안함 (당일 전체 신규 리포트 보기)"] + (search_krx_df['Name'].astype(str) + " (" + search_krx_df['Code'].astype(str) + ")").tolist()
             report_query = st.selectbox("리포트를 검색할 종목을 선택하세요:", opts)
             
@@ -2791,10 +2763,8 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                     
                 if not history_df.empty:
                     st.success(f"✅ '{q_name}' 관련 리포트 {len(history_df)}건을 찾았습니다.")
-                    
-                    display_history_df = history_df[['작성일', '증권사', '제목', '목표가', '투자의견', '원문링크']].copy()
-                    display_history_df['목표가'] = display_history_df['목표가'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
-                    
+                    display_history_df = history_df[['작성일', '증권사', '제목', '적정가격', '투자의견', '원문링크']].copy()
+                    display_history_df['적정가격'] = display_history_df['적정가격'].apply(lambda x: f"{x:,}원" if x > 0 else "-")
                     st.dataframe(
                         display_history_df, 
                         column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
@@ -2802,10 +2772,8 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                     )
                 else:
                     st.warning("해당 종목의 최근 6개월 내 발간된 증권사 리포트가 없습니다.")
-        else:
-            st.error("종목 데이터를 불러오지 못해 검색 기능을 활성화할 수 없습니다.")
-            
-        st.divider()
+                
+                st.divider()
 
         st.markdown("#### 🆕 오늘의 전체 신규 리포트")
         res_df = get_naver_research()
@@ -2830,35 +2798,20 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
     
     with ana_tab1:
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
-        
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
-            
-            # 🚨 [무적 방어 코드] 데이터가 비어있어도 화면이 절대 사라지지 않도록 예비 종목 강제 주입
-            if krx_df is None or krx_df.empty:
-                krx_df = pd.DataFrame([
-                    {'Name': '삼성전자', 'Code': '005930'},
-                    {'Name': 'SK하이닉스', 'Code': '000660'},
-                    {'Name': 'LG에너지솔루션', 'Code': '373220'},
-                    {'Name': '현대차', 'Code': '005380'},
-                    {'Name': '기아', 'Code': '000270'},
-                    {'Name': 'NAVER', 'Code': '035420'}
-                ])
-                st.warning("⚠️ 한국거래소(KRX) 통신 지연으로 전체 종목을 불러오지 못해 비상용 핵심 종목만 활성화됩니다.")
-
-            # 이제 UI가 무조건 렌더링 됩니다.
-            opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-            col_s1, col_s2 = st.columns([8, 2])
-            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
-            with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
-            
-            if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
-                searched_name = kr_query.rsplit(" (", 1)[0]
-                searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                    res = analyze_technical_pattern(searched_name, searched_code)
-                    if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                    else: st.error("❌ 데이터 로드 실패")
+            if not krx_df.empty:
+                opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                col_s1, col_s2 = st.columns([8, 2])
+                with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
+                with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
+                if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
+                    searched_name = kr_query.rsplit(" (", 1)[0]
+                    searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                        res = analyze_technical_pattern(searched_name, searched_code)
+                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                        else: st.error("❌ 데이터 로드 실패")
         else:
             col_us1, col_us2 = st.columns([8, 2])
             with col_us1: us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
