@@ -885,7 +885,10 @@ def get_daily_sise_and_investor(code):
                     "외국인": fmt_vol(forgn), "기관": fmt_vol(inst), "개인(추정)": fmt_vol(retail)
                 })
             except Exception: pass
-        if len(data) >= 10: break
+            
+            # 💡 [해결 부분] break 구문이 for 반복문 안쪽으로 올바르게 들어왔습니다.
+            if len(data) >= 10: break 
+            
         return pd.DataFrame(data)
     except Exception: return pd.DataFrame()
 
