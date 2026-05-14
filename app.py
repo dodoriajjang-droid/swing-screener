@@ -2927,18 +2927,6 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
             krx_df = get_krx_stocks()
             if not krx_df.empty:
                 opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-                col_s1, col_
-
-elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
-    st.markdown("## 🔬 기업 정밀 진단 (차트/수급/비전 AI)")
-    ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
-    
-    with ana_tab1:
-        market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
-        if market_choice == "🇰🇷 국내 주식":
-            krx_df = get_krx_stocks()
-            if not krx_df.empty:
-                opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
                 col_s1, col_s2 = st.columns([8, 2])
                 with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
                 with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
@@ -3000,8 +2988,8 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
         st.subheader("국내 상장 주요 ETF (TOP 50)")
         with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
             try:
-                # 💡 수정된 부분: fdr.StockListing을 직접 호출하지 않고 상단의 캐시 함수를 사용합니다.
-                krx_etf = get_krx_etf_list() 
+                # 💡 수정 반영됨: 상단의 캐시 함수를 사용하여 렌더링 시 창 닫힘 버그 해결
+                krx_etf = get_krx_etf_list()
                 if not krx_etf.empty:
                     price_col = 'Close' if 'Close' in krx_etf.columns else 'Price'
                     display_etf = krx_etf[['Symbol', 'Name', price_col, 'Change', 'Volume']].head(50).copy()
@@ -3030,8 +3018,8 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
         st.subheader("미국 상장 주요 메가 ETF")
         us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV', 'TLT', 'TMF']
         with st.spinner("미국 ETF 데이터를 불러오는 중..."):
-            # 💡 수정된 부분: 미국 ETF 역시 상단의 캐시 함수를 사용하여 Rerun 시 창 닫힘을 방지합니다.
-            us_data_df = get_us_etf_summary(us_etfs) 
+            # 💡 수정 반영됨: 미국 ETF 역시 상단의 캐시 함수를 사용하여 렌더링 시 창 닫힘 버그 해결
+            us_data_df = get_us_etf_summary(us_etfs)
             if not us_data_df.empty: 
                 st.dataframe(us_data_df, use_container_width=True, hide_index=True)
                 
@@ -3092,7 +3080,6 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                 if valid_df.empty:
                     st.warning("목표가가 제시된 리포트가 없습니다.")
                 else:
-                    # 상단 KPI 지표 계산
                     avg_price = int(valid_df['적정가격'].mean())
                     median_price = int(valid_df['적정가격'].median())
                     max_price = int(valid_df['적정가격'].max())
@@ -3114,7 +3101,6 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         
                     st.divider()
                     
-                    # 📈 차트 영역
                     col_chart1, col_chart2 = st.columns([7, 3])
                     
                     with col_chart1:
@@ -3141,7 +3127,6 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                         st.plotly_chart(fig_pie, use_container_width=True)
                         
-                    # 📋 데이터 테이블 영역
                     st.markdown("#### 📋 증권사별 최신 컨센서스")
                     latest_df = valid_df.sort_values('Date', ascending=False).drop_duplicates(subset=['증권사'], keep='first')
                     
