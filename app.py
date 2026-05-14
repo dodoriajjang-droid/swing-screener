@@ -1502,7 +1502,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
                         prompt = f"""
                         당신은 여의도 최고의 기업 분석 리서치 센터장입니다. '{tech_result['종목명']}' 기업에 대해 심층 분석 리포트를 마크다운으로 작성하세요.
-                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익 창출하는지 초보자도 알기 쉽게 설명.
+                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익을 창출하는지 초보자도 알기 쉽게 설명.
                         2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
                         3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
                         4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
@@ -1516,6 +1516,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년", "5년", "10년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
         with st.spinner(f"{tf} 차트 데이터 및 피보나치 지표 불러오는 중..."):
             long_df = get_advanced_chart_data(tech_result['티커'], tf)
+            
+            # 여기서부터 들여쓰기가 수정된 부분입니다!
             if not long_df.empty:
                 long_df = long_df.reset_index()
                 long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
@@ -1546,6 +1548,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     fig_price.add_hline(y=min_p, line_dash="dash", line_color="rgba(128,128,128,0.5)", annotation_text="저점(0.0)")
                     fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis=dict(showgrid=False, type=x_type), height=250)
                     st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
+                
                 with ch2:
                     fig_vol = go.Figure()
                     fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#1f77b4"))
@@ -1553,7 +1556,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
                 
-            if not is_us:
+                if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
                     
@@ -1599,9 +1602,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             }])
                             daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
-            else: 
+                    else: 
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
-            else: st.error("데이터를 불러오지 못했습니다.")
+            else: 
+                st.error("데이터를 불러오지 못했습니다.")
 
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
