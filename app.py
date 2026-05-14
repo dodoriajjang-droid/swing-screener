@@ -67,7 +67,7 @@ if 'quick_analyze_news' not in st.session_state: st.session_state.quick_analyze_
 if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
 if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None
-if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요! 여의도 퀀트 비서입니다. 오늘 시장 매크로 상황이나 투자 전략에 대해 무엇이든 물어보세요."}]
+if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요!\n여의도 퀀트 비서입니다. 오늘 시장 매크로 상황이나 투자 전략에 대해 무엇이든 물어보세요."}]
 
 if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
 if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
@@ -105,8 +105,27 @@ def analyze_theme_trends():
     })
 
 @st.cache_data(ttl=86400)
+def get_krx_etf_list():
+    try:
+        return fdr.StockListing('ETF/KR')
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def get_us_etf_summary(us_etfs):
+    us_data = []
+    for ticker in us_etfs:
+        try:
+            df = yf.Ticker(ticker).history(period="5d")
+            if len(df) >= 2:
+                close = df['Close'].iloc[-1]
+                pct = ((close - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
+                us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{int(df['Volume'].iloc[-1]):,}"})
+        except Exception: pass
+    return pd.DataFrame(us_data)
+
+@st.cache_data(ttl=86400)
 def get_nps_holdings():
-    # 1. 1순위: FnGuide 실시간 스크래핑 시도
     targets = [('삼성전자', '005930'), ('SK하이닉스', '000660'), ('LG에너지솔루션', '373220'), ('삼성바이오로직스', '207940'), ('현대차', '005380'), ('기아', '000270'), ('셀트리온', '068270'), ('POSCO홀딩스', '005490'), ('NAVER', '035420'), ('KB금융', '105560'), ('신한지주', '055550'), ('삼성물산', '028260'), ('현대모비스', '012330'), ('LG화학', '051910'), ('카카오', '035720'), ('삼성SDI', '006400'), ('하나금융지주', '086790'), ('메리츠금융지주', '138040'), ('한국전력', '015760'), ('HMM', '011200'), ('KT&G', '033780'), ('우리금융지주', '316140'), ('기업은행', '024110')]
     nps_data = []
     
@@ -137,7 +156,6 @@ def get_nps_holdings():
     if nps_data:
         return pd.DataFrame(nps_data).sort_values('보유비중', ascending=False).reset_index(drop=True)
         
-    # 🚨 2. 2순위: 사이트에서 봇(Bot) 차단 시, 에러 대신 꽉 찬 예비 데이터(Fallback) 송출
     fallback_data = [
         {"종목명": "삼성전자", "티커": "005930", "보유비중": "7.45%", "비고": "최신 공시 캡처 (API 차단)"},
         {"종목명": "현대차", "티커": "005380", "보유비중": "7.30%", "비고": "최신 공시 캡처 (API 차단)"},
@@ -164,7 +182,6 @@ def get_nps_us_portfolio():
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
     }
     
-    # 1. 1순위: Dataroma 실시간 스크래핑 시도
     try:
         url = "https://www.dataroma.com/m/holdings.php?m=NPS"
         res = requests.get(url, headers=headers, timeout=5)
@@ -181,7 +198,6 @@ def get_nps_us_portfolio():
             if not res_df.empty: return res_df.head(30)
     except Exception: pass
 
-    # 🚨 2. 2순위: 봇 방지로 웹사이트에서 튕겨냈을 때 완벽하게 방어하는 Fallback 30종
     fallback_holdings = [
         {"종목명": "Apple Inc.", "티커": "AAPL", "포트폴리오 비중": "6.24%", "보유주식수": "32,450,120", "가치(달러)": "$5.5B", "비고": "13F 최신 캐시 (서버 차단)"},
         {"종목명": "Microsoft Corp.", "티커": "MSFT", "포트폴리오 비중": "5.81%", "보유주식수": "14,200,500", "가치(달러)": "$5.1B", "비고": "13F 최신 캐시 (서버 차단)"},
@@ -227,30 +243,24 @@ def get_naver_ipo_data():
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         html_text = res.content.decode('euc-kr', 'replace')
         
-        # 1. 🔥 가장 강력한 BeautifulSoup 텍스트 파싱 (표 형태가 깨져있어도 텍스트만 있으면 추출)
         soup = BeautifulSoup(html_text, 'html.parser')
         rows = []
         
-        # '공모가' 또는 '상장일' 텍스트를 포함하는 가장 가까운 영역을 찾음
         for tag in soup.find_all(string=re.compile('공모가|상장일')):
             container = tag.find_parent(['table', 'tbody', 'dl', 'ul', 'div'])
             if not container or getattr(container, 'processed', False): continue
             
-            # 페이지 전체를 감싸는 너무 큰 껍데기 영역은 스킵
             if len(container.get_text()) > 1000: continue
             
-            # 중복 파싱 방지
             container.processed = True
             text_tokens = [t.strip() for t in container.stripped_strings if t.strip()]
             
-            # 종목명 찾기 (주로 바로 위에 있는 제목 태그나, 리스트의 첫 번째 단어)
             name = "이름없음"
             name_tag = container.find_previous(['h3', 'h4', 'h5', 'strong'])
             if name_tag: name = name_tag.get_text(separator=' ', strip=True)
             elif text_tokens: name = text_tokens[0]
             name = re.sub(r'\[.*?\]', '', name).strip()
             
-            # 🔥 종목명에 붙어있는 시장 구분자(코스닥, 유가증권, 코넥스) 분리 로직
             market = "-"
             name_clean = name.strip()
             if name_clean.startswith("코스닥"):
@@ -263,10 +273,8 @@ def get_naver_ipo_data():
                 market = "코넥스"
                 name = name_clean[3:].strip()
             
-            # 기본 데이터셋 준비 (시장 컬럼 추가)
             row_data = {'시장': market, '종목명': name, '청약일정': '-', '상장일': '-', '공모가': '-', '주관사': '-', '경쟁률': '-', '업종': '-'}
             
-            # 추출한 텍스트 토큰들 사이에서 키워드와 값을 매칭
             for i, token in enumerate(text_tokens):
                 for key, mapped_key in [('공모가', '공모가'), ('업종', '업종'), ('주관사', '주관사'), ('주간사', '주관사'), 
                                         ('경쟁률', '경쟁률'), ('개인청약', '청약일정'), ('청약일', '청약일정'), ('상장일', '상장일')]:
@@ -275,19 +283,16 @@ def get_naver_ipo_data():
                         if val: row_data[mapped_key] = val
                         elif i + 1 < len(text_tokens): row_data[mapped_key] = text_tokens[i+1]
                         
-            # 공모가나 상장일 데이터가 하나라도 있으면 정상적인 데이터로 간주하고 저장
             if row_data['공모가'] != '-' or row_data['상장일'] != '-':
                 rows.append(row_data)
                 
         if rows:
             return pd.DataFrame(rows).head(15)
             
-        # 2. ⚡ 위 방법이 실패했을 경우, pandas의 기본 표 추출 방식으로 우회 (폴백 로직)
         tables = pd.read_html(StringIO(html_text))
         for t in tables:
             t_str = t.to_string()
             if '공모가' in t_str and ('청약' in t_str or '상장일' in t_str):
-                # 헤더에 이름이 명확하지 않은 경우 첫 번째 컬럼을 종목명으로 강제 지정
                 name_col = None
                 for c in t.columns:
                     if any(k in str(c) for k in ['종목', '기업', '회사']): name_col = c; break
@@ -298,14 +303,13 @@ def get_naver_ipo_data():
                 
                 res_df = pd.DataFrame()
                 
-                # 🔥 표 형태로 가져왔을 때도 종목명과 시장 분리
                 def extract_market(x):
                     x_str = str(x).replace(" ", "")
                     if x_str.startswith("코스닥"): return "코스닥"
                     if x_str.startswith("유가증권"): return "유가증권"
                     if x_str.startswith("코넥스"): return "코넥스"
                     return "-"
-                    
+                  
                 def clean_name(x):
                     x_str = str(x).strip()
                     if x_str.startswith("코스닥"): return x_str[3:].strip()
@@ -332,7 +336,6 @@ def get_naver_ipo_data():
 
     except Exception: pass
     
-    # 3. 🛡️ 네이버 금융 IP 차단 등 궁극의 에러 시 38.co.kr 백업 데이터 호출 (앱 튕김 방지)
     try:
         url = "http://www.38.co.kr/html/fund/index.htm?o=k"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -343,7 +346,7 @@ def get_naver_ipo_data():
                 df = t.dropna(subset=['기업명', '공모청약일']).copy()
                 df = df[df['기업명'] != '기업명']
                 res_df = pd.DataFrame()
-                res_df['시장'] = "-" # 38 데이터는 시장이 명확히 안 나오므로 기본값
+                res_df['시장'] = "-" 
                 res_df['종목명'] = df['기업명']
                 res_df['청약일정'] = df['공모청약일']
                 res_df['상장일'] = "-"
@@ -392,7 +395,6 @@ def get_dividend_portfolio(ex_rate):
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     
-    # 💡 네이버 API 차단 시 방어용 우회 데이터 40여 종 (금융, 통신, 배당우량주 등)
     if krx_df.empty or len(krx_df) < 5:
         kr_fallbacks = [
             ("기업은행", "024110.KS"), ("우리금융지주", "316140.KS"), ("하나금융지주", "086790.KS"), 
@@ -479,7 +481,6 @@ def get_dividend_portfolio(ex_rate):
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     try:
-        # 1. 🔥 실제 네이버 증권 해당 종목 리포트 목록 크롤링
         search_url = f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}"
         res = requests.get(search_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
@@ -495,44 +496,37 @@ def get_stock_research_history(code, stock_name=""):
                     title_tag = tds[1].find('a')
                     if not title_tag: continue
                     
-                    # 리스트 표에서 기본 정보 추출
                     real_title = title_tag.text.strip()
                     real_link = "https://finance.naver.com/research/" + title_tag['href']
                     real_broker = tds[2].text.strip()
                     real_date = tds[4].text.strip()
                     
-                    # 2. 🔥 개별 리포트 원문 페이지로 들어가서 '실제' 목표가와 투자의견 파싱
                     real_price = 0
                     real_opinion = "-"
                     
                     try:
-                        # 잦은 크롤링 요청으로 인한 IP 차단 방지를 위해 0.1초 딜레이
                         time.sleep(0.1) 
                         detail_res = requests.get(real_link, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
                         detail_soup = BeautifulSoup(detail_res.content.decode('euc-kr', 'replace'), 'html.parser')
                         
-                        # 페이지 전체 텍스트에서 정규식을 이용해 목표가와 투자의견 추출
                         detail_text = detail_soup.get_text(separator=' ', strip=True)
                         
-                        # "목표가 1,000,000" 형태에서 숫자만 추출
                         price_match = re.search(r'목표가\s*([0-9,]+)', detail_text)
                         if price_match:
                             real_price = int(price_match.group(1).replace(',', ''))
                             
-                        # "투자의견 Buy" 또는 "투자의견 매수" 형태에서 단어 추출
                         opinion_match = re.search(r'투자의견\s*([A-Za-z가-힣]+)', detail_text)
                         if opinion_match:
                             real_opinion = opinion_match.group(1).strip()
                             
                     except Exception:
-                        # 개별 페이지 접속 실패 시 기본값(목표가 0, 투자의견 "-") 유지 (에러 방지)
                         pass 
                         
                     rows.append({
                         "종목명": stock_name if stock_name else code,
                         "제목": real_title,
                         "증권사": real_broker,
-                        "적정가격": real_price, # 0일 경우 UI 표출단에서 자동으로 "-" 로 변환됨
+                        "적정가격": real_price,
                         "투자의견": real_opinion,
                         "작성일": real_date,
                         "원문링크": real_link
@@ -557,16 +551,13 @@ def ask_gemini(prompt, _api_key):
         genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
         
-        # 💡 [수정] 실험적 모델명 대신 안정적인 최신 모델명 사용 권장
         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         
         response = model.generate_content(full_prompt)
         
-        # 💡 [핵심] 응답 파트가 있는지 먼저 확인하여 response.text 에러 방지
         if not response.candidates or not response.candidates[0].content.parts:
             reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
             return f"🚨 AI 응답 생성에 실패했습니다. (사유: {reason}). 다시 시도하거나 질문을 수정해주세요."
-            
         return response.text
     except Exception as e: 
         if "429" in str(e) or "quota" in str(e).lower() or "spending cap" in str(e).lower():
@@ -701,14 +692,12 @@ def get_fear_and_greed():
             return {"score": score, "delta": score - prev_score, "rating": data['fear_and_greed']['rating'].capitalize()}
     except Exception: pass
     
-    # 💡 CNN 차단 시 VIX 기반 '추정 지수' 정밀 연산 로직
     try:
         vix_df = yf.Ticker("^VIX").history(period="2d")
         if len(vix_df) >= 2:
             current_vix = float(vix_df['Close'].iloc[-1])
             prev_vix = float(vix_df['Close'].iloc[-2])
             
-            # VIX와 F&G는 역상관관계 (VIX 15=탐욕, 30=공포)
             est_score = max(0, min(100, int(100 - ((current_vix - 12) * 3.5))))
             est_prev = max(0, min(100, int(100 - ((prev_vix - 12) * 3.5))))
             
@@ -1513,7 +1502,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
                         prompt = f"""
                         당신은 여의도 최고의 기업 분석 리서치 센터장입니다. '{tech_result['종목명']}' 기업에 대해 심층 분석 리포트를 마크다운으로 작성하세요.
-                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익을 창출하는지 초보자도 알기 쉽게 설명.
+                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익 창출하는지 초보자도 알기 쉽게 설명.
                         2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
                         3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
                         4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
@@ -1610,7 +1599,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             }])
                             daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
-                    else: 
+            else: 
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: st.error("데이터를 불러오지 못했습니다.")
 
@@ -1844,23 +1833,19 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다.
                     1. 사용자의 질문에 대해 당신은 반드시 '구글 검색(Google Search)'을 실행하여 가장 최신 기사와 공시를 확인해야 합니다.
                     2. 과거 학습 데이터에 의존한 하드코딩된 답변을 금지합니다.
-                    3. 검색 결과를 바탕으로 확정된 '사실'만 명확하게 3~4줄로 요약하세요. 
+                    3. 검색 결과를 바탕으로 확정된 '사실'만 명확하게 3~4줄로 요약하세요.
                     [매크로 데이터]: {macro_context}\n사용자 질문: {prompt}
                     """
                     try:
                         genai.configure(api_key=api_key_input)
-                        # 💡 구글 검색 도구 호출 시 발생하는 에러를 방지하기 위해 로직 강화
                         model = genai.GenerativeModel('gemini-3.1-flash-lite-preview', tools='google_search_retrieval')
                         response = model.generate_content(sys_prompt)
                         
-                        # 💡 응답 데이터(Part)가 정상적으로 생성되었는지 먼저 확인 (finish_reason 10 에러 방지)
                         if response.candidates and response.candidates[0].content.parts:
                             reply = response.text
                         else:
-                            # 검색 실패 시 일반 AI 답변으로 즉시 우회
                             reply = ask_gemini(prompt, api_key_input)
                     except Exception:
-                        # 예외 발생 시 일반 AI 답변으로 즉시 우회
                         reply = ask_gemini(prompt, api_key_input)
                     st.write(reply)
             
@@ -2564,7 +2549,7 @@ elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
                         if pension_pullback_cond and "✅ 타점 근접" not in res['상태']: return None
                         return res
                     return None
-                
+                 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     for future in concurrent.futures.as_completed({executor.submit(process_pension_stock, t): t for t in targets}):
                         res = future.result()
@@ -2595,7 +2580,7 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
     with tab_nps1:
         st.write("*(에프앤가이드(FnGuide)를 통해 코스피/코스닥 주요 기업의 국민연금 지분율을 추출한 데이터입니다.)*")
         st.dataframe(nps_kr_df, use_container_width=True, hide_index=True)
-        
+         
     with tab_nps2:
         st.write("*(WhaleWisdom 등 미국 SEC 13F 공시 트래커를 기반으로 파싱된 국민연금 미국 주식 포트폴리오입니다.)*")
         st.dataframe(nps_us_df, use_container_width=True, hide_index=True)
@@ -2938,6 +2923,18 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
             krx_df = get_krx_stocks()
             if not krx_df.empty:
                 opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                col_s1, col_
+
+elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
+    st.markdown("## 🔬 기업 정밀 진단 (차트/수급/비전 AI)")
+    ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
+    
+    with ana_tab1:
+        market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
+        if market_choice == "🇰🇷 국내 주식":
+            krx_df = get_krx_stocks()
+            if not krx_df.empty:
+                opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
                 col_s1, col_s2 = st.columns([8, 2])
                 with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
                 with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
@@ -2999,7 +2996,8 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
         st.subheader("국내 상장 주요 ETF (TOP 50)")
         with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
             try:
-                krx_etf = fdr.StockListing('ETF/KR')
+                # 💡 수정된 부분: fdr.StockListing을 직접 호출하지 않고 상단의 캐시 함수를 사용합니다.
+                krx_etf = get_krx_etf_list() 
                 if not krx_etf.empty:
                     price_col = 'Close' if 'Close' in krx_etf.columns else 'Price'
                     display_etf = krx_etf[['Symbol', 'Name', price_col, 'Change', 'Volume']].head(50).copy()
@@ -3028,16 +3026,10 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
         st.subheader("미국 상장 주요 메가 ETF")
         us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV', 'TLT', 'TMF']
         with st.spinner("미국 ETF 데이터를 불러오는 중..."):
-            us_data = []
-            for ticker in us_etfs:
-                try:
-                    df = yf.Ticker(ticker).history(period="5d")
-                    if len(df) >= 2:
-                        close = df['Close'].iloc[-1]
-                        pct = ((close - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
-                        us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{int(df['Volume'].iloc[-1]):,}"})
-                except: pass
-            if us_data: st.dataframe(pd.DataFrame(us_data), use_container_width=True, hide_index=True)
+            # 💡 수정된 부분: 미국 ETF 역시 상단의 캐시 함수를 사용하여 Rerun 시 창 닫힘을 방지합니다.
+            us_data_df = get_us_etf_summary(us_etfs) 
+            if not us_data_df.empty: 
+                st.dataframe(us_data_df, use_container_width=True, hide_index=True)
                 
         st.divider()
         st.subheader("🔍 미국 ETF 정밀 타점 분석 (전체 화면)")
@@ -3115,7 +3107,7 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         c3.metric("최고가", f"{max_price:,}원", max_broker, delta_color="normal")
                         c4.metric("최저가", f"{min_price:,}원", min_broker, delta_color="inverse")
                         c5.metric("수집 리포트", f"{report_count}건")
-                    
+                        
                     st.divider()
                     
                     # 📈 차트 영역
@@ -3129,7 +3121,7 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         fig_line = px.line(valid_df, x='Date', y='적정가격', color='증권사', markers=True, 
                                            title=f"{q_name} 증권사별 목표가 추이",
                                            labels={"Date": "발간일", "적정가격": "목표주가 (원)"})
-                                           
+                        
                         fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
                         fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
                         st.plotly_chart(fig_line, use_container_width=True)
