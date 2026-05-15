@@ -3170,8 +3170,11 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
             q_name = cons_query.rsplit(" (", 1)[0]
             q_code = cons_query.rsplit("(", 1)[-1].replace(")", "").strip()
             
-            with st.spinner(f"'{q_name}' 증권사 리포트 데이터 연산 중..."):
+            with st.spinner(f"'{q_name}' 증권사 리포트 및 현재가 데이터 연산 중..."):
                 history_df = get_stock_research_history(q_code, q_name)
+                # 💡 추가됨: 현재 주가 가져오기
+                tech_res = analyze_technical_pattern(q_name, q_code)
+                curr_price = int(tech_res['현재가']) if tech_res else 0
             
             if history_df.empty:
                 st.warning("최근 6개월 내 발간된 증권사 리포트가 없어 컨센서스를 산출할 수 없습니다.")
@@ -3190,11 +3193,21 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                     max_broker = valid_df[valid_df['적정가격'] == max_price]['증권사'].iloc[0]
                     min_broker = valid_df[valid_df['적정가격'] == min_price]['증권사'].iloc[0]
                     
+                    # 💡 추가됨: 현재가 대비 평균 목표가 괴리율(기대수익률) 계산
+                    upside_pct = ((avg_price - curr_price) / curr_price * 100) if curr_price > 0 else 0
+                    
                     with st.container(border=True):
                         st.markdown(f"### {q_name} <span style='font-size: 16px; color: gray;'>{q_code}</span>", unsafe_allow_html=True)
                         
-                        c1, c2, c3, c4, c5 = st.columns(5)
-                        c1.metric("평균 목표가", f"{avg_price:,}원")
+                        # 💡 수정됨: 6열로 변경하고 맨 앞에 현재 주가 배치
+                        c0, c1, c2, c3, c4, c5 = st.columns(6)
+                        if curr_price > 0:
+                            c0.metric("현재 주가", f"{curr_price:,}원")
+                            c1.metric("평균 목표가", f"{avg_price:,}원", f"{upside_pct:+.1f}% (괴리율)", delta_color="normal")
+                        else:
+                            c0.metric("현재 주가", "조회불가")
+                            c1.metric("평균 목표가", f"{avg_price:,}원")
+                            
                         c2.metric("중앙값", f"{median_price:,}원", f"증권사 {len(valid_df['증권사'].unique())}곳")
                         c3.metric("최고가", f"{max_price:,}원", max_broker, delta_color="normal")
                         c4.metric("최저가", f"{min_price:,}원", min_broker, delta_color="inverse")
@@ -3214,17 +3227,42 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                                            labels={"Date": "발간일", "적정가격": "목표주가 (원)"})
                         
                         fig_line.add_hline(y=avg_price, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text=f"평균 {avg_price:,}원")
+                        # 💡 추가됨: 차트에 현재 주가 기준선 추가
+                        if curr_price > 0:
+                            fig_line.add_hline(y=curr_price, line_dash="dot", line_color="rgba(0,0,255,0.5)", annotation_text=f"현재 주가 {curr_price:,}원")
+                            
                         fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
                         st.plotly_chart(fig_line, use_container_width=True)
                         
                     with col_chart2:
                         st.markdown("#### 📊 투자의견 분포")
-                        opinion_counts = history_df['투자의견'].value_counts().reset_index()
+                        
+                        # 💡 추가됨: '투자의견' 표준화 병합 로직 (Buy = 매수, Hold = 중립, Sell = 매도)
+                        def standardize_opinion(op):
+                            op_str = str(op).strip().upper()
+                            if 'STRONG BUY' in op_str or '강력매수' in op_str:
+                                return '강력매수 (Strong Buy)'
+                            elif 'BUY' in op_str or '매수' in op_str:
+                                return '매수 (Buy)'
+                            elif 'HOLD' in op_str or '중립' in op_str or 'MARKETPERFORM' in op_str:
+                                return '중립 (Hold)'
+                            elif 'SELL' in op_str or '매도' in op_str or 'UNDERPERFORM' in op_str or '축소' in op_str:
+                                return '매도 (Sell)'
+                            else:
+                                return op_str
+
+                        history_df['투자의견_표준화'] = history_df['투자의견'].apply(standardize_opinion)
+                        opinion_counts = history_df['투자의견_표준화'].value_counts().reset_index()
                         opinion_counts.columns = ['투자의견', '건수']
                         
                         fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5,
                                          color='투자의견', 
-                                         color_discrete_map={'매수': '#1b5e20', '강력매수': '#003300', 'Buy': '#2ca02c', 'Hold': '#ff7f0e', '중립': '#ff7f0e', 'Sell': '#d62728'})
+                                         color_discrete_map={
+                                            '강력매수 (Strong Buy)': '#003300', 
+                                            '매수 (Buy)': '#1b5e20', 
+                                            '중립 (Hold)': '#ff7f0e', 
+                                            '매도 (Sell)': '#d62728'
+                                         })
                         fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                         st.plotly_chart(fig_pie, use_container_width=True)
                         
