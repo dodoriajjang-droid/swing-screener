@@ -45,11 +45,6 @@ def save_watchlist(wl):
         with open(WATCHLIST_FILE, "w", encoding="utf-8") as f: json.dump(wl, f, ensure_ascii=False, indent=4)
     except Exception as e: st.error(f"관심종목 저장 실패: {e}")
 
-# ==========================================
-# 1. 초기 설정 
-# ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
-st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 #st.markdown("""
 #<style>
