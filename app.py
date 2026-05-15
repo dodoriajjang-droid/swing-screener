@@ -51,13 +51,71 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
+#st.markdown("""
+#<style>
+#@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+#.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
+#th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+#</style>
+#""", unsafe_allow_html=True)
+# ==========================================
+# 1. 초기 설정 및 글래스모피즘 다크 UI 스타일링
+# ==========================================
+st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
+st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
+
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
-th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pretendard:wght@400;600;800&display=swap');
+
+/* 전체 배경 및 폰트 셋업 */
+.stApp {
+    background-color: #0B0F19; /* 다크 네이비 배경 */
+    color: #E2E8F0;
+    font-family: 'Pretendard', sans-serif !important;
+}
+
+/* 벤토 박스 (Glassmorphism) 카드 UI */
+.bento-card {
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    margin-bottom: 16px;
+}
+
+.bento-title {
+    color: #94A3B8;
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.bento-value {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #FFFFFF;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* 네온 포인트 컬러 */
+.neon-green { color: #10B981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.3); }
+.neon-red { color: #EF4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+
+/* Expander (점진적 정보 공개) 커스텀 */
+.streamlit-expanderHeader {
+    background-color: transparent !important;
+    font-weight: 600 !important;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 # 세션 상태 초기화
 for key in ['seen_links', 'seen_titles', 'news_data']:
@@ -2989,56 +3047,109 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
             
     with news_sub3:
         st.markdown("### 🤖 Auto Research Desk (오늘의 증권가 종합 분석)")
-        st.write("기관 트레이딩 데스크 수준의 일일 요약, 쟁점 분석, 목표가 랭킹을 AI가 생성합니다.")
+        st.caption("기관 트레이딩 데스크 수준의 일일 요약, 쟁점 분석, 목표가 랭킹을 AI가 생성합니다.")
+        
         if api_key_input:
-            if st.button("🚀 TEBI-Style 모닝 리포트 생성 시작", type="primary"):
+            if st.button("🚀 TEBI-Style 모닝 리포트 생성 시작", type="primary", use_container_width=True):
                 with st.spinner("오늘 발간된 30개의 증권사 리포트 원문을 AI가 해독 및 분석 중입니다..."):
                     today_reports = get_today_research_details()
+                    
                     if not today_reports.empty:
                         buys = len(today_reports[today_reports['투자의견'].str.contains('매수|Buy', na=False, case=False)])
                         sells = len(today_reports[today_reports['투자의견'].str.contains('매도|Sell|축소', na=False, case=False)])
                         holds = len(today_reports) - buys - sells
                         
-                        st.markdown("#### 📊 오늘의 증권가 투자의견 요약 (Verdict)")
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("총 발간 리포트", f"{len(today_reports)}건")
-                        c2.metric("BUY (비중확대)", f"{buys}건")
-                        c3.metric("HOLD (관망)", f"{holds}건")
-                        c4.metric("SELL (비중축소)", f"{sells}건")
-                        
-                        st.markdown("#### 📈 당일 목표가(TP) 상/하향 랭킹")
-                        upgrades = today_reports[today_reports['변동'] == '상향'].sort_values('변동률', ascending=False)
-                        downgrades = today_reports[today_reports['변동'] == '하향'].sort_values('변동률', ascending=True)
-                        
-                        col_up, col_down = st.columns(2)
-                        with col_up:
-                            st.success(f"**▲ 상향 리포트 ({len(upgrades)}건)**")
-                            if not upgrades.empty:
-                                fig_up = px.bar(upgrades, x='변동률', y='종목명', orientation='h', text='증권사', color_discrete_sequence=['#ff4b4b'])
-                                fig_up.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), yaxis={'categoryorder':'total ascending'})
-                                st.plotly_chart(fig_up, use_container_width=True)
-                            else: st.write("목표가 상향 종목이 없습니다.")
-                        
-                        with col_down:
-                            st.error(f"**▼ 하향 리포트 ({len(downgrades)}건)**")
-                            if not downgrades.empty:
-                                fig_down = px.bar(downgrades, x='변동률', y='종목명', orientation='h', text='증권사', color_discrete_sequence=['#1f77b4'])
-                                fig_down.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), yaxis={'categoryorder':'total descending'})
-                                st.plotly_chart(fig_down, use_container_width=True)
-                            else: st.write("목표가 하향 종목이 없습니다.")
-                            
-                        st.markdown("#### ⚔️ 애널리스트 갑론을박 & 💡 Bottom Line")
+                        # AI 분석 프롬프트 실행 (먼저 실행하여 Bottom Line 도출)
                         report_texts = "\n".join([f"- [{r['증권사']}] {r['종목명']} (의견: {r['투자의견']}, TP변동: {r['변동']}): {r['제목']}" for _, r in today_reports.iterrows()])
                         prompt = f"""
-                        당신은 기관 프랍 트레이더를 위한 수석 퀀트 애널리스트입니다. 오늘 한국 증시에서 발간된 증권사 리포트 목록입니다:
+                        당신은 기관 프랍 트레이더를 위한 수석 퀀트 애널리스트입니다. 오늘 한국 증시 증권사 리포트 목록입니다:
                         {report_texts}
                         
-                        다음 3가지를 마크다운으로 명확하게 작성하세요:
-                        1. **🔥 주도 섹터 및 핵심 모멘텀**: 오늘 리포트들이 가장 집중적으로 다루고 있는(목표가 상향이 많은) 핵심 섹터 1~2개와 그 이유.
-                        2. **⚔️ 애널리스트 갑론을박 (Debate)**: 시장에서 의견이 엇갈리는 종목이나 섹터를 찾아 강세(Bull) 논리와 약세/보수적(Bear) 논리를 대비시켜 서술하세요.
-                        3. **💡 Bottom Line (최종 액션 플랜)**: 전체적인 매수/매도 비율을 고려했을 때, 투자자가 오늘 취해야 할 명확한 행동 지침(예: 적극 매수, 차익 실현 등)을 3줄로 결론지으세요.
+                        다음 3가지를 명확하게 작성하세요:
+                        [BOTTOM_LINE]
+                        전체적인 매수/매도 비율을 고려했을 때, 투자자가 오늘 취해야 할 명확한 행동 지침을 2줄로 매우 직관적이고 단호하게 요약.
+                        [LEAD_SECTOR]
+                        오늘 리포트들이 가장 집중적으로 다루고 있는 핵심 섹터 1개와 그 이유 (2줄).
+                        [DEBATE]
+                        시장에서 의견이 엇갈리는 종목이나 섹터를 찾아 강세(Bull) 논리와 약세/보수적(Bear) 논리를 대비시켜 상세히 서술.
                         """
-                        st.info(ask_gemini(prompt, api_key_input))
+                        ai_result = ask_gemini(prompt, api_key_input)
+                        
+                        # AI 결과 파싱 (간단한 문자열 분리)
+                        try:
+                            bottom_line = ai_result.split("[BOTTOM_LINE]")[1].split("[LEAD_SECTOR]")[0].strip()
+                            lead_sector = ai_result.split("[LEAD_SECTOR]")[1].split("[DEBATE]")[0].strip()
+                            debate_text = ai_result.split("[DEBATE]")[1].strip()
+                        except:
+                            bottom_line = "데이터 파싱 중 오류가 발생했습니다. 하단의 상세 분석을 참고하세요."
+                            lead_sector = "분석 대기 중"
+                            debate_text = ai_result
+
+                        # ---------------------------------------------------------
+                        # 🍱 BENTO BOX 레이아웃 시작
+                        # ---------------------------------------------------------
+                        
+                        # [Row 1] AI Bottom Line (핵심 뷰 100% 너비)
+                        st.markdown(f"""
+                        <div class="bento-card" style="border-left: 4px solid #3B82F6;">
+                            <div class="bento-title">💡 Today's Bottom Line (최종 액션 플랜)</div>
+                            <div style="font-size: 1.2rem; font-weight: 600; line-height: 1.6; color: #F8FAFC;">
+                                {bottom_line}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # [Row 2] 매크로 KPI 지표 (4등분)
+                        st.markdown("""
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px;">
+                            <div class="bento-card" style="margin-bottom: 0;"><div class="bento-title">총 발간 리포트</div><div class="bento-value">{}<span style="font-size:1rem;color:#64748B;"> 건</span></div></div>
+                            <div class="bento-card" style="margin-bottom: 0;"><div class="bento-title">BUY (비중확대)</div><div class="bento-value neon-green">{}<span style="font-size:1rem;color:#64748B;"> 건</span></div></div>
+                            <div class="bento-card" style="margin-bottom: 0;"><div class="bento-title">HOLD (관망)</div><div class="bento-value" style="color:#FBBF24;">{}<span style="font-size:1rem;color:#64748B;"> 건</span></div></div>
+                            <div class="bento-card" style="margin-bottom: 0;"><div class="bento-title">SELL (비중축소)</div><div class="bento-value neon-red">{}<span style="font-size:1rem;color:#64748B;"> 건</span></div></div>
+                        </div>
+                        """.format(len(today_reports), buys, holds, sells), unsafe_allow_html=True)
+
+                        # [Row 3] 주도 섹터 & 랭킹 차트 (반반 분할)
+                        col_b1, col_b2 = st.columns([1, 1])
+                        
+                        with col_b1:
+                            st.markdown(f"""
+                            <div class="bento-card" style="height: 100%;">
+                                <div class="bento-title">🔥 주도 섹터 & 핵심 모멘텀</div>
+                                <div style="font-size: 1.05rem; color: #CBD5E1; line-height: 1.5;">{lead_sector}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                        with col_b2:
+                            with st.container():
+                                st.markdown('<div class="bento-card" style="padding: 15px;">', unsafe_allow_html=True)
+                                st.markdown('<div class="bento-title">📈 당일 목표가 상/하향 랭킹</div>', unsafe_allow_html=True)
+                                upgrades = today_reports[today_reports['변동'] == '상향'].sort_values('변동률', ascending=False)
+                                downgrades = today_reports[today_reports['변동'] == '하향'].sort_values('변동률', ascending=True)
+                                
+                                if not upgrades.empty or not downgrades.empty:
+                                    combo_df = pd.concat([upgrades.head(3), downgrades.head(3)])
+                                    fig_bar = px.bar(combo_df, x='변동률', y='종목명', orientation='h', text='증권사', 
+                                                     color='변동률', color_continuous_scale=['#EF4444', '#10B981'], 
+                                                     color_continuous_midpoint=0)
+                                    fig_bar.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0), 
+                                                          paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                                          coloraxis_showscale=False, yaxis_title=None, xaxis_title=None)
+                                    fig_bar.update_yaxes(tickfont=dict(color='white', size=12))
+                                    fig_bar.update_xaxes(showgrid=False, tickfont=dict(color='gray'))
+                                    st.plotly_chart(fig_bar, use_container_width=True)
+                                else:
+                                    st.write("오늘 변동된 목표가 데이터가 없습니다.")
+                                st.markdown('</div>', unsafe_allow_html=True)
+
+                        # [Row 4] Progressive Disclosure (점진적 정보 공개 - 아코디언 메뉴)
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        with st.expander("⚔️ 시장 갑론을박 (Analyst Debate) 자세히 읽기"):
+                            st.markdown(debate_text)
+                            
+                        with st.expander("📋 오늘 수집된 리포트 원본 데이터 (Raw Data)"):
+                            st.dataframe(today_reports[['종목명', '증권사', '투자의견', '목표가', '변동', '제목']], use_container_width=True)
+
                     else:
                         st.error("리포트 데이터를 파싱하지 못했습니다.")
         else:
