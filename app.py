@@ -1245,7 +1245,7 @@ def get_fundamentals(ticker_code):
             
             return per, pbr, fcf, shares, target_price
         except Exception: return 'N/A', 'N/A', None, None, 'N/A'
-    else:
+            else:
         try:
             t_obj = yf.Ticker(ticker_code)
             info = t_obj.info
