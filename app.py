@@ -489,6 +489,12 @@ def get_dividend_portfolio(ex_rate):
             price = info.get('previousClose', info.get('currentPrice', info.get('regularMarketPrice', 0)))
             div_rate = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
             
+            # 💡 [핵심 수정] ETF의 경우 dividendRate가 없는 경우가 많아 yield(수익률) 정보를 활용해 배당금을 역산
+            if not div_rate or div_rate == 0:
+                div_yield = info.get('yield', info.get('trailingAnnualDividendYield', 0))
+                if div_yield and price > 0:
+                    div_rate = price * div_yield
+            
             if price > 0 and div_rate and div_rate > 0:
                 name_ko = get_korean_name(info.get('shortName', ticker))
                 price_krw = int(price * ex_rate)
@@ -512,6 +518,28 @@ def get_dividend_portfolio(ex_rate):
 
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
+
+    # 💡 [핵심 수정] Yahoo Finance API 차단으로 빈 값이 나올 경우를 대비한 든든한 Fallback (예비 데이터) 추가
+    if us_df.empty:
+        us_fallback = [
+            {"종목명": "Verizon (VZ)", "현재가": "$40.00 (54,000원)", "표시 배당금": "$2.66 (3,590원)", "예상 배당금": 2.66, "비고": "API 차단(예비)"},
+            {"종목명": "Altria (MO)", "현재가": "$45.00 (60,750원)", "표시 배당금": "$3.92 (5,290원)", "예상 배당금": 3.92, "비고": "API 차단(예비)"},
+            {"종목명": "AT&T (T)", "현재가": "$17.00 (22,950원)", "표시 배당금": "$1.11 (1,490원)", "예상 배당금": 1.11, "비고": "API 차단(예비)"},
+            {"종목명": "Chevron (CVX)", "현재가": "$150.00 (202,500원)", "표시 배당금": "$6.52 (8,800원)", "예상 배당금": 6.52, "비고": "API 차단(예비)"},
+            {"종목명": "Coca-Cola (KO)", "현재가": "$60.00 (81,000원)", "표시 배당금": "$1.94 (2,610원)", "예상 배당금": 1.94, "비고": "API 차단(예비)"},
+            {"종목명": "Johnson & Johnson (JNJ)", "현재가": "$150.00 (202,500원)", "표시 배당금": "$4.96 (6,690원)", "예상 배당금": 4.96, "비고": "API 차단(예비)"}
+        ]
+        us_df = pd.DataFrame(us_fallback)
+        
+    if etf_df.empty:
+        etf_fallback = [
+            {"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "표시 배당금": "$4.50 (6,070원)", "예상 배당금": 4.50, "비고": "API 차단(예비)"},
+            {"종목명": "Schwab US Dividend Equity (SCHD)", "현재가": "$78.00 (105,300원)", "표시 배당금": "$2.70 (3,640원)", "예상 배당금": 2.70, "비고": "API 차단(예비)"},
+            {"종목명": "Vanguard High Dividend Yield (VYM)", "현재가": "$115.00 (155,250원)", "표시 배당금": "$3.50 (4,720원)", "예상 배당금": 3.50, "비고": "API 차단(예비)"},
+            {"종목명": "SPDR Portfolio S&P 500 High Div (SPYD)", "현재가": "$40.00 (54,000원)", "표시 배당금": "$1.80 (2,430원)", "예상 배당금": 1.80, "비고": "API 차단(예비)"},
+            {"종목명": "iShares Core High Dividend (HDV)", "현재가": "$105.00 (141,750원)", "표시 배당금": "$4.00 (5,400원)", "예상 배당금": 4.00, "비고": "API 차단(예비)"}
+        ]
+        etf_df = pd.DataFrame(etf_fallback)
 
     if not us_df.empty:
         us_df = us_df.sort_values('예상 배당금', ascending=False)
