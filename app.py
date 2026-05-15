@@ -51,11 +51,121 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
+# =====================================================================
+# 🍎 Apple Glassmorphism UI 패치 (Jaemini PRO v6.1)
+# =====================================================================
+# 이 파일에는 두 개의 교체용 코드 블록이 있습니다.
+#   [1] 상단 CSS 블록 교체  → 원본 49~55줄 부근의 st.markdown(""" <style>...</style> """) 
+#   [2] draw_stock_card 함수 교체 → 원본의 def draw_stock_card(...) 전체
+#
+# 원본의 나머지 코드(데이터 수집, 분석 로직 등)는 절대 건드리지 마세요.
+# =====================================================================
+ 
+ 
+# =====================================================================
+# [1] CSS 블록 교체본
+# 원본의 `st.markdown("""<style> ... </style>""", unsafe_allow_html=True)` 부분을
+# 아래 코드로 통째로 바꾸세요.
+# =====================================================================
+ 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
-th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+ 
+/* ===== 전체 톤 ===== */
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+ 
+.stMetricValue, .stMetricDelta, table, .stDataFrame {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-feature-settings: 'tnum';
+}
+ 
+th { font-weight: 500 !important; background-color: rgba(100, 100, 100, 0.04) !important; }
+ 
+/* ===== 글래스모피즘 카드 컨테이너 ===== */
+.glass-card {
+    background: linear-gradient(135deg, rgba(240, 244, 255, 0.5) 0%, rgba(253, 242, 248, 0.5) 50%, rgba(240, 253, 250, 0.5) 100%);
+    border-radius: 24px;
+    padding: 20px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+}
+ 
+.glass-inner {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 18px;
+    padding: 18px 22px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    margin-bottom: 10px;
+}
+ 
+.glass-mini {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+}
+ 
+/* ===== 가격/숫자 디스플레이 ===== */
+.price-big {
+    font-size: 34px;
+    font-weight: 300;
+    color: #0f172a;
+    letter-spacing: -0.8px;
+    font-feature-settings: 'tnum';
+    line-height: 1.1;
+}
+.price-currency { font-size: 16px; color: #64748b; margin-left: 4px; font-weight: 400; }
+.price-label { font-size: 10px; color: #94a3b8; letter-spacing: 0.8px; text-transform: uppercase; }
+.price-value { font-size: 18px; font-weight: 400; color: #0f172a; margin-top: 4px; font-feature-settings: 'tnum'; }
+.price-delta { font-size: 11px; margin-top: 2px; font-feature-settings: 'tnum'; }
+ 
+/* ===== 캡슐 배지 ===== */
+.pill {
+    display: inline-block;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+.pill-sector { background: rgba(99, 102, 241, 0.1); color: #4f46e5; }
+.pill-up     { background: rgba(239, 68, 68, 0.1); color: #dc2626; }
+.pill-down   { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
+.pill-good   { background: rgba(16, 185, 129, 0.1); color: #059669; }
+.pill-warn   { background: rgba(245, 158, 11, 0.1); color: #d97706; }
+.pill-neutral{ background: rgba(99, 102, 241, 0.08); color: #4f46e5; }
+.pill-info   { background: rgba(14, 165, 233, 0.1); color: #0284c7; }
+ 
+.code-text { color: #94a3b8; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.divider-soft { height: 1px; background: linear-gradient(to right, transparent, rgba(0,0,0,0.08), transparent); margin: 14px 0 10px; }
+ 
+/* ===== Streamlit Expander 헤더 톤 살짝 정리 ===== */
+.streamlit-expanderHeader, [data-testid="stExpander"] summary {
+    border-radius: 14px !important;
+    font-weight: 500 !important;
+}
+ 
+/* ===== Streamlit Metric 톤 정리 ===== */
+[data-testid="stMetricValue"] {
+    font-weight: 400 !important;
+    letter-spacing: -0.3px;
+}
+ 
+/* ===== 버튼 톤 (글래스 느낌) ===== */
+.stButton > button {
+    border-radius: 12px !important;
+    font-weight: 500 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1395,45 +1505,64 @@ def show_trading_guidelines():
         * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` 
         """)
 
+# =====================================================================
+# [2] draw_stock_card 함수 교체본
+# 원본의 def draw_stock_card(...) 함수 전체를 아래 코드로 통째로 바꾸세요.
+# 함수 시그니처, 인자, 호출 방식 모두 동일하므로 다른 코드는 손댈 필요 없습니다.
+# =====================================================================
+ 
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
     status_emoji = tech_result['상태'].split(' ')[0]
-    is_us = not str(tech_result['티커']).isdigit() 
-
+    is_us = not str(tech_result['티커']).isdigit()
+ 
     def get_short_trend(trend_text):
         val = str(trend_text).split(' ')[0]
         if "🔥" in str(trend_text): return f"🔥{val}"
         if "💧" in str(trend_text): return f"💧{val}"
         return f"➖{val}"
-        
+ 
     f_trend = get_short_trend(tech_result['외인수급'])
     i_trend = get_short_trend(tech_result['기관수급'])
     sector_info = tech_result.get('섹터', '기타')
     if len(sector_info) > 12: sector_info = sector_info[:12] + ".."
     align_status_short = tech_result['배열상태'].split(' ｜ ')[0]
-    
+ 
     def fmt_price(p, delta=False):
         if is_us: return f"{'+' if p>0 else ''}${p:,.2f}" if delta else f"${p:,.2f}"
         else: return f"{'+' if p>0 else ''}{int(p):,}원" if delta else f"{int(p):,}원"
-            
-    if is_us: base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ RSI: {tech_result['RSI']:.1f})"
-    else: base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ RSI: {tech_result['RSI']:.1f})"
-    
+ 
+    def fmt_num(p):
+        return f"${p:,.2f}" if is_us else f"{int(p):,}"
+ 
+    if is_us:
+        base_info = f"(진단: {tech_result['상태']} ｜ 상세: {align_status_short} ｜ RSI: {tech_result['RSI']:.1f})"
+    else:
+        base_info = f"(진단: {tech_result['상태']} ｜ 상세: {align_status_short} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ RSI: {tech_result['RSI']:.1f})"
+ 
     header_block = f"{status_emoji} {tech_result['종목명']} / {sector_info} / {fmt_price(tech_result['현재가'])}"
     expander_title = f"{header_block} ｜ {base_info}"
-    
+ 
     with st.expander(expander_title, expanded=is_expanded):
+        # ─── 타임머신 검증 결과 (백테스팅용) ──────────────────────────
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
-            color = "#ff4b4b" if pnl > 0 else "#1f77b4"
-            bg_color = "rgba(255, 75, 75, 0.1)" if pnl > 0 else "rgba(31, 119, 180, 0.1)"
-            st.markdown(f"""<div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {color};">
-                <h3 style="margin:0; color: {color};">⏰ 타임머신 검증 결과</h3>
-                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b style="font-family:'JetBrains Mono',monospace;">{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b style="font-family:'JetBrains Mono',monospace;">{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color}; font-family:'JetBrains Mono',monospace;">({pnl:+.2f}%)</span></p>
-            </div>""", unsafe_allow_html=True)
-            
+            color = "#dc2626" if pnl > 0 else "#2563eb"
+            bg = "rgba(239, 68, 68, 0.08)" if pnl > 0 else "rgba(37, 99, 235, 0.08)"
+            st.markdown(f"""
+            <div class="glass-card" style="background: {bg}; padding: 16px 20px; margin-bottom: 14px;">
+                <div style="font-size: 13px; color: #64748b; letter-spacing: 0.5px;">⏰ 타임머신 검증 결과</div>
+                <div style="margin-top: 6px; font-size: 14px; color: #0f172a;">
+                    당시 <span style="font-family:'JetBrains Mono',monospace; font-weight:500;">{fmt_price(tech_result['현재가'])}</span>
+                    → 오늘 <span style="font-family:'JetBrains Mono',monospace; font-weight:500;">{fmt_price(tech_result['오늘현재가'])}</span>
+                    <span style="font-size: 18px; font-weight: 500; color: {color}; font-family:'JetBrains Mono',monospace; margin-left: 8px;">({pnl:+.2f}%)</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+ 
+        # ─── 액션 버튼 (관심종목) ──────────────────────────
         col_btn1, col_btn3 = st.columns([8, 2])
-        col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
-        
+        col_btn1.markdown(f"<span style='font-size:13px; color:#64748b;'>상세 진단</span> &nbsp; <span style='font-size:13px; color:#0f172a;'>{tech_result['배열상태']}</span>", unsafe_allow_html=True)
+ 
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if not is_in_wl:
             if col_btn3.button("⭐ 관심종목 추가", key=f"star_add_{tech_result['티커']}_{key_suffix}"):
@@ -1445,66 +1574,234 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 st.session_state.watchlist = [x for x in st.session_state.watchlist if x['티커'] != tech_result['티커']]
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
-
-        c1, c2, c3, c4 = st.columns(4)
+ 
+        # ─── ① 헤더 카드: 종목명/현재가/RSI/PER ──────────────────────────
         curr = tech_result['현재가']
-        c1.metric("📌 진입 기준가", fmt_price(tech_result['진입가_가이드']), fmt_price(tech_result['진입가_가이드'] - curr, True) + " (대비)", delta_color="off")
-        c2.metric("🎯 1차 (볼밴상단)", fmt_price(tech_result['목표가1']), fmt_price(tech_result['목표가1'] - curr, True), delta_color="normal")
-        c3.metric("🚀 2차 (스윙전고)", fmt_price(tech_result['목표가2']), fmt_price(tech_result['목표가2'] - curr, True), delta_color="normal")
-        c4.metric("🌌 3차 (오버슈팅)", fmt_price(tech_result['목표가3']), fmt_price(tech_result['목표가3'] - curr, True), delta_color="normal")
-        
-        st.markdown("---")
-        
-        c5, c6, c7, c8 = st.columns([1.2, 1.2, 1, 2.5]) 
-        c5.metric("🛑 손절 라인", fmt_price(tech_result['손절가']), fmt_price(tech_result['손절가'] - curr, True) + " (리스크)", delta_color="normal")
-        
+        rsi_val = tech_result['RSI']
+        per_val = tech_result.get('PER', 'N/A')
+ 
+        sector_html = f"<span class='pill pill-sector'>{tech_result.get('섹터', '기타')}</span>" if not is_us else "<span class='pill pill-sector'>US</span>"
+        ticker_html = f"<span class='code-text'>{tech_result['티커']}</span>"
+ 
+        status_pill_class = "pill-good" if "✅" in tech_result['상태'] else "pill-warn" if "⚠️" in tech_result['상태'] else "pill-down"
+ 
+        if is_us:
+            curr_html = f"<span class='price-big'>${curr:,.2f}</span>"
+        else:
+            curr_html = f"<span class='price-big'>{int(curr):,}<span class='price-currency'>원</span></span>"
+ 
+        st.markdown(f"""
+        <div class="glass-card">
+          <div class="glass-inner">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+              <div style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                  {sector_html}
+                  {ticker_html}
+                </div>
+                <div style="font-size: 18px; font-weight: 500; color: #0f172a; letter-spacing: -0.3px;">{tech_result['종목명']}</div>
+                <div style="margin-top: 6px;">{curr_html}</div>
+                <div style="margin-top: 8px;">
+                  <span class='pill {status_pill_class}'>{tech_result['상태']}</span>
+                  <span class='pill pill-neutral' style="margin-left: 4px;">{align_status_short}</span>
+                </div>
+              </div>
+              <div style="text-align: right; min-width: 130px;">
+                <div style="display: flex; gap: 16px; justify-content: flex-end;">
+                  <div>
+                    <div class='price-label'>RSI</div>
+                    <div style="font-size: 22px; font-weight: 300; color: {'#dc2626' if rsi_val >= 70 else '#2563eb' if rsi_val <= 30 else '#0f172a'};">{rsi_val:.1f}</div>
+                  </div>
+                  <div>
+                    <div class='price-label'>PER</div>
+                    <div style="font-size: 22px; font-weight: 300; color: #0f172a;">{per_val}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+ 
+        # ─── ② 가격 타겟 4분할 (진입/1차/2차/3차/손절) ──────────────────────────
+        entry = tech_result['진입가_가이드']
+        t1, t2, t3 = tech_result['목표가1'], tech_result['목표가2'], tech_result['목표가3']
+        stop = tech_result['손절가']
+ 
+        def diff_text(target):
+            d = target - curr
+            return f"{'+' if d > 0 else ''}{fmt_num(d)}"
+ 
+        st.markdown(f"""
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;">
+          <div class="glass-mini" style="border: 1px solid rgba(245, 158, 11, 0.25);">
+            <div class='price-label'>📌 진입가</div>
+            <div class='price-value'>{fmt_num(entry)}</div>
+            <div class='price-delta' style="color: #d97706;">{diff_text(entry)}</div>
+          </div>
+          <div class="glass-mini" style="border: 1px solid rgba(16, 185, 129, 0.25);">
+            <div class='price-label'>🎯 1차 (볼밴)</div>
+            <div class='price-value' style="color: #059669;">{fmt_num(t1)}</div>
+            <div class='price-delta' style="color: #059669;">{diff_text(t1)}</div>
+          </div>
+          <div class="glass-mini" style="border: 1px solid rgba(16, 185, 129, 0.25);">
+            <div class='price-label'>🚀 2차 (전고)</div>
+            <div class='price-value' style="color: #059669;">{fmt_num(t2)}</div>
+            <div class='price-delta' style="color: #059669;">{diff_text(t2)}</div>
+          </div>
+          <div class="glass-mini" style="border: 1px solid rgba(220, 38, 38, 0.25);">
+            <div class='price-label'>🛑 손절가</div>
+            <div class='price-value' style="color: #dc2626;">{fmt_num(stop)}</div>
+            <div class='price-delta' style="color: #dc2626;">{diff_text(stop)}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+ 
+        # ─── ③ 증권가 목표가 + 3차 목표가 + 수급 ──────────────────────────
         cons_text = tech_result.get("목표가_컨센서스", "N/A")
         def is_float(s):
             try: float(s); return True
             except Exception: return False
-            
+ 
+        cons_html = ""
         if is_float(str(cons_text).replace('.', '', 1).replace('-', '')):
             cons_val = float(str(cons_text))
-            c6.metric("🏦 증권가 목표가", fmt_price(cons_val), fmt_price(cons_val - curr, True) + " (괴리)", delta_color="normal")
+            cons_diff = cons_val - curr
+            cons_color = "#059669" if cons_diff > 0 else "#dc2626"
+            cons_html = f"""
+              <div class="glass-mini" style="flex: 1;">
+                <div class='price-label'>🏦 증권가 컨센서스</div>
+                <div class='price-value'>{fmt_num(cons_val)}</div>
+                <div class='price-delta' style="color: {cons_color};">{'+' if cons_diff > 0 else ''}{fmt_num(cons_diff)}</div>
+              </div>
+            """
         else:
-            c6.metric("🏦 증권가 목표가", "목표가 없음")
-            
-        c7.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
-        
+            cons_html = f"""
+              <div class="glass-mini" style="flex: 1;">
+                <div class='price-label'>🏦 증권가 컨센서스</div>
+                <div class='price-value' style="color:#94a3b8;">목표가 없음</div>
+              </div>
+            """
+ 
+        rsi_label = "🔴 과열" if rsi_val >= 70 else "🔵 바닥" if rsi_val <= 30 else "⚪ 보통"
+        rsi_color = "#dc2626" if rsi_val >= 70 else "#2563eb" if rsi_val <= 30 else "#64748b"
+ 
+        st.markdown(f"""
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <div class="glass-mini" style="flex: 1;">
+            <div class='price-label'>🌌 3차 (오버슈팅)</div>
+            <div class='price-value' style="color: #059669;">{fmt_num(t3)}</div>
+            <div class='price-delta' style="color: #059669;">{diff_text(t3)}</div>
+          </div>
+          {cons_html}
+          <div class="glass-mini" style="flex: 1;">
+            <div class='price-label'>📊 RSI</div>
+            <div class='price-value' style="color: {rsi_color};">{rsi_val:.1f}</div>
+            <div class='price-delta' style="color: {rsi_color};">{rsi_label}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+ 
+        # ─── ④ 수급 동향 (국내만) / 펀더멘털 (해외) ──────────────────────────
         if not is_us:
-            with c8: 
-                st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
-                if tech_result.get('장중잠정수급'):
-                    id_data = tech_result['장중잠정수급']
-                    f_val_str = f"🔥+{id_data['forgn']:,}" if id_data['forgn'] > 0 else f"💧{id_data['forgn']:,}"
-                    i_val_str = f"🔥+{id_data['inst']:,}" if id_data['inst'] > 0 else f"💧{id_data['inst']:,}"
-                    st.markdown(f"⚡ **오늘 장중 실시간 수급 (잠정)**<br>외인 `{f_val_str}` ｜ 기관 `{i_val_str}` `({id_data['time']} 기준)`", unsafe_allow_html=True)
-                if tech_result.get('연기금연속순매수', 0) >= 3:
-                    st.markdown(f"👴 **스마트머니 시그널:** <span style='color:orange; font-weight:bold;'>🔥 기관(전체) {tech_result['연기금연속순매수']}일 연속 순매수 포착</span>", unsafe_allow_html=True)
+            def color_supply(text):
+                if "🔥" in text or "+" in text: return "#dc2626"
+                if "💧" in text or "-" in text: return "#2563eb"
+                return "#64748b"
+ 
+            f_color = color_supply(str(tech_result['외인수급']))
+            i_color = color_supply(str(tech_result['기관수급']))
+            p_color = color_supply(str(tech_result.get('개인수급', '조회불가')))
+ 
+            intraday_html = ""
+            if tech_result.get('장중잠정수급'):
+                id_data = tech_result['장중잠정수급']
+                f_val_str = f"🔥+{id_data['forgn']:,}" if id_data['forgn'] > 0 else f"💧{id_data['forgn']:,}"
+                i_val_str = f"🔥+{id_data['inst']:,}" if id_data['inst'] > 0 else f"💧{id_data['inst']:,}"
+                f_id_color = "#dc2626" if id_data['forgn'] > 0 else "#2563eb"
+                i_id_color = "#dc2626" if id_data['inst'] > 0 else "#2563eb"
+                intraday_html = f"""
+                <div class="divider-soft"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span class='pill pill-warn'>⚡ 장중 잠정 ({id_data['time']})</span>
+                  <div style="font-size: 13px; font-family: 'JetBrains Mono', monospace;">
+                    외인 <span style="color:{f_id_color}; font-weight:500;">{f_val_str}</span>
+                    &nbsp;｜&nbsp;
+                    기관 <span style="color:{i_id_color}; font-weight:500;">{i_val_str}</span>
+                  </div>
+                </div>
+                """
+ 
+            pension_html = ""
+            if tech_result.get('연기금연속순매수', 0) >= 3:
+                pension_html = f"""
+                <div class="divider-soft"></div>
+                <div>
+                  <span class='pill pill-warn'>👴 스마트머니</span>
+                  <span style="font-size: 13px; color: #d97706; font-weight: 500; margin-left: 6px;">🔥 기관 {tech_result['연기금연속순매수']}일 연속 순매수 포착</span>
+                </div>
+                """
+ 
+            st.markdown(f"""
+            <div class="glass-inner" style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-size: 11px; color: #94a3b8; letter-spacing: 1px;">🕵️ 5일 누적 수급 동향</span>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                <div>
+                  <div style="font-size: 11px; color: #64748b;">외국인</div>
+                  <div style="font-size: 14px; font-weight: 500; color: {f_color}; font-feature-settings: 'tnum'; margin-top: 2px;">{tech_result['외인수급']}</div>
+                </div>
+                <div>
+                  <div style="font-size: 11px; color: #64748b;">기관</div>
+                  <div style="font-size: 14px; font-weight: 500; color: {i_color}; font-feature-settings: 'tnum'; margin-top: 2px;">{tech_result['기관수급']}</div>
+                </div>
+                <div>
+                  <div style="font-size: 11px; color: #64748b;">개인</div>
+                  <div style="font-size: 14px; font-weight: 500; color: {p_color}; font-feature-settings: 'tnum'; margin-top: 2px;">{tech_result.get('개인수급', '조회불가')}</div>
+                </div>
+              </div>
+              {intraday_html}
+              {pension_html}
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            with c8:
-                per_val = tech_result.get('PER', 'N/A')
-                pbr_val = tech_result.get('PBR', 'N/A')
-                st.markdown(f"🏢 **핵심 펀더멘털 (TTM)**<br>**PER:** `{per_val}` ｜ **PBR:** `{pbr_val}`", unsafe_allow_html=True)
-        
+            per_v = tech_result.get('PER', 'N/A')
+            pbr_v = tech_result.get('PBR', 'N/A')
+            st.markdown(f"""
+            <div class="glass-inner" style="margin-bottom: 12px;">
+              <div style="font-size: 11px; color: #94a3b8; letter-spacing: 1px; margin-bottom: 10px;">🏢 핵심 펀더멘털 (TTM)</div>
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                <div>
+                  <div style="font-size: 11px; color: #64748b;">PER</div>
+                  <div style="font-size: 18px; font-weight: 400; color: #0f172a; margin-top: 2px;">{per_v}</div>
+                </div>
+                <div>
+                  <div style="font-size: 11px; color: #64748b;">PBR</div>
+                  <div style="font-size: 18px; font-weight: 400; color: #0f172a; margin-top: 2px;">{pbr_v}</div>
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+ 
+        # ─── ⑤ AI 분석 버튼 ──────────────────────────
         if api_key_str:
-            st.markdown("<br>", unsafe_allow_html=True)
             col_ai1, col_ai2 = st.columns(2)
             ai_btn_key = f"ai_btn_{tech_result['티커']}_{key_suffix}"
             ai_res_key = f"ai_res_{ai_btn_key}"
             biz_btn_key = f"biz_btn_{tech_result['티커']}_{key_suffix}"
             biz_res_key = f"biz_res_{biz_btn_key}"
-            
+ 
             with col_ai1:
                 if st.button(f"🤖 차트·수급·재무 정밀 진단", key=ai_btn_key, use_container_width=True):
                     st.session_state[ai_res_key] = "loading"
                     st.session_state[biz_res_key] = None
-                    
+ 
             with col_ai2:
                 if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, use_container_width=True):
                     st.session_state[biz_res_key] = "loading"
                     st.session_state[ai_res_key] = None
-                    
+ 
             if st.session_state.get(ai_res_key):
                 if st.session_state[ai_res_key] == "loading":
                     with st.spinner("AI가 차트 및 재무 데이터를 바탕으로 종합 분석 중입니다... (약 5~10초 소요)"):
@@ -1532,17 +1829,17 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         else:
                             prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{fmt_price(curr)}, 20일선:{fmt_price(tech_result['진입가_가이드'])}, RSI:{tech_result['RSI']:.1f}\n1. ⚡ 단기 트레이딩 관점\n2. 🛡️ 스윙/가치 투자 관점\n3. 🎯 종합 요약 (1줄):"
                             st.session_state[ai_res_key] = ask_gemini(prompt, api_key_str)
-                            
+ 
                 st.success("✅ AI 기술적 정밀 분석 완료!")
                 st.markdown(st.session_state[ai_res_key])
-                
+ 
                 if not is_us:
                     with st.expander(f"📊 '{tech_result['종목명']}' 수집된 로우 데이터 (Raw Data) 확인"):
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                         st.write("✅ **증권사 목표가 컨센서스:**", cons)
                         if fin_df is not None: st.dataframe(fin_df)
                         if peer_df is not None: st.dataframe(peer_df)
-            
+ 
             if st.session_state.get(biz_res_key):
                 if st.session_state[biz_res_key] == "loading":
                     with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
@@ -1555,25 +1852,25 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         단순 주가 예측이 아닌 '비즈니스 모델'과 '기업의 본질적인 펀더멘털'에 집중하여 통찰력 있게 작성해 주세요.
                         """
                         st.session_state[biz_res_key] = ask_gemini(prompt, api_key_str)
-                        
+ 
                 st.success("✅ AI 비즈니스 심층 분석 완료!")
                 st.markdown(st.session_state[biz_res_key])
-        
+ 
+        # ─── ⑥ 차트 영역 ──────────────────────────
         tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년", "5년", "10년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
         with st.spinner(f"{tf} 차트 데이터 및 피보나치 지표 불러오는 중..."):
             long_df = get_advanced_chart_data(tech_result['티커'], tf)
-            
-            # 여기서부터 들여쓰기가 수정된 부분입니다!
+ 
             if not long_df.empty:
                 long_df = long_df.reset_index()
                 long_df['OBV'] = (np.sign(long_df['Close'].diff()) * long_df['Volume']).fillna(0).cumsum()
                 long_df['MA20'] = long_df['Close'].rolling(window=20).mean()
                 long_df['Std_20'] = long_df['Close'].rolling(window=20).std()
                 long_df['Bollinger_Upper'] = long_df['MA20'] + (long_df['Std_20'] * 2)
-                
+ 
                 if tf in ["30분", "1시간", "4시간"]: long_df['Date_Str'] = long_df['Date'].dt.strftime('%m/%d %H:%M')
                 else: long_df['Date_Str'] = long_df['Date'].dt.strftime('%y/%m/%d')
-                
+ 
                 x_col, x_type = ('Date_Str', 'category')
                 max_p = float(long_df['High'].max())
                 min_p = float(long_df['Low'].min())
@@ -1581,35 +1878,35 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 f_382 = max_p - 0.382 * diff_p
                 f_500 = max_p - 0.500 * diff_p
                 f_618 = max_p - 0.618 * diff_p
-
+ 
                 ch1, ch2 = st.columns(2)
                 with ch1:
-                    fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col], open=long_df['Open'], high=long_df['High'], low=long_df['Low'], close=long_df['Close'], increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
-                    fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
+                    fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col], open=long_df['Open'], high=long_df['High'], low=long_df['Low'], close=long_df['Close'], increasing_line_color='#dc2626', decreasing_line_color='#2563eb', name="주가")])
+                    fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='#f59e0b', width=1.5), name='20일선'))
                     fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
-                    fig_price.add_hline(y=max_p, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text="고점(1.0)")
-                    fig_price.add_hline(y=f_382, line_dash="dash", line_color="rgba(255,165,0,0.5)", annotation_text="Fib 0.382")
-                    fig_price.add_hline(y=f_500, line_dash="dash", line_color="rgba(0,128,0,0.5)", annotation_text="Fib 0.500")
-                    fig_price.add_hline(y=f_618, line_dash="dash", line_color="rgba(0,0,255,0.5)", annotation_text="Fib 0.618")
-                    fig_price.add_hline(y=min_p, line_dash="dash", line_color="rgba(128,128,128,0.5)", annotation_text="저점(0.0)")
-                    fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis=dict(showgrid=False, type=x_type), height=250)
+                    fig_price.add_hline(y=max_p, line_dash="dash", line_color="rgba(220,38,38,0.4)", annotation_text="고점(1.0)")
+                    fig_price.add_hline(y=f_382, line_dash="dash", line_color="rgba(245,158,11,0.4)", annotation_text="Fib 0.382")
+                    fig_price.add_hline(y=f_500, line_dash="dash", line_color="rgba(5,150,105,0.4)", annotation_text="Fib 0.500")
+                    fig_price.add_hline(y=f_618, line_dash="dash", line_color="rgba(37,99,235,0.4)", annotation_text="Fib 0.618")
+                    fig_price.add_hline(y=min_p, line_dash="dash", line_color="rgba(128,128,128,0.4)", annotation_text="저점(0.0)")
+                    fig_price.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, xaxis=dict(showgrid=False, type=x_type), height=250, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     st.plotly_chart(fig_price, use_container_width=True, config={'displayModeBar': False}, key=f"lp_{tech_result['티커']}_{key_suffix}")
-                
+ 
                 with ch2:
                     fig_vol = go.Figure()
-                    fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#1f77b4"))
-                    fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
-                    fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
+                    fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#93c5fd"))
+                    fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="#f59e0b", width=2)))
+                    fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
-                
+ 
                 if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
-                    
+ 
                     if not daily_df.empty:
                         now_kst = datetime.utcnow() + timedelta(hours=9)
                         today_date = now_kst.strftime('%Y.%m.%d')
-                        
+ 
                         if today_date not in str(daily_df.iloc[0]['날짜']):
                             est = tech_result.get('장중잠정수급')
                             try:
@@ -1621,7 +1918,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             except Exception:
                                 diff_str = "-"
                                 pct_str = "-"
-                                
+ 
                             if est:
                                 def fmt_v(v):
                                     if v > 0: return f"🔴 +{v:,}"
@@ -1636,7 +1933,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 est_i = "장중 집계중"
                                 est_r = "장중 집계중"
                                 time_label = "(실시간가)"
-                                
+ 
                             new_row = pd.DataFrame([{
                                 "날짜": f"✨ {today_date} {time_label}",
                                 "종가": f"{int(tech_result['현재가']):,}",
@@ -1648,11 +1945,10 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             }])
                             daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
-                    else: 
+                    else:
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
-            else: 
+            else:
                 st.error("데이터를 불러오지 못했습니다.")
-
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
