@@ -3390,7 +3390,10 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
                     terminal_value = (current_fcf * (1 + terminal_growth/100)) / ((discount_rate/100) - (terminal_growth/100))
                     discounted_tv = terminal_value / ((1 + discount_rate/100) ** 10)
                     total_value = sum(future_fcfs) + discounted_tv
-                    fair_price = total_value / input_shares if input_shares > 0 else 0
+                    
+                    # 💡 [치명적 버그 수정] FCF(억/10^8)와 주식수(백만/10^6) 단위 스케일링을 위해 100을 곱함
+                    fair_price = (total_value / input_shares) * 100 if input_shares > 0 else 0
+                    
                     margin_of_safety = ((fair_price - input_price) / fair_price) * 100 if fair_price > 0 else 0
                     
                     st.divider()
