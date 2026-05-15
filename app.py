@@ -1205,25 +1205,24 @@ def get_fundamentals(ticker_code):
 
         fcf, shares = None, None
         try:
-            # 💡 [수정] 한국 주식도 yfinance를 호출하여 유통주식수와 FCF 데이터 추출 (코스피 .KS / 코스닥 .KQ)
             t_obj = yf.Ticker(f"{ticker_code}.KS")
             info = t_obj.info
             
-            # 코스피(.KS)에서 정보를 못 찾으면 코스닥(.KQ)으로 재시도
             if not info or 'sharesOutstanding' not in info:
                 t_obj = yf.Ticker(f"{ticker_code}.KQ")
                 info = t_obj.info
 
             raw_shares = info.get('sharesOutstanding')
-            if raw_shares: shares = raw_shares / 1000000.0 # UI에 맞춰 백만 주 단위로 스케일링
+            if raw_shares: shares = raw_shares / 1000000.0
 
             cf = t_obj.cash_flow
             if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                 fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
-                if pd.notna(fcf_raw): fcf = fcf_raw / 100000000.0 # UI에 맞춰 억 원 단위로 스케일링
+                if pd.notna(fcf_raw): fcf = fcf_raw / 100000000.0 
         except Exception: pass
 
         return per, pbr, fcf, shares, target_price
+        
     else:
         try:
             t_obj = yf.Ticker(ticker_code)
@@ -1234,17 +1233,18 @@ def get_fundamentals(ticker_code):
             fcf, shares = None, None
 
             raw_shares = info.get('sharesOutstanding')
-            if raw_shares: shares = raw_shares / 1000000.0 # 미국 주식도 백만 주 단위로 통일
+            if raw_shares: shares = raw_shares / 1000000.0
 
             try:
                 cf = t_obj.cash_flow
                 if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                     fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
-                    if pd.notna(fcf_raw): fcf = fcf_raw / 100000000.0 # 억 달러 단위로 통일
+                    if pd.notna(fcf_raw): fcf = fcf_raw / 100000000.0 
             except Exception: pass
             
             return per, pbr, fcf, shares, target_price
-        except Exception: return 'N/A', 'N/A', None, None, 'N/A'
+        except Exception: 
+            return 'N/A', 'N/A', None, None, 'N/A'
     else:
         try:
             t_obj = yf.Ticker(ticker_code)
