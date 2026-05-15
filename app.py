@@ -992,7 +992,77 @@ def get_naver_research():
                 rows.append({"종목명": stock_name, "제목": title, "증권사": broker, "작성일": date, "원문링크": link})
         return pd.DataFrame(rows).head(30)
     except Exception: return pd.DataFrame()
+@st.cache_data(ttl=3600)
+def get_today_research_details():
+    try:
+        url = "https://finance.naver.com/research/company_list.naver"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        table = soup.find('table', {'class': 'type_1'})
+        rows = []
+        if table:
+            trs = table.find_all('tr')
+            for tr in trs:
+                tds = tr.find_all('td')
+                if len(tds) >= 5:
+                    stock_name = tds[0].text.strip()
+                    if not stock_name: continue
+                    title_a = tds[1].find('a')
+                    if not title_a: continue
+                    real_title = title_a.text.strip()
+                    real_link = "https://finance.naver.com/research/" + title_a['href']
+                    real_broker = tds[2].text.strip()
+                    real_date = tds[4].text.strip()
+                    rows.append({"종목명": stock_name, "제목": real_title, "증권사": real_broker, "작성일": real_date, "원문링크": real_link})
+        
+        df = pd.DataFrame(rows[:30]) # 상위 30개만 파싱 (속도 및 차단 방지)
+        if df.empty: return df
 
+        def fetch_detail(link):
+            try:
+                time.sleep(0.1)
+                detail_res = requests.get(link, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                detail_soup = BeautifulSoup(detail_res.content.decode('euc-kr', 'replace'), 'html.parser')
+                detail_text = detail_soup.get_text(separator=' ', strip=True)
+                price_match = re.search(r'목표가\s*([0-9,]+)', detail_text)
+                real_price = int(price_match.group(1).replace(',', '')) if price_match else 0
+                opinion_match = re.search(r'투자의견\s*([A-Za-z가-힣]+)', detail_text)
+                real_opinion = opinion_match.group(1).strip() if opinion_match else "N/A"
+                
+                change_status = "유지/신규"
+                change_pct = 0.0
+                
+                if "상향" in real_title or "상향" in detail_text[:300]: change_status = "상향"
+                elif "하향" in real_title or "하향" in detail_text[:300]: change_status = "하향"
+                
+                prev_price_match = re.search(r'(종전|기존)\s*([0-9,]+)', detail_text[:500])
+                if prev_price_match and real_price > 0:
+                    prev_price = int(prev_price_match.group(2).replace(',', ''))
+                    if prev_price > 0:
+                        change_pct = ((real_price - prev_price) / prev_price) * 100
+                        if change_pct > 0: change_status = "상향"
+                        elif change_pct < 0: change_status = "하향"
+                        
+                if change_status == "유지/신규" and change_pct != 0.0:
+                    change_status = "상향" if change_pct > 0 else "하향"
+                    
+                return real_price, real_opinion, change_status, change_pct
+            except:
+                return 0, "N/A", "유지/신규", 0.0
+
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            for r in executor.map(fetch_detail, df['원문링크']):
+                results.append(r)
+        
+        df['목표가'] = [r[0] for r in results]
+        df['투자의견'] = [r[1] for r in results]
+        df['변동'] = [r[2] for r in results]
+        df['변동률'] = [r[3] for r in results]
+        return df
+    except Exception:
+        return pd.DataFrame()
+        
 @st.cache_data(ttl=86400)
 def get_financial_deep_data(code):
     try:
@@ -2827,7 +2897,7 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
 
 elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
-    news_sub1, news_sub2 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트 검색"])
+    news_sub1, news_sub2, news_sub3 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트 검색", "🔥 AI 데일리 리포트 (TEBI-Style)"])
     
     with news_sub1:
         if st.button("🔄 속보 리로드"): 
@@ -2916,6 +2986,63 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
             )
         else:
             st.error("❌ 리포트 데이터를 불러오지 못했습니다.")
+            
+    with news_sub3:
+        st.markdown("### 🤖 Auto Research Desk (오늘의 증권가 종합 분석)")
+        st.write("기관 트레이딩 데스크 수준의 일일 요약, 쟁점 분석, 목표가 랭킹을 AI가 생성합니다.")
+        if api_key_input:
+            if st.button("🚀 TEBI-Style 모닝 리포트 생성 시작", type="primary"):
+                with st.spinner("오늘 발간된 30개의 증권사 리포트 원문을 AI가 해독 및 분석 중입니다..."):
+                    today_reports = get_today_research_details()
+                    if not today_reports.empty:
+                        buys = len(today_reports[today_reports['투자의견'].str.contains('매수|Buy', na=False, case=False)])
+                        sells = len(today_reports[today_reports['투자의견'].str.contains('매도|Sell|축소', na=False, case=False)])
+                        holds = len(today_reports) - buys - sells
+                        
+                        st.markdown("#### 📊 오늘의 증권가 투자의견 요약 (Verdict)")
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("총 발간 리포트", f"{len(today_reports)}건")
+                        c2.metric("BUY (비중확대)", f"{buys}건")
+                        c3.metric("HOLD (관망)", f"{holds}건")
+                        c4.metric("SELL (비중축소)", f"{sells}건")
+                        
+                        st.markdown("#### 📈 당일 목표가(TP) 상/하향 랭킹")
+                        upgrades = today_reports[today_reports['변동'] == '상향'].sort_values('변동률', ascending=False)
+                        downgrades = today_reports[today_reports['변동'] == '하향'].sort_values('변동률', ascending=True)
+                        
+                        col_up, col_down = st.columns(2)
+                        with col_up:
+                            st.success(f"**▲ 상향 리포트 ({len(upgrades)}건)**")
+                            if not upgrades.empty:
+                                fig_up = px.bar(upgrades, x='변동률', y='종목명', orientation='h', text='증권사', color_discrete_sequence=['#ff4b4b'])
+                                fig_up.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), yaxis={'categoryorder':'total ascending'})
+                                st.plotly_chart(fig_up, use_container_width=True)
+                            else: st.write("목표가 상향 종목이 없습니다.")
+                        
+                        with col_down:
+                            st.error(f"**▼ 하향 리포트 ({len(downgrades)}건)**")
+                            if not downgrades.empty:
+                                fig_down = px.bar(downgrades, x='변동률', y='종목명', orientation='h', text='증권사', color_discrete_sequence=['#1f77b4'])
+                                fig_down.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), yaxis={'categoryorder':'total descending'})
+                                st.plotly_chart(fig_down, use_container_width=True)
+                            else: st.write("목표가 하향 종목이 없습니다.")
+                            
+                        st.markdown("#### ⚔️ 애널리스트 갑론을박 & 💡 Bottom Line")
+                        report_texts = "\n".join([f"- [{r['증권사']}] {r['종목명']} (의견: {r['투자의견']}, TP변동: {r['변동']}): {r['제목']}" for _, r in today_reports.iterrows()])
+                        prompt = f"""
+                        당신은 기관 프랍 트레이더를 위한 수석 퀀트 애널리스트입니다. 오늘 한국 증시에서 발간된 증권사 리포트 목록입니다:
+                        {report_texts}
+                        
+                        다음 3가지를 마크다운으로 명확하게 작성하세요:
+                        1. **🔥 주도 섹터 및 핵심 모멘텀**: 오늘 리포트들이 가장 집중적으로 다루고 있는(목표가 상향이 많은) 핵심 섹터 1~2개와 그 이유.
+                        2. **⚔️ 애널리스트 갑론을박 (Debate)**: 시장에서 의견이 엇갈리는 종목이나 섹터를 찾아 강세(Bull) 논리와 약세/보수적(Bear) 논리를 대비시켜 서술하세요.
+                        3. **💡 Bottom Line (최종 액션 플랜)**: 전체적인 매수/매도 비율을 고려했을 때, 투자자가 오늘 취해야 할 명확한 행동 지침(예: 적극 매수, 차익 실현 등)을 3줄로 결론지으세요.
+                        """
+                        st.info(ask_gemini(prompt, api_key_input))
+                    else:
+                        st.error("리포트 데이터를 파싱하지 못했습니다.")
+        else:
+            st.warning("API 키를 입력해야 AI 데일리 리포트를 생성할 수 있습니다.")
 
 elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
     st.markdown("## 🔬 기업 정밀 진단 (차트/수급/비전 AI)")
@@ -2988,7 +3115,6 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
         st.subheader("국내 상장 주요 ETF (TOP 50)")
         with st.spinner("국내 ETF 실시간 데이터를 불러오는 중..."):
             try:
-                # 💡 수정 반영됨: 상단의 캐시 함수를 사용하여 렌더링 시 창 닫힘 버그 해결
                 krx_etf = get_krx_etf_list()
                 if not krx_etf.empty:
                     price_col = 'Close' if 'Close' in krx_etf.columns else 'Price'
@@ -3018,7 +3144,6 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
         st.subheader("미국 상장 주요 메가 ETF")
         us_etfs = ['SPY', 'QQQ', 'DIA', 'IWM', 'SCHD', 'JEPI', 'VOO', 'VTI', 'ARKK', 'SMH', 'SOXX', 'XLK', 'XLF', 'XLV', 'TLT', 'TMF']
         with st.spinner("미국 ETF 데이터를 불러오는 중..."):
-            # 💡 수정 반영됨: 미국 ETF 역시 상단의 캐시 함수를 사용하여 렌더링 시 창 닫힘 버그 해결
             us_data_df = get_us_etf_summary(us_etfs)
             if not us_data_df.empty: 
                 st.dataframe(us_data_df, use_container_width=True, hide_index=True)
@@ -3137,6 +3262,22 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         column_config={"원문링크": st.column_config.LinkColumn("리포트 보기")},
                         use_container_width=True, hide_index=True
                     )
+                    
+                    st.divider()
+                    if api_key_input and st.button(f"🤖 '{q_name}' 애널리스트 갑론을박 (Debate) 분석", type="primary", use_container_width=True):
+                        with st.spinner(f"최근 발간된 '{q_name}' 리포트들의 강세/약세 논리를 분석 중입니다..."):
+                            report_texts = "\n".join([f"- [{r['증권사']}] 투자의견: {r['투자의견']}, 목표가: {r['적정가격']}\n제목: {r['제목']}" for _, r in history_df.head(10).iterrows()])
+                            prompt = f"""
+                            당신은 애널리스트입니다. '{q_name}'에 대한 최근 증권사 리포트들을 바탕으로 시장의 '갑론을박(Debate)'을 분석해주세요.
+                            [리포트 요약]
+                            {report_texts}
+                            
+                            다음 형식으로 마크다운 작성:
+                            1. 🟢 **강세 논리 (Bull Case)**: 긍정적인 전망과 목표가 상향의 주된 근거 (2~3줄)
+                            2. 🔴 **약세/보수적 논리 (Bear Case)**: 우려 사항, 리스크, 목표가 하향/유지의 주된 근거 (2~3줄)
+                            3. 💡 **핵심 쟁점 (Key Controversy)**: 가장 의견이 엇갈리는 포인트 (1줄)
+                            """
+                            st.success(ask_gemini(prompt, api_key_input))
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
     st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
