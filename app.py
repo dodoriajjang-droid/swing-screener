@@ -3300,7 +3300,12 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
     with b_tab1:
         st.markdown("### 📊 잉여현금흐름(FCF) 기반 내재가치 계산기")
         market_choice_dcf = st.radio("시장 선택 (가치평가)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, key="dcf_market")
-        selected_dcf_ticker, selected_dcf_name, is_us_dcf = None, "", (market_choice_dcf == "🇺🇸 미국 주식")
+        
+        # 💡 [버그 수정] Streamlit Rerun 시 화면이 닫히지 않도록 세션 상태(Session State)에 종목 정보 저장
+        if 'dcf_sel_ticker' not in st.session_state: st.session_state.dcf_sel_ticker = None
+        if 'dcf_sel_name' not in st.session_state: st.session_state.dcf_sel_name = ""
+        
+        is_us_dcf = (market_choice_dcf == "🇺🇸 미국 주식")
         
         if not is_us_dcf:
             krx_df = get_krx_stocks()
@@ -3311,8 +3316,8 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
                     with col_dcf1: query = st.selectbox("👇 종목명 검색:", opts, key="dcf_kr_search", label_visibility="collapsed")
                     with col_dcf2: dcf_kr_btn = st.form_submit_button("🔍 데이터 로드", use_container_width=True)
                     if dcf_kr_btn and query != "🔍 평가할 국내 종목을 선택하세요.":
-                        selected_dcf_name = query.rsplit(" (", 1)[0]
-                        selected_dcf_ticker = query.rsplit("(", 1)[-1].replace(")", "").strip()
+                        st.session_state.dcf_sel_name = query.rsplit(" (", 1)[0]
+                        st.session_state.dcf_sel_ticker = query.rsplit("(", 1)[-1].replace(")", "").strip()
         else:
             with st.form("dcf_us_form"):
                 col_dcf_us1, col_dcf_us2 = st.columns([8, 2])
@@ -3325,13 +3330,14 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
             if "dcf_us_results" in st.session_state and st.session_state.dcf_us_results:
                 sel_us_opt = st.selectbox("🎯 정확한 종목을 선택해주세요:", ["선택하세요"] + st.session_state.dcf_us_results)
                 if sel_us_opt != "선택하세요":
-                    selected_dcf_ticker = sel_us_opt.split(" ")[0]
-                    selected_dcf_name = sel_us_opt.split(" (")[1].split(" /")[0]
+                    st.session_state.dcf_sel_ticker = sel_us_opt.split(" ")[0]
+                    st.session_state.dcf_sel_name = sel_us_opt.split(" (")[1].split(" /")[0]
 
-        if selected_dcf_ticker:
-            st.success(f"✅ [{selected_dcf_name}] 기초 데이터 로드 완료")
-            _, _, fcf_val, shares_val, _ = get_fundamentals(selected_dcf_ticker)
-            default_price, res = 0.0, analyze_technical_pattern(selected_dcf_name, selected_dcf_ticker)
+        # 💡 기존 로컬 변수 대신 영구적으로 유지되는 세션 상태 변수 사용
+        if st.session_state.dcf_sel_ticker:
+            st.success(f"✅ [{st.session_state.dcf_sel_name}] 기초 데이터 로드 완료")
+            _, _, fcf_val, shares_val, _ = get_fundamentals(st.session_state.dcf_sel_ticker)
+            default_price, res = 0.0, analyze_technical_pattern(st.session_state.dcf_sel_name, st.session_state.dcf_sel_ticker)
             if res: default_price = float(res['현재가'])
             default_fcf = float(fcf_val) if fcf_val and pd.notna(fcf_val) else 1000.0
             default_shares = float(shares_val) if shares_val and pd.notna(shares_val) else 100.0
@@ -3347,6 +3353,7 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
                 discount_rate = st.slider("할인율 (요구수익률) (%)", 5.0, 20.0, 9.0)
                 terminal_growth = st.slider("영구 성장률 (%)", 1.0, 5.0, 2.5)
 
+            # 이 버튼을 눌러도 이제 화면이 날아가지 않습니다!
             if st.button("🧮 적정 주가 연산", type="primary", use_container_width=True):
                 with st.spinner("미래 현금흐름 할인 연산 중..."):
                     future_fcfs = []
@@ -3362,7 +3369,7 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
                     margin_of_safety = ((fair_price - input_price) / fair_price) * 100 if fair_price > 0 else 0
                     
                     st.divider()
-                    st.markdown(f"### 🎯 [{selected_dcf_name}] DCF 가치평가 결과")
+                    st.markdown(f"### 🎯 [{st.session_state.dcf_sel_name}] DCF 가치평가 결과")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("현재 주가", f"{input_price:,.2f}")
                     c2.metric("DCF 적정 주가", f"{fair_price:,.2f}")
