@@ -1245,23 +1245,6 @@ def get_fundamentals(ticker_code):
             return per, pbr, fcf, shares, target_price
         except Exception: 
             return 'N/A', 'N/A', None, None, 'N/A'
-    else:
-        try:
-            t_obj = yf.Ticker(ticker_code)
-            info = t_obj.info
-            per = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
-            pbr = round(info.get('priceToBook', 0), 2) if info.get('priceToBook') else 'N/A'
-            target_price = info.get('targetMeanPrice', 'N/A')
-            fcf = None
-            shares = info.get('sharesOutstanding', None)
-            try:
-                cf = t_obj.cash_flow
-                if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
-                    fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
-                    if pd.notna(fcf_raw): fcf = fcf_raw
-            except Exception: pass
-            return per, pbr, fcf, shares, target_price
-        except Exception: return 'N/A', 'N/A', None, None, 'N/A'
 
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
