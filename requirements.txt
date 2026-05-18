@@ -9,3 +9,5 @@ beautifulsoup4
 streamlit-autorefresh
 html5lib
 plotly
+pykrx
+yahooquery
