@@ -427,14 +427,16 @@ def get_naver_ipo_data():
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
+    # 네이버 차단 우회를 위해 브라우저 헤더 강화
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Referer': 'https://finance.naver.com/'
     }
     
+    # 1. KR 국장 데이터 스크래핑 (천천히 순차적으로)
     try:
-        for page in range(1, 15): 
+        for page in range(1, 10): 
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
             res = requests.get(url, headers=headers, timeout=5)
             tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
@@ -455,40 +457,29 @@ def get_dividend_portfolio(ex_rate):
                                     krx_list.append({'종목명': name, '현재가': price_fmt, '예상 배당금': div_float, '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
-            time.sleep(0.3) 
+            time.sleep(0.4) # 💡 네이버 봇 차단 방지 (0.4초 대기)
     except Exception: pass
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     
+    # 네이버 API 차단 시 방어용 우회 데이터 (천천히 순차적으로)
     if krx_df.empty or len(krx_df) < 5:
         kr_fallbacks = [
             ("기업은행", "024110.KS"), ("우리금융지주", "316140.KS"), ("하나금융지주", "086790.KS"), 
-            ("KB금융", "105560.KS"), ("신한지주", "055550.KS"), ("KT&G", "033780.KS"), 
-            ("현대차", "005380.KS"), ("기아", "000270.KS"), ("SK텔레콤", "017670.KS"),
-            ("KT", "030200.KS"), ("LG유플러스", "032640.KS"), ("맥쿼리인프라", "090430.KS"),
-            ("삼성화재", "000810.KS"), ("DB손해보험", "005830.KS"), ("현대해상", "001450.KS"),
-            ("삼성생명", "032830.KS"), ("삼성카드", "029780.KS"), ("한국금융지주", "071050.KS"),
-            ("NH투자증권", "005940.KS"), ("미래에셋증권", "006800.KS"), ("삼성증권", "016360.KS"),
-            ("고려아연", "010130.KS"), ("포스코인터내셔널", "004020.KS"), ("S-Oil", "010950.KS"),
-            ("LX인터내셔널", "053690.KS"), ("제일기획", "000400.KS"), ("SK", "034730.KS"),
-            ("LG", "003550.KS"), ("CJ", "035760.KS"), ("두산", "000150.KS"), ("삼성전자", "005930.KS"),
-            ("현대건설", "267270.KS"), ("효성", "004800.KS"), ("GS", "000810.KS")
+            ("KB금융", "105560.KS"), ("KT&G", "033780.KS"), ("현대차", "005380.KS"), 
+            ("기아", "000270.KS"), ("SK텔레콤", "017670.KS"), ("맥쿼리인프라", "090430.KS"),
+            ("삼성화재", "000810.KS"), ("삼성생명", "032830.KS"), ("고려아연", "010130.KS")
         ]
         fb_list = []
-        def fetch_kr_fb(item):
-            name, t = item
+        for name, t in kr_fallbacks:
             try:
                 info = yf.Ticker(t).info
                 price = info.get('previousClose', info.get('currentPrice', 0))
                 div = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
                 if price > 0 and div > 0:
-                    return {'종목명': name, '현재가': f"{int(price):,}원", '예상 배당금': float(div), '비고': 'Yahoo 우회 데이터'}
+                    fb_list.append({'종목명': name, '현재가': f"{int(price):,}원", '예상 배당금': float(div), '비고': 'Yahoo 우회'})
             except Exception: pass
-            return None
-            
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            for res in executor.map(fetch_kr_fb, kr_fallbacks):
-                if res: fb_list.append(res)
+            time.sleep(0.2) # 💡 야후 봇 차단 방지
                 
         krx_df = pd.DataFrame(fb_list) if fb_list else pd.DataFrame([{"종목명": "데이터 수집 제한", "현재가": "0원", "예상 배당금": 0.0, "비고": "오류"}])
 
@@ -496,10 +487,11 @@ def get_dividend_portfolio(ex_rate):
         krx_df = krx_df.sort_values('예상 배당금', ascending=False).head(300)
         krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
 
-    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS", "NEE", "DUK", "SO", "D", "CL"]
-    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "REM", "EMB", "IGSB", "JNK", "BND", "AGG", "VCIT", "VCSH", "SJNK", "SHYG", "FLOT", "USIG", "SPSB", "SPIB"]
+    # 2. 미국 주식 & ETF 데이터 수집
+    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
+    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
     
-    def fetch_yf_dividend(ticker):
+    def fetch_yf_dividend_safe(ticker):
         try:
             t = yf.Ticker(ticker)
             info = t.info
@@ -508,7 +500,7 @@ def get_dividend_portfolio(ex_rate):
             price = info.get('previousClose', info.get('currentPrice', info.get('regularMarketPrice', 0)))
             div_rate = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
             
-            # 💡 [핵심 수정] ETF의 경우 dividendRate가 없는 경우가 많아 yield(수익률) 정보를 활용해 배당금을 역산
+            # ETF 배당금 역산 로직
             if not div_rate or div_rate == 0:
                 div_yield = info.get('yield', info.get('trailingAnnualDividendYield', 0))
                 if div_yield and price > 0:
@@ -529,24 +521,28 @@ def get_dividend_portfolio(ex_rate):
         return None
 
     us_list, etf_list = [], []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        for r in executor.map(fetch_yf_dividend, us_tickers):
-            if r: us_list.append(r)
-        for r in executor.map(fetch_yf_dividend, etf_tickers):
-            if r: etf_list.append(r)
+    
+    # 💡 [핵심 수정] 동시 접속(ThreadPoolExecutor)을 제거하고, 순차적으로 0.1초씩 쉬면서 요청하여 차단 원천 봉쇄
+    for ticker in us_tickers:
+        res = fetch_yf_dividend_safe(ticker)
+        if res: us_list.append(res)
+        time.sleep(0.1)
+        
+    for ticker in etf_tickers:
+        res = fetch_yf_dividend_safe(ticker)
+        if res: etf_list.append(res)
+        time.sleep(0.1)
 
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
 
-    # 💡 [핵심 수정] Yahoo Finance API 차단으로 빈 값이 나올 경우를 대비한 든든한 Fallback (예비 데이터) 추가
+    # 🛡️ 최후의 보루: 야후가 아예 접속을 막았을 때 띄워줄 예비 데이터
     if us_df.empty:
         us_fallback = [
             {"종목명": "Verizon (VZ)", "현재가": "$40.00 (54,000원)", "표시 배당금": "$2.66 (3,590원)", "예상 배당금": 2.66, "비고": "API 차단(예비)"},
             {"종목명": "Altria (MO)", "현재가": "$45.00 (60,750원)", "표시 배당금": "$3.92 (5,290원)", "예상 배당금": 3.92, "비고": "API 차단(예비)"},
-            {"종목명": "AT&T (T)", "현재가": "$17.00 (22,950원)", "표시 배당금": "$1.11 (1,490원)", "예상 배당금": 1.11, "비고": "API 차단(예비)"},
             {"종목명": "Chevron (CVX)", "현재가": "$150.00 (202,500원)", "표시 배당금": "$6.52 (8,800원)", "예상 배당금": 6.52, "비고": "API 차단(예비)"},
-            {"종목명": "Coca-Cola (KO)", "현재가": "$60.00 (81,000원)", "표시 배당금": "$1.94 (2,610원)", "예상 배당금": 1.94, "비고": "API 차단(예비)"},
-            {"종목명": "Johnson & Johnson (JNJ)", "현재가": "$150.00 (202,500원)", "표시 배당금": "$4.96 (6,690원)", "예상 배당금": 4.96, "비고": "API 차단(예비)"}
+            {"종목명": "Coca-Cola (KO)", "현재가": "$60.00 (81,000원)", "표시 배당금": "$1.94 (2,610원)", "예상 배당금": 1.94, "비고": "API 차단(예비)"}
         ]
         us_df = pd.DataFrame(us_fallback)
         
@@ -554,9 +550,7 @@ def get_dividend_portfolio(ex_rate):
         etf_fallback = [
             {"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "표시 배당금": "$4.50 (6,070원)", "예상 배당금": 4.50, "비고": "API 차단(예비)"},
             {"종목명": "Schwab US Dividend Equity (SCHD)", "현재가": "$78.00 (105,300원)", "표시 배당금": "$2.70 (3,640원)", "예상 배당금": 2.70, "비고": "API 차단(예비)"},
-            {"종목명": "Vanguard High Dividend Yield (VYM)", "현재가": "$115.00 (155,250원)", "표시 배당금": "$3.50 (4,720원)", "예상 배당금": 3.50, "비고": "API 차단(예비)"},
-            {"종목명": "SPDR Portfolio S&P 500 High Div (SPYD)", "현재가": "$40.00 (54,000원)", "표시 배당금": "$1.80 (2,430원)", "예상 배당금": 1.80, "비고": "API 차단(예비)"},
-            {"종목명": "iShares Core High Dividend (HDV)", "현재가": "$105.00 (141,750원)", "표시 배당금": "$4.00 (5,400원)", "예상 배당금": 4.00, "비고": "API 차단(예비)"}
+            {"종목명": "Vanguard High Dividend Yield (VYM)", "현재가": "$115.00 (155,250원)", "표시 배당금": "$3.50 (4,720원)", "예상 배당금": 3.50, "비고": "API 차단(예비)"}
         ]
         etf_df = pd.DataFrame(etf_fallback)
 
