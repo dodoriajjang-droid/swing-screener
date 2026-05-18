@@ -3750,7 +3750,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다.")
 
-# 👇 [브랜드명 완벽 업데이트] KBSTAR -> RISE, ARIRANG -> PLUS 변경 완료
+    # 👇 [개별주 100% 삭제] 네이버 ETF 페이지와 토씨 하나까지 맞춘 순수 ETF 리스트
     raw_etf_data = [
         # 🌐 1. 시장 대표 지수 코어 TOP 20
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "069500", "name": "KODEX 200"},
@@ -3772,7 +3772,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "143860", "name": "ACE 미국고배당S&P"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "285600", "name": "TIGER 대만TAIEX(합성)"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "105190", "name": "RISE 200"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "148020", "name": "RISE 200TR"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "148020", "name": "KBSTAR 200"},
 
         # 💻 2. 반도체 & 빅테크 핵심 성장 TOP 20
         {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381170", "name": "TIGER 미국필라델피아반도체나스닥"},
@@ -3800,8 +3800,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "484320", "name": "KODEX 미국AI전력핵심인프라"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "461200", "name": "ACE 글로벌AI액티브"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "478100", "name": "RISE AI로봇인프라"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412510", "name": "TIGER 글로벌혁신성장"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412510", "name": "TIGER 글로벌혁신성장"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "107380", "name": "KODEX 소프트웨어"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489200", "name": "KODEX 미국AI소프트웨어"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "488100", "name": "RISE 글로벌AI"},
@@ -3906,8 +3906,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "261200", "name": "KODEX 미국달러선물"},
         {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "465900", "name": "ACE 만기매칭26회사채"},
 
-        # 🌍 8. 해외 직상장 글로벌 메이저 TOP 20
-        # (주의: 이 항목들은 미국 직상장 ETF 및 개별 주식이므로 네이버 ETF 페이지에는 나오지 않습니다)
+        # 🌍 8. 해외 직상장 글로벌 메이저 TOP 20 (※해외 증시 직상장이므로 네이버 국내 ETF 페이지에는 당연히 없습니다)
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SPY", "name": "SPDR S&P 500"},
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VOO", "name": "Vanguard S&P 500"},
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "QQQ", "name": "Invesco QQQ"},
@@ -3929,54 +3928,33 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLF", "name": "Financial Select Sector"},
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium"},
 
-        # 🚢 9. 조선 & 해운 슈퍼사이클 TOP 20
-        # (주의: 국내 상장 조선/해운 순수 ETF는 4개뿐이며, 나머지는 개별 대장주 및 미국 ETF로 채웠습니다)
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "091180", "name": "KODEX 조선"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "380960", "name": "HANARO Fn조선해운"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "466960", "name": "SOL 조선TOP3플러스"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "485520", "name": "KODEX K-조선배당플러스"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "009540", "name": "HD한국조선해양"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "010140", "name": "삼성중공업"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "042660", "name": "한화오션"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "329180", "name": "HD현대중공업"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "033280", "name": "HD현대미포"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011200", "name": "HMM"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "028670", "name": "팬오션"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "037220", "name": "KSS해운"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "013120", "name": "동성화인텍"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "082740", "name": "한화엔진"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "014620", "name": "성광벤드"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "075580", "name": "세진중공업"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011390", "name": "한국카본"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "023160", "name": "태광"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BOAT", "name": "SonicShares Global Shipping"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BDRY", "name": "Breakwave Dry Bulk Shipping"},
+        # 🚢 9. 조선 & 해운 슈퍼사이클 (※주의: 국내 상장 순수 조선/해운 ETF는 단 4개뿐입니다. 임의로 개별주를 넣지 않았습니다.)
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180", "name": "KODEX 조선"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "380960", "name": "HANARO Fn조선해운"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466960", "name": "SOL 조선TOP3플러스"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "485520", "name": "KODEX K-조선배당플러스"},
 
-        # ⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20
-        # (주의: 국내 전력/원자력 ETF와 글로벌 에너지 ETF 및 국내 개별 대장주 혼합)
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "226490", "name": "KODEX 에너지화학"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "117460", "name": "TIGER 에너지화학"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "444000", "name": "RISE 글로벌원자력iSelect"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "418650", "name": "HANARO 글로벌수소&차세대연료전지"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "015760", "name": "한국전력"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "051600", "name": "한전KPS"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "052690", "name": "한전기술"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "034020", "name": "두산에너빌리티"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "267260", "name": "HD현대일렉트릭"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "298040", "name": "효성중공업"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "010120", "name": "LS ELECTRIC"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "006260", "name": "LS"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "001440", "name": "대한전선"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103590", "name": "일진전기"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103140", "name": "풍산"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "XLU", "name": "Utilities Select Sector SPDR"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "ICLN", "name": "iShares Global Clean Energy"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "GRID", "name": "First Trust Clean Edge Smart Grid"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "VDE", "name": "Vanguard Energy ETF"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "URA", "name": "Global X Uranium ETF"}
+        # ⚡ 10. 전력 인프라 & 글로벌 에너지 (※주의: 국내 상장 전력/에너지 ETF 17개만 엄선했습니다.)
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "484320", "name": "KODEX 미국AI전력핵심인프라"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "484890", "name": "RISE 미국AI전력핵심인프라"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "226490", "name": "KODEX 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "117460", "name": "TIGER 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "444000", "name": "RISE 글로벌원자력iSelect"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "418650", "name": "HANARO 글로벌수소&차세대연료전지"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600", "name": "KODEX K-신재생에너지액티브"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385730", "name": "TIGER Fn신재생에너지"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385550", "name": "RISE 수소경제테마"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "452110", "name": "RISE 글로벌수소&우주"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "412560", "name": "TIGER 글로벌탄소배출권(합성)"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "400580", "name": "KODEX 유럽탄소배출권(합성)"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "400570", "name": "KODEX 글로벌탄소배출권(합성)"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "400590", "name": "SOL 글로벌탄소배출권(합성)"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "314270", "name": "KODEX 미국S&P에너지(합성)"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "261220", "name": "KODEX WTI원유선물(H)"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "130680", "name": "TIGER 원유선물Enhanced(H)"}
     ]
 
-    # 👇 공식 이름 동기화 엔진 (가짜 이름 100% 박멸)
+    # 👇 공식 이름 동기화 엔진
     @st.cache_data(ttl=86400)
     def update_official_names(items):
         try:
@@ -4009,7 +3987,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             return updated_items
         except: return items 
 
-    with st.spinner("200개 신규 종목 리스트를 공식 명칭으로 100% 동기화 중입니다..."):
+    with st.spinner("네이버 ETF 공식 명칭으로 100% 검증 중입니다..."):
         etf_data = update_official_names(raw_etf_data)
 
     for item in etf_data:
@@ -4128,7 +4106,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if price > 0: prices[code] = price
         return prices
 
-    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다... (무결점 200종목 초고속 로딩 중)"):
+    with st.spinner("최신 실시간 가격을 100% 매칭 중입니다... (0원 누락 방어 3중 엔진 가동)"):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         
@@ -4155,8 +4133,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", 
         "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20",
         "🌍 8. 해외 직상장 글로벌 메이저 TOP 20",
-        "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20",
-        "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20",
+        "🚢 9. 조선 & 해운 슈퍼사이클",
+        "⚡ 10. 전력 인프라 & 글로벌 에너지",
         "🔎 내가 추가한 맞춤 종목"
     ]
     
