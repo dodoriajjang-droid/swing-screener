@@ -427,15 +427,16 @@ def get_naver_ipo_data():
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
-    # 네이버 차단 우회를 위해 브라우저 헤더 강력 위장
+    # 네이버 차단 우회를 위해 브라우저 헤더 강력 위장 및 언어 설정 추가
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
     }
     
     # 1. KR 국장 데이터 스크래핑
     try:
-        for page in range(1, 10): 
+        for page in range(1, 6): # 💡 빠른 차단을 막기 위해 탐색 페이지 수를 5개로 제한
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
             res = requests.get(url, headers=headers, timeout=5)
             tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
@@ -448,48 +449,50 @@ def get_dividend_portfolio(ex_rate):
                         if name != '종목명' and name.strip():
                             try:
                                 price_val = str(row['현재가']).replace(',', '').replace('원', '')
-                                price_fmt = f"{int(float(price_val)):,}원"
                                 div_val = str(row['배당금']).replace(',', '').replace('원', '')
-                                div_float = float(div_val)
-                                
-                                if div_float > 0:
-                                    krx_list.append({'종목명': name, '현재가': price_fmt, '예상 배당금': div_float, '비고': 'Naver 실시간'})
+                                if float(div_val) > 0:
+                                    krx_list.append({'종목명': name, '현재가': f"{int(float(price_val)):,}원", '예상 배당금': float(div_val), '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
-            time.sleep(0.4) # 💡 네이버 봇 차단 방지 (0.4초 텀)
+            time.sleep(0.3)
     except Exception: pass
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
-    
     if not krx_df.empty:
         krx_df = krx_df.sort_values('예상 배당금', ascending=False).head(300)
         krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
 
-    # 2. 미국 주식 & ETF 데이터 수집 (하드코딩 예비 데이터 전면 삭제)
+    # 2. 미국 주식 & ETF 데이터 수집 (하드코딩 예비 데이터 없음)
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
     
     def fetch_yf_dividend_safe(ticker):
         try:
-            # 💡 [핵심 우회 기법] yfinance에 requests.Session()을 주입하여 크롤러가 아닌 일반 크롬 브라우저로 인식하게 속임
-            session = requests.Session()
-            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+            t = yf.Ticker(ticker)
             
-            t = yf.Ticker(ticker, session=session)
-            info = t.info
-            if not info: return None
+            # 주가 데이터는 info보다 history가 차단을 덜 당합니다.
+            hist = t.history(period="5d")
+            if hist.empty: return None
+            price = hist['Close'].iloc[-1]
             
-            price = info.get('previousClose', info.get('currentPrice', info.get('regularMarketPrice', 0)))
-            div_rate = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
-            
-            # ETF 배당금 역산 로직
-            if not div_rate or div_rate == 0:
-                div_yield = info.get('yield', info.get('trailingAnnualDividendYield', 0))
-                if div_yield and price > 0:
-                    div_rate = price * div_yield
-            
-            if price > 0 and div_rate and div_rate > 0:
-                name_ko = get_korean_name(info.get('shortName', ticker))
+            div_rate = 0.0
+            info = {}
+            try: info = t.info
+            except: pass
+
+            # 💡 [핵심 우회 기법] info(요약)가 차단당했거나 ETF일 경우, 실제 과거 배당금 지급 차트(.dividends)를 다운받아 최근 1년 치를 더해버립니다.
+            if info and info.get('dividendRate'):
+                div_rate = info.get('dividendRate')
+            elif info and info.get('yield') and price > 0:
+                div_rate = price * info.get('yield')
+            else:
+                divs = t.dividends
+                if not divs.empty:
+                    one_yr_ago = pd.Timestamp.now(tz=divs.index.tz) - pd.DateOffset(years=1)
+                    div_rate = float(divs[divs.index >= one_yr_ago].sum())
+
+            if price > 0 and div_rate > 0:
+                name_ko = get_korean_name(info.get('shortName', ticker)) if info else ticker
                 price_krw = int(price * ex_rate)
                 div_krw = int(div_rate * ex_rate)
                 return {
@@ -497,23 +500,20 @@ def get_dividend_portfolio(ex_rate):
                     '현재가': f"${price:,.2f} ({price_krw:,}원)", 
                     '예상 배당금': float(div_rate),
                     '표시 배당금': f"${div_rate:,.2f} ({div_krw:,}원)",
-                    '비고': 'Yahoo API 실시간'
+                    '비고': 'Yahoo API/역산'
                 }
         except Exception: pass
         return None
 
     us_list, etf_list = [], []
     
-    # 💡 0.3초의 텀을 주어 야후 파이낸스 서버의 Rate Limit(접속량 제한) 회피
     for ticker in us_tickers:
         res = fetch_yf_dividend_safe(ticker)
         if res: us_list.append(res)
-        time.sleep(0.3)
         
     for ticker in etf_tickers:
         res = fetch_yf_dividend_safe(ticker)
         if res: etf_list.append(res)
-        time.sleep(0.3)
 
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
@@ -3203,9 +3203,25 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
         return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
 
     t1, t2, t3 = st.tabs(["🇰🇷 국장", "🇺🇸 미장", "📈 ETF"])
-    with t1: st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
-    with t2: st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
-    with t3: st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
+    
+    # 💡 흉측한 empty 글씨 대신 제대로 된 에러 메시지 렌더링
+    with t1: 
+        if div_dfs["KRX"].empty:
+            st.error("🚨 네이버 금융 서버에서 현재 IP의 크롤링을 일시적으로 차단하여 데이터를 가져오지 못했습니다.")
+        else:
+            st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
+            
+    with t2: 
+        if div_dfs["US"].empty:
+            st.error("🚨 야후 파이낸스 서버에서 현재 IP의 크롤링을 일시적으로 차단하여 데이터를 가져오지 못했습니다.")
+        else:
+            st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
+            
+    with t3: 
+        if div_dfs["ETF"].empty:
+            st.error("🚨 야후 파이낸스 서버에서 현재 IP의 크롤링을 일시적으로 차단하여 데이터를 가져오지 못했습니다.")
+        else:
+            st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
 
 elif selected_menu == "🎯 증권사 목표가 컨센서스":
     st.markdown("## 🎯 증권사 목표가 컨센서스 대시보드")
