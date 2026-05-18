@@ -3850,6 +3850,42 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600", "name": "KODEX K-신재생에너지액티브"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "XLU", "name": "Utilities Select Sector SPDR"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"}
+
+        # 리스트의 11번째 테마로 '미국 고배당 TOP 30'을 추가했습니다.
+    raw_etf_data = [
+        # ... (기존 1~10번 항목 유지) ...
+
+        # 🇺🇸 11. 미국 고배당 & 월배당 TOP 30 (신규 추가)
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "SCHD", "name": "Schwab US Dividend Equity ETF"}, # 배당성장의 교과서
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "JEPI", "name": "JPMorgan Equity Premium Income ETF"}, # 월배당 대장주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium Income ETF"}, # 나스닥 기반 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "DGRW", "name": "WisdomTree US Quality Dividend Growth"}, # 퀄리티 배당성장
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "VIG", "name": "Vanguard Dividend Appreciation ETF"}, # 배당귀족 후보군
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "VYM", "name": "Vanguard High Dividend Yield ETF"}, # 고배당 정석
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "SDY", "name": "SPDR S&P Dividend ETF"}, # 20년 이상 배당 증액
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "O", "name": "Realty Income Corp"}, # 리츠 월배당 끝판왕
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "MAIN", "name": "Main Street Capital"}, # BDC 월배당 강자
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "STAG", "name": "STAG Industrial Inc"}, # 산업용 리츠 월배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "VICI", "name": "VICI Properties Inc"}, # 카지노 리츠 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "ADC", "name": "Agree Realty Corp"}, # 리테일 배당성장 리츠
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "MO", "name": "Altria Group Inc"}, # 8%대 고배당 담배주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "PM", "name": "Philip Morris International"}, # 배당성장 담배주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "VZ", "name": "Verizon Communications"}, # 통신주 대표 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "T", "name": "AT&T Inc"}, # 전통의 통신 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "CVX", "name": "Chevron Corp"}, # 에너지 배당귀족
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "XOM", "name": "Exxon Mobil Corp"}, # 에너지 대표주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "PEP", "name": "PepsiCo Inc"}, # 필수소비재 배당성장
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "KO", "name": "Coca-Cola Co"}, # 워런 버핏의 배당주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "PG", "name": "Procter & Gamble Co"}, # 60년 이상 배당 증액
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "ABBV", "name": "AbbVie Inc"}, # 제약주 배당성장
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "PFE", "name": "Pfizer Inc"}, # 제약주 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "MMM", "name": "3M Co"}, # 산업재 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "IBM", "name": "International Business Machines"}, # 기술주 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "HD", "name": "Home Depot Inc"}, # 배당성장 우량주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "LOW", "name": "Lowe's Companies Inc"}, # 50년 배당 증액 왕족주
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "CSCO", "name": "Cisco Systems Inc"}, # 네트워킹 장비 고배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "TLT", "name": "iShares 20+ Year Treasury Bond ETF"}, # 채권형 월배당
+        {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "DIVO", "name": "Amplify CWP Strategic Focus Equity ETF"} # 액티브 배당성장
     ]
 
     # 👇 공식 이름 동기화 엔진
@@ -4051,6 +4087,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         "🌍 8. 해외 직상장 글로벌 메이저",
         "🚢 9. 조선 & 해운 슈퍼사이클",
         "⚡ 10. 전력 인프라 & 글로벌 에너지",
+        "🇺🇸 11. 미국 고배당 TOP 30",
         "🔎 내가 추가한 맞춤 종목"
     ]
     
