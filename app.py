@@ -3662,14 +3662,32 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # 👇 [업데이트] 주식 + ETF + 가격까지 한 번에 통합 조회하는 마스터 엔진
-    @st.cache_data(ttl=3600)
+    # 👇 [핵심 업데이트 1] 주식 + ETF 현재가(Price) 통합 초고속 로딩 엔진
+    @st.cache_data(ttl=86400)
     def get_all_kr_assets():
         try:
-            # KRX 하나만 호출해도 주식과 ETF, 그리고 현재가(Close)까지 모두 가져옵니다.
-            df = fdr.StockListing('KRX')
+            stocks_df = fdr.StockListing('KRX')
+            if 'Close' in stocks_df.columns:
+                stocks_df = stocks_df[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'})
+            else:
+                stocks_df = stocks_df[['Code', 'Name']]
+                stocks_df['Price'] = 0
+                
+            etfs_df = fdr.StockListing('ETF/KR')
+            if 'Symbol' in etfs_df.columns:
+                etfs_df = etfs_df.rename(columns={'Symbol': 'Code'})
+            if 'Price' not in etfs_df.columns and 'Close' in etfs_df.columns:
+                etfs_df = etfs_df.rename(columns={'Close': 'Price'})
+            elif 'Price' not in etfs_df.columns:
+                etfs_df['Price'] = 0
+                
+            etfs_df = etfs_df[['Code', 'Name', 'Price']]
+            
+            df = pd.concat([stocks_df, etfs_df], ignore_index=True)
             df['Code'] = df['Code'].astype(str).str.zfill(6)
-            return df.drop_duplicates(subset=['Code']).reset_index(drop=True)
+            df['Price'] = pd.to_numeric(df['Price'], errors='coerce').fillna(0)
+            
+            return df.sort_values('Price', ascending=False).drop_duplicates(subset=['Code']).reset_index(drop=True)
         except:
             return pd.DataFrame()
 
@@ -3734,7 +3752,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다. 다른 키워드로 검색해 보세요.")
 
-    # --- 3. ETF & 주식 데이터 원본 유지 ---
+    # --- 3. ETF & 주식 데이터 정의 (160종 통합) ---
     etf_data = [
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 200", "code": "069500"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 코스피200", "code": "105150"},
@@ -3890,22 +3908,46 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Energy Select Sector", "code": "XLE"},
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Financial Select Sector", "code": "XLF"},
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "JPMorgan Nasdaq Equity Premium", "code": "JEPQ"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Apple Inc", "code": "AAPL"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Microsoft Corp", "code": "MSFT"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "NVIDIA Corp", "code": "NVDA"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Tesla Inc", "code": "TSLA"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "SPDR Gold Trust", "code": "GLD"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "iShares Bitcoin Trust", "code": "IBIT"}
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "AAPL (애플)", "code": "AAPL"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "MSFT (마이크로소프트)", "code": "MSFT"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "NVDA (엔비디아)", "code": "NVDA"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "TSLA (테슬라)", "code": "TSLA"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "JNJ (존슨앤존슨)", "code": "JNJ"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "XOM (엑슨모빌)", "code": "XOM"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "JPM (JP모건)", "code": "JPM"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "PG (P&G)", "code": "PG"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "CVX (쉐브론)", "code": "CVX"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "HD (홈디포)", "code": "HD"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "ABBV (애브비)", "code": "ABBV"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "MRK (머크)", "code": "MRK"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "KO (코카콜라)", "code": "KO"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "PEP (펩시)", "code": "PEP"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "BAC (뱅크오브아메리카)", "code": "BAC"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "PFE (화이자)", "code": "PFE"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "TMO (써모피셔)", "code": "TMO"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "CSCO (시스코)", "code": "CSCO"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "MCD (맥도날드)", "code": "MCD"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "WMT (월마트)", "code": "WMT"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "TXN (텍사스인스트루먼트)", "code": "TXN"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "IBM (IBM)", "code": "IBM"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "CAT (캐터필러)", "code": "CAT"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "UPS (UPS)", "code": "UPS"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "O (리얼티인컴)", "code": "O"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "CIBR (글로벌 사이버 보안 ETF)", "code": "CIBR"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "HACK (사이버 보안 전문)", "code": "HACK"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "GLD (SPDR 골드 트러스트)", "code": "GLD"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "IBIT (블랙록 비트코인 현물)", "code": "IBIT"}
     ]
 
-    # 👇 [핵심 업데이트 1] 한국거래소 공식 명칭으로 100% 실시간 자동 교정 (KBSTAR -> RISE 등 이름 변경 완벽 해결)
+    # 👇 [핵심 업데이트 1] 한국거래소 최신 원장 데이터로 종목명 100% 강제 동기화 (오타, 이름변경 박멸)
     master_krx_df = get_all_kr_assets()
     if not master_krx_df.empty:
         krx_name_dict = dict(zip(master_krx_df['Code'], master_krx_df['Name']))
         for item in etf_data:
-            if item['code'].isdigit() and item['code'] in krx_name_dict:
-                # 거래소 공식 최신 이름으로 무조건 덮어쓰기!
-                item['name'] = krx_name_dict[item['code']]
+            # 6자리 종목코드이면서 숫자가 1개라도 섞여있는 한국 주식/ETF라면
+            if len(str(item['code'])) == 6 and any(char.isdigit() for char in str(item['code'])):
+                if item['code'] in krx_name_dict:
+                    item['name'] = krx_name_dict[item['code']] # 실제 KRX 공식명으로 강제 덮어쓰기
 
     # 기본값 세팅 및 맞춤 종목 병합
     for item in etf_data:
@@ -3926,16 +3968,18 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "holdings": custom_item.get('holdings', "사용자가 직접 검색하여 추가한 맞춤 관심 종목")
             })
 
-    # 상장 이후 실제 연평균 수익률(CAGR) 및 상장일 계산 (병렬 처리)
+    # 👇 [핵심 업데이트 2] 한국/미국 코드를 정확하게 분류하는 AI 필터링
     import concurrent.futures
     import datetime
 
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
-        us_codes = [c for c in codes if not c.isdigit()]
-        kr_codes = [c for c in codes if c.isdigit()]
+        # 6자리이면서 숫자가 하나라도 있으면 무조건 한국 ETF/주식으로 분류 (예: 0176P0 완벽 인식)
+        kr_codes = [c for c in codes if len(str(c)) == 6 and any(char.isdigit() for char in str(c))]
+        us_codes = [c for c in codes if c not in kr_codes]
         
+        # 🇺🇸 미국 주식 (야후 파이낸스 다이렉트 통신)
         def get_us_cagr(c):
             try:
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{c}?interval=1mo&range=max"
@@ -3963,6 +4007,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 for code, data in results:
                     if data: cagr_dict[code] = data
 
+        # 🇰🇷 한국 주식 (네이버 금융 XML 병렬 처리)
         def get_naver_cagr(c):
             try:
                 url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
@@ -3993,35 +4038,54 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         
         return cagr_dict
 
-    # 👇 [핵심 업데이트 2] 개별 조회 대신 Bulk(일괄) 다운로드로 한국 주식 0원 문제 100% 박멸
+    # 👇 [핵심 업데이트 3] 단 1번의 벌크 통신으로 한국 증시 0원 문제 100% 영구 해결
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
-        kr_codes = [c for c in codes if c.isdigit()]
-        us_codes = [c for c in codes if not c.isdigit()]
+        kr_codes = [c for c in codes if len(str(c)) == 6 and any(char.isdigit() for char in str(c))]
+        us_codes = [c for c in codes if c not in kr_codes]
         
-        # 1. 🇰🇷 한국 주식 (단 1번의 통신으로 전 종목 가격 한 방에 매칭)
+        # 1. 🇰🇷 한국 주식/ETF (벌크 엔진으로 1초 만에 전 종목 매칭)
         try:
             bulk_krx = get_all_kr_assets()
-            if not bulk_krx.empty and 'Close' in bulk_krx.columns:
-                bulk_price_dict = dict(zip(bulk_krx['Code'], bulk_krx['Close']))
+            if not bulk_krx.empty and 'Price' in bulk_krx.columns:
+                bulk_price_dict = dict(zip(bulk_krx['Code'], bulk_krx['Price']))
                 for c in kr_codes:
-                    if c in bulk_price_dict:
-                        val = str(bulk_price_dict[c]).replace(',', '')
-                        if val.replace('.', '', 1).isdigit():
-                            prices[c] = int(float(val))
+                    if c in bulk_price_dict and bulk_price_dict[c] > 0:
+                        prices[c] = int(bulk_price_dict[c])
         except: pass
 
-        # 2. 🇺🇸 미국 주식 현재가 (야후 파이낸스 Raw API 병렬 처리)
+        # 2. 🇰🇷 위에서 누락된 한국 주식만 네이버 모바일 개별 조회 (최후의 보루)
+        missing_kr_codes = [c for c in kr_codes if c not in prices or prices[c] == 0]
+        def get_naver_price(c):
+            try:
+                url = f"https://m.stock.naver.com/api/stock/{c}/basic"
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                res = requests.get(url, headers=headers, timeout=5)
+                data = res.json()
+                close_price = data.get('closePrice', '0').replace(',', '')
+                if close_price.isdigit() and int(close_price) > 0:
+                    return c, int(close_price)
+            except: pass
+            return c, 0
+
+        if missing_kr_codes:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                results = executor.map(get_naver_price, missing_kr_codes)
+                for code, price in results:
+                    if price > 0:
+                        prices[code] = price
+
+        # 3. 🇺🇸 미국 주식 현재가 (야후 파이낸스 Raw API 다이렉트 통신)
         def get_us_price(c):
             try:
-                import yfinance as yf
-                tkr = yf.Ticker(c)
-                hist = tkr.history(period="1d")
-                if not hist.empty:
-                    price = hist['Close'].iloc[-1]
-                    if price > 0:
-                        return c, int(price * ex_rate)
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{c}?interval=1d"
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                res = requests.get(url, headers=headers, timeout=5)
+                data = res.json()
+                price = data['chart']['result'][0]['meta']['regularMarketPrice']
+                if price > 0:
+                    return c, int(price * ex_rate)
             except: pass
             return c, 0
 
@@ -4034,7 +4098,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         
         return prices
 
-    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다... (무결점 160개 종목 초고속 로딩 중)"):
+    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다... (무결점 160개 종목 초고속 동기화 중)"):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         
