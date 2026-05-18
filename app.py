@@ -899,14 +899,14 @@ def get_krx_stocks():
 
         if not df.empty:
             if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-            df['Sector'] = df['Sector'].fillna('기타/분류불가') # 비어있는 업종은 분류불가로 채움
+            # 비어있는 업종만 '기타/분류불가'로 채움
+            df['Sector'] = df['Sector'].fillna('기타/분류불가') 
             df = df[['Name', 'Code', 'Sector']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
     except Exception: 
         pass
         
-    # 하드코딩 예비 데이터를 삭제하고, 에러 시 빈 데이터프레임 반환
     return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
 def fetch_naver_volume(sosok, pages=1):
