@@ -1875,6 +1875,7 @@ with st.sidebar:
         " ┗ 📰 실시간 특징주 속보 & 리포트",
         "    ", 
         "📂 [ 심층 분석 & 도구 ]",
+        " ┣ 👴 노후 준비 ETF 시뮬레이터 (v2.0)", # <-- 이거 추가
         " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
         " ┣ 📊 국내외 핵심 ETF 분석",
         " ┣ 💰 고배당주 파이프라인 (TOP 300)",
@@ -3627,3 +3628,112 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
         5. **PBR (주가순자산비율)**: 가급적 **1.5 이하** (절대적 기준은 아니며 ROE와 결합하여 판단)
         6. **경제적 해자**: 위 1~5번이 숫자로 증명되며, 브랜드 파워나 독점적 기술력(워런 버핏의 '소비자 독점 기업')을 가진 기업
         """)
+
+elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
+    st.markdown("## 👴 노후 준비 핵심 ETF 테마별 통합 시뮬레이터")
+    st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
+
+    # --- 1. 절세 계좌 자동 배분 계산기 ---
+    st.markdown("### 🎯 1. 월 투자금액별 절세 계좌 배분 가이드")
+    with st.container(border=True):
+        col_in, col_spacer = st.columns([2, 1])
+        monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=1500000)
+        
+        # 배분 로직
+        temp_budget = monthly_budget
+        pension = min(500000, temp_budget) # 연 600만
+        temp_budget -= pension
+        irp = min(250000, temp_budget)    # 연 300만 (합산 900)
+        temp_budget -= irp
+        isa = min(1666666, temp_budget)   # 연 2000만
+        normal = max(0, temp_budget - isa)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("연금저축펀드", f"{int(pension):,}원", "연 600만 한도")
+        c2.metric("IRP (퇴직연금)", f"{int(irp):,}원", "합산 900만 한도")
+        c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
+        c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
+
+    # --- 2. ETF 데이터 정의 ---
+    etf_data = [
+        # 테마 1: 지수 코어
+        {"theme": "🌐 시장 지수 코어", "name": "KODEX 200", "code": "069500", "price": 36000, "cagr": 5.8},
+        {"theme": "🌐 시장 지수 코어", "name": "TIGER 미국S&P500", "code": "360750", "price": 18500, "cagr": 10.2},
+        {"theme": "🌐 시장 지수 코어", "name": "TIGER 미국나스닥100", "code": "133690", "price": 115000, "cagr": 13.5},
+        {"theme": "🌐 시장 지수 코어", "name": "KODEX 인도Nifty50", "code": "453810", "price": 13000, "cagr": 9.0},
+        # 테마 2: 반도체/테크
+        {"theme": "💻 반도체 & 빅테크", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 18000, "cagr": 14.1},
+        {"theme": "💻 반도체 & 빅테크", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 15500, "cagr": 15.2},
+        {"theme": "💻 반도체 & 빅테크", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 19000, "cagr": 13.8},
+        # 테마 3: 배당/인컴
+        {"theme": "💰 고배당 & 월배당", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 11500, "cagr": 8.4},
+        {"theme": "💰 고배당 & 월배당", "name": "SOL 미국배당다우존스", "code": "446720", "price": 10500, "cagr": 8.3},
+        {"theme": "💰 고배당 & 월배당", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 10200, "cagr": 7.4},
+        # 테마 4: 안전자산
+        {"theme": "🛡️ 채권 & 안전자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 9800, "cagr": 4.1},
+        {"theme": "🛡️ 채권 & 안전자산", "name": "ACE KRX금현물", "code": "411060", "price": 14500, "cagr": 5.5},
+    ]
+
+    # --- 3. 포트폴리오 구성 UI ---
+    st.markdown("### 🛒 2. 나만의 노후 포트폴리오 담기")
+    
+    if 'retirement_cart' not in st.session_state:
+        st.session_state.retirement_cart = {}
+
+    unique_themes = list(set([item['theme'] for item in etf_data]))
+    
+    for theme in unique_themes:
+        with st.expander(f"{theme} 종목 선택", expanded=(theme=="🌐 시장 지수 코어")):
+            theme_stocks = [item for item in etf_data if item['theme'] == theme]
+            for stock in theme_stocks:
+                cols = st.columns([4, 2, 2, 2])
+                cols[0].markdown(f"**{stock['name']}** ({stock['code']})")
+                cols[1].markdown(f"현재가: {stock['price']:,}원")
+                cols[2].markdown(f"기대수익: {stock['cagr']}%")
+                # 수량 입력
+                qty = cols[3].number_input("수량(주)", min_value=0, step=1, key=f"ret_qty_{stock['code']}")
+                if qty > 0:
+                    st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
+                elif stock['code'] in st.session_state.retirement_cart:
+                    del st.session_state.retirement_cart[stock['code']]
+
+    # --- 4. 시뮬레이션 대시보드 ---
+    st.divider()
+    st.markdown("### 📊 3. 복리 성장 시뮬레이션 결과")
+    
+    cart = st.session_state.retirement_cart
+    if not cart:
+        st.info("위 리스트에서 ETF 수량을 입력하시면 시뮬레이션이 시작됩니다.")
+    else:
+        total_principal = sum([v['qty'] * v['price'] for k, v in cart.items()])
+        # 가중평균 CAGR 계산
+        weighted_cagr = sum([(v['qty'] * v['price'] * v['cagr']) for k, v in cart.items()]) / total_principal if total_principal > 0 else 0
+        
+        d_col1, d_col2 = st.columns([1, 2])
+        
+        with d_col1:
+            st.markdown("#### 📉 포트폴리오 요약")
+            st.metric("총 매입 원금", f"{total_principal:,}원")
+            st.metric("평균 기대 수익률", f"{weighted_cagr:.2f}%")
+            
+            years = st.select_slider("미래 거치 기간 선택 (년)", options=[1, 3, 5, 10, 15, 20, 25, 30], value=20)
+            
+            future_value = total_principal * ((1 + weighted_cagr/100) ** years)
+            st.metric(f"{years}년 후 예상 자산", f"{int(future_value):,}원", f"원금 대비 {(future_value/total_principal):.1f}배")
+            
+        with d_col2:
+            st.markdown(f"#### 📈 {years}년 복리 성장 곡선")
+            chart_data = []
+            for y in range(years + 1):
+                val = total_principal * ((1 + weighted_cagr/100) ** y)
+                chart_data.append({"년수": f"{y}년", "자산규모": int(val)})
+            df_chart = pd.DataFrame(chart_data)
+            st.area_chart(df_chart.set_index("년수"), color="#2b579a")
+
+        # 장부 리스트
+        with st.expander("📝 선택한 종목 명세서 보기"):
+            display_cart = pd.DataFrame(cart).T
+            display_cart['총액'] = display_cart['qty'] * display_cart['price']
+            st.table(display_cart[['name', 'qty', 'price', '총액', 'cagr']])
+
+    st.caption("※ 본 데이터는 과거 성과를 바탕으로 한 시뮬레이션이며, 미래의 수익을 보장하지 않습니다.")
