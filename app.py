@@ -1362,7 +1362,6 @@ def get_fundamentals(ticker_code):
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     if str(ticker_code).isdigit():
-        # 💡 [핵심 우회] 네이버 금융 차트 XML 데이터 다이렉트 추출 (차단 우회 및 가장 정확한 수정주가 반환)
         try:
             url = f"https://fchart.stock.naver.com/sise.nhn?symbol={ticker_code}&timeframe=day&count={days}&requestType=0"
             res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -1380,7 +1379,6 @@ def get_historical_data(ticker_code, days):
                 return df
         except Exception: pass
         
-        # XML 통신 실패 시 yfinance 한국 티커로 우회
         try:
             df = yf.Ticker(f"{ticker_code}.KS").history(period=f"{days}d")
             if not df.empty:
@@ -1389,12 +1387,26 @@ def get_historical_data(ticker_code, days):
         except Exception: pass
         
     else:
-        # 미국 주식은 기존대로 yfinance 사용
+        # 💡 [핵심 우회] 미국 주식 연속 조회 시 차단 방어 (세션 위장 + yahooquery 2중 콤보)
         try:
-            df = yf.Ticker(ticker_code).history(period=f"{days}d")
+            session = requests.Session()
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+            df = yf.Ticker(ticker_code, session=session).history(period=f"{days}d")
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 return df
+        except Exception: pass
+        
+        try:
+            from yahooquery import Ticker as yq_Ticker
+            yq_t = yq_Ticker(ticker_code)
+            df = yq_t.history(period=f"{days}d")
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                df = df.reset_index()
+                df = df.rename(columns={'date': 'Date', 'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'})
+                df.set_index('Date', inplace=True)
+                df.index = pd.to_datetime(df.index).tz_localize(None)
+                return df[['Open', 'High', 'Low', 'Close', 'Volume']]
         except Exception: pass
         
     return pd.DataFrame()
