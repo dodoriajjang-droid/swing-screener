@@ -3750,7 +3750,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다.")
 
-    # 👇 [완전 개편] 구형 데이터 100% 폐기 및 오늘 날짜 기준 검증된 신규 200종목
+    # 👇 [완전 개편] 구형 데이터 100% 삭제 및 1번~10번 신규 200종목 완벽 세팅
     raw_etf_data = [
         # 🌐 1. 시장 대표 지수 코어 TOP 20
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "069500", "name": "KODEX 200"},
@@ -3774,203 +3774,203 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "105190", "name": "RISE 200"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "148020", "name": "KBSTAR 200"},
 
-        # 💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381170", "name": "TIGER 미국필라델피아반도체나스닥"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "441680", "name": "ACE 글로벌반도체TOP4 Plus SOLACTIVE"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381180", "name": "TIGER 미국테크TOP10 INDXX"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "465480", "name": "ACE 미국빅테크TOP7 Plus"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "480460", "name": "KODEX 미국AI테크TOP10"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "091160", "name": "KODEX 반도체"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "091230", "name": "TIGER 반도체"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455850", "name": "SOL 반도체소부장Fn"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455550", "name": "KODEX 반도체소부장액티브"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "465690", "name": "ACE AI반도체포커스"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "305720", "name": "KODEX 2차전지산업"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "305540", "name": "TIGER 2차전지테마"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "462010", "name": "TIGER 2차전지소재Fn"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "464300", "name": "KODEX 2차전지핵심소재10Fn"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "314250", "name": "KODEX 미국FANG플러스(H)"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "462040", "name": "TIGER 글로벌AI액티브"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455860", "name": "SOL 2차전지소부장Fn"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "466920", "name": "TIGER 일본반도체FACTSET"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381560", "name": "KBSTAR 글로벌데이터센터리츠"},
-        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381190", "name": "TIGER 차이나반도체FACTSET"},
+        # 💻 2. 반도체 & 빅테크 핵심 성장 TOP 20
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381170", "name": "TIGER 미국필라델피아반도체나스닥"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "441680", "name": "ACE 글로벌반도체TOP4 Plus SOLACTIVE"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381180", "name": "TIGER 미국테크TOP10 INDXX"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "465480", "name": "ACE 미국빅테크TOP7 Plus"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "480460", "name": "KODEX 미국AI테크TOP10"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "091160", "name": "KODEX 반도체"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "091230", "name": "TIGER 반도체"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455850", "name": "SOL 반도체소부장Fn"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455550", "name": "KODEX 반도체소부장액티브"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "465690", "name": "ACE AI반도체포커스"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "305720", "name": "KODEX 2차전지산업"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "305540", "name": "TIGER 2차전지테마"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "462010", "name": "TIGER 2차전지소재Fn"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "464300", "name": "KODEX 2차전지핵심소재10Fn"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "314250", "name": "KODEX 미국FANG플러스(H)"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "462040", "name": "TIGER 글로벌AI액티브"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455860", "name": "SOL 2차전지소부장Fn"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "466920", "name": "TIGER 일본반도체FACTSET"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381560", "name": "KBSTAR 글로벌데이터센터리츠"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381190", "name": "TIGER 차이나반도체FACTSET"},
 
-        # 🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "484320", "name": "KODEX 미국AI전력핵심인프라"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "461200", "name": "ACE 글로벌AI액티브"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "478100", "name": "RISE AI로봇인프라"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412510", "name": "TIGER 글로벌혁신성장"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "107380", "name": "KODEX 소프트웨어"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489200", "name": "KODEX 미국AI소프트웨어"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "488100", "name": "RISE 글로벌AI"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "492200", "name": "TIGER 미국AI빅테크위클리"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "481500", "name": "KODEX 미국AI반도체핵심장비"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "441220", "name": "TIGER 글로벌로봇"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "279310", "name": "KODEX 글로벌4차산업로보틱스(합성)"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "157490", "name": "TIGER 소프트웨어"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489400", "name": "KODEX 미국핵심AI테크액티브"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "447770", "name": "KODEX K-로봇액티브"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412110", "name": "ACE 글로벌메타버스액티브"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "469110", "name": "ACE 로봇핵심장비TOP4플러스"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "472110", "name": "SOL 글로벌사이버보안인컴"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "463120", "name": "TIMEFOLIO 글로벌AI액티브"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "476820", "name": "KODEX 국산AI노드"},
+        # 🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "484320", "name": "KODEX 미국AI전력핵심인프라"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "461200", "name": "ACE 글로벌AI액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "478100", "name": "RISE AI로봇인프라"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412510", "name": "TIGER 글로벌혁신성장"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "107380", "name": "KODEX 소프트웨어"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489200", "name": "KODEX 미국AI소프트웨어"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "488100", "name": "RISE 글로벌AI"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "492200", "name": "TIGER 미국AI빅테크위클리"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "481500", "name": "KODEX 미국AI반도체핵심장비"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "441220", "name": "TIGER 글로벌로봇"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "279310", "name": "KODEX 글로벌4차산업로보틱스(합성)"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "157490", "name": "TIGER 소프트웨어"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489400", "name": "KODEX 미국핵심AI테크액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "447770", "name": "KODEX K-로봇액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412110", "name": "ACE 글로벌메타버스액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "469110", "name": "ACE 로봇핵심장비TOP4플러스"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "472110", "name": "SOL 글로벌사이버보안인컴"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "463120", "name": "TIMEFOLIO 글로벌AI액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "476820", "name": "KODEX 국산AI노드"},
 
-        # 🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "417610", "name": "PLUS K방산"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "449920", "name": "ARIRANG K-방산Fn"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "432200", "name": "TIGER 우주항공iSelect"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "492100", "name": "TIGER 미국우주테크"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "490500", "name": "1Q 미국우주항공테크"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "497100", "name": "SOL 글로벌방산인프라"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "449450", "name": "KODEX K-방산"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "482200", "name": "TIGER 글로벌우주항공액티브"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "433110", "name": "KODEX 미국우주항공Fn"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "471200", "name": "ACE 킹덤방산우주"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "421550", "name": "HANARO 글로벌우주항공"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "493200", "name": "PLUS 은채권혼합"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "452110", "name": "RISE 글로벌수소&우주"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "451220", "name": "KODEX K-방산제조"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "462150", "name": "TIGER 방산부품TOP5"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "469900", "name": "ACE 미국방산TOP10"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "471900", "name": "SOL 우주항공핵심소재"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "475210", "name": "KODEX 글로벌방산&시큐리티"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "476500", "name": "TIGER 국방우주핵심"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "482110", "name": "PLUS 글로벌핵심방산"},
+        # 🚀 4. 방산 & 우주항공 미래 테크 TOP 20
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "417610", "name": "PLUS K방산"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "449920", "name": "ARIRANG K-방산Fn"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "432200", "name": "TIGER 우주항공iSelect"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "492100", "name": "TIGER 미국우주테크"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "490500", "name": "1Q 미국우주항공테크"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "497100", "name": "SOL 글로벌방산인프라"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "449450", "name": "KODEX K-방산"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "482200", "name": "TIGER 글로벌우주항공액티브"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "433110", "name": "KODEX 미국우주항공Fn"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "471200", "name": "ACE 킹덤방산우주"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "421550", "name": "HANARO 글로벌우주항공"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "493200", "name": "PLUS 은채권혼합"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "452110", "name": "RISE 글로벌수소&우주"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "451220", "name": "KODEX K-방산제조"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "462150", "name": "TIGER 방산부품TOP5"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "469900", "name": "ACE 미국방산TOP10"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "471900", "name": "SOL 우주항공핵심소재"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "475210", "name": "KODEX 글로벌방산&시큐리티"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "476500", "name": "TIGER 국방우주핵심"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "482110", "name": "PLUS 글로벌핵심방산"},
 
-        # 🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "287330", "name": "RISE 금융지주"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "091170", "name": "KODEX 은행"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "455100", "name": "TIGER 금융지주고배당"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491100", "name": "KODEX 코리아밸류업"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "492500", "name": "RISE 현대차그룹밸류업모멘텀"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "466940", "name": "TIGER 은행고배당플러스TOP10"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "466810", "name": "ACE 주주환원가치주액티브"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "140710", "name": "KODEX 보험"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "157500", "name": "TIGER 증권"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "354350", "name": "RISE 대형고배당10TR"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "276970", "name": "KODEX 고배당"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "210780", "name": "TIGER 코스피고배당"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "471550", "name": "ACE 주주환원대형주"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "476220", "name": "SOL 금융지주플러스고배당"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "478550", "name": "HANARO 주주가치밸류업"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491150", "name": "KODEX 밸류업핵심지수"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491250", "name": "TIGER 밸류업가치성장"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "492150", "name": "ACE 밸류업포커스액티브"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "493150", "name": "PLUS 코리아밸류업성장"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491200", "name": "RISE 현대차고정피지컬AI"},
+        # 🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "287330", "name": "RISE 금융지주"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "091170", "name": "KODEX 은행"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "455100", "name": "TIGER 금융지주고배당"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491100", "name": "KODEX 코리아밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "492500", "name": "RISE 현대차그룹밸류업모멘텀"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "466940", "name": "TIGER 은행고배당플러스TOP10"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "466810", "name": "ACE 주주환원가치주액티브"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "140710", "name": "KODEX 보험"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "157500", "name": "TIGER 증권"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "354350", "name": "RISE 대형고배당10TR"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "276970", "name": "KODEX 고배당"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "210780", "name": "TIGER 코스피고배당"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "471550", "name": "ACE 주주환원대형주"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "476220", "name": "SOL 금융지주플러스고배당"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "478550", "name": "HANARO 주주가치밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491150", "name": "KODEX 밸류업핵심지수"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491250", "name": "TIGER 밸류업가치성장"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "492150", "name": "ACE 밸류업포커스액티브"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "493150", "name": "PLUS 코리아밸류업성장"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491200", "name": "RISE 현대차고정피지컬AI"},
 
-        # 💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "480350", "name": "KODEX 미국배당다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "458730", "name": "TIGER 미국배당다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "466760", "name": "ACE 미국배당다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "446720", "name": "SOL 미국배당다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "091165", "name": "KODEX 고배당 지수"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461580", "name": "TIGER 미국배당+7%프리미엄다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "475920", "name": "TIGER 미국나스닥100+15%프리미엄다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "481220", "name": "KODEX 미국배당+10%프리미엄다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "446820", "name": "RISE 한국고배당액티브"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "211560", "name": "TIGER 배당성장"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461100", "name": "SOL 미국배당+10%프리미엄"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "451200", "name": "ACE 미국배당성장액티브"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "462100", "name": "RISE 배당킹액티브"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "411900", "name": "KODEX ESG고배당"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "421100", "name": "TIGER 고배당커버드콜"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461250", "name": "KBSTAR 미국S&P500배당킹"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "475110", "name": "WOORI 미국배당다우존스"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "452660", "name": "HANARO 글로벌고배당"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "161510", "name": "ARIRANG 고배당주"},
-        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "458760", "name": "TIGER 은행고배당플러스"},
+        # 💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "480350", "name": "KODEX 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "458730", "name": "TIGER 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "466760", "name": "ACE 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "446720", "name": "SOL 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "091165", "name": "KODEX 고배당 지수"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461580", "name": "TIGER 미국배당+7%프리미엄다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "475920", "name": "TIGER 미국나스닥100+15%프리미엄다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "481220", "name": "KODEX 미국배당+10%프리미엄다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "446820", "name": "RISE 한국고배당액티브"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "211560", "name": "TIGER 배당성장"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461100", "name": "SOL 미국배당+10%프리미엄"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "451200", "name": "ACE 미국배당성장액티브"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "462100", "name": "RISE 배당킹액티브"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "411900", "name": "KODEX ESG고배당"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "421100", "name": "TIGER 고배당커버드콜"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461250", "name": "KBSTAR 미국S&P500배당킹"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "475110", "name": "WOORI 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "452660", "name": "HANARO 글로벌고배당"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "161510", "name": "ARIRANG 고배당주"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "458760", "name": "TIGER 은행고배당플러스"},
 
-        # 🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "273130", "name": "KODEX 종합채권(AA-이상)액티브"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "423160", "name": "KODEX KOFR금리액티브(합성)"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "458250", "name": "TIGER 미국30년국채프리미엄액티브(H)"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "454480", "name": "ACE 미국30년국채액티브(H)"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "467320", "name": "ACE 만기매칭형회사채"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "441320", "name": "RISE 중기국고채액티브"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "485610", "name": "RISE 미국S&P500배당혼합20"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "411060", "name": "ACE KRX금현물"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "329650", "name": "TIGER 미국달러단기채권"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "153130", "name": "KODEX 단기채권"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "157450", "name": "TIGER 단기통안채"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "132030", "name": "KODEX 골드선물(H)"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "476100", "name": "TIGER 미국채30년커버드콜액티브"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "432100", "name": "KODEX 국고채30년액티브"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "451100", "name": "ACE 미국채10년리펀드"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "445200", "name": "RISE 단기사채액티브"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "458500", "name": "TIGER CD금리투자액티브"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "261200", "name": "KODEX 미국달러선물"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "465900", "name": "ACE 만기매칭26회사채"},
-        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "code": "138900", "name": "TIGER 구리선물(H)"},
+        # 🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "273130", "name": "KODEX 종합채권(AA-이상)액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "423160", "name": "KODEX KOFR금리액티브(합성)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "458250", "name": "TIGER 미국30년국채프리미엄액티브(H)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "454480", "name": "ACE 미국30년국채액티브(H)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "467320", "name": "ACE 만기매칭형회사채"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "441320", "name": "RISE 중기국고채액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "485610", "name": "RISE 미국S&P500배당혼합20"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "411060", "name": "ACE KRX금현물"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "329650", "name": "TIGER 미국달러단기채권"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "153130", "name": "KODEX 단기채권"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "157450", "name": "TIGER 단기통안채"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "132030", "name": "KODEX 골드선물(H)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "476100", "name": "TIGER 미국채30년커버드콜액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "432100", "name": "KODEX 국고채30년액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "451100", "name": "ACE 미국채10년리펀드"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "445200", "name": "RISE 단기사채액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "458500", "name": "TIGER CD금리투자액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "261200", "name": "KODEX 미국달러선물"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "465900", "name": "ACE 만기매칭26회사채"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "138900", "name": "TIGER 구리선물(H)"},
 
-        # 🌍 5. 해외 직상장 글로벌 메이저 TOP 20
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "SPY", "name": "SPDR S&P 500"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "VOO", "name": "Vanguard S&P 500"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "QQQ", "name": "Invesco QQQ"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "SCHD", "name": "Schwab US Dividend"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "VTI", "name": "Vanguard Total Stock"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "TLT", "name": "iShares 20+Y Treasury"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPI", "name": "JPMorgan Equity Premium"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "VT", "name": "Vanguard Total World"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "VNQ", "name": "Vanguard Real Estate"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "SOXX", "name": "iShares Semiconductor"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "SMH", "name": "VanEck Semiconductor"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "DIA", "name": "SPDR Dow Jones Industrial"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "IWM", "name": "iShares Russell 2000"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "MAGS", "name": "Roundhill Magnificent Seven"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "FNGS", "name": "MicroSectors FANG+"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLK", "name": "Technology Select Sector"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLV", "name": "Health Care Select Sector"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLE", "name": "Energy Select Sector"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLF", "name": "Financial Select Sector"},
-        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium"},
+        # 🌍 8. 해외 직상장 글로벌 메이저 TOP 20
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SPY", "name": "SPDR S&P 500"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VOO", "name": "Vanguard S&P 500"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "QQQ", "name": "Invesco QQQ"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SCHD", "name": "Schwab US Dividend"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VTI", "name": "Vanguard Total Stock"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "TLT", "name": "iShares 20+Y Treasury"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPI", "name": "JPMorgan Equity Premium"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VT", "name": "Vanguard Total World"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VNQ", "name": "Vanguard Real Estate"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SOXX", "name": "iShares Semiconductor"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SMH", "name": "VanEck Semiconductor"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "DIA", "name": "SPDR Dow Jones Industrial"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "IWM", "name": "iShares Russell 2000"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "MAGS", "name": "Roundhill Magnificent Seven"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "FNGS", "name": "MicroSectors FANG+"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLK", "name": "Technology Select Sector"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLV", "name": "Health Care Select Sector"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLE", "name": "Energy Select Sector"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLF", "name": "Financial Select Sector"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium"},
 
-        # 🚢 [신규] 6. 조선 & 해운 슈퍼사이클 TOP 20
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "091180", "name": "KODEX 조선"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "380960", "name": "HANARO Fn조선해운"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "466960", "name": "SOL 조선TOP3플러스"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "485520", "name": "KODEX K-조선배당플러스"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "009540", "name": "HD한국조선해양"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "010140", "name": "삼성중공업"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "042660", "name": "한화오션"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "329180", "name": "HD현대중공업"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "033280", "name": "HD현대미포"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011200", "name": "HMM"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "028670", "name": "팬오션"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "037220", "name": "KSS해운"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "013120", "name": "동성화인텍"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "082740", "name": "한화엔진"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "014620", "name": "성광벤드"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "075580", "name": "세진중공업"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011390", "name": "한국카본"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "023160", "name": "태광"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BOAT", "name": "SonicShares Global Shipping ETF"},
-        {"theme": "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BDRY", "name": "Breakwave Dry Bulk Shipping ETF"},
+        # 🚢 9. 조선 & 해운 슈퍼사이클 TOP 20
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "091180", "name": "KODEX 조선"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "380960", "name": "HANARO Fn조선해운"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "466960", "name": "SOL 조선TOP3플러스"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "485520", "name": "KODEX K-조선배당플러스"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "009540", "name": "HD한국조선해양"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "010140", "name": "삼성중공업"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "042660", "name": "한화오션"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "329180", "name": "HD현대중공업"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "033280", "name": "HD현대미포"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011200", "name": "HMM"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "028670", "name": "팬오션"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "037220", "name": "KSS해운"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "013120", "name": "동성화인텍"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "082740", "name": "한화엔진"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "014620", "name": "성광벤드"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "075580", "name": "세진중공업"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011390", "name": "한국카본"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "023160", "name": "태광"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BOAT", "name": "SonicShares Global Shipping ETF"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BDRY", "name": "Breakwave Dry Bulk Shipping ETF"},
 
-        # ⚡ [신규] 7. 전력 인프라 & 글로벌 에너지 TOP 20
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "226490", "name": "KODEX 에너지화학"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "117460", "name": "TIGER 에너지화학"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "015760", "name": "한국전력"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "051600", "name": "한전KPS"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "052690", "name": "한전기술"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "034020", "name": "두산에너빌리티"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "267260", "name": "HD현대일렉트릭"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "298040", "name": "효성중공업"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "010120", "name": "LS ELECTRIC"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "006260", "name": "LS"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "001440", "name": "대한전선"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103590", "name": "일진전기"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103140", "name": "풍산"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "XLU", "name": "Utilities Select Sector SPDR"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "ICLN", "name": "iShares Global Clean Energy"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "GRID", "name": "First Trust Clean Edge Smart Grid"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "VDE", "name": "Vanguard Energy ETF"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "URA", "name": "Global X Uranium ETF"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "NLR", "name": "VanEck Uranium+Nuclear Energy ETF"},
-        {"theme": "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "004020", "name": "현대제철"}
+        # ⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "226490", "name": "KODEX 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "117460", "name": "TIGER 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "015760", "name": "한국전력"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "051600", "name": "한전KPS"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "052690", "name": "한전기술"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "034020", "name": "두산에너빌리티"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "267260", "name": "HD현대일렉트릭"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "298040", "name": "효성중공업"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "010120", "name": "LS ELECTRIC"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "006260", "name": "LS"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "001440", "name": "대한전선"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103590", "name": "일진전기"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103140", "name": "풍산"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "004020", "name": "현대제철"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "XLU", "name": "Utilities Select Sector SPDR"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "ICLN", "name": "iShares Global Clean Energy"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "GRID", "name": "First Trust Clean Edge Smart Grid"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "VDE", "name": "Vanguard Energy ETF"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "URA", "name": "Global X Uranium ETF"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "NLR", "name": "VanEck Uranium+Nuclear Energy ETF"}
     ]
 
     # 👇 공식 이름 동기화 엔진 (가짜 이름 박멸)
@@ -4053,7 +4053,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
         def get_naver_cagr(c):
             try:
-                # 1차 시도: 네이버 파싱
                 url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
                 res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
                 if res.status_code == 200:
@@ -4066,7 +4065,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         if days >= 365 and p_start > 0:
                             return c, {'cagr': round(((p_end / p_start) ** (365.25 / days) - 1) * 100, 2), 'date': first_date.strftime('%Y-%m-%d')}
             except: pass
-            # 2차 시도: FDR 라이브러리 직접 계산 (절대 안 뻗음)
+            
             try:
                 df = fdr.DataReader(c)
                 if len(df) > 250:
@@ -4090,7 +4089,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         kr_codes = [c for c in codes if len(str(c)) == 6 and any(char.isdigit() for char in str(c))]
         us_codes = [c for c in codes if c not in kr_codes]
         
-        # 1. 한국 주식 벌크 매칭
         try:
             bulk_krx = get_all_kr_assets()
             if not bulk_krx.empty and 'Price' in bulk_krx.columns:
@@ -4099,7 +4097,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if c in bulk_price_dict and bulk_price_dict[c] > 0: prices[c] = int(bulk_price_dict[c])
         except: pass
 
-        # 2. 누락 한국 주식 끝까지 추적 (FDR 다이렉트 1:1 통신)
         missing_kr = [c for c in kr_codes if c not in prices or prices[c] == 0]
         def get_direct_kr_price(c):
             try:
@@ -4113,7 +4110,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 for code, price in executor.map(get_direct_kr_price, missing_kr):
                     if price > 0: prices[code] = price
         
-        # 3. 미국 주식 현재가
         def get_us_price(c):
             try:
                 hist = yf.Ticker(c).history(period="1d")
@@ -4147,23 +4143,25 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
     if 'retirement_cart' not in st.session_state: st.session_state.retirement_cart = {}
 
+    # 👇 깔끔하게 1~10번으로 재정렬된 테마 명단 적용
     theme_order = [
         "🌐 1. 시장 대표 지수 코어 TOP 20", 
-        "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", 
-        "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20",
-        "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20",
-        "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20",
-        "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", 
-        "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20",
-        "🌍 5. 해외 직상장 글로벌 메이저 TOP 20",
-        "🚢 6. 조선 & 해운 슈퍼사이클 TOP 20",
-        "⚡ 7. 전력 인프라 & 글로벌 에너지 TOP 20",
+        "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", 
+        "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20",
+        "🚀 4. 방산 & 우주항공 미래 테크 TOP 20",
+        "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20",
+        "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", 
+        "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20",
+        "🌍 8. 해외 직상장 글로벌 메이저 TOP 20",
+        "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20",
+        "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20",
         "🔎 내가 추가한 맞춤 종목"
     ]
     
     for theme in theme_order:
         theme_stocks = [item for item in etf_data if item['theme'] == theme]
         seen = set()
+        # 중복 방지를 위한 강력한 필터 적용
         unique_stocks = [s for s in theme_stocks if s['code'] not in seen and not seen.add(s['code'])]
 
         if unique_stocks:
@@ -4189,6 +4187,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     cagr_display = f"{cagr_val}%" if isinstance(cagr_val, (int, float)) else f"<span style='font-size:0.85em; color:gray;'>{cagr_val}</span>"
                     cols[3].markdown(f"연평균(상장후):<br>{cagr_display}", unsafe_allow_html=True)
                     
+                    # 중복 키 오류 원천 차단을 위한 고유 인덱스 키 사용
                     qty = cols[4].number_input("수량(주)", min_value=0, step=1, key=f"ret_qty_{theme}_{stock['code']}_{idx}", label_visibility="collapsed")
                     
                     if qty > 0: st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
