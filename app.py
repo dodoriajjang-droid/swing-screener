@@ -2981,7 +2981,6 @@ elif clean_menu == "⚡ 메가트렌드 & 테마 대장주":
             st.session_state.deep_tech_query = theme
             st.session_state.deep_tech_results = None 
             st.session_state.deep_tech_brief = None
-            st.session_state.deep_tech_input = ""
             
     st.markdown("**직접 테마 입력:**")
     with st.form(key="theme_search_form", clear_on_submit=False):
