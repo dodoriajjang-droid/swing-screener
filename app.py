@@ -885,32 +885,47 @@ def get_krx_stocks():
         try:
             df_desc = fdr.StockListing('KRX-DESC')
             
-            # 💡 [핵심 해결] KRX-DESC는 'Code' 대신 'Symbol'을 쓰므로 이름을 똑같이 맞춰줍니다!
             if not df_desc.empty and 'Symbol' in df_desc.columns and 'Sector' in df_desc.columns:
                 df_desc = df_desc.rename(columns={'Symbol': 'Code'})
                 
                 df['Code'] = df['Code'].astype(str).str.zfill(6)
                 df_desc['Code'] = df_desc['Code'].astype(str).str.zfill(6)
                 
-                # 🔥 [수정된 부분] 기존 df의 Sector를 무조건 지우지 않고, 서로 보완하도록 병합!
+                # 🔥 [핵심 1] 기존 데이터에 불량 Sector가 있다면 꼬이지 않게 통째로 날려버림
                 if 'Sector' in df.columns:
-                    # 기존 Sector 이름이 겹치지 않게 desc 쪽은 접미사를 붙여 병합
-                    df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left', suffixes=('', '_desc'))
-                    # 기존 Sector가 비어있는 종목만 desc의 Sector 값으로 채워 넣음
-                    df['Sector'] = df['Sector'].fillna(df['Sector_desc']) 
-                    # 임시로 생성된 Sector_desc 컬럼은 깔끔하게 삭제
-                    df = df.drop(columns=['Sector_desc'])
-                else:
-                    df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
+                    df = df.drop(columns=['Sector'])
+                    
+                # 정확한 KRX-DESC의 Sector로만 깔끔하게 병합
+                df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
         except Exception:
             pass
 
         if not df.empty:
-            if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            if 'Sector' not in df.columns: 
+                df['Sector'] = '기타/분류불가'
+            
+            # 🔥 [핵심 2] API가 보내는 악성 빈칸('')이나 띄어쓰기(' ')를 잡아내 결측치로 강제 변환
+            df['Sector'] = df['Sector'].replace('', np.nan).replace(' ', np.nan)
             df['Sector'] = df['Sector'].fillna('기타/분류불가') 
+            
+            # 🛡️ [핵심 3: 최후의 방어막] API 서버가 죽더라도 주요 대장주 섹터는 무조건 살려내는 하드코딩
+            major_sectors = {
+                '005930': '반도체', '000660': '반도체', '005380': '자동차', '000270': '자동차',
+                '373220': '2차전지', '207940': '바이오', '068270': '바이오', '035420': 'IT/플랫폼',
+                '035720': 'IT/플랫폼', '105560': '금융지주', '055550': '금융지주', '028260': '지주사',
+                '051910': '화학/2차전지', '006400': '2차전지', '012330': '자동차부품', '005490': '철강'
+            }
+            def safe_sector(row):
+                if row['Code'] in major_sectors and row['Sector'] == '기타/분류불가':
+                    return major_sectors[row['Code']]
+                return row['Sector']
+                
+            df['Sector'] = df.apply(safe_sector, axis=1)
+            
             df = df[['Name', 'Code', 'Sector']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
+            
     except Exception: 
         pass
         
