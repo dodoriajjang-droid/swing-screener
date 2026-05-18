@@ -3666,36 +3666,80 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         
         if col_b.button("목록에 검색 및 추가", use_container_width=True):
             if new_tickers_input:
-                # 쉼표를 기준으로 여러 종목 분리
+                # 쉼표를 기준으로 여러 종목 분리elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
+    st.markdown("## 👴 노후 준비 핵심 ETF 테마별 통합 시뮬레이터")
+    st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
+
+    # --- 1. 절세 계좌 자동 배분 계산기 ---
+    st.markdown("### 🎯 1. 월 투자금액별 절세 계좌 배분 가이드")
+    with st.container(border=True):
+        col_in, col_spacer = st.columns([2, 1])
+        monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=1500000)
+        
+        temp_budget = monthly_budget
+        pension = min(500000, temp_budget) 
+        temp_budget -= pension
+        irp = min(250000, temp_budget)    
+        temp_budget -= irp
+        isa = min(1666666, temp_budget)   
+        normal = max(0, temp_budget - isa)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("연금저축펀드", f"{int(pension):,}원", "연 600만 한도")
+        c2.metric("IRP (퇴직연금)", f"{int(irp):,}원", "합산 900만 한도")
+        c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
+        c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
+
+    # 👇 [핵심 업데이트 1] 주식 + ETF 통합 검색 엔진
+    @st.cache_data(ttl=86400)
+    def get_all_kr_assets():
+        try:
+            stocks_df = fdr.StockListing('KRX')[['Name', 'Code']]
+            etfs_df = fdr.StockListing('ETF/KR')[['Name', 'Symbol']].rename(columns={'Symbol': 'Code'})
+            df = pd.concat([stocks_df, etfs_df], ignore_index=True)
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            return df.drop_duplicates(subset=['Code']).reset_index(drop=True)
+        except:
+            return pd.DataFrame()
+
+    # --- 2. 스마트 맞춤 종목 검색 및 다중 추가 기능 ---
+    if 'custom_etfs' not in st.session_state or (len(st.session_state.custom_etfs) > 0 and isinstance(st.session_state.custom_etfs[0], str)):
+        st.session_state.custom_etfs = []
+
+    st.markdown("### 🔎 2. 맞춤형 종목 다중 검색 및 추가")
+    with st.container(border=True):
+        st.write("리스트에 없는 종목을 검색합니다. **쉼표(,)로 구분하여 여러 개를 동시에 입력**할 수 있습니다.")
+        col_s, col_b = st.columns([4, 1])
+        new_tickers_input = col_s.text_input("종목명 또는 티커 입력", placeholder="예: TIGER 미국S&P500, TSLA, 005930").strip()
+        
+        if col_b.button("목록에 검색 및 추가", use_container_width=True):
+            if new_tickers_input:
                 input_list = [x.strip() for x in new_tickers_input.split(',')]
-                
-                try: krx_df = get_krx_stocks()
-                except: krx_df = pd.DataFrame()
+                kr_assets_df = get_all_kr_assets()
                     
                 for query in input_list:
                     if not query: continue
-                    
                     found_name = ""
                     found_code = ""
                     
-                    # 1순위: 한국 주식 DB에서 검색
-                    if not krx_df.empty:
-                        exact_code = krx_df[krx_df['Code'] == query]
+                    # 1. 한국 주식 및 한국 ETF 통합 DB에서 검색
+                    if not kr_assets_df.empty:
+                        exact_code = kr_assets_df[kr_assets_df['Code'] == query]
                         if not exact_code.empty:
                             found_name = exact_code['Name'].iloc[0]
                             found_code = exact_code['Code'].iloc[0]
                         else:
-                            exact_name = krx_df[krx_df['Name'].str.upper() == query.upper()]
+                            exact_name = kr_assets_df[kr_assets_df['Name'].str.upper() == query.upper()]
                             if not exact_name.empty:
                                 found_name = exact_name['Name'].iloc[0]
                                 found_code = exact_name['Code'].iloc[0]
                             else:
-                                contains_match = krx_df[krx_df['Name'].str.contains(query, case=False, na=False)]
+                                contains_match = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
                                 if not contains_match.empty:
                                     found_name = contains_match['Name'].iloc[0]
                                     found_code = contains_match['Code'].iloc[0]
                     
-                    # 2순위: 못 찾았으면 미국 주식 API로 검색
+                    # 2. 미국 주식/ETF 검색
                     if not found_code:
                         try:
                             us_results = search_us_ticker(query)
@@ -3704,24 +3748,22 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                                 found_name = us_results[0].split(" (")[1].split(" /")[0]
                         except: pass
                         
-                    # 3순위: 그래도 없는데 영어 알파벳이라면 미국 티커로 강제 가정
                     if not found_code and re.match(r'^[A-Za-z]+$', query):
                         found_code = query.upper()
                         found_name = query.upper()
                         
-                    # 최종 결과 추가
                     if found_code:
                         if not any(item['code'] == found_code for item in st.session_state.custom_etfs):
                             st.session_state.custom_etfs.append({'name': found_name, 'code': found_code})
-                            st.success(f"✅ 검색 완료: **{found_name}** (종목코드: {found_code}) 장바구니 리스트에 추가되었습니다!")
+                            st.success(f"✅ 추가 완료: **{found_name}** ({found_code})")
                         else:
                             st.warning(f"⚠️ 이미 추가된 종목입니다: {found_name}")
                     else:
-                        st.error(f"❌ '{query}' 종목을 찾을 수 없습니다. 정확한 종목명이나 티커를 입력해주세요.")
+                        st.error(f"❌ '{query}' 종목을 찾을 수 없습니다. 정확한 명칭이나 코드를 입력해주세요.")
 
-    # --- 3. ETF & 주식 데이터 정의 (메가팩 유지) ---
+    # --- 3. ETF & 주식 데이터 정의 ---
     etf_data = [
-        # 테마 1: 시장 지수 코어
+        # (기존 데이터 유지)
         {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 200", "code": "069500", "price": 0, "cagr": 5.8, "holdings": "삼성전자, SK하이닉스, 현대차, 셀트리온 등 국내 우량 200개 기업"},
         {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국S&P500", "code": "360750", "price": 0, "cagr": 10.2, "holdings": "마이크로소프트, 애플, 엔비디아, 아마존 등 미국 대표 500개 기업"},
         {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "ACE 미국S&P500", "code": "360200", "price": 0, "cagr": 10.2, "holdings": "미국 대표 500개 기업 (환노출)"},
@@ -3729,7 +3771,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 인도Nifty50", "code": "453810", "price": 0, "cagr": 9.0, "holdings": "릴라이언스, HDFC은행, 인포시스 등 인도 핵심 우량주 50개"},
         {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 일본니케이225", "code": "241180", "price": 0, "cagr": 7.5, "holdings": "일본 도쿄증권거래소 대표 225개 기업"},
 
-        # 테마 2: 반도체 & 빅테크
         {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 0, "cagr": 14.1, "holdings": "엔비디아, AMD, 브로드컴, TSMC, ASML 등 글로벌 반도체 30개"},
         {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 0, "cagr": 15.2, "holdings": "엔비디아, TSMC, ASML, 삼성전자 집중 투자"},
         {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 0, "cagr": 13.8, "holdings": "애플, MS, 알파벳, 아마존, 메타 등 미국 빅테크 시총 상위 10개"},
@@ -3737,12 +3778,10 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER AI반도체핵심공정", "code": "472150", "price": 0, "cagr": 13.0, "holdings": "한미반도체, HPSP 등 국내 AI 반도체 소부장 핵심"},
         {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "KBSTAR 글로벌데이터센터리츠", "code": "381560", "price": 0, "cagr": 8.5, "holdings": "에퀴닉스 등 글로벌 데이터센터 인프라 및 리츠"},
 
-        # 테마 3: 고배당 & 월배당
         {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 0, "cagr": 8.4, "holdings": "홈디포, 텍사스인스트루먼트, 애브비, 쉐브론 등 미국 우량 배당성장주"},
         {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "SOL 미국배당다우존스", "code": "446720", "price": 0, "cagr": 8.3, "holdings": "TIGER 미국배당다우존스(SCHD)와 동일한 기초지수 추종 (월배당)"},
         {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 0, "cagr": 7.4, "holdings": "미국 배당주 투자 + 콜옵션 매도로 연 7% 추가 배당 수익 추구"},
 
-        # 테마 4: 미국 배당 & 인컴 ETF
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SCHD (미국배당다우존스)", "code": "SCHD", "price": 0, "cagr": 11.0, "holdings": "홈디포, 텍사스인스트루먼트, 애브비 등 10년 이상 배당성장 100대 기업"},
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPI (프리미엄 인컴)", "code": "JEPI", "price": 0, "cagr": 8.5, "holdings": "S&P500 저변동성 주식 + ELN(커버드콜)로 높은 월배당 지급"},
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPQ (나스닥 프리미엄)", "code": "JEPQ", "price": 0, "cagr": 9.5, "holdings": "나스닥100 우량 기술주 + ELN(커버드콜)로 성장과 월배당 동시 추구"},
@@ -3760,7 +3799,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "LQD (투자등급 회사채)", "code": "LQD", "price": 0, "cagr": 4.0, "holdings": "JPM, 골드만삭스, 애플 등이 발행한 우량 투자등급 회사채"},
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VNQ (미국 부동산 리츠)", "code": "VNQ", "price": 0, "cagr": 7.0, "holdings": "프로로지스, 아메리칸타워 등 미국 상업용 부동산 리츠"},
 
-        # 테마 5: 미국 지수 & 메가테크 ETF
         {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SPY (S&P 500)", "code": "SPY", "price": 0, "cagr": 10.0, "holdings": "미국 S&P 500 지수 추종 (세계 최대 ETF)"},
         {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "QQQ (나스닥 100)", "code": "QQQ", "price": 0, "cagr": 13.5, "holdings": "나스닥 100 지수 추종 (미국 빅테크 핵심)"},
         {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "DIA (다우존스 30)", "code": "DIA", "price": 0, "cagr": 9.0, "holdings": "다우존스 산업평균 30개 우량 기업 (월배당)"},
@@ -3768,7 +3806,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SOXX (필라델피아 반도체)", "code": "SOXX", "price": 0, "cagr": 14.5, "holdings": "필라델피아 반도체 지수 추종 (미국 반도체 중심)"},
         {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SRVR (데이터센터 리츠)", "code": "SRVR", "price": 0, "cagr": 9.5, "holdings": "글로벌 데이터센터 및 통신 인프라 관련 리츠"},
 
-        # 테마 6: 미국 우량 배당/성장주
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "AAPL (애플)", "code": "AAPL", "price": 0, "cagr": 15.0, "holdings": "단일 종목 (아이폰, 맥, 서비스 생태계)"},
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MSFT (마이크로소프트)", "code": "MSFT", "price": 0, "cagr": 18.0, "holdings": "단일 종목 (클라우드 Azure, Office 365, AI)"},
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JNJ (존슨앤존슨)", "code": "JNJ", "price": 0, "cagr": 8.0, "holdings": "단일 종목 (글로벌 헬스케어 및 제약 대장주)"},
@@ -3798,7 +3835,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TSLA (테슬라)", "code": "TSLA", "price": 0, "cagr": 20.0, "holdings": "단일 종목 (전기차, 자율주행, 휴머노이드 선두)"},
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "O (리얼티인컴)", "code": "O", "price": 0, "cagr": 7.5, "holdings": "단일 종목 (상업용 부동산 월배당 리츠)"},
 
-        # 테마 7: 사이버 보안 & 네트워크
         {"theme": "🔐 사이버 보안 & 네트워크", "name": "CIBR (글로벌 사이버 보안 ETF)", "code": "CIBR", "price": 0, "cagr": 12.0, "holdings": "사이버 보안 소프트웨어 및 네트워크 인프라 기업"},
         {"theme": "🔐 사이버 보안 & 네트워크", "name": "HACK (사이버 보안 전문)", "code": "HACK", "price": 0, "cagr": 11.5, "holdings": "하드웨어/소프트웨어 통합 사이버 보안 기업"},
         {"theme": "🔐 사이버 보안 & 네트워크", "name": "FTNT (포티넷)", "code": "FTNT", "price": 0, "cagr": 16.0, "holdings": "방화벽(FortiGate), SD-WAN, 네트워크 보안 글로벌 대장주"},
@@ -3807,7 +3843,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🔐 사이버 보안 & 네트워크", "name": "안랩", "code": "053800", "price": 0, "cagr": 7.0, "holdings": "국내 대표 정보보안 및 안티바이러스 기업"},
         {"theme": "🔐 사이버 보안 & 네트워크", "name": "지니언스", "code": "263860", "price": 0, "cagr": 8.5, "holdings": "국내 네트워크 접근 제어(NAC) 및 EDR 솔루션 선두"},
 
-        # 테마 8: 국채, 금, 대체자산
         {"theme": "🛡️ 국채, 금, 대체자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 0, "cagr": 4.1, "holdings": "미국 30년 초장기채 투자 + 커버드콜 프리미엄 (월배당)"},
         {"theme": "🛡️ 국채, 금, 대체자산", "name": "ACE KRX금현물", "code": "411060", "price": 0, "cagr": 5.5, "holdings": "국내 KRX 금시장의 금현물 가격 추종 (안전자산 헤지)"},
         {"theme": "🛡️ 국채, 금, 대체자산", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 0, "cagr": 4.5, "holdings": "만기 20년 이상 미국 장기채 (안전자산 헤지용)"},
@@ -3815,50 +3850,71 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🛡️ 국채, 금, 대체자산", "name": "IBIT (블랙록 비트코인 현물)", "code": "IBIT", "price": 0, "cagr": 30.0, "holdings": "블랙록이 운용하는 비트코인 현물 ETF (디지털 안전자산)"}
     ]
 
-    # 사용자가 검색기를 통해 찾아낸 '진짜 코드'를 바탕으로 맞춤 종목 병합
     for custom_item in st.session_state.custom_etfs:
         if not any(item['code'] == custom_item['code'] for item in etf_data):
             etf_data.append({
                 "theme": "🔎 내가 추가한 맞춤 종목", 
-                "name": custom_item['name'], # 이제 검색기가 찾아준 정확한 한글 이름 사용!
-                "code": custom_item['code'], # 이제 검색기가 찾아준 정확한 숫자/티커 코드 사용!
+                "name": custom_item['name'], 
+                "code": custom_item['code'], 
                 "price": 0, 
-                "cagr": 10.0, 
+                "cagr": 0, # 초기화, 연산 후 덮어씌움
                 "holdings": "사용자가 직접 검색하여 추가한 맞춤 관심 종목"
             })
 
-    # 상장 이후 실제 연평균 수익률(CAGR) 계산
+    # 👇 [핵심 업데이트 2] 한국 ETF/주식은 네이버에서, 미국은 야후에서 CAGR 100% 완벽 조회
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
+        us_codes = [c for c in codes if not c.isdigit()]
+        kr_codes = [c for c in codes if c.isdigit()]
+        
+        # 1. 미국 주식 (야후 파이낸스)
         try:
-            from yahooquery import Ticker as yq_Ticker
-            yq_codes = [c if not c.isdigit() else f"{c}.KS" for c in codes]
+            if us_codes:
+                from yahooquery import Ticker as yq_Ticker
+                yq = yq_Ticker(us_codes, asynchronous=True)
+                hist = yq.history(period="max", interval="1mo")
+                if isinstance(hist, pd.DataFrame) and not hist.empty:
+                    for symbol in hist.index.get_level_values('symbol').unique():
+                        try:
+                            df_sym = hist.xs(symbol, level='symbol').dropna(subset=['adjclose'])
+                            if len(df_sym) > 1:
+                                first_date = pd.to_datetime(df_sym.index[0])
+                                last_date = pd.to_datetime(df_sym.index[-1])
+                                first_price = float(df_sym['adjclose'].iloc[0])
+                                last_price = float(df_sym['adjclose'].iloc[-1])
+                                days = (last_date - first_date).days
+                                if days >= 365 and first_price > 0:
+                                    cagr = ((last_price / first_price) ** (365.25 / days) - 1) * 100
+                                    cagr_dict[symbol] = round(cagr, 2)
+                        except: pass
+        except: pass
+
+        # 2. 한국 주식 및 ETF (네이버 금융 차트 XML - 상장 후 수정주가 완벽 반영)
+        for c in kr_codes:
+            try:
+                url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                if res.status_code == 200:
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    items = soup.find_all('item')
+                    if len(items) > 12: # 최소 1년(12개월) 데이터 필요
+                        first_item = items[0].get('data').split('|')
+                        last_item = items[-1].get('data').split('|')
+                        
+                        first_date = pd.to_datetime(first_item[0])
+                        last_date = pd.to_datetime(last_item[0])
+                        first_price = float(first_item[4]) # 수정 종가
+                        last_price = float(last_item[4])
+                        
+                        days = (last_date - first_date).days
+                        if days >= 365 and first_price > 0:
+                            cagr = ((last_price / first_price) ** (365.25 / days) - 1) * 100
+                            cagr_dict[c] = round(cagr, 2)
+            except: pass
             
-            yq = yq_Ticker(yq_codes, asynchronous=True)
-            hist = yq.history(period="max", interval="1mo")
-            
-            if isinstance(hist, pd.DataFrame) and not hist.empty:
-                for symbol in hist.index.get_level_values('symbol').unique():
-                    try:
-                        df_sym = hist.xs(symbol, level='symbol').dropna(subset=['adjclose'])
-                        if len(df_sym) > 1:
-                            first_date = pd.to_datetime(df_sym.index[0])
-                            last_date = pd.to_datetime(df_sym.index[-1])
-                            first_price = float(df_sym['adjclose'].iloc[0])
-                            last_price = float(df_sym['adjclose'].iloc[-1])
-                            
-                            days = (last_date - first_date).days
-                            if days >= 365 and first_price > 0:
-                                years = days / 365.25
-                                cagr = ((last_price / first_price) ** (1 / years) - 1) * 100
-                                orig_code = symbol.replace('.KS', '')
-                                cagr_dict[orig_code] = round(cagr, 2)
-                    except: pass
-        except Exception: pass
         return cagr_dict
 
-    # 실시간 현재가 연동 로직
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
@@ -3867,7 +3923,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         
         try:
             from yahooquery import Ticker as yq_Ticker
-            
             if us_codes:
                 yq_us = yq_Ticker(us_codes)
                 us_data = yq_us.price
@@ -3899,7 +3954,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if close_price.isdigit() and int(close_price) > 0:
                         prices[c] = int(close_price)
                 except: pass
-                
         return prices
 
     with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다..."):
