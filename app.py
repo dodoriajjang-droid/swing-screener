@@ -86,6 +86,25 @@ if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shar
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
+@st.cache_data(ttl=86400)
+def get_krx_etf_list():
+    try:
+        return fdr.StockListing('ETF/KR')
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def get_us_etf_summary(us_etfs):
+    us_data = []
+    for ticker in us_etfs:
+        try:
+            df = yf.Ticker(ticker).history(period="5d")
+            if len(df) >= 2:
+                close = df['Close'].iloc[-1]
+                pct = ((close - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
+                us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{int(df['Volume'].iloc[-1]):,}"})
+        except Exception: pass
+    return pd.DataFrame(us_data)
 @st.cache_data(ttl=3600)
 def get_today_research_details():
     try:
