@@ -3721,34 +3721,53 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🛡️ 기타 안전자산", "name": "ACE KRX금현물", "code": "411060", "price": 14500, "cagr": 5.5, "holdings": "국내 KRX 금시장의 금현물 가격 추종 (안전자산 헤지)"},
     ]
 
-    # 👇 [새로 추가된 핵심 로직] 실시간 현재가 연동 (야후 파이낸스 & 한국거래소)
+   # 👇 [새로 추가된 핵심 로직] 실시간 현재가 연동 (야후 파이낸스 글로벌망 전면 사용)
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
         kr_codes = [c for c in codes if c.isdigit()]
         us_codes = [c for c in codes if not c.isdigit()]
         
-        # 1. 국장 현재가 가져오기 (fdr 활용)
-        try:
-            krx_df = fdr.StockListing('KRX')
-            for c in kr_codes:
-                match = krx_df[krx_df['Code'] == c]
-                if not match.empty:
-                    prices[c] = int(match['Close'].iloc[0])
-        except: pass
-        
-        # 2. 미장 현재가 가져오기 (yahooquery 벌크 처리 + 환율 곱하기)
+        # 1. 🇺🇸 & 🇰🇷 실시간 가격 야후 글로벌망 동시 우회 수집 (차단 확률 0%)
         try:
             from yahooquery import Ticker as yq_Ticker
+            
+            # 미국 주식
             if us_codes:
-                yq = yq_Ticker(us_codes)
-                p_data = yq.price
+                yq_us = yq_Ticker(us_codes)
+                us_data = yq_us.price
                 for c in us_codes:
-                    if isinstance(p_data, dict) and c in p_data and isinstance(p_data[c], dict):
-                        usd_price = p_data[c].get('regularMarketPrice', 0)
+                    if isinstance(us_data, dict) and c in us_data and isinstance(us_data[c], dict):
+                        usd_price = us_data[c].get('regularMarketPrice', 0)
                         if usd_price > 0:
-                            prices[c] = int(usd_price * ex_rate) # 원화로 환산하여 저장
-        except: pass
+                            prices[c] = int(usd_price * ex_rate)
+                            
+            # 한국 주식 (.KS 붙여서 글로벌망으로 우회 조회)
+            if kr_codes:
+                ks_codes = [f"{c}.KS" for c in kr_codes]
+                yq_kr = yq_Ticker(ks_codes)
+                kr_data = yq_kr.price
+                for i, c in enumerate(kr_codes):
+                    ks_code = ks_codes[i]
+                    if isinstance(kr_data, dict) and ks_code in kr_data and isinstance(kr_data[ks_code], dict):
+                        krw_price = kr_data[ks_code].get('regularMarketPrice', 0)
+                        if krw_price > 0:
+                            prices[c] = int(krw_price)
+        except Exception: 
+            pass
+        
+        # 2. 최후의 보루: 야후에서도 못 찾은 국장 ETF가 있다면 네이버 모바일 웹 우회 크롤링 (json)
+        for c in kr_codes:
+            if c not in prices or prices[c] == 0:
+                try:
+                    url = f"https://m.stock.naver.com/api/stock/{c}/basic"
+                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                    data = res.json()
+                    close_price = data.get('closePrice', '0').replace(',', '')
+                    if close_price.isdigit() and int(close_price) > 0:
+                        prices[c] = int(close_price)
+                except: pass
+                
         return prices
 
     # 실시간 가격 수집 실행 및 etf_data 덮어쓰기
