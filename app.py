@@ -3876,11 +3876,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "418650", "name": "HANARO 글로벌수소&차세대연료전지"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600", "name": "KODEX K-신재생에너지액티브"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "XLU", "name": "Utilities Select Sector SPDR"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"}
-
-        # 리스트의 11번째 테마로 '미국 고배당 TOP 30'을 추가했습니다.
-    raw_etf_data = [
-        # ... (기존 1~10번 항목 유지) ...
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"},
 
         # 🇺🇸 11. 미국 고배당 & 월배당 TOP 30 (신규 추가)
         {"theme": "🇺🇸 11. 미국 고배당 TOP 30", "code": "SCHD", "name": "Schwab US Dividend Equity ETF"}, # 배당성장의 교과서
