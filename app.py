@@ -1005,7 +1005,9 @@ def get_trading_value_kings(limit=50):
                     try:
                         res = requests.get(f"https://finance.naver.com/item/main.naver?code={code}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
                         soup = BeautifulSoup(res.text, 'html.parser')
-                        tag = soup.select_one('.trade_compare em')
+                        
+                        # 🛠️ [핵심 수정] 여기도 동일하게 a 태그만 정확하게 타겟팅합니다.
+                        tag = soup.select_one('a[href*="/sise/sise_group_detail.naver"]')
                         return code, tag.text.strip() if tag else '기타'
                     except: return code, '기타'
                 
@@ -1593,7 +1595,9 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
                 url = f"https://finance.naver.com/item/main.naver?code={ticker_code}"
                 res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
                 soup = BeautifulSoup(res.text, 'html.parser')
-                sec_tag = soup.select_one('.trade_compare em')
+                
+                # 🛠️ [핵심 수정] 재무정보가 딸려오지 않게, 업종 전용 링크 태그(a)만 핀포인트로 타겟팅합니다.
+                sec_tag = soup.select_one('a[href*="/sise/sise_group_detail.naver"]')
                 if sec_tag:
                     sector_val = sec_tag.text.strip()
             except Exception:
