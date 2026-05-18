@@ -3283,39 +3283,6 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
             st.error("🚨 글로벌 금융 서버망 접속 제한으로 인해 ETF 데이터를 가져오지 못했습니다.")
         else:
             st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
-    
-    def apply_sort(df, opt):
-        if df.empty: return df
-        temp_df = df.copy()
-        if opt == "기본 (분류순)": return temp_df 
-        def ex_val(val_str):
-            try: return float(str(val_str).split('(')[0].replace(',', '').replace('원', '').replace('$', '').strip())
-            except: return 0.0
-        sort_col = '예상 배당금' if "배당금" in opt else '현재가'
-        temp_df['__sort'] = temp_df[sort_col].apply(lambda x: ex_val(x))
-        if opt == "현재가 낮은순": return pd.concat([temp_df[temp_df['__sort']>0].sort_values('__sort'), temp_df[temp_df['__sort']==0]]).drop(columns=['__sort'])
-        return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
-
-    t1, t2, t3 = st.tabs(["🇰🇷 국장", "🇺🇸 미장", "📈 ETF"])
-    
-    # 💡 흉측한 empty 글씨 대신 제대로 된 에러 메시지 렌더링
-    with t1: 
-        if div_dfs["KRX"].empty:
-            st.error("🚨 네이버 금융 서버에서 현재 IP의 크롤링을 일시적으로 차단하여 데이터를 가져오지 못했습니다.")
-        else:
-            st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
-            
-    with t2: 
-        if div_dfs["US"].empty:
-            st.error("🚨 야후 파이낸스 서버에서 현재 IP의 크롤링을 일시적으로 차단하여 데이터를 가져오지 못했습니다.")
-        else:
-            st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
-            
-    with t3: 
-        if div_dfs["ETF"].empty:
-            st.error("🚨 야후 파이낸스 서버에서 현재 IP의 크롤링을 일시적으로 차단하여 데이터를 가져오지 못했습니다.")
-        else:
-            st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
 
 elif selected_menu == "🎯 증권사 목표가 컨센서스":
     st.markdown("## 🎯 증권사 목표가 컨센서스 대시보드")
