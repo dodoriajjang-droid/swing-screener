@@ -2135,36 +2135,46 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                     entry_price = int(row["진입단가"])
                     quantity = int(row["보유수량"])
                     
-                    is_us = re.search('[a-zA-Z]', pos_name) is not None
-                    search_ticker = pos_name
+                    search_ticker = None
                     pos_name_kr = pos_name
-
-                    if is_us:
-                        us_results = search_us_ticker(pos_name)
-                        if us_results:
-                            search_ticker = us_results[0].split(" ")[0]
-                            pos_name_kr = us_results[0].split(" (")[1].split(" /")[0]
-                        else:
-                            # 💡 [핵심 버그 수정] 검색 API 차단 시 버리지 않고 사용자가 입력한 티커를 그대로 사용!
-                            search_ticker = pos_name
-                            pos_name_kr = pos_name
+                    is_us = False
+                    
+                    # 💡 [핵심 로직 수정] 영어 포함 여부가 아니라, '한국 주식 DB(KRX)'에 있는지 먼저 확인!
+                    krx_df = get_krx_stocks()
+                    # 1. 한국 종목 중에 정확히 일치하는 이름이 있는지 먼저 확인 (대소문자 무시)
+                    exact_match = krx_df[krx_df['Name'].str.upper() == pos_name.upper()]
+                    
+                    if not exact_match.empty:
+                        is_us = False
+                        search_ticker = exact_match['Code'].iloc[0]
+                        pos_name_kr = exact_match['Name'].iloc[0]
                     else:
-                        krx_df = get_krx_stocks()
-                        match = krx_df[krx_df['Name'].str.contains(pos_name)]
-                        if not match.empty:
-                            search_ticker = match['Code'].iloc[0]
-                            pos_name_kr = match['Name'].iloc[0]
+                        # 2. 정확히 일치하는 게 없으면, 입력한 단어를 포함하는 한국 종목이 있는지 2차 확인
+                        contains_match = krx_df[krx_df['Name'].str.contains(pos_name, case=False, na=False)]
+                        if not contains_match.empty:
+                            is_us = False
+                            search_ticker = contains_match['Code'].iloc[0]
+                            pos_name_kr = contains_match['Name'].iloc[0]
                         else:
-                            search_ticker = None
+                            # 3. 한국 주식 DB에 아예 없으면 그제서야 미국 주식으로 간주!
+                            is_us = True
+                            us_results = search_us_ticker(pos_name)
+                            if us_results:
+                                search_ticker = us_results[0].split(" ")[0]
+                                pos_name_kr = us_results[0].split(" (")[1].split(" /")[0]
+                            else:
+                                search_ticker = pos_name
+                                pos_name_kr = pos_name
 
                     if search_ticker:
-                        time.sleep(0.2) # 💡 API 연속 호출 차단 방어 (0.2초 딜레이)
+                        time.sleep(0.2) 
                         res = analyze_technical_pattern(pos_name_kr, search_ticker)
                         if res:
                             current_price = res['현재가']
                             invested = entry_price * quantity
                             current_val = current_price * quantity
                             
+                            # 💡 환율 곱셈 로직 정상화 (미국장에만 1350원 곱하기)
                             if is_us:
                                 invested_krw = invested * ex_rate
                                 current_val_krw = current_val * ex_rate
