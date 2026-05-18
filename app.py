@@ -3652,7 +3652,7 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
 
 elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     st.markdown("## 👴 노후 준비 핵심 ETF 테마별 통합 시뮬레이터")
-    st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
+    st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 은퇴 후 현금흐름을 직접 설계합니다.")
 
     # --- 1. 절세 계좌 자동 배분 계산기 ---
     st.markdown("### 🎯 1. 월 투자금액별 절세 계좌 배분 최적화 가이드")
@@ -3683,44 +3683,27 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # 👇 [대표님 아이디어 적용!] 네이버 금융 실시간 API 직접 호출 엔진 (0원 절대 불가)
+    # 👇 한국거래소 통합 원장 다운로드
     @st.cache_data(ttl=3600)
-    def get_naver_etf_and_stocks():
-        res_dfs = []
-        
-        # 1. 네이버 공식 ETF API (모든 한국 ETF의 이름과 '현재가'를 0.1초만에 가져옴)
+    def get_all_kr_assets():
         try:
-            url = "https://finance.naver.com/api/sise/etfItemList.nhn"
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                etf_data = res.json()
-                etf_list = etf_data.get('result', {}).get('etfItemList', [])
-                if etf_list:
-                    df_etf = pd.DataFrame(etf_list)
-                    df_etf = df_etf[['itemcode', 'itemname', 'nowVal']].rename(
-                        columns={'itemcode': 'Code', 'itemname': 'Name', 'nowVal': 'Price'}
-                    )
-                    res_dfs.append(df_etf)
-        except Exception: pass
-        
-        # 2. 한국 일반 주식(삼성전자, 현대차 등) 보완용 FDR 데이터
-        try:
-            df_stocks = fdr.StockListing('KRX')
-            if not df_stocks.empty:
-                if 'Close' in df_stocks.columns:
-                    df_s = df_stocks[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'})
-                else:
-                    df_s = df_stocks[['Code', 'Name']].assign(Price=0)
-                res_dfs.append(df_s)
-        except Exception: pass
-        
-        if res_dfs:
-            df_final = pd.concat(res_dfs, ignore_index=True)
-            df_final['Code'] = df_final['Code'].astype(str).str.zfill(6)
-            df_final['Price'] = pd.to_numeric(df_final['Price'], errors='coerce').fillna(0)
-            return df_final.sort_values('Price', ascending=False).drop_duplicates(subset=['Code']).reset_index(drop=True)
-            
-        return pd.DataFrame(columns=['Code', 'Name', 'Price'])
+            stocks_df = fdr.StockListing('KRX')
+            etfs_df = fdr.StockListing('ETF/KR')
+            res_dfs = []
+            if not stocks_df.empty:
+                s = stocks_df[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'}) if 'Close' in stocks_df.columns else stocks_df[['Code', 'Name']].assign(Price=0)
+                res_dfs.append(s)
+            if not etfs_df.empty:
+                if 'Symbol' in etfs_df.columns: etfs_df = etfs_df.rename(columns={'Symbol': 'Code'})
+                e = etfs_df[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'}) if 'Close' in etfs_df.columns else (etfs_df[['Code', 'Name', 'Price']] if 'Price' in etfs_df.columns else etfs_df[['Code', 'Name']].assign(Price=0))
+                res_dfs.append(e)
+            if res_dfs:
+                df = pd.concat(res_dfs, ignore_index=True)
+                df['Code'] = df['Code'].astype(str).str.zfill(6)
+                df['Price'] = pd.to_numeric(df['Price'], errors='coerce').fillna(0)
+                return df.sort_values('Price', ascending=False).drop_duplicates(subset=['Code']).reset_index(drop=True)
+        except:
+            return pd.DataFrame()
 
     # --- 2. 스마트 맞춤 종목 다중 검색 ---
     if 'custom_etfs' not in st.session_state or (len(st.session_state.custom_etfs) > 0 and isinstance(st.session_state.custom_etfs[0], str)):
@@ -3729,15 +3712,15 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
     st.markdown("### 🔎 2. 맞춤형 종목 검색 및 추가")
     with st.container(border=True):
-        st.write("찾으시는 운용사(예: 미래에셋, TIGER)나 키워드를 검색하시면 하단에서 선택하여 일괄 추가할 수 있습니다.")
+        st.write("찾으시는 운용사(예: 미래에셋, TIGER)나 종목명, 키워드를 검색하시면 하단에서 선택하여 일괄 추가할 수 있습니다.")
         col_input, col_search = st.columns([4, 1])
-        search_input = col_input.text_input("종목명 또는 키워드 입력", placeholder="예: 반도체, 미래에셋, SCHD", label_visibility="collapsed").strip()
+        search_input = col_input.text_input("종목명 또는 키워드 입력", placeholder="예: 반도체, 삼성전자, SCHD", label_visibility="collapsed").strip()
         if col_search.button("🔍 연관 종목 검색", use_container_width=True):
             if search_input: st.session_state.search_query = search_input
 
         if st.session_state.search_query:
             query = st.session_state.search_query
-            kr_assets_df = get_naver_etf_and_stocks() # 네이버 API 연동된 검색
+            kr_assets_df = get_all_kr_assets()
             search_options = []
             if not kr_assets_df.empty:
                 matches = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
@@ -3767,279 +3750,22 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다.")
 
-    # 👇 원본 200종목 리스트 (가짜 코드 0%)
-    raw_etf_data = [
-        # 🌐 1. 시장 대표 지수 코어 TOP 20
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "069500", "name": "KODEX 200"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "102110", "name": "TIGER 200"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "229200", "name": "KODEX 코스닥150"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "360750", "name": "TIGER 미국S&P500"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "360200", "name": "ACE 미국S&P500"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "379780", "name": "RISE 미국S&P500"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "379800", "name": "KODEX 미국S&P500TR"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "133690", "name": "TIGER 미국나스닥100"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "379810", "name": "KODEX 미국나스닥100TR"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "453810", "name": "KODEX 인도Nifty50"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "453870", "name": "TIGER 인도Nifty50"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "241180", "name": "TIGER 일본니케이225"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "448540", "name": "TIGER 미국S&P500(H)"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "448500", "name": "KODEX 미국나스닥100(H)"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "245710", "name": "ACE 베트남VN30(합성)"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "277630", "name": "KODEX MSCI Korea TR"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "143860", "name": "ACE 미국고배당S&P"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "285600", "name": "TIGER 대만TAIEX(합성)"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "105190", "name": "RISE 200"},
-        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "148020", "name": "KBSTAR 200"},
+    # 👇 [완전 삭제 완료] 기존 고정 200종목 리스트를 날리고 텅 빈 백지 리스트로 시작
+    etf_data = []
 
-        # 💻 2. 반도체 & 빅테크 핵심 성장 TOP 20
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381170", "name": "TIGER 미국필라델피아반도체나스닥"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "441680", "name": "ACE 글로벌반도체TOP4 Plus SOLACTIVE"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381180", "name": "TIGER 미국테크TOP10 INDXX"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "465480", "name": "ACE 미국빅테크TOP7 Plus"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "480460", "name": "KODEX 미국AI테크TOP10"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "091160", "name": "KODEX 반도체"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "091230", "name": "TIGER 반도체"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455850", "name": "SOL 반도체소부장Fn"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455550", "name": "KODEX 반도체소부장액티브"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "465690", "name": "ACE AI반도체포커스"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "305720", "name": "KODEX 2차전지산업"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "305540", "name": "TIGER 2차전지테마"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "462010", "name": "TIGER 2차전지소재Fn"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "464300", "name": "KODEX 2차전지핵심소재10Fn"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "314250", "name": "KODEX 미국FANG플러스(H)"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "462040", "name": "TIGER 글로벌AI액티브"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "455860", "name": "SOL 2차전지소부장Fn"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "466920", "name": "TIGER 일본반도체FACTSET"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381560", "name": "KBSTAR 글로벌데이터센터리츠"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", "code": "381190", "name": "TIGER 차이나반도체FACTSET"},
-
-        # 🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "484320", "name": "KODEX 미국AI전력핵심인프라"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "461200", "name": "ACE 글로벌AI액티브"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "478100", "name": "RISE AI로봇인프라"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412510", "name": "TIGER 글로벌혁신성장"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "107380", "name": "KODEX 소프트웨어"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489200", "name": "KODEX 미국AI소프트웨어"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "488100", "name": "RISE 글로벌AI"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "492200", "name": "TIGER 미국AI빅테크위클리"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "481500", "name": "KODEX 미국AI반도체핵심장비"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "441220", "name": "TIGER 글로벌로봇"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "279310", "name": "KODEX 글로벌4차산업로보틱스(합성)"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "157490", "name": "TIGER 소프트웨어"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489400", "name": "KODEX 미국핵심AI테크액티브"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "447770", "name": "KODEX K-로봇액티브"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412110", "name": "ACE 글로벌메타버스액티브"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "469110", "name": "ACE 로봇핵심장비TOP4플러스"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "472110", "name": "SOL 글로벌사이버보안인컴"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "463120", "name": "TIMEFOLIO 글로벌AI액티브"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "476820", "name": "KODEX 국산AI노드"},
-
-        # 🚀 4. 방산 & 우주항공 미래 테크 TOP 20
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "417610", "name": "PLUS K방산"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "449920", "name": "ARIRANG K-방산Fn"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "432200", "name": "TIGER 우주항공iSelect"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "492100", "name": "TIGER 미국우주테크"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "490500", "name": "1Q 미국우주항공테크"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "497100", "name": "SOL 글로벌방산인프라"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "449450", "name": "KODEX K-방산"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "482200", "name": "TIGER 글로벌우주항공액티브"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "433110", "name": "KODEX 미국우주항공Fn"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "471200", "name": "ACE 킹덤방산우주"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "421550", "name": "HANARO 글로벌우주항공"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "493200", "name": "PLUS 은채권혼합"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "452110", "name": "RISE 글로벌수소&우주"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "451220", "name": "KODEX K-방산제조"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "462150", "name": "TIGER 방산부품TOP5"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "469900", "name": "ACE 미국방산TOP10"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "471900", "name": "SOL 우주항공핵심소재"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "475210", "name": "KODEX 글로벌방산&시큐리티"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "476500", "name": "TIGER 국방우주핵심"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크 TOP 20", "code": "482110", "name": "PLUS 글로벌핵심방산"},
-
-        # 🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "287330", "name": "RISE 금융지주"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "091170", "name": "KODEX 은행"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "455100", "name": "TIGER 금융지주고배당"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491100", "name": "KODEX 코리아밸류업"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "492500", "name": "RISE 현대차그룹밸류업모멘텀"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "466940", "name": "TIGER 은행고배당플러스TOP10"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "466810", "name": "ACE 주주환원가치주액티브"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "140710", "name": "KODEX 보험"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "157500", "name": "TIGER 증권"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "354350", "name": "RISE 대형고배당10TR"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "276970", "name": "KODEX 고배당"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "210780", "name": "TIGER 코스피고배당"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "471550", "name": "ACE 주주환원대형주"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "476220", "name": "SOL 금융지주플러스고배당"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "478550", "name": "HANARO 주주가치밸류업"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491150", "name": "KODEX 밸류업핵심지수"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491250", "name": "TIGER 밸류업가치성장"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "492150", "name": "ACE 밸류업포커스액티브"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "493150", "name": "PLUS 코리아밸류업성장"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "491200", "name": "RISE 현대차고정피지컬AI"},
-
-        # 💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "480350", "name": "KODEX 미국배당다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "458730", "name": "TIGER 미국배당다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "466760", "name": "ACE 미국배당다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "446720", "name": "SOL 미국배당다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "091165", "name": "KODEX 고배당 지수"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461580", "name": "TIGER 미국배당+7%프리미엄다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "475920", "name": "TIGER 미국나스닥100+15%프리미엄다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "481220", "name": "KODEX 미국배당+10%프리미엄다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "446820", "name": "RISE 한국고배당액티브"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "211560", "name": "TIGER 배당성장"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461100", "name": "SOL 미국배당+10%프리미엄"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "451200", "name": "ACE 미국배당성장액티브"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "462100", "name": "RISE 배당킹액티브"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "411900", "name": "KODEX ESG고배당"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "421100", "name": "TIGER 고배당커버드콜"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "461250", "name": "KBSTAR 미국S&P500배당킹"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "475110", "name": "WOORI 미국배당다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "452660", "name": "HANARO 글로벌고배당"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "161510", "name": "ARIRANG 고배당주"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", "code": "458760", "name": "TIGER 은행고배당플러스"},
-
-        # 🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "273130", "name": "KODEX 종합채권(AA-이상)액티브"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "423160", "name": "KODEX KOFR금리액티브(합성)"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "458250", "name": "TIGER 미국30년국채프리미엄액티브(H)"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "454480", "name": "ACE 미국30년국채액티브(H)"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "467320", "name": "ACE 만기매칭형회사채"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "441320", "name": "RISE 중기국고채액티브"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "485610", "name": "RISE 미국S&P500배당혼합20"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "411060", "name": "ACE KRX금현물"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "329650", "name": "TIGER 미국달러단기채권"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "153130", "name": "KODEX 단기채권"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "157450", "name": "TIGER 단기통안채"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "132030", "name": "KODEX 골드선물(H)"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "476100", "name": "TIGER 미국채30년커버드콜액티브"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "432100", "name": "KODEX 국고채30년액티브"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "451100", "name": "ACE 미국채10년리펀드"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "445200", "name": "RISE 단기사채액티브"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "458500", "name": "TIGER CD금리투자액티브"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "261200", "name": "KODEX 미국달러선물"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "465900", "name": "ACE 만기매칭26회사채"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20", "code": "138900", "name": "TIGER 구리선물(H)"},
-
-        # 🌍 8. 해외 직상장 글로벌 메이저 TOP 20
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SPY", "name": "SPDR S&P 500"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VOO", "name": "Vanguard S&P 500"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "QQQ", "name": "Invesco QQQ"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SCHD", "name": "Schwab US Dividend"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VTI", "name": "Vanguard Total Stock"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "TLT", "name": "iShares 20+Y Treasury"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPI", "name": "JPMorgan Equity Premium"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VT", "name": "Vanguard Total World"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "VNQ", "name": "Vanguard Real Estate"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SOXX", "name": "iShares Semiconductor"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "SMH", "name": "VanEck Semiconductor"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "DIA", "name": "SPDR Dow Jones Industrial"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "IWM", "name": "iShares Russell 2000"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "MAGS", "name": "Roundhill Magnificent Seven"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "FNGS", "name": "MicroSectors FANG+"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLK", "name": "Technology Select Sector"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLV", "name": "Health Care Select Sector"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLE", "name": "Energy Select Sector"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "XLF", "name": "Financial Select Sector"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium"},
-
-        # 🚢 9. 조선 & 해운 슈퍼사이클 TOP 20
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "091180", "name": "KODEX 조선"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "380960", "name": "HANARO Fn조선해운"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "466960", "name": "SOL 조선TOP3플러스"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "485520", "name": "KODEX K-조선배당플러스"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "009540", "name": "HD한국조선해양"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "010140", "name": "삼성중공업"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "042660", "name": "한화오션"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "329180", "name": "HD현대중공업"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "033280", "name": "HD현대미포"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011200", "name": "HMM"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "028670", "name": "팬오션"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "037220", "name": "KSS해운"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "013120", "name": "동성화인텍"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "082740", "name": "한화엔진"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "014620", "name": "성광벤드"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "075580", "name": "세진중공업"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "011390", "name": "한국카본"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "023160", "name": "태광"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BOAT", "name": "SonicShares Global Shipping ETF"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20", "code": "BDRY", "name": "Breakwave Dry Bulk Shipping ETF"},
-
-        # ⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "226490", "name": "KODEX 에너지화학"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "117460", "name": "TIGER 에너지화학"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "015760", "name": "한국전력"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "051600", "name": "한전KPS"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "052690", "name": "한전기술"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "034020", "name": "두산에너빌리티"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "267260", "name": "HD현대일렉트릭"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "298040", "name": "효성중공업"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "010120", "name": "LS ELECTRIC"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "006260", "name": "LS"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "001440", "name": "대한전선"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103590", "name": "일진전기"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "103140", "name": "풍산"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "004020", "name": "현대제철"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "XLU", "name": "Utilities Select Sector SPDR"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "ICLN", "name": "iShares Global Clean Energy"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "GRID", "name": "First Trust Clean Edge Smart Grid"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "VDE", "name": "Vanguard Energy ETF"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "URA", "name": "Global X Uranium ETF"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "NLR", "name": "VanEck Uranium+Nuclear Energy ETF"}
-    ]
-
-    # 👇 네이버 금융 API 대조로 종목명 최신 100% 동기화
-    @st.cache_data(ttl=86400)
-    def update_official_names(items):
-        try:
-            krx_df = get_all_kr_assets()
-            krx_name_map = dict(zip(krx_df['Code'], krx_df['Name'])) if not krx_df.empty else {}
-            
-            us_tickers = [it['code'] for it in items if not (len(str(it['code'])) == 6 and any(char.isdigit() for char in str(it['code'])))]
-            us_name_map = {}
-            import yfinance as yf
-            import concurrent.futures
-            def get_us_name(ticker):
-                try:
-                    info = yf.Ticker(ticker).info
-                    return ticker, info.get('longName', info.get('shortName', ticker))
-                except: return ticker, ticker
-            
-            if us_tickers:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                    for code, name in executor.map(get_us_name, us_tickers): us_name_map[code] = name
-            
-            updated_items = []
-            for it in items:
-                new_it = it.copy()
-                code = str(it['code']).zfill(6) if it['code'].isdigit() else str(it['code'])
-                is_kr = len(code) == 6 and any(char.isdigit() for _ in code)
-                if is_kr and code in krx_name_map: new_it['name'] = krx_name_map[code]
-                elif not is_kr and code in us_name_map and us_name_map[code] != code: new_it['name'] = us_name_map[code]
-                new_it['code'] = code
-                updated_items.append(new_it)
-            return updated_items
-        except: return items 
-
-    with st.spinner("200개 신규 종목 리스트를 공식 명칭으로 100% 동기화 중입니다..."):
-        etf_data = update_official_names(raw_etf_data)
-
-    for item in etf_data:
-        item["price"] = 0
-        item["cagr"] = "데이터없음(1년미만)"
-        item["list_date"] = "데이터없음"
-        item["holdings"] = "해당 테마의 국내외 주요 우량 편입 종목"
-
+    # 사용자가 직접 검색해서 담은 종목만 리스트에 추가됨
     for custom_item in st.session_state.custom_etfs:
-        if not any(item['code'] == custom_item['code'] for item in etf_data):
-            etf_data.append({
-                "theme": "🔎 내가 추가한 맞춤 종목", "name": custom_item['name'], "code": custom_item['code'], 
-                "price": 0, "cagr": "데이터없음(1년미만)", "list_date": "데이터없음", "holdings": custom_item.get('holdings', "사용자가 직접 검색하여 추가한 맞춤 관심 종목")
-            })
+        etf_data.append({
+            "theme": "🔎 내가 추가한 맞춤 종목", 
+            "name": custom_item['name'], 
+            "code": custom_item['code'], 
+            "price": 0, 
+            "cagr": "데이터없음(1년미만)", 
+            "list_date": "데이터없음", 
+            "holdings": custom_item.get('holdings', "사용자가 직접 검색하여 추가한 맞춤 관심 종목")
+        })
 
-    # 👇 0원 원천 차단 3중 병렬 엔진 (네이버 API + 야후 파이낸스)
+    # 👇 절대 0원이 나오지 않게 하는 3중 방어 추적 엔진
     import yfinance as yf
     import datetime
     import concurrent.futures
@@ -4082,6 +3808,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         if days >= 365 and p_start > 0:
                             return c, {'cagr': round(((p_end / p_start) ** (365.25 / days) - 1) * 100, 2), 'date': first_date.strftime('%Y-%m-%d')}
             except: pass
+            
             try:
                 df = fdr.DataReader(c)
                 if len(df) > 250:
@@ -4106,11 +3833,9 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         us_codes = [c for c in codes if c not in kr_codes]
         
         try:
-            url = "https://finance.naver.com/api/sise/etfItemList.nhn"
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                etf_list = res.json().get('result', {}).get('etfItemList', [])
-                bulk_price_dict = {str(e['itemcode']).zfill(6): e['nowVal'] for e in etf_list}
+            bulk_krx = get_all_kr_assets()
+            if not bulk_krx.empty and 'Price' in bulk_krx.columns:
+                bulk_price_dict = dict(zip(bulk_krx['Code'], bulk_krx['Price']))
                 for c in kr_codes:
                     if c in bulk_price_dict and bulk_price_dict[c] > 0: prices[c] = int(bulk_price_dict[c])
         except: pass
@@ -4143,7 +3868,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if price > 0: prices[code] = price
         return prices
 
-    with st.spinner("신규 200종목의 10년치 수익률과 실시간 가격을 가져오고 있습니다..."):
+    with st.spinner("사용자가 담은 종목의 실시간 가격과 10년 치 수익률을 가져오고 있습니다..."):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         
@@ -4161,19 +3886,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
     if 'retirement_cart' not in st.session_state: st.session_state.retirement_cart = {}
 
-    theme_order = [
-        "🌐 1. 시장 대표 지수 코어 TOP 20", 
-        "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", 
-        "🤖 3. AI·로봇 & 사이버보안 혁신 TOP 20",
-        "🚀 4. 방산 & 우주항공 미래 테크 TOP 20",
-        "🏦 5. 금융 지주 & 밸류업 모멘텀 TOP 20",
-        "💰 6. 고배당 & 월배당 인컴 밸류업 TOP 20", 
-        "🛡️ 7. 안전자산 채권 & 원자재 방어 TOP 20",
-        "🌍 8. 해외 직상장 글로벌 메이저 TOP 20",
-        "🚢 9. 조선 & 해운 슈퍼사이클 TOP 20",
-        "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20",
-        "🔎 내가 추가한 맞춤 종목"
-    ]
+    theme_order = ["🔎 내가 추가한 맞춤 종목"]
     
     for theme in theme_order:
         theme_stocks = [item for item in etf_data if item['theme'] == theme]
@@ -4181,21 +3894,20 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         unique_stocks = [s for s in theme_stocks if s['code'] not in seen and not seen.add(s['code'])]
 
         if unique_stocks:
-            with st.expander(f"{theme} 선택", expanded=(theme=="🌐 1. 시장 대표 지수 코어 TOP 20")):
+            with st.expander(f"{theme} 리스트", expanded=True):
                 for idx, stock in enumerate(unique_stocks):
                     cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
                     with cols[0]:
                         st.markdown(f"**{stock['name']}** ({stock['code']})")
                         st.caption(f"🔍 {stock.get('holdings', '')}")
-                        if theme == "🔎 내가 추가한 맞춤 종목" and "사용자가 직접 검색" in stock.get('holdings', ''):
-                            if st.button("🤖 AI 편입종목 검색", key=f"ai_{stock['code']}"):
-                                if not api_key_input: st.error("좌측 사이드바에 API 키를 입력해주세요.")
-                                else:
-                                    with st.spinner(f"{stock['name']} 분석 중..."):
-                                        ai_holdings = ask_gemini(f"'{stock['name']} ({stock['code']})' 주요 편입 종목 쉼표로 나열.", api_key_input)
-                                        for custom_item in st.session_state.custom_etfs:
-                                            if custom_item['code'] == stock['code']: custom_item['holdings'] = "💡 AI 분석: " + ai_holdings
-                                        st.rerun()
+                        if st.button("🤖 AI 편입종목 검색", key=f"ai_{stock['code']}"):
+                            if not api_key_input: st.error("좌측 사이드바에 API 키를 입력해주세요.")
+                            else:
+                                with st.spinner(f"{stock['name']} 분석 중..."):
+                                    ai_holdings = ask_gemini(f"'{stock['name']} ({stock['code']})' 주요 편입 종목 쉼표로 나열.", api_key_input)
+                                    for custom_item in st.session_state.custom_etfs:
+                                        if custom_item['code'] == stock['code']: custom_item['holdings'] = "💡 AI 분석: " + ai_holdings
+                                    st.rerun()
                         
                     cols[1].markdown(f"현재가:<br>{stock['price']:,}원", unsafe_allow_html=True)
                     cols[2].markdown(f"상장(기준)일:<br><span style='color:#328cc1; font-weight:bold;'>{stock.get('list_date', '데이터없음')}</span>", unsafe_allow_html=True)
@@ -4208,11 +3920,12 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if qty > 0: st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
                     elif stock['code'] in st.session_state.retirement_cart: del st.session_state.retirement_cart[stock['code']]
 
-                    if theme == "🔎 내가 추가한 맞춤 종목":
-                        if cols[5].button("🗑️ 삭제", key=f"del_{stock['code']}"):
-                            st.session_state.custom_etfs = [x for x in st.session_state.custom_etfs if x['code'] != stock['code']]
-                            if stock['code'] in st.session_state.retirement_cart: del st.session_state.retirement_cart[stock['code']]
-                            st.rerun()
+                    if cols[5].button("🗑️ 삭제", key=f"del_{stock['code']}"):
+                        st.session_state.custom_etfs = [x for x in st.session_state.custom_etfs if x['code'] != stock['code']]
+                        if stock['code'] in st.session_state.retirement_cart: del st.session_state.retirement_cart[stock['code']]
+                        st.rerun()
+        else:
+            st.info("상단에서 종목을 검색하여 나만의 시뮬레이터 리스트를 만들어보세요!")
 
     # --- 5. 시뮬레이션 대시보드 ---
     st.divider()
