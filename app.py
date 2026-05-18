@@ -884,37 +884,11 @@ def get_krx_stocks():
             df = df[['Name', 'Code', 'Sector']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
-    except Exception: pass
-
-    # 🚨 서버 IP 차단 시 방어용 하드코딩 예비 데이터 (국장 주도주 50선)
-    fallback_data = [
-        {"Name": "삼성전자", "Code": "005930", "Sector": "반도체"}, {"Name": "SK하이닉스", "Code": "000660", "Sector": "반도체"},
-        {"Name": "현대차", "Code": "005380", "Sector": "자동차"}, {"Name": "기아", "Code": "000270", "Sector": "자동차"},
-        {"Name": "에코프로비엠", "Code": "247540", "Sector": "2차전지"}, {"Name": "에코프로", "Code": "086520", "Sector": "2차전지"},
-        {"Name": "POSCO홀딩스", "Code": "005490", "Sector": "철강"}, {"Name": "한미반도체", "Code": "273640", "Sector": "반도체장비"},
-        {"Name": "셀트리온", "Code": "068270", "Sector": "바이오"}, {"Name": "알테오젠", "Code": "196170", "Sector": "바이오"},
-        {"Name": "삼성바이오로직스", "Code": "207940", "Sector": "바이오"}, {"Name": "LG에너지솔루션", "Code": "373220", "Sector": "2차전지"},
-        {"Name": "포스코퓨처엠", "Code": "003670", "Sector": "2차전지"}, {"Name": "NAVER", "Code": "035420", "Sector": "인터넷"},
-        {"Name": "카카오", "Code": "035720", "Sector": "인터넷"}, {"Name": "KB금융", "Code": "105560", "Sector": "금융"},
-        {"Name": "신한지주", "Code": "055550", "Sector": "금융"}, {"Name": "하나금융지주", "Code": "086790", "Sector": "금융"},
-        {"Name": "우리금융지주", "Code": "316140", "Sector": "금융"}, {"Name": "메리츠금융지주", "Code": "138040", "Sector": "금융"},
-        {"Name": "엔켐", "Code": "281740", "Sector": "화학"}, {"Name": "HD현대일렉트릭", "Code": "032820", "Sector": "전력설비"},
-        {"Name": "두산에너빌리티", "Code": "034020", "Sector": "기계"}, {"Name": "한화에어로스페이스", "Code": "012450", "Sector": "방산"},
-        {"Name": "현대로템", "Code": "064350", "Sector": "방산"}, {"Name": "LIG넥스원", "Code": "079550", "Sector": "방산"},
-        {"Name": "삼성SDI", "Code": "006400", "Sector": "2차전지"}, {"Name": "LG화학", "Code": "051910", "Sector": "화학"},
-        {"Name": "HD한국조선해양", "Code": "009540", "Sector": "조선"}, {"Name": "삼성물산", "Code": "028260", "Sector": "지주사"},
-        {"Name": "크래프톤", "Code": "259960", "Sector": "게임"}, {"Name": "엔씨소프트", "Code": "036570", "Sector": "게임"},
-        {"Name": "SK스퀘어", "Code": "402340", "Sector": "지주사"}, {"Name": "삼성전기", "Code": "016360", "Sector": "IT부품"},
-        {"Name": "LG전자", "Code": "066570", "Sector": "IT부품"}, {"Name": "현대모비스", "Code": "012330", "Sector": "자동차부품"},
-        {"Name": "고려아연", "Code": "010130", "Sector": "비철금속"}, {"Name": "기업은행", "Code": "024110", "Sector": "금융"},
-        {"Name": "KT&G", "Code": "033780", "Sector": "담배"}, {"Name": "SK이노베이션", "Code": "096770", "Sector": "정유"},
-        {"Name": "포스코인터내셔널", "Code": "047050", "Sector": "상사"}, {"Name": "한화오션", "Code": "042660", "Sector": "조선"},
-        {"Name": "한국전력", "Code": "015760", "Sector": "전력"}, {"Name": "HMM", "Code": "011200", "Sector": "해운"},
-        {"Name": "두산밥캣", "Code": "241560", "Sector": "기계"}, {"Name": "금호석유", "Code": "011780", "Sector": "화학"},
-        {"Name": "LG생활건강", "Code": "051900", "Sector": "화장품"}, {"Name": "유한양행", "Code": "000100", "Sector": "제약"},
-        {"Name": "한미약품", "Code": "128940", "Sector": "제약"}, {"Name": "현대건설", "Code": "000720", "Sector": "건설"}
-    ]
-    return pd.DataFrame(fallback_data)
+    except Exception: 
+        pass
+        
+    # 하드코딩 예비 데이터를 삭제하고, 에러 시 빈 데이터프레임 반환
+    return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
 def fetch_naver_volume(sosok, pages=1):
     df_list = []
