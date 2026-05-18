@@ -905,6 +905,31 @@ def fetch_naver_volume(sosok, pages=1):
     except Exception: pass
     if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
     return pd.DataFrame()
+    
+# 🇺🇸 미국 주식 티커 검색 및 자동 완성 함수 (Yahoo Finance API)
+@st.cache_data(ttl=86400)
+def search_us_ticker(query):
+    try:
+        # 야후 파이낸스의 공식 검색 API를 우회 호출합니다
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=1&newsCount=0"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        res = requests.get(url, headers=headers, timeout=5)
+        data = res.json()
+        
+        # 검색 결과가 존재할 경우 파싱 포맷에 맞춰 티커와 회사명을 반환
+        if 'quotes' in data and len(data['quotes']) > 0:
+            quote = data['quotes'][0]
+            symbol = quote.get('symbol', query).upper()
+            name = quote.get('shortname', query)
+            
+            # 하단 UI에서 split(" (")[1].split(" /")[0] 로직으로 파싱할 수 있도록 문자열 조립
+            return [f"{symbol} ({name} / {name})"]
+    except Exception:
+        pass
+    
+    # 서버 차단 등으로 검색에 실패하면 빈 리스트를 반환하여 입력한 텍스트를 그대로 사용하게 함
+    return []
+
 
 @st.cache_data(ttl=300)
 def get_trading_value_kings(limit=50):
