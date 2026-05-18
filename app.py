@@ -878,9 +878,28 @@ def get_us_top_gainers():
 @st.cache_data(ttl=86400)
 def get_krx_stocks():
     try:
+        # 1. 한국 주식 기본 데이터 가져오기
         df = fdr.StockListing('KRX')
+        
+        # 2. 상세 데이터(KRX-DESC)에서 'Sector(업종)' 정보 추가로 가져와서 합치기
+        try:
+            df_desc = fdr.StockListing('KRX-DESC')
+            if not df_desc.empty and 'Sector' in df_desc.columns:
+                df['Code'] = df['Code'].astype(str).str.zfill(6)
+                df_desc['Code'] = df_desc['Code'].astype(str).str.zfill(6)
+                
+                # 기존 df에 Sector가 비어있거나 이상하게 들어있을 수 있으므로 덮어쓰기 위해 드롭
+                if 'Sector' in df.columns:
+                    df = df.drop(columns=['Sector'])
+                    
+                # 코드를 기준으로 병합하여 진짜 업종 데이터 장착
+                df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
+        except Exception:
+            pass
+
         if not df.empty:
             if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
+            df['Sector'] = df['Sector'].fillna('기타/분류불가') # 비어있는 업종은 분류불가로 채움
             df = df[['Name', 'Code', 'Sector']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
