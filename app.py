@@ -3654,24 +3654,72 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # --- 2. ETF 데이터 정의 ---
+    # --- 2. ETF 데이터 정의 (기존 코드 내 모든 종목 포함) ---
     etf_data = [
-        # 테마 1: 지수 코어
-        {"theme": "🌐 시장 지수 코어", "name": "KODEX 200", "code": "069500", "price": 36000, "cagr": 5.8},
-        {"theme": "🌐 시장 지수 코어", "name": "TIGER 미국S&P500", "code": "360750", "price": 18500, "cagr": 10.2},
-        {"theme": "🌐 시장 지수 코어", "name": "TIGER 미국나스닥100", "code": "133690", "price": 115000, "cagr": 13.5},
-        {"theme": "🌐 시장 지수 코어", "name": "KODEX 인도Nifty50", "code": "453810", "price": 13000, "cagr": 9.0},
-        # 테마 2: 반도체/테크
-        {"theme": "💻 반도체 & 빅테크", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 18000, "cagr": 14.1},
-        {"theme": "💻 반도체 & 빅테크", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 15500, "cagr": 15.2},
-        {"theme": "💻 반도체 & 빅테크", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 19000, "cagr": 13.8},
-        # 테마 3: 배당/인컴
-        {"theme": "💰 고배당 & 월배당", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 11500, "cagr": 8.4},
-        {"theme": "💰 고배당 & 월배당", "name": "SOL 미국배당다우존스", "code": "446720", "price": 10500, "cagr": 8.3},
-        {"theme": "💰 고배당 & 월배당", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 10200, "cagr": 7.4},
-        # 테마 4: 안전자산
-        {"theme": "🛡️ 채권 & 안전자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 9800, "cagr": 4.1},
-        {"theme": "🛡️ 채권 & 안전자산", "name": "ACE KRX금현물", "code": "411060", "price": 14500, "cagr": 5.5},
+        # 테마 1: 지수 코어 (국내상장)
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 200", "code": "069500", "price": 36000, "cagr": 5.8},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국S&P500", "code": "360750", "price": 18500, "cagr": 10.2},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국나스닥100", "code": "133690", "price": 115000, "cagr": 13.5},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 인도Nifty50", "code": "453810", "price": 13000, "cagr": 9.0},
+        
+        # 테마 2: 반도체/테크 (국내상장)
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 18000, "cagr": 14.1},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 15500, "cagr": 15.2},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 19000, "cagr": 13.8},
+        
+        # 테마 3: 배당/인컴 (국내상장)
+        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 11500, "cagr": 8.4},
+        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "SOL 미국배당다우존스", "code": "446720", "price": 10500, "cagr": 8.3},
+        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 10200, "cagr": 7.4},
+        
+        # 테마 4: 미국 배당 & 인컴 ETF (16종)
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SCHD (미국배당다우존스)", "code": "SCHD", "price": 105000, "cagr": 11.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPI (프리미엄 인컴)", "code": "JEPI", "price": 75000, "cagr": 8.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPQ (나스닥 프리미엄)", "code": "JEPQ", "price": 72000, "cagr": 9.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VYM (고배당수익)", "code": "VYM", "price": 160000, "cagr": 8.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VIG (배당성장)", "code": "VIG", "price": 230000, "cagr": 10.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SPYD (S&P500 고배당)", "code": "SPYD", "price": 55000, "cagr": 7.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DGRO (핵심 배당성장)", "code": "DGRO", "price": 80000, "cagr": 10.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "NOBL (배당귀족)", "code": "NOBL", "price": 135000, "cagr": 9.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DVY (선별 고배당)", "code": "DVY", "price": 160000, "cagr": 8.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SDY (SPDR 배당)", "code": "SDY", "price": 180000, "cagr": 9.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HDV (핵심 고배당)", "code": "HDV", "price": 150000, "cagr": 7.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "PFF (미국 우선주)", "code": "PFF", "price": 42000, "cagr": 5.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 120000, "cagr": 4.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HYG (하이일드 회사채)", "code": "HYG", "price": 105000, "cagr": 5.5},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "LQD (투자등급 회사채)", "code": "LQD", "price": 145000, "cagr": 4.0},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VNQ (미국 부동산 리츠)", "code": "VNQ", "price": 110000, "cagr": 7.0},
+
+        # 테마 5: 미국 우량 배당/성장주 (25종)
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "AAPL (애플)", "code": "AAPL", "price": 230000, "cagr": 15.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MSFT (마이크로소프트)", "code": "MSFT", "price": 540000, "cagr": 18.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JNJ (존슨앤존슨)", "code": "JNJ", "price": 210000, "cagr": 8.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "XOM (엑슨모빌)", "code": "XOM", "price": 160000, "cagr": 9.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JPM (JP모건)", "code": "JPM", "price": 270000, "cagr": 10.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PG (P&G)", "code": "PG", "price": 210000, "cagr": 8.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CVX (쉐브론)", "code": "CVX", "price": 220000, "cagr": 8.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "HD (홈디포)", "code": "HD", "price": 450000, "cagr": 12.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "ABBV (애브비)", "code": "ABBV", "price": 230000, "cagr": 9.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MRK (머크)", "code": "MRK", "price": 170000, "cagr": 9.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "KO (코카콜라)", "code": "KO", "price": 80000, "cagr": 7.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PEP (펩시)", "code": "PEP", "price": 230000, "cagr": 8.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "BAC (뱅크오브아메리카)", "code": "BAC", "price": 50000, "cagr": 9.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PFE (화이자)", "code": "PFE", "price": 35000, "cagr": 6.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TMO (써모피셔)", "code": "TMO", "price": 750000, "cagr": 14.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CSCO (시스코)", "code": "CSCO", "price": 65000, "cagr": 7.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MCD (맥도날드)", "code": "MCD", "price": 380000, "cagr": 9.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "WMT (월마트)", "code": "WMT", "price": 80000, "cagr": 10.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TXN (텍사스인스트루먼트)", "code": "TXN", "price": 230000, "cagr": 11.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "IBM (IBM)", "code": "IBM", "price": 250000, "cagr": 7.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "VZ (버라이즌)", "code": "VZ", "price": 55000, "cagr": 6.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MMM (3M)", "code": "MMM", "price": 140000, "cagr": 6.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MO (알트리아)", "code": "MO", "price": 60000, "cagr": 6.5},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CAT (캐터필러)", "code": "CAT", "price": 450000, "cagr": 12.0},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "UPS (UPS)", "code": "UPS", "price": 200000, "cagr": 7.0},
+        
+        # 테마 6: 안전자산 (기타)
+        {"theme": "🛡️ 기타 안전자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 9800, "cagr": 4.1},
+        {"theme": "🛡️ 기타 안전자산", "name": "ACE KRX금현물", "code": "411060", "price": 14500, "cagr": 5.5},
     ]
 
     # --- 3. 포트폴리오 구성 UI ---
@@ -3680,10 +3728,18 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     if 'retirement_cart' not in st.session_state:
         st.session_state.retirement_cart = {}
 
-    unique_themes = list(set([item['theme'] for item in etf_data]))
+    # 테마 순서를 정렬하기 위한 리스트
+    theme_order = [
+        "🌐 시장 지수 코어 (국내상장)", 
+        "💻 반도체 & 빅테크 (국내상장)", 
+        "💰 고배당 & 월배당 (국내상장)", 
+        "🇺🇸 미국 배당 & 인컴 ETF", 
+        "🇺🇸 미국 우량 배당/성장주", 
+        "🛡️ 기타 안전자산"
+    ]
     
-    for theme in unique_themes:
-        with st.expander(f"{theme} 종목 선택", expanded=(theme=="🌐 시장 지수 코어")):
+    for theme in theme_order:
+        with st.expander(f"{theme} 종목 선택", expanded=(theme=="🇺🇸 미국 배당 & 인컴 ETF")):
             theme_stocks = [item for item in etf_data if item['theme'] == theme]
             for stock in theme_stocks:
                 cols = st.columns([4, 2, 2, 2])
@@ -3703,7 +3759,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     
     cart = st.session_state.retirement_cart
     if not cart:
-        st.info("위 리스트에서 ETF 수량을 입력하시면 시뮬레이션이 시작됩니다.")
+        st.info("위 리스트에서 ETF 및 주식 수량을 입력하시면 시뮬레이션이 시작됩니다.")
     else:
         total_principal = sum([v['qty'] * v['price'] for k, v in cart.items()])
         # 가중평균 CAGR 계산
@@ -3736,4 +3792,4 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             display_cart['총액'] = display_cart['qty'] * display_cart['price']
             st.table(display_cart[['name', 'qty', 'price', '총액', 'cagr']])
 
-    st.caption("※ 본 데이터는 과거 성과를 바탕으로 한 시뮬레이션이며, 미래의 수익을 보장하지 않습니다.")
+    st.caption("※ 본 데이터는 과거 성과를 바탕으로 한 시뮬레이션이며, 가격과 기대수익률은 예시용으로 설정된 수치입니다.")
