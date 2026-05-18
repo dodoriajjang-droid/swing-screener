@@ -906,30 +906,35 @@ def fetch_naver_volume(sosok, pages=1):
     if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
     return pd.DataFrame()
     
-# 🇺🇸 미국 주식 티커 검색 및 자동 완성 함수 (Yahoo Finance API)
-@st.cache_data(ttl=86400)
-def search_us_ticker(query):
-    try:
-        # 야후 파이낸스의 공식 검색 API를 우회 호출합니다
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=1&newsCount=0"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        res = requests.get(url, headers=headers, timeout=5)
-        data = res.json()
+# 🇺🇸 미국 주식 영문명 -> 한글명 자동 변환 함수
+def get_korean_name(eng_name):
+    if not eng_name:
+        return ""
         
-        # 검색 결과가 존재할 경우 파싱 포맷에 맞춰 티커와 회사명을 반환
-        if 'quotes' in data and len(data['quotes']) > 0:
-            quote = data['quotes'][0]
-            symbol = quote.get('symbol', query).upper()
-            name = quote.get('shortname', query)
-            
-            # 하단 UI에서 split(" (")[1].split(" /")[0] 로직으로 파싱할 수 있도록 문자열 조립
-            return [f"{symbol} ({name} / {name})"]
-    except Exception:
-        pass
+    ko_dict = {
+        "AAPL": "애플", "MSFT": "마이크로소프트", "AMZN": "아마존", "GOOGL": "구글", "GOOG": "구글", 
+        "META": "메타", "TSLA": "테슬라", "NVDA": "엔비디아", "JPM": "JP모건", "V": "비자",
+        "JNJ": "존슨앤존슨", "XOM": "엑슨모빌", "PG": "P&G", "HD": "홈디포", "MA": "마스터카드",
+        "CVX": "쉐브론", "ABBV": "애브비", "MRK": "머크", "KO": "코카콜라", "PEP": "펩시",
+        "BAC": "뱅크오브아메리카", "WMT": "월마트", "PFE": "화이자", "MCD": "맥도날드",
+        "CSCO": "시스코", "VZ": "버라이즌", "TMO": "써모피셔", "ABT": "애보트", "CRM": "세일즈포스",
+        "DIS": "디즈니", "NFLX": "넷플릭스", "AMD": "AMD", "INTC": "인텔", "QCOM": "퀄컴",
+        "SCHD": "SCHD ETF", "JEPI": "JEPI ETF", "SPY": "SPY ETF", "QQQ": "QQQ ETF",
+        "Apple": "애플", "Microsoft": "마이크로소프트", "NVIDIA": "엔비디아", "Tesla": "테슬라"
+    }
     
-    # 서버 차단 등으로 검색에 실패하면 빈 리스트를 반환하여 입력한 텍스트를 그대로 사용하게 함
-    return []
-
+    name_str = str(eng_name)
+    # 1. 티커 완전 일치 검사
+    if name_str.upper() in ko_dict:
+        return ko_dict[name_str.upper()]
+    
+    # 2. 회사 이름 부분 일치 검사
+    for key, val in ko_dict.items():
+        if key.lower() in name_str.lower():
+            return val
+            
+    # 사전에 없으면 원래 영문 이름 그대로 반환
+    return name_str
 
 @st.cache_data(ttl=300)
 def get_trading_value_kings(limit=50):
