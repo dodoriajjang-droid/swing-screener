@@ -427,18 +427,32 @@ def get_naver_ipo_data():
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
-    # 네이버 차단 우회를 위해 브라우저 헤더 강력 위장 및 언어 설정 추가
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-    }
     
-    # 1. KR 국장 데이터 스크래핑
+    # -------------------------------------------------------------
+    # 🕵️‍♂️ [스텔스 모드 1] 네이버 차단 우회를 위한 완벽한 브라우저 세션 위장
+    # -------------------------------------------------------------
+    kr_session = requests.Session()
+    kr_session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.naver.com/',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1'
+    })
+    
     try:
-        for page in range(1, 6): # 💡 빠른 차단을 막기 위해 탐색 페이지 수를 5개로 제한
+        # 🕵️‍♂️ [스텔스 모드 2] 배당금 페이지를 바로 찌르지 않고, 금융 홈을 먼저 방문하여 정상적인 유저처럼 쿠키 발급
+        kr_session.get("https://finance.naver.com/", timeout=5)
+        time.sleep(0.5)
+        
+        for page in range(1, 6):
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
-            res = requests.get(url, headers=headers, timeout=5)
+            res = kr_session.get(url, timeout=5)
             tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
             
             for t in tables:
@@ -454,23 +468,27 @@ def get_dividend_portfolio(ex_rate):
                                     krx_list.append({'종목명': name, '현재가': f"{int(float(price_val)):,}원", '예상 배당금': float(div_val), '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
-            time.sleep(0.3)
-    except Exception: pass
+            time.sleep(0.5) # 사람이 클릭하는 것처럼 0.5초 대기
+    except Exception as e: 
+        pass # 에러 발생 시 빈 데이터프레임으로 넘김
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     if not krx_df.empty:
         krx_df = krx_df.sort_values('예상 배당금', ascending=False).head(300)
         krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
 
-    # 2. 미국 주식 & ETF 데이터 수집 (하드코딩 예비 데이터 없음)
+    # -------------------------------------------------------------
+    # 🇺🇸 미국 주식 & ETF 데이터 수집 로직 (기존 유지)
+    # -------------------------------------------------------------
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
     
     def fetch_yf_dividend_safe(ticker):
         try:
-            t = yf.Ticker(ticker)
+            us_session = requests.Session()
+            us_session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+            t = yf.Ticker(ticker, session=us_session)
             
-            # 주가 데이터는 info보다 history가 차단을 덜 당합니다.
             hist = t.history(period="5d")
             if hist.empty: return None
             price = hist['Close'].iloc[-1]
@@ -480,7 +498,6 @@ def get_dividend_portfolio(ex_rate):
             try: info = t.info
             except: pass
 
-            # 💡 [핵심 우회 기법] info(요약)가 차단당했거나 ETF일 경우, 실제 과거 배당금 지급 차트(.dividends)를 다운받아 최근 1년 치를 더해버립니다.
             if info and info.get('dividendRate'):
                 div_rate = info.get('dividendRate')
             elif info and info.get('yield') and price > 0:
@@ -510,10 +527,12 @@ def get_dividend_portfolio(ex_rate):
     for ticker in us_tickers:
         res = fetch_yf_dividend_safe(ticker)
         if res: us_list.append(res)
+        time.sleep(0.2)
         
     for ticker in etf_tickers:
         res = fetch_yf_dividend_safe(ticker)
         if res: etf_list.append(res)
+        time.sleep(0.2)
 
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
