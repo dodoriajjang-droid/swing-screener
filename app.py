@@ -3653,86 +3653,141 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # --- 2. ETF 데이터 정의 (기본 예비 데이터) ---
-    etf_data = [
-        # 테마 1: 지수 코어 (국내상장)
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 200", "code": "069500", "price": 36000, "cagr": 5.8, "holdings": "삼성전자, SK하이닉스, 현대차, 셀트리온 등 국내 우량 200개 기업"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국S&P500", "code": "360750", "price": 18500, "cagr": 10.2, "holdings": "마이크로소프트, 애플, 엔비디아, 아마존 등 미국 대표 500개 기업"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국나스닥100", "code": "133690", "price": 115000, "cagr": 13.5, "holdings": "애플, 마이크로소프트, 알파벳, 테슬라 등 미국 혁신 기술주 100개"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 인도Nifty50", "code": "453810", "price": 13000, "cagr": 9.0, "holdings": "릴라이언스, HDFC은행, 인포시스 등 인도 핵심 우량주 50개"},
-        
-        # 테마 2: 반도체/테크 (국내상장)
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 18000, "cagr": 14.1, "holdings": "엔비디아, AMD, 브로드컴, TSMC, ASML 등 글로벌 반도체 30개"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 15500, "cagr": 15.2, "holdings": "엔비디아, TSMC, ASML, 삼성전자 집중 투자"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 19000, "cagr": 13.8, "holdings": "애플, MS, 알파벳, 아마존, 메타 등 미국 빅테크 시총 상위 10개"},
-        
-        # 테마 3: 배당/인컴 (국내상장)
-        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 11500, "cagr": 8.4, "holdings": "홈디포, 텍사스인스트루먼트, 애브비, 쉐브론 등 미국 우량 배당성장주"},
-        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "SOL 미국배당다우존스", "code": "446720", "price": 10500, "cagr": 8.3, "holdings": "TIGER 미국배당다우존스(SCHD)와 동일한 기초지수 추종 (월배당)"},
-        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 10200, "cagr": 7.4, "holdings": "미국 배당주 투자 + 콜옵션 매도로 연 7% 추가 배당 수익 추구"},
-        
-        # 테마 4: 미국 배당 & 인컴 ETF
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SCHD (미국배당다우존스)", "code": "SCHD", "price": 105000, "cagr": 11.0, "holdings": "홈디포, 텍사스인스트루먼트, 애브비 등 10년 이상 배당성장 100대 기업"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPI (프리미엄 인컴)", "code": "JEPI", "price": 75000, "cagr": 8.5, "holdings": "S&P500 저변동성 주식 + ELN(커버드콜)로 높은 월배당 지급"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPQ (나스닥 프리미엄)", "code": "JEPQ", "price": 72000, "cagr": 9.5, "holdings": "나스닥100 우량 기술주 + ELN(커버드콜)로 성장과 월배당 동시 추구"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VYM (고배당수익)", "code": "VYM", "price": 160000, "cagr": 8.0, "holdings": "JPM, 엑슨모빌, 존슨앤존슨 등 미국 고배당 대형주 400여 개"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VIG (배당성장)", "code": "VIG", "price": 230000, "cagr": 10.0, "holdings": "MS, 애플, JPM 등 10년 이상 연속 배당 인상 대형주"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SPYD (S&P500 고배당)", "code": "SPYD", "price": 55000, "cagr": 7.5, "holdings": "S&P500 내 배당수익률 상위 80개 기업 균일 비중 투자"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DGRO (핵심 배당성장)", "code": "DGRO", "price": 80000, "cagr": 10.5, "holdings": "MS, 애플, 애브비 등 배당 성향이 건전한 배당성장주"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "NOBL (배당귀족)", "code": "NOBL", "price": 135000, "cagr": 9.0, "holdings": "25년 이상 배당금을 늘려온 '배당귀족' 60여 개 기업"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DVY (선별 고배당)", "code": "DVY", "price": 160000, "cagr": 8.0, "holdings": "유틸리티, 금융 등 고배당 100대 기업 (5년 지속 배당 기준)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SDY (SPDR 배당)", "code": "SDY", "price": 180000, "cagr": 9.0, "holdings": "S&P1500 중 20년 이상 배당 증가 기업 (배당수익률 가중)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HDV (핵심 고배당)", "code": "HDV", "price": 150000, "cagr": 7.5, "holdings": "엑슨모빌, 존슨앤존슨 등 재무가 건전한 고배당 75개 기업"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "PFF (미국 우선주)", "code": "PFF", "price": 42000, "cagr": 5.5, "holdings": "웰스파고, 뱅크오브아메리카 등 주요 금융사 우선주 (고정 배당)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 120000, "cagr": 4.5, "holdings": "만기 20년 이상의 미국 초장기 국채 (금리 인하시 수혜)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HYG (하이일드 회사채)", "code": "HYG", "price": 105000, "cagr": 5.5, "holdings": "투자주의 등급(BB 이하)의 고수익/고위험 미국 회사채"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "LQD (투자등급 회사채)", "code": "LQD", "price": 145000, "cagr": 4.0, "holdings": "JPM, 골드만삭스, 애플 등이 발행한 우량 투자등급 회사채"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VNQ (미국 부동산 리츠)", "code": "VNQ", "price": 110000, "cagr": 7.0, "holdings": "프로로지스, 아메리칸타워 등 미국 상업용 부동산 리츠"},
+    # --- 2. 맞춤 종목 검색 및 추가 기능 (신규 추가!) ---
+    if 'custom_etfs' not in st.session_state:
+        st.session_state.custom_etfs = []
 
-        # 테마 5: 미국 우량 배당/성장주
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "AAPL (애플)", "code": "AAPL", "price": 230000, "cagr": 15.0, "holdings": "단일 종목 (아이폰, 맥, 서비스 생태계)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MSFT (마이크로소프트)", "code": "MSFT", "price": 540000, "cagr": 18.0, "holdings": "단일 종목 (클라우드 Azure, Office 365, AI)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JNJ (존슨앤존슨)", "code": "JNJ", "price": 210000, "cagr": 8.0, "holdings": "단일 종목 (글로벌 헬스케어 및 제약 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "XOM (엑슨모빌)", "code": "XOM", "price": 160000, "cagr": 9.0, "holdings": "단일 종목 (글로벌 1위 석유 및 에너지 기업)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JPM (JP모건)", "code": "JPM", "price": 270000, "cagr": 10.0, "holdings": "단일 종목 (미국 최대 규모 금융지주사)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PG (P&G)", "code": "PG", "price": 210000, "cagr": 8.5, "holdings": "단일 종목 (글로벌 필수소비재 1위, 60년+ 배당증가)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CVX (쉐브론)", "code": "CVX", "price": 220000, "cagr": 8.5, "holdings": "단일 종목 (워런 버핏이 사랑한 미국 에너지 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "HD (홈디포)", "code": "HD", "price": 450000, "cagr": 12.0, "holdings": "단일 종목 (미국 1위 건축/인테리어 자재 소매업체)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "ABBV (애브비)", "code": "ABBV", "price": 230000, "cagr": 9.5, "holdings": "단일 종목 (휴미라 등 강력한 현금흐름을 가진 바이오제약)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MRK (머크)", "code": "MRK", "price": 170000, "cagr": 9.0, "holdings": "단일 종목 (키트루다 등 면역항암제 강자)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "KO (코카콜라)", "code": "KO", "price": 80000, "cagr": 7.5, "holdings": "단일 종목 (버핏의 영원한 픽, 강력한 배당귀족)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PEP (펩시)", "code": "PEP", "price": 230000, "cagr": 8.0, "holdings": "단일 종목 (음료 및 스낵류 글로벌 소비재 공룡)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "BAC (뱅크오브아메리카)", "code": "BAC", "price": 50000, "cagr": 9.0, "holdings": "단일 종목 (버핏 포트폴리오 상위, 미국 2대 은행)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PFE (화이자)", "code": "PFE", "price": 35000, "cagr": 6.0, "holdings": "단일 종목 (고배당 글로벌 종합 제약사)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TMO (써모피셔)", "code": "TMO", "price": 750000, "cagr": 14.0, "holdings": "단일 종목 (바이오 헬스케어 연구 장비 세계 1위)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CSCO (시스코)", "code": "CSCO", "price": 65000, "cagr": 7.0, "holdings": "단일 종목 (글로벌 네트워크 장비 및 보안 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MCD (맥도날드)", "code": "MCD", "price": 380000, "cagr": 9.5, "holdings": "단일 종목 (배당귀족, 프랜차이즈 및 부동산 공룡)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "WMT (월마트)", "code": "WMT", "price": 80000, "cagr": 10.0, "holdings": "단일 종목 (미국 최대 오프라인 유통 및 이커머스 강자)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TXN (텍사스인스트루먼트)", "code": "TXN", "price": 230000, "cagr": 11.0, "holdings": "단일 종목 (아날로그 반도체 1위, 꾸준한 배당성장)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "IBM (IBM)", "code": "IBM", "price": 250000, "cagr": 7.0, "holdings": "단일 종목 (IT 인프라, 하이브리드 클라우드 강자)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "VZ (버라이즌)", "code": "VZ", "price": 55000, "cagr": 6.5, "holdings": "단일 종목 (미국 1위 이동통신사, 초고배당주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MMM (3M)", "code": "MMM", "price": 140000, "cagr": 6.0, "holdings": "단일 종목 (산업용/소비재 글로벌 복합기업)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MO (알트리아)", "code": "MO", "price": 60000, "cagr": 6.5, "holdings": "단일 종목 (말보로 등 미국 1위 담배회사, 초고배당)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CAT (캐터필러)", "code": "CAT", "price": 450000, "cagr": 12.0, "holdings": "단일 종목 (글로벌 건설기계 및 인프라 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "UPS (UPS)", "code": "UPS", "price": 200000, "cagr": 7.0, "holdings": "단일 종목 (글로벌 물류 및 배송 대장주)"},
-        
-        # 테마 6: 안전자산 (기타)
-        {"theme": "🛡️ 기타 안전자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 9800, "cagr": 4.1, "holdings": "미국 30년 초장기채 투자 + 커버드콜 프리미엄 (월배당)"},
-        {"theme": "🛡️ 기타 안전자산", "name": "ACE KRX금현물", "code": "411060", "price": 14500, "cagr": 5.5, "holdings": "국내 KRX 금시장의 금현물 가격 추종 (안전자산 헤지)"},
+    st.markdown("### 🔎 2. 맞춤형 종목 검색 및 직접 추가")
+    with st.container(border=True):
+        col_s, col_b = st.columns([4, 1])
+        new_ticker = col_s.text_input("리스트에 없는 종목의 티커(종목코드)를 입력하세요.", placeholder="예: TSLA (테슬라) 또는 005930 (삼성전자)").strip()
+        if col_b.button("목록에 추가하기", use_container_width=True):
+            if new_ticker:
+                ticker_upper = new_ticker.upper()
+                if ticker_upper not in st.session_state.custom_etfs:
+                    st.session_state.custom_etfs.append(ticker_upper)
+                    st.success(f"'{ticker_upper}' 종목이 추가되었습니다! 아래 리스트의 '내가 추가한 맞춤 종목' 탭을 확인하세요.")
+                else:
+                    st.warning("이미 추가된 종목입니다.")
+
+    # --- 3. ETF & 주식 데이터 정의 ---
+    etf_data = [
+        # 테마 1: 시장 지수 코어 (초기 원본 유지 + 메가팩)
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 200", "code": "069500", "price": 0, "cagr": 5.8, "holdings": "삼성전자, SK하이닉스, 현대차, 셀트리온 등 국내 우량 200개 기업"},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국S&P500", "code": "360750", "price": 0, "cagr": 10.2, "holdings": "마이크로소프트, 애플, 엔비디아, 아마존 등 미국 대표 500개 기업"},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "ACE 미국S&P500", "code": "360200", "price": 0, "cagr": 10.2, "holdings": "미국 대표 500개 기업 (환노출)"},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국나스닥100", "code": "133690", "price": 0, "cagr": 13.5, "holdings": "애플, 마이크로소프트, 알파벳, 테슬라 등 미국 혁신 기술주 100개"},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 인도Nifty50", "code": "453810", "price": 0, "cagr": 9.0, "holdings": "릴라이언스, HDFC은행, 인포시스 등 인도 핵심 우량주 50개"},
+        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 일본니케이225", "code": "241180", "price": 0, "cagr": 7.5, "holdings": "일본 도쿄증권거래소 대표 225개 기업"},
+
+        # 테마 2: 반도체 & 빅테크 (초기 원본 유지 + 메가팩)
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 0, "cagr": 14.1, "holdings": "엔비디아, AMD, 브로드컴, TSMC, ASML 등 글로벌 반도체 30개"},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 0, "cagr": 15.2, "holdings": "엔비디아, TSMC, ASML, 삼성전자 집중 투자"},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 0, "cagr": 13.8, "holdings": "애플, MS, 알파벳, 아마존, 메타 등 미국 빅테크 시총 상위 10개"},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "KODEX 미국AI테크TOP10", "code": "480460", "price": 0, "cagr": 14.5, "holdings": "미국 AI 산업 주도 빅테크 10개 종목"},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER AI반도체핵심공정", "code": "472150", "price": 0, "cagr": 13.0, "holdings": "한미반도체, HPSP 등 국내 AI 반도체 소부장 핵심"},
+        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "KBSTAR 글로벌데이터센터리츠", "code": "381560", "price": 0, "cagr": 8.5, "holdings": "에퀴닉스 등 글로벌 데이터센터 인프라 및 리츠"},
+
+        # 테마 3: 고배당 & 월배당 (초기 원본 유지)
+        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 0, "cagr": 8.4, "holdings": "홈디포, 텍사스인스트루먼트, 애브비, 쉐브론 등 미국 우량 배당성장주"},
+        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "SOL 미국배당다우존스", "code": "446720", "price": 0, "cagr": 8.3, "holdings": "TIGER 미국배당다우존스(SCHD)와 동일한 기초지수 추종 (월배당)"},
+        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 0, "cagr": 7.4, "holdings": "미국 배당주 투자 + 콜옵션 매도로 연 7% 추가 배당 수익 추구"},
+
+        # 테마 4: 미국 배당 & 인컴 ETF (초기 원본 16종 전원 복구 유지)
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SCHD (미국배당다우존스)", "code": "SCHD", "price": 0, "cagr": 11.0, "holdings": "홈디포, 텍사스인스트루먼트, 애브비 등 10년 이상 배당성장 100대 기업"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPI (프리미엄 인컴)", "code": "JEPI", "price": 0, "cagr": 8.5, "holdings": "S&P500 저변동성 주식 + ELN(커버드콜)로 높은 월배당 지급"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPQ (나스닥 프리미엄)", "code": "JEPQ", "price": 0, "cagr": 9.5, "holdings": "나스닥100 우량 기술주 + ELN(커버드콜)로 성장과 월배당 동시 추구"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VYM (고배당수익)", "code": "VYM", "price": 0, "cagr": 8.0, "holdings": "JPM, 엑슨모빌, 존슨앤존슨 등 미국 고배당 대형주 400여 개"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VIG (배당성장)", "code": "VIG", "price": 0, "cagr": 10.0, "holdings": "MS, 애플, JPM 등 10년 이상 연속 배당 인상 대형주"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SPYD (S&P500 고배당)", "code": "SPYD", "price": 0, "cagr": 7.5, "holdings": "S&P500 내 배당수익률 상위 80개 기업 균일 비중 투자"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DGRO (핵심 배당성장)", "code": "DGRO", "price": 0, "cagr": 10.5, "holdings": "MS, 애플, 애브비 등 배당 성향이 건전한 배당성장주"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "NOBL (배당귀족)", "code": "NOBL", "price": 0, "cagr": 9.0, "holdings": "25년 이상 배당금을 늘려온 '배당귀족' 60여 개 기업"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DVY (선별 고배당)", "code": "DVY", "price": 0, "cagr": 8.0, "holdings": "유틸리티, 금융 등 고배당 100대 기업 (5년 지속 배당 기준)"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SDY (SPDR 배당)", "code": "SDY", "price": 0, "cagr": 9.0, "holdings": "S&P1500 중 20년 이상 배당 증가 기업 (배당수익률 가중)"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HDV (핵심 고배당)", "code": "HDV", "price": 0, "cagr": 7.5, "holdings": "엑슨모빌, 존슨앤존슨 등 재무가 건전한 고배당 75개 기업"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "PFF (미국 우선주)", "code": "PFF", "price": 0, "cagr": 5.5, "holdings": "웰스파고, 뱅크오브아메리카 등 주요 금융사 우선주 (고정 배당)"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 0, "cagr": 4.5, "holdings": "만기 20년 이상의 미국 초장기 국채 (금리 인하시 수혜)"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HYG (하이일드 회사채)", "code": "HYG", "price": 0, "cagr": 5.5, "holdings": "투자주의 등급(BB 이하)의 고수익/고위험 미국 회사채"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "LQD (투자등급 회사채)", "code": "LQD", "price": 0, "cagr": 4.0, "holdings": "JPM, 골드만삭스, 애플 등이 발행한 우량 투자등급 회사채"},
+        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VNQ (미국 부동산 리츠)", "code": "VNQ", "price": 0, "cagr": 7.0, "holdings": "프로로지스, 아메리칸타워 등 미국 상업용 부동산 리츠"},
+
+        # 테마 5: 미국 지수 & 메가테크 ETF (메가팩)
+        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SPY (S&P 500)", "code": "SPY", "price": 0, "cagr": 10.0, "holdings": "미국 S&P 500 지수 추종 (세계 최대 ETF)"},
+        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "QQQ (나스닥 100)", "code": "QQQ", "price": 0, "cagr": 13.5, "holdings": "나스닥 100 지수 추종 (미국 빅테크 핵심)"},
+        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "DIA (다우존스 30)", "code": "DIA", "price": 0, "cagr": 9.0, "holdings": "다우존스 산업평균 30개 우량 기업 (월배당)"},
+        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SMH (반도체 25)", "code": "SMH", "price": 0, "cagr": 15.0, "holdings": "엔비디아, TSMC 등 글로벌 반도체 25대 기업 집중"},
+        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SOXX (필라델피아 반도체)", "code": "SOXX", "price": 0, "cagr": 14.5, "holdings": "필라델피아 반도체 지수 추종 (미국 반도체 중심)"},
+        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SRVR (데이터센터 리츠)", "code": "SRVR", "price": 0, "cagr": 9.5, "holdings": "글로벌 데이터센터 및 통신 인프라 관련 리츠"},
+
+        # 테마 6: 미국 우량 배당/성장주 (초기 원본 25종 전원 복구 유지 + 추가분)
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "AAPL (애플)", "code": "AAPL", "price": 0, "cagr": 15.0, "holdings": "단일 종목 (아이폰, 맥, 서비스 생태계)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MSFT (마이크로소프트)", "code": "MSFT", "price": 0, "cagr": 18.0, "holdings": "단일 종목 (클라우드 Azure, Office 365, AI)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JNJ (존슨앤존슨)", "code": "JNJ", "price": 0, "cagr": 8.0, "holdings": "단일 종목 (글로벌 헬스케어 및 제약 대장주)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "XOM (엑슨모빌)", "code": "XOM", "price": 0, "cagr": 9.0, "holdings": "단일 종목 (글로벌 1위 석유 및 에너지 기업)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JPM (JP모건)", "code": "JPM", "price": 0, "cagr": 10.0, "holdings": "단일 종목 (미국 최대 규모 금융지주사)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PG (P&G)", "code": "PG", "price": 0, "cagr": 8.5, "holdings": "단일 종목 (글로벌 필수소비재 1위, 60년+ 배당증가)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CVX (쉐브론)", "code": "CVX", "price": 0, "cagr": 8.5, "holdings": "단일 종목 (워런 버핏이 사랑한 미국 에너지 대장주)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "HD (홈디포)", "code": "HD", "price": 0, "cagr": 12.0, "holdings": "단일 종목 (미국 1위 건축/인테리어 자재 소매업체)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "ABBV (애브비)", "code": "ABBV", "price": 0, "cagr": 9.5, "holdings": "단일 종목 (휴미라 등 강력한 현금흐름을 가진 바이오제약)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MRK (머크)", "code": "MRK", "price": 0, "cagr": 9.0, "holdings": "단일 종목 (키트루다 등 면역항암제 강자)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "KO (코카콜라)", "code": "KO", "price": 0, "cagr": 7.5, "holdings": "단일 종목 (버핏의 영원한 픽, 강력한 배당귀족)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PEP (펩시)", "code": "PEP", "price": 0, "cagr": 8.0, "holdings": "단일 종목 (음료 및 스낵류 글로벌 소비재 공룡)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "BAC (뱅크오브아메리카)", "code": "BAC", "price": 0, "cagr": 9.0, "holdings": "단일 종목 (버핏 포트폴리오 상위, 미국 2대 은행)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PFE (화이자)", "code": "PFE", "price": 0, "cagr": 6.0, "holdings": "단일 종목 (고배당 글로벌 종합 제약사)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TMO (써모피셔)", "code": "TMO", "price": 0, "cagr": 14.0, "holdings": "단일 종목 (바이오 헬스케어 연구 장비 세계 1위)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CSCO (시스코)", "code": "CSCO", "price": 0, "cagr": 7.0, "holdings": "단일 종목 (글로벌 네트워크 장비 및 보안 대장주)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MCD (맥도날드)", "code": "MCD", "price": 0, "cagr": 9.5, "holdings": "단일 종목 (배당귀족, 프랜차이즈 및 부동산 공룡)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "WMT (월마트)", "code": "WMT", "price": 0, "cagr": 10.0, "holdings": "단일 종목 (미국 최대 오프라인 유통 및 이커머스 강자)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TXN (텍사스인스트루먼트)", "code": "TXN", "price": 0, "cagr": 11.0, "holdings": "단일 종목 (아날로그 반도체 1위, 꾸준한 배당성장)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "IBM (IBM)", "code": "IBM", "price": 0, "cagr": 7.0, "holdings": "단일 종목 (IT 인프라, 하이브리드 클라우드 강자)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "VZ (버라이즌)", "code": "VZ", "price": 0, "cagr": 6.5, "holdings": "단일 종목 (미국 1위 이동통신사, 초고배당주)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MMM (3M)", "code": "MMM", "price": 0, "cagr": 6.0, "holdings": "단일 종목 (산업용/소비재 글로벌 복합기업)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MO (알트리아)", "code": "MO", "price": 0, "cagr": 6.5, "holdings": "단일 종목 (말보로 등 미국 1위 담배회사, 초고배당)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CAT (캐터필러)", "code": "CAT", "price": 0, "cagr": 12.0, "holdings": "단일 종목 (글로벌 건설기계 및 인프라 대장주)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "UPS (UPS)", "code": "UPS", "price": 0, "cagr": 7.0, "holdings": "단일 종목 (글로벌 물류 및 배송 대장주)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "NVDA (엔비디아)", "code": "NVDA", "price": 0, "cagr": 25.0, "holdings": "단일 종목 (글로벌 AI 반도체 GPU 독점 1위 기업)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TSLA (테슬라)", "code": "TSLA", "price": 0, "cagr": 20.0, "holdings": "단일 종목 (전기차, 자율주행, 휴머노이드 선두)"},
+        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "O (리얼티인컴)", "code": "O", "price": 0, "cagr": 7.5, "holdings": "단일 종목 (상업용 부동산 월배당 리츠)"},
+
+        # 테마 7: 사이버 보안 & 네트워크 (메가팩 유지)
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "CIBR (글로벌 사이버 보안 ETF)", "code": "CIBR", "price": 0, "cagr": 12.0, "holdings": "사이버 보안 소프트웨어 및 네트워크 인프라 기업"},
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "HACK (사이버 보안 전문)", "code": "HACK", "price": 0, "cagr": 11.5, "holdings": "하드웨어/소프트웨어 통합 사이버 보안 기업"},
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "FTNT (포티넷)", "code": "FTNT", "price": 0, "cagr": 16.0, "holdings": "방화벽(FortiGate), SD-WAN, 네트워크 보안 글로벌 대장주"},
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "PANW (팔로알토 네트웍스)", "code": "PANW", "price": 0, "cagr": 18.0, "holdings": "차세대 방화벽 및 엔터프라이즈 보안 솔루션 1위"},
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "CRWD (크라우드스트라이크)", "code": "CRWD", "price": 0, "cagr": 22.0, "holdings": "엔드포인트 및 클라우드 워크로드 보안 혁신주"},
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "안랩", "code": "053800", "price": 0, "cagr": 7.0, "holdings": "국내 대표 정보보안 및 안티바이러스 기업"},
+        {"theme": "🔐 사이버 보안 & 네트워크", "name": "지니언스", "code": "263860", "price": 0, "cagr": 8.5, "holdings": "국내 네트워크 접근 제어(NAC) 및 EDR 솔루션 선두"},
+
+        # 테마 8: 국채, 금, 대체자산 (초기 원본 + 메가팩)
+        {"theme": "🛡️ 국채, 금, 대체자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 0, "cagr": 4.1, "holdings": "미국 30년 초장기채 투자 + 커버드콜 프리미엄 (월배당)"},
+        {"theme": "🛡️ 국채, 금, 대체자산", "name": "ACE KRX금현물", "code": "411060", "price": 0, "cagr": 5.5, "holdings": "국내 KRX 금시장의 금현물 가격 추종 (안전자산 헤지)"},
+        {"theme": "🛡️ 국채, 금, 대체자산", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 0, "cagr": 4.5, "holdings": "만기 20년 이상 미국 장기채 (안전자산 헤지용)"},
+        {"theme": "🛡️ 국채, 금, 대체자산", "name": "GLD (SPDR 골드 트러스트)", "code": "GLD", "price": 0, "cagr": 6.0, "holdings": "실물 금 가격의 변동성을 추종하는 세계 최대 ETF"},
+        {"theme": "🛡️ 국채, 금, 대체자산", "name": "IBIT (블랙록 비트코인 현물)", "code": "IBIT", "price": 0, "cagr": 30.0, "holdings": "블랙록이 운용하는 비트코인 현물 ETF (디지털 안전자산)"}
     ]
 
-   # 👇 [새로 추가된 핵심 로직] 실시간 현재가 연동 (야후 파이낸스 글로벌망 전면 사용)
+    # 사용자가 직접 추가한 맞춤 종목을 etf_data 리스트에 실시간 병합
+    for custom_ticker in st.session_state.custom_etfs:
+        if not any(item['code'] == custom_ticker for item in etf_data):
+            etf_data.append({
+                "theme": "🔎 내가 추가한 맞춤 종목", 
+                "name": f"사용자 추가 ({custom_ticker})", 
+                "code": custom_ticker, 
+                "price": 0, 
+                "cagr": 10.0, # 커스텀 종목의 기본 CAGR 기대치
+                "holdings": "사용자가 직접 검색하여 추가한 종목"
+            })
+
+    # 실시간 현재가 연동 (야후 파이낸스 글로벌망 및 네이버 우회 전면 사용)
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
         kr_codes = [c for c in codes if c.isdigit()]
         us_codes = [c for c in codes if not c.isdigit()]
         
-        # 1. 🇺🇸 & 🇰🇷 실시간 가격 야후 글로벌망 동시 우회 수집 (차단 확률 0%)
         try:
             from yahooquery import Ticker as yq_Ticker
             
-            # 미국 주식
             if us_codes:
                 yq_us = yq_Ticker(us_codes)
                 us_data = yq_us.price
@@ -3742,7 +3797,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         if usd_price > 0:
                             prices[c] = int(usd_price * ex_rate)
                             
-            # 한국 주식 (.KS 붙여서 글로벌망으로 우회 조회)
             if kr_codes:
                 ks_codes = [f"{c}.KS" for c in kr_codes]
                 yq_kr = yq_Ticker(ks_codes)
@@ -3756,7 +3810,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         except Exception: 
             pass
         
-        # 2. 최후의 보루: 야후에서도 못 찾은 국장 ETF가 있다면 네이버 모바일 웹 우회 크롤링 (json)
         for c in kr_codes:
             if c not in prices or prices[c] == 0:
                 try:
@@ -3770,8 +3823,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 
         return prices
 
-    # 실시간 가격 수집 실행 및 etf_data 덮어쓰기
-    with st.spinner("한국 및 미국 증시에서 최신 종목 가격을 실시간으로 가져와 연동 중입니다..."):
+    with st.spinner("슈퍼 메가팩의 최신 종목 가격을 한국 및 글로벌 증시에서 실시간으로 긁어오고 있습니다..."):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         real_prices = fetch_realtime_simulator_prices(all_codes, current_ex_rate)
@@ -3780,8 +3832,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             if item['code'] in real_prices and real_prices[item['code']] > 0:
                 item['price'] = real_prices[item['code']]
 
-    # --- 3. 포트폴리오 구성 UI ---
-    st.markdown("### 🛒 2. 나만의 노후 포트폴리오 담기")
+    # --- 4. 포트폴리오 구성 UI ---
+    st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
     
     if 'retirement_cart' not in st.session_state:
         st.session_state.retirement_cart = {}
@@ -3790,33 +3842,37 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         "🌐 시장 지수 코어 (국내상장)", 
         "💻 반도체 & 빅테크 (국내상장)", 
         "💰 고배당 & 월배당 (국내상장)", 
-        "🇺🇸 미국 배당 & 인컴 ETF", 
+        "🇺🇸 미국 배당 & 인컴 ETF",
+        "🇺🇸 미국 지수 & 메가테크 ETF", 
         "🇺🇸 미국 우량 배당/성장주", 
-        "🛡️ 기타 안전자산"
+        "🔐 사이버 보안 & 네트워크",
+        "🛡️ 국채, 금, 대체자산",
+        "🔎 내가 추가한 맞춤 종목"
     ]
     
     for theme in theme_order:
-        with st.expander(f"{theme} 종목 선택", expanded=(theme=="🇺🇸 미국 배당 & 인컴 ETF")):
-            theme_stocks = [item for item in etf_data if item['theme'] == theme]
-            for stock in theme_stocks:
-                cols = st.columns([5, 2, 2, 2])
-                
-                with cols[0]:
-                    st.markdown(f"**{stock['name']}** ({stock['code']})")
-                    st.caption(f"🔍 {stock.get('holdings', '단일 종목 및 자산')}")
+        theme_stocks = [item for item in etf_data if item['theme'] == theme]
+        if theme_stocks: # 해당 테마에 종목이 있을 때만 아코디언 메뉴 생성
+            with st.expander(f"{theme} 종목 선택", expanded=(theme=="🌐 시장 지수 코어 (국내상장)")):
+                for stock in theme_stocks:
+                    cols = st.columns([5, 2, 2, 2])
                     
-                cols[1].markdown(f"현재가: {stock['price']:,}원")
-                cols[2].markdown(f"기대수익: {stock['cagr']}%")
-                
-                qty = cols[3].number_input("수량(주)", min_value=0, step=1, key=f"ret_qty_{stock['code']}")
-                if qty > 0:
-                    st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
-                elif stock['code'] in st.session_state.retirement_cart:
-                    del st.session_state.retirement_cart[stock['code']]
+                    with cols[0]:
+                        st.markdown(f"**{stock['name']}** ({stock['code']})")
+                        st.caption(f"🔍 {stock.get('holdings', '')}")
+                        
+                    cols[1].markdown(f"현재가: {stock['price']:,}원")
+                    cols[2].markdown(f"기대수익: {stock['cagr']}%")
+                    
+                    qty = cols[3].number_input("수량(주)", min_value=0, step=1, key=f"ret_qty_{stock['code']}")
+                    if qty > 0:
+                        st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
+                    elif stock['code'] in st.session_state.retirement_cart:
+                        del st.session_state.retirement_cart[stock['code']]
 
-    # --- 4. 시뮬레이션 대시보드 ---
+    # --- 5. 시뮬레이션 대시보드 ---
     st.divider()
-    st.markdown("### 📊 3. 복리 성장 시뮬레이션 결과")
+    st.markdown("### 📊 4. 복리 성장 시뮬레이션 결과")
     
     cart = st.session_state.retirement_cart
     if not cart:
@@ -3851,4 +3907,34 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             display_cart['총액'] = display_cart['qty'] * display_cart['price']
             st.table(display_cart[['name', 'qty', 'price', '총액', 'cagr']])
 
-    st.caption("※ 실시간 연동된 주가를 기반으로 계산된 시뮬레이션이며, 미래의 수익을 보장하지 않습니다.")
+        st.caption("※ 실시간 연동된 주가를 기반으로 계산된 시뮬레이션이며, 가격과 기대수익률은 시장 상황에 따라 변동될 수 있습니다.")
+
+        # --- 6. AI 노후 포트폴리오 정밀 진단 (신규 추가!) ---
+        st.markdown("---")
+        if st.button("🤖 AI 노후 포트폴리오 정밀 진단", type="primary", use_container_width=True):
+            if not api_key_input:
+                st.error("좌측 사이드바에 API 키를 입력해주세요.")
+            else:
+                with st.spinner("AI가 구성하신 노후 대비 포트폴리오의 안정성, 배당 현금흐름, 성장성을 다각도로 분석 중입니다..."):
+                    port_str = ""
+                    for k, v in cart.items():
+                        weight = (v['qty'] * v['price'] / total_principal) * 100
+                        port_str += f"- {v['name']} ({k}): 비중 {weight:.1f}%, 현재가 {v['price']:,}원\n"
+                    
+                    ai_prompt = f"""
+                    당신은 은퇴 설계 및 자산 배분 전문가입니다.
+                    다음은 사용자가 노후 준비를 위해 구성한 ETF 및 주식 포트폴리오입니다.
+                    [기본 정보]
+                    총 매입 원금: {total_principal:,}원
+                    예상 연평균 수익률(CAGR): {weighted_cagr:.2f}%
+                    투자기간: {years}년
+                    
+                    [구성 종목 및 비중]
+                    {port_str}
+                    
+                    이 포트폴리오의 안정성, 성장성, 인컴(배당) 측면을 분석하고, 
+                    노후 자금 마련이라는 목적에 부합하는지, 리스크 관리를 위해 추가하거나 덜어내야 할 섹터가 있는지 마크다운 형식으로 상세히 조언해 주세요.
+                    """
+                    ai_result = ask_gemini(ai_prompt, api_key_input)
+                    st.success("✅ AI 노후 포트폴리오 진단 완료!")
+                    st.markdown(ai_result)
