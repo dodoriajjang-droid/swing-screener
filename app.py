@@ -993,7 +993,27 @@ def get_trading_value_kings(limit=50):
             if not krx.empty:
                 df_fdr = pd.merge(df_fdr, krx[['Name', 'Sector']], on='Name', how='left')
                 df_fdr['Sector'] = df_fdr['Sector'].fillna('기타/분류불가')
-            else: df_fdr['Sector'] = '기타/분류불가'
+            else: 
+                df_fdr['Sector'] = '기타/분류불가'
+            
+            # 🔥 [히트맵 섹터 복구 엔진] 거래소 서버 차단 시, 네이버 증권에서 쾌속 병렬 처리로 업종을 구출해옵니다.
+            missing_mask = df_fdr['Sector'] == '기타/분류불가'
+            if missing_mask.any():
+                missing_codes = df_fdr.loc[missing_mask, 'Code'].tolist()
+                
+                def rescue_sector(code):
+                    try:
+                        res = requests.get(f"https://finance.naver.com/item/main.naver?code={code}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
+                        soup = BeautifulSoup(res.text, 'html.parser')
+                        tag = soup.select_one('.trade_compare em')
+                        return code, tag.text.strip() if tag else '기타'
+                    except: return code, '기타'
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    rescued_sectors = dict(executor.map(rescue_sector, missing_codes))
+                
+                df_fdr.loc[missing_mask, 'Sector'] = df_fdr.loc[missing_mask, 'Code'].map(rescued_sectors).fillna('기타')
+                
             return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except Exception: pass
 
@@ -1560,12 +1580,26 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         pnl_pct = ((today_close - current_price) / current_price) * 100 if offset_days > 0 and current_price > 0 else 0.0
         
         krx_df = get_krx_stocks()
-        sector_val = "ETF/미국주식/분류없음"
+        sector_val = "기타/분류불가"
         if not krx_df.empty and not is_us:
             match_sec = krx_df[krx_df['Code'] == ticker_code]['Sector']
             if not match_sec.empty and pd.notna(match_sec.iloc[0]):
                 raw_sec = str(match_sec.iloc[0])
                 sector_val = raw_sec.replace(" 및 공급업", "").replace(" 제조업", "").replace(" 제조 및", "").replace(" 도매업", "").replace(" 소매업", "")
+        
+        # 🔥 [강력한 해결책] KRX 서버가 막혀서 '기타/분류불가'가 뜨면, 네이버 증권에서 실시간으로 섹터를 긁어옵니다.
+        if not is_us and sector_val in ['기타/분류불가', 'ETF/미국주식/분류없음', '기타', '']:
+            try:
+                url = f"https://finance.naver.com/item/main.naver?code={ticker_code}"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                sec_tag = soup.select_one('.trade_compare em')
+                if sec_tag:
+                    sector_val = sec_tag.text.strip()
+            except Exception:
+                sector_val = "개별이슈/기타"
+                
+        if is_us: sector_val = "ETF/미국주식"
         
         return {
             "종목명": stock_name, "티커": ticker_code, "섹터": sector_val, "현재가": current_price, "상태": status,
