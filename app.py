@@ -3735,9 +3735,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다. 다른 키워드로 검색해 보세요.")
 
-    # --- 3. ETF & 주식 원본 데이터 160종 통합 정의 ---
+    # --- 3. ETF & 주식 데이터 정의 (160종 통합) ---
     etf_data = [
-        # 🌐 1. 시장 대표 지수 코어 TOP 20
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 200", "code": "069500"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 미국S&P500", "code": "360750"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "ACE 미국S&P500", "code": "365040"},
@@ -3759,7 +3758,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "RISE 코스피200디비던드", "code": "341200"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 대만TAIEX", "code": "285600"},
 
-        # 💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20
         {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 미국필라델피아반도체", "code": "381170"},
         {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE 글로벌반도체TOP4 Plus", "code": "441680"},
         {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "RISE 미국반도체NYSE", "code": "402320"},
@@ -3781,7 +3779,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE 미국반도체타겟밸류", "code": "496200"},
         {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "HANARO 미국AI메모리반도체", "code": "494100"},
 
-        # 🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KODEX 미국AI전력핵심인프라", "code": "484320"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "ACE 글로벌AI액티브", "code": "461200"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "RISE AI로봇인프라", "code": "478100"},
@@ -3803,7 +3800,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "SOL 테크분배강화형", "code": "497200"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KIWOOM 미국AI하이베타", "code": "495100"},
 
-        # 🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 미국우주테크", "code": "492100"},
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "1Q 미국우주항공테크", "code": "490500"},
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "SOL 글로벌방산인프라", "code": "497100"},
@@ -3825,7 +3821,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 국방우주핵심", "code": "476500"},
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "PLUS 글로벌핵심방산", "code": "482110"},
 
-        # 🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 금융지주", "code": "287330"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 은행", "code": "091170"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 금융지주고배당", "code": "455100"},
@@ -3836,7 +3831,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 보험", "code": "140710"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 증권", "code": "157500"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 대형고배당10TR", "code": "354350"},
-        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 고배당", "code": "276970"}, # 원본의 오류를 수정하여 실존하는 KODEX 고배당 코드로 교체
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 고배당", "code": "276970"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 코스피고배당", "code": "210780"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "ACE 주주환원대형주", "code": "471550"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "SOL 금융지주플러스고배당", "code": "476220"},
@@ -3847,7 +3842,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "PLUS 코리아밸류업성장", "code": "493150"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 현대차고정피지컬AI", "code": "491200"},
 
-        # 💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20
         {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "KODEX 미국배당다우존스", "code": "480350"},
         {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "TIGER 미국배당다우존스", "code": "458730"},
         {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "ACE 미국배당다우존스", "code": "466760"},
@@ -3869,7 +3863,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "WOORI 미국배당다우존스", "code": "475110"},
         {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "HANARO 글로벌고배당", "code": "452660"},
 
-        # 🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20
         {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX 종합채권액티브", "code": "273130"},
         {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX KOFR금리액티브", "code": "423160"},
         {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 미국30년국채스트립액티브", "code": "458250"},
@@ -3891,7 +3884,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "ACE 만기매칭26회사채", "code": "465900"},
         {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 구리선물(H)", "code": "138900"},
 
-        # 🌍 5. 해외 직상장 글로벌 메이저 TOP 20
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "SPDR S&P 500", "code": "SPY"},
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Vanguard S&P 500", "code": "VOO"},
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Invesco QQQ", "code": "QQQ"},
@@ -3914,13 +3906,14 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "JPMorgan Nasdaq Equity Premium", "code": "JEPQ"}
     ]
 
-    # 기본값 및 사전 설정 추가 루프
+    # 기본값 세팅 루프
     for item in etf_data:
         item["price"] = 0
         item["cagr"] = "데이터없음(1년미만)"
         item["list_date"] = "데이터없음"
         item["holdings"] = "해당 테마의 국내외 주요 우량 편입 종목"
 
+    # 맞춤 종목 리스트 병합
     for custom_item in st.session_state.custom_etfs:
         if not any(item['code'] == custom_item['code'] for item in etf_data):
             etf_data.append({
@@ -3933,13 +3926,16 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "holdings": custom_item.get('holdings', "사용자가 직접 검색하여 추가한 맞춤 관심 종목")
             })
 
-    # 상장 이후 실제 연평균 수익률(CAGR) 계산 (네이버 XML + 야후 결합)
+    # 👇 [핵심 업데이트 1] 네이버 금융 다중 병렬 처리 엔진 (동시에 여러개 긁어오기)
+    import concurrent.futures
+
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
         us_codes = [c for c in codes if not c.isdigit()]
         kr_codes = [c for c in codes if c.isdigit()]
         
+        # 미국 주식/ETF (야후 비동기 처리)
         try:
             if us_codes:
                 from yahooquery import Ticker as yq_Ticker
@@ -3961,10 +3957,16 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         except: pass
         except: pass
 
-        for c in kr_codes:
+        # 한국 주식/ETF (네이버 멀티스레드 병렬 우회 처리)
+        def get_naver_cagr(c):
             try:
                 url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
-                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                # 💡 강력한 헤더 추가 (봇 차단 우회)
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': 'https://finance.naver.com/'
+                }
+                res = requests.get(url, headers=headers, timeout=5)
                 if res.status_code == 200:
                     soup = BeautifulSoup(res.text, 'html.parser')
                     items = soup.find_all('item')
@@ -3978,11 +3980,20 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         days = (last_date - first_date).days
                         if days >= 365 and first_price > 0:
                             cagr = ((last_price / first_price) ** (365.25 / days) - 1) * 100
-                            cagr_dict[c] = {'cagr': round(cagr, 2), 'date': first_date.strftime('%Y-%m-%d')}
+                            return c, {'cagr': round(cagr, 2), 'date': first_date.strftime('%Y-%m-%d')}
             except: pass
-            
+            return c, None
+
+        if kr_codes:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                results = executor.map(get_naver_cagr, kr_codes)
+                for code, data in results:
+                    if data:
+                        cagr_dict[code] = data
+                        
         return cagr_dict
 
+    # 👇 [핵심 업데이트 2] 현재가 수집 역시 다중 병렬 처리 엔진 적용
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
@@ -3992,7 +4003,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         try:
             from yahooquery import Ticker as yq_Ticker
             if us_codes:
-                yq_us = yq_Ticker(us_codes)
+                yq_us = yq_Ticker(us_codes, asynchronous=True)
                 us_data = yq_us.price
                 for c in us_codes:
                     if isinstance(us_data, dict) and c in us_data and isinstance(us_data[c], dict):
@@ -4002,7 +4013,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                             
             if kr_codes:
                 ks_codes = [f"{c}.KS" for c in kr_codes]
-                yq_kr = yq_Ticker(ks_codes)
+                yq_kr = yq_Ticker(ks_codes, asynchronous=True)
                 kr_data = yq_kr.price
                 for i, c in enumerate(kr_codes):
                     ks_code = ks_codes[i]
@@ -4012,19 +4023,34 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                             prices[c] = int(krw_price)
         except Exception: pass
         
-        for c in kr_codes:
-            if c not in prices or prices[c] == 0:
-                try:
-                    url = f"https://m.stock.naver.com/api/stock/{c}/basic"
-                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-                    data = res.json()
-                    close_price = data.get('closePrice', '0').replace(',', '')
-                    if close_price.isdigit() and int(close_price) > 0:
-                        prices[c] = int(close_price)
-                except: pass
+        # 야후에서 갱신이 누락된 종목들 네이버 모바일에서 다중 병렬 우회
+        missing_kr_codes = [c for c in kr_codes if c not in prices or prices[c] == 0]
+        
+        def get_naver_price(c):
+            try:
+                url = f"https://m.stock.naver.com/api/stock/{c}/basic"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://m.stock.naver.com/'
+                }
+                res = requests.get(url, headers=headers, timeout=5)
+                data = res.json()
+                close_price = data.get('closePrice', '0').replace(',', '')
+                if close_price.isdigit() and int(close_price) > 0:
+                    return c, int(close_price)
+            except: pass
+            return c, 0
+
+        if missing_kr_codes:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                results = executor.map(get_naver_price, missing_kr_codes)
+                for code, price in results:
+                    if price > 0:
+                        prices[code] = price
+                        
         return prices
 
-    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다... (160개 종목 순차 로딩 중)"):
+    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 병렬 서버로 긁어오고 있습니다... (약 160개 종목 초고속 로딩 중)"):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         
@@ -4032,6 +4058,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         real_cagrs = fetch_historical_cagr(all_codes)
         
         for item in etf_data:
+            if 'list_date' not in item:
+                item['list_date'] = "데이터없음"
             if item['code'] in real_prices and real_prices[item['code']] > 0:
                 item['price'] = real_prices[item['code']]
             if item['code'] in real_cagrs:
