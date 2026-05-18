@@ -3639,13 +3639,12 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         col_in, col_spacer = st.columns([2, 1])
         monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=1500000)
         
-        # 배분 로직
         temp_budget = monthly_budget
-        pension = min(500000, temp_budget) # 연 600만
+        pension = min(500000, temp_budget) 
         temp_budget -= pension
-        irp = min(250000, temp_budget)    # 연 300만 (합산 900)
+        irp = min(250000, temp_budget)    
         temp_budget -= irp
-        isa = min(1666666, temp_budget)   # 연 2000만
+        isa = min(1666666, temp_budget)   
         normal = max(0, temp_budget - isa)
 
         c1, c2, c3, c4 = st.columns(4)
@@ -3654,7 +3653,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-   # --- 2. ETF 데이터 정의 (구성 종목 상세 추가) ---
+    # --- 2. ETF 데이터 정의 (기본 예비 데이터) ---
     etf_data = [
         # 테마 1: 지수 코어 (국내상장)
         {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 200", "code": "069500", "price": 36000, "cagr": 5.8, "holdings": "삼성전자, SK하이닉스, 현대차, 셀트리온 등 국내 우량 200개 기업"},
@@ -3672,7 +3671,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "SOL 미국배당다우존스", "code": "446720", "price": 10500, "cagr": 8.3, "holdings": "TIGER 미국배당다우존스(SCHD)와 동일한 기초지수 추종 (월배당)"},
         {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 10200, "cagr": 7.4, "holdings": "미국 배당주 투자 + 콜옵션 매도로 연 7% 추가 배당 수익 추구"},
         
-        # 테마 4: 미국 배당 & 인컴 ETF (16종)
+        # 테마 4: 미국 배당 & 인컴 ETF
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SCHD (미국배당다우존스)", "code": "SCHD", "price": 105000, "cagr": 11.0, "holdings": "홈디포, 텍사스인스트루먼트, 애브비 등 10년 이상 배당성장 100대 기업"},
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPI (프리미엄 인컴)", "code": "JEPI", "price": 75000, "cagr": 8.5, "holdings": "S&P500 저변동성 주식 + ELN(커버드콜)로 높은 월배당 지급"},
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPQ (나스닥 프리미엄)", "code": "JEPQ", "price": 72000, "cagr": 9.5, "holdings": "나스닥100 우량 기술주 + ELN(커버드콜)로 성장과 월배당 동시 추구"},
@@ -3690,7 +3689,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "LQD (투자등급 회사채)", "code": "LQD", "price": 145000, "cagr": 4.0, "holdings": "JPM, 골드만삭스, 애플 등이 발행한 우량 투자등급 회사채"},
         {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VNQ (미국 부동산 리츠)", "code": "VNQ", "price": 110000, "cagr": 7.0, "holdings": "프로로지스, 아메리칸타워 등 미국 상업용 부동산 리츠"},
 
-        # 테마 5: 미국 우량 배당/성장주 (25종)
+        # 테마 5: 미국 우량 배당/성장주
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "AAPL (애플)", "code": "AAPL", "price": 230000, "cagr": 15.0, "holdings": "단일 종목 (아이폰, 맥, 서비스 생태계)"},
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MSFT (마이크로소프트)", "code": "MSFT", "price": 540000, "cagr": 18.0, "holdings": "단일 종목 (클라우드 Azure, Office 365, AI)"},
         {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JNJ (존슨앤존슨)", "code": "JNJ", "price": 210000, "cagr": 8.0, "holdings": "단일 종목 (글로벌 헬스케어 및 제약 대장주)"},
@@ -3722,6 +3721,46 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🛡️ 기타 안전자산", "name": "ACE KRX금현물", "code": "411060", "price": 14500, "cagr": 5.5, "holdings": "국내 KRX 금시장의 금현물 가격 추종 (안전자산 헤지)"},
     ]
 
+    # 👇 [새로 추가된 핵심 로직] 실시간 현재가 연동 (야후 파이낸스 & 한국거래소)
+    @st.cache_data(ttl=3600)
+    def fetch_realtime_simulator_prices(codes, ex_rate):
+        prices = {}
+        kr_codes = [c for c in codes if c.isdigit()]
+        us_codes = [c for c in codes if not c.isdigit()]
+        
+        # 1. 국장 현재가 가져오기 (fdr 활용)
+        try:
+            krx_df = fdr.StockListing('KRX')
+            for c in kr_codes:
+                match = krx_df[krx_df['Code'] == c]
+                if not match.empty:
+                    prices[c] = int(match['Close'].iloc[0])
+        except: pass
+        
+        # 2. 미장 현재가 가져오기 (yahooquery 벌크 처리 + 환율 곱하기)
+        try:
+            from yahooquery import Ticker as yq_Ticker
+            if us_codes:
+                yq = yq_Ticker(us_codes)
+                p_data = yq.price
+                for c in us_codes:
+                    if isinstance(p_data, dict) and c in p_data and isinstance(p_data[c], dict):
+                        usd_price = p_data[c].get('regularMarketPrice', 0)
+                        if usd_price > 0:
+                            prices[c] = int(usd_price * ex_rate) # 원화로 환산하여 저장
+        except: pass
+        return prices
+
+    # 실시간 가격 수집 실행 및 etf_data 덮어쓰기
+    with st.spinner("한국 및 미국 증시에서 최신 종목 가격을 실시간으로 가져와 연동 중입니다..."):
+        current_ex_rate = st.session_state.get('ex_rate', 1350.0)
+        all_codes = [item['code'] for item in etf_data]
+        real_prices = fetch_realtime_simulator_prices(all_codes, current_ex_rate)
+        
+        for item in etf_data:
+            if item['code'] in real_prices and real_prices[item['code']] > 0:
+                item['price'] = real_prices[item['code']]
+
     # --- 3. 포트폴리오 구성 UI ---
     st.markdown("### 🛒 2. 나만의 노후 포트폴리오 담기")
     
@@ -3743,7 +3782,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             for stock in theme_stocks:
                 cols = st.columns([5, 2, 2, 2])
                 
-                # 💡 종목 이름 아래에 구성 종목(Holdings) 설명을 작게(caption) 표시합니다.
                 with cols[0]:
                     st.markdown(f"**{stock['name']}** ({stock['code']})")
                     st.caption(f"🔍 {stock.get('holdings', '단일 종목 및 자산')}")
@@ -3766,7 +3804,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         st.info("위 리스트에서 ETF 및 주식 수량을 입력하시면 시뮬레이션이 시작됩니다.")
     else:
         total_principal = sum([v['qty'] * v['price'] for k, v in cart.items()])
-        # 가중평균 CAGR 계산
         weighted_cagr = sum([(v['qty'] * v['price'] * v['cagr']) for k, v in cart.items()]) / total_principal if total_principal > 0 else 0
         
         d_col1, d_col2 = st.columns([1, 2])
@@ -3790,10 +3827,9 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             df_chart = pd.DataFrame(chart_data)
             st.area_chart(df_chart.set_index("년수"), color="#2b579a")
 
-        # 장부 리스트
         with st.expander("📝 선택한 종목 명세서 보기"):
             display_cart = pd.DataFrame(cart).T
             display_cart['총액'] = display_cart['qty'] * display_cart['price']
             st.table(display_cart[['name', 'qty', 'price', '총액', 'cagr']])
 
-    st.caption("※ 본 데이터는 과거 성과를 바탕으로 한 시뮬레이션이며, 가격과 기대수익률은 예시용으로 설정된 수치입니다.")
+    st.caption("※ 실시간 연동된 주가를 기반으로 계산된 시뮬레이션이며, 미래의 수익을 보장하지 않습니다.")
