@@ -2103,7 +2103,9 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                             search_ticker = us_results[0].split(" ")[0]
                             pos_name_kr = us_results[0].split(" (")[1].split(" /")[0]
                         else:
-                            search_ticker = None
+                            # 💡 [핵심 버그 수정] 검색 API 차단 시 버리지 않고 사용자가 입력한 티커를 그대로 사용!
+                            search_ticker = pos_name
+                            pos_name_kr = pos_name
                     else:
                         krx_df = get_krx_stocks()
                         match = krx_df[krx_df['Name'].str.contains(pos_name)]
@@ -2114,11 +2116,13 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                             search_ticker = None
 
                     if search_ticker:
+                        time.sleep(0.2) # 💡 API 연속 호출 차단 방어 (0.2초 딜레이)
                         res = analyze_technical_pattern(pos_name_kr, search_ticker)
                         if res:
                             current_price = res['현재가']
                             invested = entry_price * quantity
                             current_val = current_price * quantity
+                            
                             if is_us:
                                 invested_krw = invested * ex_rate
                                 current_val_krw = current_val * ex_rate
@@ -2136,6 +2140,7 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                                 "평가금액(원환산)": current_val_krw, "상태": res['상태'], "섹터": res.get('섹터', '기타')
                             })
                         else: st.error(f"'{pos_name}' 데이터를 수집할 수 없어 분석에서 제외되었습니다.")
+                    else: st.error(f"'{pos_name}' 종목을 찾을 수 없어 분석에서 제외되었습니다.")
                         
                 if portfolio_summary:
                     overall_pnl_pct = ((total_current_all - total_invested_all) / total_invested_all) * 100 if total_invested_all > 0 else 0
