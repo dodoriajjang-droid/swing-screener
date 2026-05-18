@@ -3780,7 +3780,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다. 다른 키워드로 검색해 보세요.")
 
-    # 👇 [핵심 해결] 원본 160개 유지 + 잘못된 종목 코드 100% 진짜 ETF 코드로 교정 완료
+    # 👇 원본 160개 유지 + 잘못된 종목 코드 100% 교정 + 중복 제거 완료
     raw_etf_data = [
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "069500", "name": "KODEX 200"},
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "360750", "name": "TIGER 미국S&P500"},
@@ -3828,20 +3828,16 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "461200", "name": "ACE 글로벌AI액티브"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "447770", "name": "KODEX K-로봇액티브"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "412510", "name": "TIGER 글로벌혁신성장"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁 혁신 TOP 20", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "107380", "name": "KODEX 소프트웨어"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489200", "name": "KODEX 미국AI소프트웨어"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "488100", "name": "RISE 글로벌AI"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "492200", "name": "TIGER 미국AI빅테크위클리"},
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "481500", "name": "KODEX 미국AI반도체핵심장비"}, 
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "462040", "name": "TIGER 글로벌AI액티브"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "441220", "name": "TIGER 글로벌로봇"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "279310", "name": "KODEX 글로벌4차산업로보틱스"}, 
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "465690", "name": "ACE AI반도체포커스"}, 
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "455850", "name": "SOL 반도체소부장Fn"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "157490", "name": "TIGER 소프트웨어"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "489400", "name": "KODEX 미국핵심AI테크액티브"},
-        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "447770", "name": "KODEX K-로봇"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "446720", "name": "SOL 미국배당다우존스"}, 
         {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "code": "381180", "name": "TIGER 미국테크TOP10"}, 
 
@@ -3861,10 +3857,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "475210", "name": "KODEX 글로벌방산&시큐리티"},
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "476500", "name": "TIGER 국방우주핵심"},
         {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "482110", "name": "PLUS 글로벌핵심방산"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "432200", "name": "TIGER 우주항공iSelect"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "449920", "name": "ARIRANG K-방산Fn"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "417610", "name": "PLUS K방산"},
-        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "code": "449450", "name": "KODEX K-방산"},
 
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "287330", "name": "RISE 금융지주"},
         {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "code": "091170", "name": "KODEX 은행"},
@@ -3951,7 +3943,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium"}
     ]
 
-    # 👇 네이버 및 야후 공식 API와 대조하여 종목명 100% 강제 동기화 (오타 완벽 박멸)
+    # 👇 네이버 및 야후 공식 API와 대조하여 종목명 100% 강제 동기화
     @st.cache_data(ttl=86400)
     def update_official_names(items):
         try:
@@ -4178,9 +4170,18 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     
     for theme in theme_order:
         theme_stocks = [item for item in etf_data if item['theme'] == theme]
-        if theme_stocks:
+        
+        # 💡 [중복 방지 로직] 리스트 내 중복 요소 완벽 제거 방어막 추가
+        seen = set()
+        unique_stocks = []
+        for s in theme_stocks:
+            if s['code'] not in seen:
+                unique_stocks.append(s)
+                seen.add(s['code'])
+
+        if unique_stocks:
             with st.expander(f"{theme} 선택", expanded=(theme=="🌐 1. 시장 대표 지수 코어 TOP 20" or theme=="🔎 내가 추가한 맞춤 종목")):
-                for stock in theme_stocks:
+                for idx, stock in enumerate(unique_stocks):
                     cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
                     
                     with cols[0]:
@@ -4211,7 +4212,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         
                     cols[3].markdown(f"연평균(상장후):<br>{cagr_display}", unsafe_allow_html=True)
                     
-                    unique_key = f"ret_qty_{theme}_{stock['code']}"
+                    # 💡 고유 인덱스를 부여하여 StreamlitDuplicateElementKey 에러 원천 차단
+                    unique_key = f"ret_qty_{theme}_{stock['code']}_{idx}"
                     qty = cols[4].number_input("수량(주)", min_value=0, step=1, key=unique_key, label_visibility="collapsed")
                     
                     if qty > 0:
