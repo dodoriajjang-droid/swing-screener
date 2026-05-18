@@ -427,14 +427,13 @@ def get_naver_ipo_data():
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
     krx_list = []
-    # 네이버 차단 우회를 위해 브라우저 헤더 강화
+    # 네이버 차단 우회를 위해 브라우저 헤더 강력 위장
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Referer': 'https://finance.naver.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     }
     
-    # 1. KR 국장 데이터 스크래핑 (천천히 순차적으로)
+    # 1. KR 국장 데이터 스크래핑
     try:
         for page in range(1, 10): 
             url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
@@ -457,43 +456,26 @@ def get_dividend_portfolio(ex_rate):
                                     krx_list.append({'종목명': name, '현재가': price_fmt, '예상 배당금': div_float, '비고': 'Naver 실시간'})
                             except Exception: pass
                     break
-            time.sleep(0.4) # 💡 네이버 봇 차단 방지 (0.4초 대기)
+            time.sleep(0.4) # 💡 네이버 봇 차단 방지 (0.4초 텀)
     except Exception: pass
 
     krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
     
-    # 네이버 API 차단 시 방어용 우회 데이터 (천천히 순차적으로)
-    if krx_df.empty or len(krx_df) < 5:
-        kr_fallbacks = [
-            ("기업은행", "024110.KS"), ("우리금융지주", "316140.KS"), ("하나금융지주", "086790.KS"), 
-            ("KB금융", "105560.KS"), ("KT&G", "033780.KS"), ("현대차", "005380.KS"), 
-            ("기아", "000270.KS"), ("SK텔레콤", "017670.KS"), ("맥쿼리인프라", "090430.KS"),
-            ("삼성화재", "000810.KS"), ("삼성생명", "032830.KS"), ("고려아연", "010130.KS")
-        ]
-        fb_list = []
-        for name, t in kr_fallbacks:
-            try:
-                info = yf.Ticker(t).info
-                price = info.get('previousClose', info.get('currentPrice', 0))
-                div = info.get('dividendRate', info.get('trailingAnnualDividendRate', 0))
-                if price > 0 and div > 0:
-                    fb_list.append({'종목명': name, '현재가': f"{int(price):,}원", '예상 배당금': float(div), '비고': 'Yahoo 우회'})
-            except Exception: pass
-            time.sleep(0.2) # 💡 야후 봇 차단 방지
-                
-        krx_df = pd.DataFrame(fb_list) if fb_list else pd.DataFrame([{"종목명": "데이터 수집 제한", "현재가": "0원", "예상 배당금": 0.0, "비고": "오류"}])
-
     if not krx_df.empty:
         krx_df = krx_df.sort_values('예상 배당금', ascending=False).head(300)
         krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
 
-    # 2. 미국 주식 & ETF 데이터 수집
+    # 2. 미국 주식 & ETF 데이터 수집 (하드코딩 예비 데이터 전면 삭제)
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
     
     def fetch_yf_dividend_safe(ticker):
         try:
-            t = yf.Ticker(ticker)
+            # 💡 [핵심 우회 기법] yfinance에 requests.Session()을 주입하여 크롤러가 아닌 일반 크롬 브라우저로 인식하게 속임
+            session = requests.Session()
+            session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+            
+            t = yf.Ticker(ticker, session=session)
             info = t.info
             if not info: return None
             
@@ -515,44 +497,26 @@ def get_dividend_portfolio(ex_rate):
                     '현재가': f"${price:,.2f} ({price_krw:,}원)", 
                     '예상 배당금': float(div_rate),
                     '표시 배당금': f"${div_rate:,.2f} ({div_krw:,}원)",
-                    '비고': 'Yahoo 실시간'
+                    '비고': 'Yahoo API 실시간'
                 }
         except Exception: pass
         return None
 
     us_list, etf_list = [], []
     
-    # 💡 [핵심 수정] 동시 접속(ThreadPoolExecutor)을 제거하고, 순차적으로 0.1초씩 쉬면서 요청하여 차단 원천 봉쇄
+    # 💡 0.3초의 텀을 주어 야후 파이낸스 서버의 Rate Limit(접속량 제한) 회피
     for ticker in us_tickers:
         res = fetch_yf_dividend_safe(ticker)
         if res: us_list.append(res)
-        time.sleep(0.1)
+        time.sleep(0.3)
         
     for ticker in etf_tickers:
         res = fetch_yf_dividend_safe(ticker)
         if res: etf_list.append(res)
-        time.sleep(0.1)
+        time.sleep(0.3)
 
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
-
-    # 🛡️ 최후의 보루: 야후가 아예 접속을 막았을 때 띄워줄 예비 데이터
-    if us_df.empty:
-        us_fallback = [
-            {"종목명": "Verizon (VZ)", "현재가": "$40.00 (54,000원)", "표시 배당금": "$2.66 (3,590원)", "예상 배당금": 2.66, "비고": "API 차단(예비)"},
-            {"종목명": "Altria (MO)", "현재가": "$45.00 (60,750원)", "표시 배당금": "$3.92 (5,290원)", "예상 배당금": 3.92, "비고": "API 차단(예비)"},
-            {"종목명": "Chevron (CVX)", "현재가": "$150.00 (202,500원)", "표시 배당금": "$6.52 (8,800원)", "예상 배당금": 6.52, "비고": "API 차단(예비)"},
-            {"종목명": "Coca-Cola (KO)", "현재가": "$60.00 (81,000원)", "표시 배당금": "$1.94 (2,610원)", "예상 배당금": 1.94, "비고": "API 차단(예비)"}
-        ]
-        us_df = pd.DataFrame(us_fallback)
-        
-    if etf_df.empty:
-        etf_fallback = [
-            {"종목명": "JPMorgan Equity Premium (JEPI)", "현재가": "$55.00 (74,250원)", "표시 배당금": "$4.50 (6,070원)", "예상 배당금": 4.50, "비고": "API 차단(예비)"},
-            {"종목명": "Schwab US Dividend Equity (SCHD)", "현재가": "$78.00 (105,300원)", "표시 배당금": "$2.70 (3,640원)", "예상 배당금": 2.70, "비고": "API 차단(예비)"},
-            {"종목명": "Vanguard High Dividend Yield (VYM)", "현재가": "$115.00 (155,250원)", "표시 배당금": "$3.50 (4,720원)", "예상 배당금": 3.50, "비고": "API 차단(예비)"}
-        ]
-        etf_df = pd.DataFrame(etf_fallback)
 
     if not us_df.empty:
         us_df = us_df.sort_values('예상 배당금', ascending=False)
