@@ -4026,7 +4026,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
     # 👇 절대 0원이 나오지 않게 하는 3중 방어 추적 엔진
     import yfinance as yf
-    import datetime
     import concurrent.futures
     
     @st.cache_data(ttl=86400)
