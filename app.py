@@ -3725,7 +3725,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         parsed_code = parts[1].replace("]", "").strip()
                         
                         if not any(item['code'] == parsed_code for item in st.session_state.custom_etfs):
-                            # 맞춤 종목 초기 데이터 구조에 holdings 상태 추가
                             st.session_state.custom_etfs.append({'name': parsed_name, 'code': parsed_code, 'holdings': '사용자가 직접 검색하여 추가한 맞춤 관심 종목'})
                             added_count += 1
                             
@@ -3736,93 +3735,191 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다. 다른 키워드로 검색해 보세요.")
 
-    # --- 3. ETF & 주식 데이터 정의 ---
+    # --- 3. ETF & 주식 원본 데이터 160종 통합 정의 ---
     etf_data = [
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 200", "code": "069500", "price": 0, "cagr": 5.8, "holdings": "삼성전자, SK하이닉스, 현대차, 셀트리온 등 국내 우량 200개 기업"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국S&P500", "code": "360750", "price": 0, "cagr": 10.2, "holdings": "마이크로소프트, 애플, 엔비디아, 아마존 등 미국 대표 500개 기업"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "ACE 미국S&P500", "code": "360200", "price": 0, "cagr": 10.2, "holdings": "미국 대표 500개 기업 (환노출)"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 미국나스닥100", "code": "133690", "price": 0, "cagr": 13.5, "holdings": "애플, 마이크로소프트, 알파벳, 테슬라 등 미국 혁신 기술주 100개"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "KODEX 인도Nifty50", "code": "453810", "price": 0, "cagr": 9.0, "holdings": "릴라이언스, HDFC은행, 인포시스 등 인도 핵심 우량주 50개"},
-        {"theme": "🌐 시장 지수 코어 (국내상장)", "name": "TIGER 일본니케이225", "code": "241180", "price": 0, "cagr": 7.5, "holdings": "일본 도쿄증권거래소 대표 225개 기업"},
+        # 🌐 1. 시장 대표 지수 코어 TOP 20
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 200", "code": "069500"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 미국S&P500", "code": "360750"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "ACE 미국S&P500", "code": "365040"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "RISE 미국S&P500", "code": "411540"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 미국S&P500TR", "code": "448490"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 코스닥150", "code": "229200"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 코스피200", "code": "105150"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "RISE 200", "code": "105190"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 인도Nifty50", "code": "453810"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 인도Nifty50", "code": "453870"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "ACE 베트남VN30(합성)", "code": "245620"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 미국S&P500(H)", "code": "409820"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 미국나스닥100TR", "code": "379810"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "ACE 미국S&P500 SRI", "code": "415980"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX MSCI Korea", "code": "105100"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 일본니케이225", "code": "241180"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "KODEX 미국나스닥100(H)", "code": "448500"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "ACE 미국다우존스고배당", "code": "245700"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "RISE 코스피200디비던드", "code": "341200"},
+        {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "name": "TIGER 대만TAIEX", "code": "285600"},
 
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국필라델피아반도체", "code": "381170", "price": 0, "cagr": 14.1, "holdings": "엔비디아, AMD, 브로드컴, TSMC, ASML 등 글로벌 반도체 30개"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "ACE 글로벌반도체TOP4", "code": "441680", "price": 0, "cagr": 15.2, "holdings": "엔비디아, TSMC, ASML, 삼성전자 집중 투자"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER 미국테크TOP10", "code": "381180", "price": 0, "cagr": 13.8, "holdings": "애플, MS, 알파벳, 아마존, 메타 등 미국 빅테크 시총 상위 10개"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "KODEX 미국AI테크TOP10", "code": "480460", "price": 0, "cagr": 14.5, "holdings": "미국 AI 산업 주도 빅테크 10개 종목"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "TIGER AI반도체핵심공정", "code": "472150", "price": 0, "cagr": 13.0, "holdings": "한미반도체, HPSP 등 국내 AI 반도체 소부장 핵심"},
-        {"theme": "💻 반도체 & 빅테크 (국내상장)", "name": "KBSTAR 글로벌데이터센터리츠", "code": "381560", "price": 0, "cagr": 8.5, "holdings": "에퀴닉스 등 글로벌 데이터센터 인프라 및 리츠"},
+        # 💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 미국필라델피아반도체", "code": "381170"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE 글로벌반도체TOP4 Plus", "code": "441680"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "RISE 미국반도체NYSE", "code": "402320"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 미국테크TOP10 INDXX", "code": "381180"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE 미국빅테크TOP7 Plus", "code": "465480"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 반도체소부장", "code": "456540"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE AI반도체TOP3플러스", "code": "465700"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "KODEX AI반도체TOP2플러스", "code": "455550"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "KODEX 미국빅테크상위10", "code": "475430"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "KODEX 2차전지핵심소재TR", "code": "412000"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 2차전지테마", "code": "305540"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE 미국IT인덱스", "code": "365100"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "RISE 반도체밸류체인", "code": "411200"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "KODEX 반도체", "code": "091160"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 글로벌반도체HBM", "code": "490100"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "KODEX 미국AI반도체핵심장비", "code": "481500"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "SOL 미국반도체소부장", "code": "479210"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "TIGER 일본반도체FACTSET", "code": "466920"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "ACE 미국반도체타겟밸류", "code": "496200"},
+        {"theme": "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", "name": "HANARO 미국AI메모리반도체", "code": "494100"},
 
-        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당다우존스", "code": "458730", "price": 0, "cagr": 8.4, "holdings": "홈디포, 텍사스인스트루먼트, 애브비, 쉐브론 등 미국 우량 배당성장주"},
-        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "SOL 미국배당다우존스", "code": "446720", "price": 0, "cagr": 8.3, "holdings": "TIGER 미국배당다우존스(SCHD)와 동일한 기초지수 추종 (월배당)"},
-        {"theme": "💰 고배당 & 월배당 (국내상장)", "name": "TIGER 미국배당+7%프리미엄", "code": "461580", "price": 0, "cagr": 7.4, "holdings": "미국 배당주 투자 + 콜옵션 매도로 연 7% 추가 배당 수익 추구"},
+        # 🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KODEX 미국AI전력핵심인프라", "code": "484320"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "ACE 글로벌AI액티브", "code": "461200"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "RISE AI로봇인프라", "code": "478100"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "TIGER 글로벌혁신성장", "code": "412510"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "TIGER 글로벌사이버보안", "code": "411420"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "ACE 글로벌메타버스액티브", "code": "412110"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KODEX 미국AI소프트웨어", "code": "489200"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "RISE 글로벌AI서버인프라", "code": "491400"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "TIGER 미국AI빅테크위클리", "code": "492200"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KODEX 국산AI노드", "code": "476820"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "TIMEFOLIO 글로벌AI액티브", "code": "463120"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "TIGER 로봇TOP10무빙액티브", "code": "441220"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KODEX 로보틱스", "code": "462310"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "ACE 로봇핵심장비TOP4플러스", "code": "469110"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "SOL 글로벌사이버보안인컴", "code": "472110"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "RISE 미국AI데이터센터", "code": "488100"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KODEX 미국핵심AI테크액티브", "code": "489400"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KIWOOM 글로벌로봇액티브", "code": "495200"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "SOL 테크분배강화형", "code": "497200"},
+        {"theme": "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20", "name": "KIWOOM 미국AI하이베타", "code": "495100"},
 
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SCHD (미국배당다우존스)", "code": "SCHD", "price": 0, "cagr": 11.0, "holdings": "홈디포, 텍사스인스트루먼트, 애브비 등 10년 이상 배당성장 100대 기업"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPI (프리미엄 인컴)", "code": "JEPI", "price": 0, "cagr": 8.5, "holdings": "S&P500 저변동성 주식 + ELN(커버드콜)로 높은 월배당 지급"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "JEPQ (나스닥 프리미엄)", "code": "JEPQ", "price": 0, "cagr": 9.5, "holdings": "나스닥100 우량 기술주 + ELN(커버드콜)로 성장과 월배당 동시 추구"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VYM (고배당수익)", "code": "VYM", "price": 0, "cagr": 8.0, "holdings": "JPM, 엑슨모빌, 존슨앤존슨 등 미국 고배당 대형주 400여 개"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VIG (배당성장)", "code": "VIG", "price": 0, "cagr": 10.0, "holdings": "MS, 애플, JPM 등 10년 이상 연속 배당 인상 대형주"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SPYD (S&P500 고배당)", "code": "SPYD", "price": 0, "cagr": 7.5, "holdings": "S&P500 내 배당수익률 상위 80개 기업 균일 비중 투자"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DGRO (핵심 배당성장)", "code": "DGRO", "price": 0, "cagr": 10.5, "holdings": "MS, 애플, 애브비 등 배당 성향이 건전한 배당성장주"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "NOBL (배당귀족)", "code": "NOBL", "price": 0, "cagr": 9.0, "holdings": "25년 이상 배당금을 늘려온 '배당귀족' 60여 개 기업"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "DVY (선별 고배당)", "code": "DVY", "price": 0, "cagr": 8.0, "holdings": "유틸리티, 금융 등 고배당 100대 기업 (5년 지속 배당 기준)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "SDY (SPDR 배당)", "code": "SDY", "price": 0, "cagr": 9.0, "holdings": "S&P1500 중 20년 이상 배당 증가 기업 (배당수익률 가중)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HDV (핵심 고배당)", "code": "HDV", "price": 0, "cagr": 7.5, "holdings": "엑슨모빌, 존슨앤존슨 등 재무가 건전한 고배당 75개 기업"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "PFF (미국 우선주)", "code": "PFF", "price": 0, "cagr": 5.5, "holdings": "웰스파고, 뱅크오브아메리카 등 주요 금융사 우선주 (고정 배당)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 0, "cagr": 4.5, "holdings": "만기 20년 이상의 미국 초장기 국채 (금리 인하시 수혜)"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "HYG (하이일드 회사채)", "code": "HYG", "price": 0, "cagr": 5.5, "holdings": "투자주의 등급(BB 이하)의 고수익/고위험 미국 회사채"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "LQD (투자등급 회사채)", "code": "LQD", "price": 0, "cagr": 4.0, "holdings": "JPM, 골드만삭스, 애플 등이 발행한 우량 투자등급 회사채"},
-        {"theme": "🇺🇸 미국 배당 & 인컴 ETF", "name": "VNQ (미국 부동산 리츠)", "code": "VNQ", "price": 0, "cagr": 7.0, "holdings": "프로로지스, 아메리칸타워 등 미국 상업용 부동산 리츠"},
+        # 🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 미국우주테크", "code": "492100"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "1Q 미국우주항공테크", "code": "490500"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "SOL 글로벌방산인프라", "code": "497100"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "KODEX K-방산", "code": "449450"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "PLUS K방산", "code": "417610"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 글로벌우주항공액티브", "code": "482200"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "ARIRANG K-방산Fn", "code": "449920"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "KODEX 미국우주항공Fn", "code": "433110"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 미국우주항공iSelect", "code": "432200"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "ACE 킹덤방산우주", "code": "471200"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "HANARO 글로벌우주항공", "code": "421550"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "PLUS 은채권혼합", "code": "493200"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "RISE 글로벌수소&우주", "code": "452110"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "KODEX K-방산제조", "code": "451220"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 방산부품TOP5", "code": "462150"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "ACE 미국방산TOP10", "code": "469900"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "SOL 우주항공핵심소재", "code": "471900"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "KODEX 글로벌방산&시큐리티", "code": "475210"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "TIGER 국방우주핵심", "code": "476500"},
+        {"theme": "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20", "name": "PLUS 글로벌핵심방산", "code": "482110"},
 
-        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SPY (S&P 500)", "code": "SPY", "price": 0, "cagr": 10.0, "holdings": "미국 S&P 500 지수 추종 (세계 최대 ETF)"},
-        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "QQQ (나스닥 100)", "code": "QQQ", "price": 0, "cagr": 13.5, "holdings": "나스닥 100 지수 추종 (미국 빅테크 핵심)"},
-        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "DIA (다우존스 30)", "code": "DIA", "price": 0, "cagr": 9.0, "holdings": "다우존스 산업평균 30개 우량 기업 (월배당)"},
-        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SMH (반도체 25)", "code": "SMH", "price": 0, "cagr": 15.0, "holdings": "엔비디아, TSMC 등 글로벌 반도체 25대 기업 집중"},
-        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SOXX (필라델피아 반도체)", "code": "SOXX", "price": 0, "cagr": 14.5, "holdings": "필라델피아 반도체 지수 추종 (미국 반도체 중심)"},
-        {"theme": "🇺🇸 미국 지수 & 메가테크 ETF", "name": "SRVR (데이터센터 리츠)", "code": "SRVR", "price": 0, "cagr": 9.5, "holdings": "글로벌 데이터센터 및 통신 인프라 관련 리츠"},
+        # 🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 금융지주", "code": "287330"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 은행", "code": "091170"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 금융지주고배당", "code": "455100"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 코리아밸류업", "code": "491100"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 현대차그룹밸류업모멘텀", "code": "492500"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 은행고배당플러스TOP10", "code": "466940"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "ACE 주주환원가치주액티브", "code": "466810"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 보험", "code": "140710"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 증권", "code": "157500"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 대형고배당10TR", "code": "354350"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 고배당", "code": "276970"}, # 원본의 오류를 수정하여 실존하는 KODEX 고배당 코드로 교체
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 코스피고배당", "code": "210780"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "ACE 주주환원대형주", "code": "471550"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "SOL 금융지주플러스고배당", "code": "476220"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "HANARO 주주가치밸류업", "code": "478550"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "KODEX 밸류업핵심지수", "code": "491150"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "TIGER 밸류업가치성장", "code": "491250"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "ACE 밸류업포커스액티브", "code": "492150"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "PLUS 코리아밸류업성장", "code": "493150"},
+        {"theme": "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20", "name": "RISE 현대차고정피지컬AI", "code": "491200"},
 
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "AAPL (애플)", "code": "AAPL", "price": 0, "cagr": 15.0, "holdings": "단일 종목 (아이폰, 맥, 서비스 생태계)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MSFT (마이크로소프트)", "code": "MSFT", "price": 0, "cagr": 18.0, "holdings": "단일 종목 (클라우드 Azure, Office 365, AI)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JNJ (존슨앤존슨)", "code": "JNJ", "price": 0, "cagr": 8.0, "holdings": "단일 종목 (글로벌 헬스케어 및 제약 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "XOM (엑슨모빌)", "code": "XOM", "price": 0, "cagr": 9.0, "holdings": "단일 종목 (글로벌 1위 석유 및 에너지 기업)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "JPM (JP모건)", "code": "JPM", "price": 0, "cagr": 10.0, "holdings": "단일 종목 (미국 최대 규모 금융지주사)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PG (P&G)", "code": "PG", "price": 0, "cagr": 8.5, "holdings": "단일 종목 (글로벌 필수소비재 1위, 60년+ 배당증가)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CVX (쉐브론)", "code": "CVX", "price": 0, "cagr": 8.5, "holdings": "단일 종목 (워런 버핏이 사랑한 미국 에너지 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "HD (홈디포)", "code": "HD", "price": 0, "cagr": 12.0, "holdings": "단일 종목 (미국 1위 건축/인테리어 자재 소매업체)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "ABBV (애브비)", "code": "ABBV", "price": 0, "cagr": 9.5, "holdings": "단일 종목 (휴미라 등 강력한 현금흐름을 가진 바이오제약)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MRK (머크)", "code": "MRK", "price": 0, "cagr": 9.0, "holdings": "단일 종목 (키트루다 등 면역항암제 강자)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "KO (코카콜라)", "code": "KO", "price": 0, "cagr": 7.5, "holdings": "단일 종목 (버핏의 영원한 픽, 강력한 배당귀족)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PEP (펩시)", "code": "PEP", "price": 0, "cagr": 8.0, "holdings": "단일 종목 (음료 및 스낵류 글로벌 소비재 공룡)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "BAC (뱅크오브아메리카)", "code": "BAC", "price": 0, "cagr": 9.0, "holdings": "단일 종목 (버핏 포트폴리오 상위, 미국 2대 은행)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "PFE (화이자)", "code": "PFE", "price": 0, "cagr": 6.0, "holdings": "단일 종목 (고배당 글로벌 종합 제약사)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TMO (써모피셔)", "code": "TMO", "price": 0, "cagr": 14.0, "holdings": "단일 종목 (바이오 헬스케어 연구 장비 세계 1위)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CSCO (시스코)", "code": "CSCO", "price": 0, "cagr": 7.0, "holdings": "단일 종목 (글로벌 네트워크 장비 및 보안 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MCD (맥도날드)", "code": "MCD", "price": 0, "cagr": 9.5, "holdings": "단일 종목 (배당귀족, 프랜차이즈 및 부동산 공룡)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "WMT (월마트)", "code": "WMT", "price": 0, "cagr": 10.0, "holdings": "단일 종목 (미국 최대 오프라인 유통 및 이커머스 강자)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TXN (텍사스인스트루먼트)", "code": "TXN", "price": 0, "cagr": 11.0, "holdings": "단일 종목 (아날로그 반도체 1위, 꾸준한 배당성장)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "IBM (IBM)", "code": "IBM", "price": 0, "cagr": 7.0, "holdings": "단일 종목 (IT 인프라, 하이브리드 클라우드 강자)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "VZ (버라이즌)", "code": "VZ", "price": 0, "cagr": 6.5, "holdings": "단일 종목 (미국 1위 이동통신사, 초고배당주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MMM (3M)", "code": "MMM", "price": 0, "cagr": 6.0, "holdings": "단일 종목 (산업용/소비재 글로벌 복합기업)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "MO (알트리아)", "code": "MO", "price": 0, "cagr": 6.5, "holdings": "단일 종목 (말보로 등 미국 1위 담배회사, 초고배당)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "CAT (캐터필러)", "code": "CAT", "price": 0, "cagr": 12.0, "holdings": "단일 종목 (글로벌 건설기계 및 인프라 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "UPS (UPS)", "code": "UPS", "price": 0, "cagr": 7.0, "holdings": "단일 종목 (글로벌 물류 및 배송 대장주)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "NVDA (엔비디아)", "code": "NVDA", "price": 0, "cagr": 25.0, "holdings": "단일 종목 (글로벌 AI 반도체 GPU 독점 1위 기업)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "TSLA (테슬라)", "code": "TSLA", "price": 0, "cagr": 20.0, "holdings": "단일 종목 (전기차, 자율주행, 휴머노이드 선두)"},
-        {"theme": "🇺🇸 미국 우량 배당/성장주", "name": "O (리얼티인컴)", "code": "O", "price": 0, "cagr": 7.5, "holdings": "단일 종목 (상업용 부동산 월배당 리츠)"},
+        # 💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "KODEX 미국배당다우존스", "code": "480350"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "TIGER 미국배당다우존스", "code": "458730"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "ACE 미국배당다우존스", "code": "466760"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "SOL 미국배당다우존스", "code": "446720"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "KODEX 고배당 지수", "code": "091165"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "RISE 대형고배당10TR", "code": "354350"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "TIGER 미국배당+7%프리미엄다우존스", "code": "461580"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "ACE 주주환원가치주액티브", "code": "466810"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "TIGER 미국나스닥100+15%프리미엄", "code": "475920"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "KODEX 미국배당+10%프리미엄다우존스", "code": "481220"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "RISE 한국고배당액티브", "code": "446820"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "TIGER 배당성장", "code": "211560"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "SOL 미국배당+10%프리미엄", "code": "461100"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "ACE 미국배당성장액티브", "code": "451200"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "RISE 배당킹액티브", "code": "462100"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "KODEX ESG고배당", "code": "411900"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "TIGER 고배당커버드콜", "code": "421100"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "KBSTAR 미국S&P500배당킹", "code": "461250"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "WOORI 미국배당다우존스", "code": "475110"},
+        {"theme": "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", "name": "HANARO 글로벌고배당", "code": "452660"},
 
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "CIBR (글로벌 사이버 보안 ETF)", "code": "CIBR", "price": 0, "cagr": 12.0, "holdings": "사이버 보안 소프트웨어 및 네트워크 인프라 기업"},
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "HACK (사이버 보안 전문)", "code": "HACK", "price": 0, "cagr": 11.5, "holdings": "하드웨어/소프트웨어 통합 사이버 보안 기업"},
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "FTNT (포티넷)", "code": "FTNT", "price": 0, "cagr": 16.0, "holdings": "방화벽(FortiGate), SD-WAN, 네트워크 보안 글로벌 대장주"},
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "PANW (팔로알토 네트웍스)", "code": "PANW", "price": 0, "cagr": 18.0, "holdings": "차세대 방화벽 및 엔터프라이즈 보안 솔루션 1위"},
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "CRWD (크라우드스트라이크)", "code": "CRWD", "price": 0, "cagr": 22.0, "holdings": "엔드포인트 및 클라우드 워크로드 보안 혁신주"},
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "안랩", "code": "053800", "price": 0, "cagr": 7.0, "holdings": "국내 대표 정보보안 및 안티바이러스 기업"},
-        {"theme": "🔐 사이버 보안 & 네트워크", "name": "지니언스", "code": "263860", "price": 0, "cagr": 8.5, "holdings": "국내 네트워크 접근 제어(NAC) 및 EDR 솔루션 선두"},
+        # 🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX 종합채권액티브", "code": "273130"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX KOFR금리액티브", "code": "423160"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 미국30년국채스트립액티브", "code": "458250"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "ACE 미국30년국채액티브(H)", "code": "454480"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "ACE 만기매칭형회사채", "code": "467320"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "RISE 중기국고채액티브", "code": "441320"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "RISE 미국S&P500배당혼합20", "code": "485610"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "ACE KRX금현물", "code": "411060"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 미국달러단기채권", "code": "329650"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX 단기채권", "code": "153130"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 단기통안채", "code": "157450"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX 골드선물(H)", "code": "132030"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 미국채30년커버드콜액티브", "code": "476100"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX 국고채30년액티브", "code": "432100"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "ACE 미국채10년리펀드", "code": "451100"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "RISE 단기사채액티브", "code": "445200"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER CD금리투자액티브", "code": "458500"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "KODEX 미국달러선물", "code": "261200"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "ACE 만기매칭26회사채", "code": "465900"},
+        {"theme": "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20", "name": "TIGER 구리선물(H)", "code": "138900"},
 
-        {"theme": "🛡️ 국채, 금, 대체자산", "name": "TIGER 미국30년국채프리미엄", "code": "458250", "price": 0, "cagr": 4.1, "holdings": "미국 30년 초장기채 투자 + 커버드콜 프리미엄 (월배당)"},
-        {"theme": "🛡️ 국채, 금, 대체자산", "name": "ACE KRX금현물", "code": "411060", "price": 0, "cagr": 5.5, "holdings": "국내 KRX 금시장의 금현물 가격 추종 (안전자산 헤지)"},
-        {"theme": "🛡️ 국채, 금, 대체자산", "name": "TLT (미국 20년+ 국채)", "code": "TLT", "price": 0, "cagr": 4.5, "holdings": "만기 20년 이상 미국 장기채 (안전자산 헤지용)"},
-        {"theme": "🛡️ 국채, 금, 대체자산", "name": "GLD (SPDR 골드 트러스트)", "code": "GLD", "price": 0, "cagr": 6.0, "holdings": "실물 금 가격의 변동성을 추종하는 세계 최대 ETF"},
-        {"theme": "🛡️ 국채, 금, 대체자산", "name": "IBIT (블랙록 비트코인 현물)", "code": "IBIT", "price": 0, "cagr": 30.0, "holdings": "블랙록이 운용하는 비트코인 현물 ETF (디지털 안전자산)"}
+        # 🌍 5. 해외 직상장 글로벌 메이저 TOP 20
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "SPDR S&P 500", "code": "SPY"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Vanguard S&P 500", "code": "VOO"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Invesco QQQ", "code": "QQQ"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Schwab US Dividend", "code": "SCHD"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Vanguard Total Stock", "code": "VTI"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "iShares 20+Y Treasury", "code": "TLT"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "JPMorgan Equity Premium", "code": "JEPI"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Vanguard Total World", "code": "VT"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Vanguard Real Estate", "code": "VNQ"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "iShares Semiconductor", "code": "SOXX"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "VanEck Semiconductor", "code": "SMH"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "SPDR Dow Jones Industrial", "code": "DIA"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "iShares Russell 2000", "code": "IWM"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Roundhill Magnificent Seven", "code": "MAGS"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "MicroSectors FANG+", "code": "FNGS"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Technology Select Sector", "code": "XLK"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Health Care Select Sector", "code": "XLV"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Energy Select Sector", "code": "XLE"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "Financial Select Sector", "code": "XLF"},
+        {"theme": "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", "name": "JPMorgan Nasdaq Equity Premium", "code": "JEPQ"}
     ]
+
+    # 기본값 및 사전 설정 추가 루프
+    for item in etf_data:
+        item["price"] = 0
+        item["cagr"] = "데이터없음(1년미만)"
+        item["list_date"] = "데이터없음"
+        item["holdings"] = "해당 테마의 국내외 주요 우량 편입 종목"
 
     for custom_item in st.session_state.custom_etfs:
         if not any(item['code'] == custom_item['code'] for item in etf_data):
@@ -3836,7 +3933,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "holdings": custom_item.get('holdings', "사용자가 직접 검색하여 추가한 맞춤 관심 종목")
             })
 
-    # 💡 [핵심 업데이트] 상장일(기준일)과 CAGR을 함께 가져오도록 반환 구조 변경
+    # 상장 이후 실제 연평균 수익률(CAGR) 계산 (네이버 XML + 야후 결합)
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
@@ -3927,7 +4024,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 except: pass
         return prices
 
-    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다..."):
+    with st.spinner("최신 실시간 가격 및 '상장 이후 실제 연평균 수익률(CAGR)'을 분석하고 있습니다... (160개 종목 순차 로딩 중)"):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         
@@ -3935,8 +4032,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         real_cagrs = fetch_historical_cagr(all_codes)
         
         for item in etf_data:
-            if 'list_date' not in item:
-                item['list_date'] = "데이터없음"
             if item['code'] in real_prices and real_prices[item['code']] > 0:
                 item['price'] = real_prices[item['code']]
             if item['code'] in real_cagrs:
@@ -3950,30 +4045,28 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         st.session_state.retirement_cart = {}
 
     theme_order = [
-        "🌐 시장 지수 코어 (국내상장)", 
-        "💻 반도체 & 빅테크 (국내상장)", 
-        "💰 고배당 & 월배당 (국내상장)", 
-        "🇺🇸 미국 배당 & 인컴 ETF",
-        "🇺🇸 미국 지수 & 메가테크 ETF", 
-        "🇺🇸 미국 우량 배당/성장주", 
-        "🔐 사이버 보안 & 네트워크",
-        "🛡️ 국채, 금, 대체자산",
+        "🌐 1. 시장 대표 지수 코어 TOP 20", 
+        "💻 2-1. 반도체 & 빅테크 핵심 성장 TOP 20", 
+        "🤖 2-2. AI·로봇 & 사이버보안 혁신 TOP 20",
+        "🚀 2-3. 방산 & 우주항공 미래 테크 TOP 20",
+        "🏦 2-4. 금융 지주 & 밸류업 모멘텀 TOP 20",
+        "💰 3. 고배당 & 월배당 인컴 밸류업 TOP 20", 
+        "🛡️ 4. 안전자산 채권 & 원자재 방어 TOP 20",
+        "🌍 5. 해외 직상장 글로벌 메이저 TOP 20", 
         "🔎 내가 추가한 맞춤 종목"
     ]
     
     for theme in theme_order:
         theme_stocks = [item for item in etf_data if item['theme'] == theme]
         if theme_stocks:
-            with st.expander(f"{theme} 종목 선택", expanded=(theme=="🌐 시장 지수 코어 (국내상장)" or theme=="🔎 내가 추가한 맞춤 종목")):
+            with st.expander(f"{theme} 선택", expanded=(theme=="🌐 1. 시장 대표 지수 코어 TOP 20" or theme=="🔎 내가 추가한 맞춤 종목")):
                 for stock in theme_stocks:
-                    # 💡 상장일 컬럼을 넣기 위해 비율 재조정 [이름 30%, 가격 15%, 상장일 15%, 수익률 15%, 수량 15%, 삭제 10%]
                     cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
                     
                     with cols[0]:
                         st.markdown(f"**{stock['name']}** ({stock['code']})")
                         st.caption(f"🔍 {stock.get('holdings', '')}")
                         
-                        # 💡 [핵심 업데이트 2] 내가 추가한 종목의 편입종목을 AI로 찾아주는 버튼
                         if theme == "🔎 내가 추가한 맞춤 종목" and "사용자가 직접 검색" in stock.get('holdings', ''):
                             if st.button("🤖 AI 편입종목 검색", key=f"ai_{stock['code']}"):
                                 if not api_key_input:
@@ -3988,8 +4081,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                                         st.rerun()
                         
                     cols[1].markdown(f"현재가:<br>{stock['price']:,}원", unsafe_allow_html=True)
-                    
-                    # 💡 [핵심 업데이트 1] 상장일(데이터 수집 시작일) 추가 표기
                     cols[2].markdown(f"상장(기준)일:<br><span style='color:#328cc1; font-weight:bold;'>{stock.get('list_date', '데이터없음')}</span>", unsafe_allow_html=True)
                     
                     cagr_val = stock['cagr']
