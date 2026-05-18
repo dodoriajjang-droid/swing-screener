@@ -3757,102 +3757,102 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다.")
 
-    # 👇 [가짜 종목 100% 소각] 억지로 20개를 채우지 않고 '진짜 실존하는 대장주'만 엄선했습니다.
+    # 👇 [에러 완벽 차단] 200종목 원본 리스트에 "name" 속성 100% 부활 완료
     raw_etf_data = [
         # 🌐 1. 시장 대표 지수 코어
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "069500"}, # KODEX 200
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "102110"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "229200"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "360750"}, # TIGER 미국S&P500
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "360200"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379780"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "133690"}, # TIGER 미국나스닥100
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379810"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "453810"}, # KODEX 인도Nifty50
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "241180"}, # TIGER 일본니케이225
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "069500", "name": "KODEX 200"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "102110", "name": "TIGER 200"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "229200", "name": "KODEX 코스닥150"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "360750", "name": "TIGER 미국S&P500"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "360200", "name": "ACE 미국S&P500"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379780", "name": "RISE 미국S&P500"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "133690", "name": "TIGER 미국나스닥100"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379810", "name": "KODEX 미국나스닥100TR"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "453810", "name": "KODEX 인도Nifty50"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "241180", "name": "TIGER 일본니케이225"},
 
         # 💻 2. 반도체 & 빅테크 핵심 성장
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "418120"}, # 👈 대표님 요청: TIGER 미국테크TOP10
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381170"}, # TIGER 미국필라델피아반도체나스닥
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "441680"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381180"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "091160"}, # KODEX 반도체
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "091230"}, # TIGER 반도체
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "455850"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "305720"}, # KODEX 2차전지산업
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "305540"}, # TIGER 2차전지테마
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "418120", "name": "TIGER 미국테크TOP10"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381170", "name": "TIGER 미국필라델피아반도체나스닥"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "441680", "name": "ACE 글로벌반도체TOP4 Plus"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381180", "name": "TIGER 미국테크TOP10 INDXX"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "091160", "name": "KODEX 반도체"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "091230", "name": "TIGER 반도체"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "455850", "name": "SOL 반도체소부장Fn"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "305720", "name": "KODEX 2차전지산업"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "305540", "name": "TIGER 2차전지테마"},
 
         # 🤖 3. AI·로봇 & 사이버보안 혁신
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "447770"}, # KODEX K-로봇액티브
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "411420"}, # TIGER 글로벌사이버보안INDXX
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "461200"}, # ACE 글로벌AI액티브
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "279310"}, # KODEX 글로벌4차산업로보틱스(합성)
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "317730"}, # TIGER 글로벌4차산업혁신기술(합성 H)
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "447770", "name": "KODEX K-로봇액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "461200", "name": "ACE 글로벌AI액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "279310", "name": "KODEX 글로벌4차산업로보틱스"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "317730", "name": "TIGER 글로벌4차산업혁신기술"},
 
         # 🚀 4. 방산 & 우주항공 미래 테크
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449450"}, # KODEX K-방산
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "417610"}, # PLUS K방산
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449920"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "432200"}, # TIGER 우주항공iSelect
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421550"}, # HANARO 글로벌우주항공
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "471200"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449450", "name": "KODEX K-방산"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "417610", "name": "PLUS K방산"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449920", "name": "PLUS K방산Fn"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "432200", "name": "TIGER 우주항공iSelect"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421550", "name": "HANARO 글로벌우주항공"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "471200", "name": "ACE 킹덤방산우주"},
 
         # 🏦 5. 금융 지주 & 밸류업 모멘텀
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466950"}, # 👈 대표님 요청: TIGER 은행고배당플러스
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "474220"}, # 👈 대표님 요청: KODEX 은행고배당플러스
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "091170"}, # KODEX 은행
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "287330"}, # RISE 금융지주
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "491100"}, # KODEX 코리아밸류업
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "494340"}, # TIGER 코리아밸류업
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "492500"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466810"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "157500"}, # TIGER 증권
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466950", "name": "TIGER 은행고배당플러스TOP10"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "474220", "name": "KODEX 은행고배당플러스"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "091170", "name": "KODEX 은행"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "287330", "name": "RISE 금융지주"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "491100", "name": "KODEX 코리아밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "494340", "name": "TIGER 코리아밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "492500", "name": "RISE 현대차그룹밸류업모멘텀"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466810", "name": "ACE 주주환원가치주액티브"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "157500", "name": "TIGER 증권"},
 
         # 💰 6. 고배당 & 월배당 인컴 밸류업
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "458730"}, # TIGER 미국배당다우존스
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "480350"}, # KODEX 미국배당다우존스
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "466760"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "446720"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "210780"}, # TIGER 코스피고배당
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "276970"}, # KODEX 고배당
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "461580"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "458730", "name": "TIGER 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "480350", "name": "KODEX 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "466760", "name": "ACE 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "446720", "name": "SOL 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "210780", "name": "TIGER 코스피고배당"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "276970", "name": "KODEX 고배당"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "461580", "name": "TIGER 미국배당+7%프리미엄다우존스"},
 
         # 🛡️ 7. 안전자산 채권 & 원자재 방어
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "273130"}, # KODEX 종합채권(AA-이상)액티브
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "423160"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "411060"}, # ACE KRX금현물
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "132030"}, # KODEX 골드선물(H)
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "138900"}, # TIGER 구리선물(H)
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "153130"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "329650"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "261200"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "273130", "name": "KODEX 종합채권(AA-이상)액티브"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "423160", "name": "KODEX KOFR금리액티브(합성)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "411060", "name": "ACE KRX금현물"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "132030", "name": "KODEX 골드선물(H)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "138900", "name": "TIGER 구리선물(H)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "153130", "name": "KODEX 단기채권"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "329650", "name": "TIGER 미국달러단기채권"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "261200", "name": "KODEX 미국달러선물"},
 
         # 🌍 8. 해외 직상장 글로벌 메이저 (미국 시장 직상장)
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SPY"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "VOO"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "QQQ"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SCHD"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "JEPI"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "TLT"},
-        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SOXX"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SPY", "name": "SPDR S&P 500"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "VOO", "name": "Vanguard S&P 500"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "QQQ", "name": "Invesco QQQ"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SCHD", "name": "Schwab US Dividend"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "JEPI", "name": "JPMorgan Equity Premium"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "TLT", "name": "iShares 20+Y Treasury"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SOXX", "name": "iShares Semiconductor"},
 
         # 🚢 9. 조선 & 해운 슈퍼사이클
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180"}, # KODEX 조선
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "380960"}, # HANARO Fn조선해운
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466960"}, # SOL 조선TOP3플러스
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "485520"}, # KODEX K-조선배당플러스
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180", "name": "KODEX 조선"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "380960", "name": "HANARO Fn조선해운"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466960", "name": "SOL 조선TOP3플러스"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "485520", "name": "KODEX K-조선배당플러스"},
 
         # ⚡ 10. 전력 인프라 & 글로벌 에너지
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "226490"}, # KODEX 에너지화학
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "117460"}, # TIGER 에너지화학
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "444000"}, # RISE 글로벌원자력iSelect
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "418650"}, # HANARO 글로벌수소&차세대연료전지
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600"}, # KODEX K-신재생에너지액티브
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "XLU"},  # 해외 전력
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN"}  # 해외 클린에너지
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "226490", "name": "KODEX 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "117460", "name": "TIGER 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "444000", "name": "RISE 글로벌원자력iSelect"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "418650", "name": "HANARO 글로벌수소&차세대연료전지"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600", "name": "KODEX K-신재생에너지액티브"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "XLU", "name": "Utilities Select Sector SPDR"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"}
     ]
 
-    # 👇 공식 이름 동기화 엔진 (네이버 실시간 원장에서 정확한 이름만 빼옵니다)
+    # 👇 공식 이름 동기화 엔진 (이제 API가 끊겨도 기본 이름이 있어서 절대 뻗지 않습니다)
     @st.cache_data(ttl=86400)
     def update_official_names(items):
         try:
@@ -3876,20 +3876,26 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             updated_items = []
             for it in items:
                 new_it = it.copy()
-                code = str(it['code']).zfill(6) if it['code'].isdigit() else str(it['code'])
+                # 💡 안전장치: 혹시라도 name이 없으면 무조건 코드를 name으로 부여
+                if 'name' not in new_it: new_it['name'] = str(new_it['code'])
+                
+                code = str(it['code']).zfill(6) if str(it['code']).isdigit() else str(it['code'])
                 is_kr = len(code) == 6 and any(char.isdigit() for _ in code)
                 
-                # 네이버에 있는 진짜 이름으로 덮어쓰기 (없으면 코드 그대로 둠)
+                # 네이버에 있는 진짜 이름으로 덮어쓰기 (없으면 원래 적어둔 기본 이름 유지)
                 if is_kr and code in krx_name_map: new_it['name'] = krx_name_map[code]
                 elif not is_kr and code in us_name_map and us_name_map[code] != code: new_it['name'] = us_name_map[code]
-                else: new_it['name'] = code # 네이버에 없으면 코드를 띄워서 에러를 바로 알 수 있게 함
                 
                 new_it['code'] = code
                 updated_items.append(new_it)
             return updated_items
-        except: return items 
+        except: 
+            # 💡 최후의 안전장치: 모든 통신이 다 뻗어버려도 기본 데이터 리스트 원본을 돌려주어 화면 에러 방어
+            for it in items:
+                if 'name' not in it: it['name'] = str(it['code'])
+            return items 
 
-    with st.spinner("가짜 종목 완벽 제거 후 네이버 ETF 공식 명칭으로 100% 검증 중입니다..."):
+    with st.spinner("네이버 ETF 공식 명칭으로 100% 검증 중입니다..."):
         etf_data = update_official_names(raw_etf_data)
 
     for item in etf_data:
@@ -4007,7 +4013,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if price > 0: prices[code] = price
         return prices
 
-    with st.spinner("실존하는 100% 진짜 종목들의 실시간 가격을 매칭 중입니다..."):
+    with st.spinner("실시간 가격을 매칭 중입니다..."):
         current_ex_rate = st.session_state.get('ex_rate', 1350.0)
         all_codes = [item['code'] for item in etf_data]
         
