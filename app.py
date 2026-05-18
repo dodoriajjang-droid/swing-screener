@@ -3634,7 +3634,16 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
 
     # --- 1. 절세 계좌 자동 배분 계산기 ---
-    st.markdown("### 🎯 1. 월 투자금액별 절세 계좌 배분 가이드")
+    st.markdown("### 🎯 1. 월 투자금액별 절세 계좌 배분 최적화 가이드")
+    
+    st.info("""
+    **💡 노후 자금은 왜 반드시 이 순서대로 계좌를 채워야 할까요? (절세 극대화 룰)**
+    1. **1순위: 연금저축펀드 (연 600만 원 우선)** - 13.2~16.5%의 강력한 연말정산 세액공제! 위험자산(주식형 ETF)을 100% 꽉 채워 담을 수 있어 수익률 극대화에 가장 유리합니다.
+    2. **2순위: IRP (연 300만 원 추가)** - 연금저축과 합산해 총 900만 원까지 세액공제를 받습니다. 단, 안전자산(채권, 현금 등)을 무조건 30% 이상 담아야 하는 제약이 있어 2순위로 밀립니다.
+    3. **3순위: 중개형 ISA (연 2,000만 원 한도)** - 세액공제 한도를 다 채웠다면, 수익의 200~400만 원까지 비과세되는 ISA를 채웁니다. 3년 뒤 만기 자금을 연금계좌로 넘기면 300만 원의 추가 세액공제도 줍니다!
+    4. **4순위: 일반/해외계좌** - 국가가 주는 꿀 같은 절세 혜택(연 최대 2,900만 원)을 모두 소진한 뒤, 남는 여유 현금을 제약 없이 자유롭게 굴리는 계좌입니다.
+    """)
+
     with st.container(border=True):
         col_in, col_spacer = st.columns([2, 1])
         monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=1500000)
@@ -3683,19 +3692,16 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             if search_input:
                 st.session_state.search_query = search_input
 
-        # 💡 [핵심 업데이트] 검색 결과 멀티셀렉트(선택형) UI 표출
         if st.session_state.search_query:
             query = st.session_state.search_query
             kr_assets_df = get_all_kr_assets()
             search_options = []
             
-            # 1) 국내 ETF/주식 검색
             if not kr_assets_df.empty:
                 matches = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
                 for _, row in matches.iterrows():
                     search_options.append(f"{row['Name']} [{row['Code']}]")
             
-            # 2) 미국 주식/ETF 검색 (영어가 포함되어 있을 때만 API 호출)
             if re.search('[a-zA-Z]', query):
                 try:
                     us_results = search_us_ticker(query)
@@ -3714,7 +3720,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 if st.button("➕ 선택한 종목 일괄 추가하기", type="primary"):
                     added_count = 0
                     for sel in selected_to_add:
-                        # "종목명 [티커]" 형태에서 파싱
                         parts = sel.split(" [")
                         parsed_name = parts[0].strip()
                         parsed_code = parts[1].replace("]", "").strip()
@@ -3725,7 +3730,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                             
                     if added_count > 0:
                         st.success(f"{added_count}개 종목이 성공적으로 추가되었습니다! 아래 리스트를 확인하세요.")
-                    st.session_state.search_query = "" # 초기화
+                    st.session_state.search_query = "" 
                     st.rerun()
             else:
                 st.warning("검색 결과가 없습니다. 다른 키워드로 검색해 보세요.")
@@ -3825,11 +3830,12 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "name": custom_item['name'], 
                 "code": custom_item['code'], 
                 "price": 0, 
-                "cagr": 0, # 초기화, 연산 후 자동 반영됨
+                # 💡 [핵심 버그 수정] 임의의 10% 대신 문자열로 초기화하여 시각적 혼동 방지
+                "cagr": "데이터없음(1년미만)", 
                 "holdings": "사용자가 직접 검색하여 추가한 맞춤 관심 종목"
             })
 
-    # 상장 이후 실제 연평균 수익률(CAGR) 계산
+    # 상장 이후 실제 연평균 수익률(CAGR) 계산 (네이버 XML + 야후 결합)
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
@@ -3957,7 +3963,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         if theme_stocks:
             with st.expander(f"{theme} 종목 선택", expanded=(theme=="🌐 시장 지수 코어 (국내상장)" or theme=="🔎 내가 추가한 맞춤 종목")):
                 for stock in theme_stocks:
-                    # 💡 [핵심 업데이트] 삭제 버튼을 위한 레이아웃 5등분 조정
                     cols = st.columns([3.5, 2, 2, 1.5, 1]) 
                     
                     with cols[0]:
@@ -3965,7 +3970,15 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         st.caption(f"🔍 {stock.get('holdings', '')}")
                         
                     cols[1].markdown(f"현재가:<br>{stock['price']:,}원", unsafe_allow_html=True)
-                    cols[2].markdown(f"연평균(상장후):<br>{stock['cagr']}%", unsafe_allow_html=True)
+                    
+                    # 💡 [핵심 버그 수정] 숫자가 아닌 문자열이면 그대로 출력하도록 분기 처리
+                    cagr_val = stock['cagr']
+                    if isinstance(cagr_val, (int, float)):
+                        cagr_display = f"{cagr_val}%"
+                    else:
+                        cagr_display = f"<span style='font-size:0.85em; color:gray;'>{cagr_val}</span>"
+                        
+                    cols[2].markdown(f"연평균(상장후):<br>{cagr_display}", unsafe_allow_html=True)
                     
                     unique_key = f"ret_qty_{theme}_{stock['code']}"
                     qty = cols[3].number_input("수량(주)", min_value=0, step=1, key=unique_key, label_visibility="collapsed")
@@ -3975,7 +3988,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     elif stock['code'] in st.session_state.retirement_cart:
                         del st.session_state.retirement_cart[stock['code']]
 
-                    # 💡 맞춤 종목 테마일 경우, 맨 우측에 삭제 버튼 렌더링
                     if theme == "🔎 내가 추가한 맞춤 종목":
                         if cols[4].button("🗑️ 삭제", key=f"del_{stock['code']}"):
                             st.session_state.custom_etfs = [x for x in st.session_state.custom_etfs if x['code'] != stock['code']]
@@ -3991,8 +4003,17 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     if not cart:
         st.info("위 리스트에서 ETF 및 주식 수량을 입력하시면 시뮬레이션이 시작됩니다.")
     else:
-        total_principal = sum([v['qty'] * v['price'] for k, v in cart.items()])
-        weighted_cagr = sum([(v['qty'] * v['price'] * v['cagr']) for k, v in cart.items()]) / total_principal if total_principal > 0 else 0
+        total_principal = 0
+        weighted_cagr_sum = 0
+        
+        # 💡 [핵심 버그 수정] 문자열("데이터없음")인 종목은 시뮬레이션 계산 시 0%로 간주하여 에러 방지
+        for k, v in cart.items():
+            principal = v['qty'] * v['price']
+            total_principal += principal
+            actual_cagr = v['cagr'] if isinstance(v['cagr'], (int, float)) else 0.0
+            weighted_cagr_sum += (principal * actual_cagr)
+            
+        weighted_cagr = weighted_cagr_sum / total_principal if total_principal > 0 else 0
         
         d_col1, d_col2 = st.columns([1, 2])
         
@@ -4016,11 +4037,21 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             st.area_chart(df_chart.set_index("년수"), color="#2b579a")
 
         with st.expander("📝 선택한 종목 명세서 보기"):
-            display_cart = pd.DataFrame(cart).T
-            display_cart['총액'] = display_cart['qty'] * display_cart['price']
-            st.table(display_cart[['name', 'qty', 'price', '총액', 'cagr']])
+            display_cart = []
+            for k, v in cart.items():
+                c_disp = f"{v['cagr']}%" if isinstance(v['cagr'], (int, float)) else v['cagr']
+                display_cart.append({
+                    'name': v['name'],
+                    'qty': v['qty'],
+                    'price': v['price'],
+                    '총액': v['qty'] * v['price'],
+                    'cagr': c_disp
+                })
+            if display_cart:
+                df_cart = pd.DataFrame(display_cart)
+                st.table(df_cart[['name', 'qty', 'price', '총액', 'cagr']])
 
-        st.caption("※ 실시간 연동된 '상장 후 연평균 수익률(CAGR)'을 기반으로 계산된 시뮬레이션이며, 과거의 수익이 미래의 수익을 보장하지 않습니다.")
+        st.caption("※ 실시간 연동된 '상장 후 연평균 수익률(CAGR)'을 기반으로 계산된 시뮬레이션이며, '데이터없음' 종목은 계산의 안전을 위해 수익률 0%로 보수적 적용됩니다.")
 
         # --- 6. AI 노후 포트폴리오 정밀 진단 ---
         st.markdown("---")
