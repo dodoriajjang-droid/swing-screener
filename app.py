@@ -4190,7 +4190,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         
                         # 🔥 수정 2: '맞춤 종목' 제한을 없애고 모든 종목에 버튼을 띄웁니다. (단, 이미 검색한 종목은 버튼 숨김)
                         if stock['code'] not in st.session_state.ai_holdings_cache:
-                            if st.button("🤖 AI 편입종목 검색", key=f"ai_{stock['code']}"):
+                            # 💡 key에 {theme}_ 을 추가하여 완전히 고유한 버튼으로 만듭니다!
+                            if st.button("🤖 AI 편입종목 검색", key=f"ai_{theme}_{stock['code']}"):
                                 if not api_key_input: st.error("좌측 사이드바에 API 키를 입력해주세요.")
                                 else:
                                     with st.spinner(f"{stock['name']} 분석 중..."):
