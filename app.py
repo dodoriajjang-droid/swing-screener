@@ -3757,7 +3757,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다.")
 
-    # 👇 [에러 완벽 차단] 200종목 원본 리스트에 "name" 속성 100% 부활 완료
+    # 👇 원본 200종목 리스트
     raw_etf_data = [
         # 🌐 1. 시장 대표 지수 코어
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "069500", "name": "KODEX 200"},
@@ -3852,7 +3852,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"}
     ]
 
-    # 👇 공식 이름 동기화 엔진 (이제 API가 끊겨도 기본 이름이 있어서 절대 뻗지 않습니다)
+    # 👇 공식 이름 동기화 엔진
     @st.cache_data(ttl=86400)
     def update_official_names(items):
         try:
@@ -3876,13 +3876,11 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             updated_items = []
             for it in items:
                 new_it = it.copy()
-                # 💡 안전장치: 혹시라도 name이 없으면 무조건 코드를 name으로 부여
                 if 'name' not in new_it: new_it['name'] = str(new_it['code'])
                 
                 code = str(it['code']).zfill(6) if str(it['code']).isdigit() else str(it['code'])
                 is_kr = len(code) == 6 and any(char.isdigit() for _ in code)
                 
-                # 네이버에 있는 진짜 이름으로 덮어쓰기 (없으면 원래 적어둔 기본 이름 유지)
                 if is_kr and code in krx_name_map: new_it['name'] = krx_name_map[code]
                 elif not is_kr and code in us_name_map and us_name_map[code] != code: new_it['name'] = us_name_map[code]
                 
@@ -3890,7 +3888,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 updated_items.append(new_it)
             return updated_items
         except: 
-            # 💡 최후의 안전장치: 모든 통신이 다 뻗어버려도 기본 데이터 리스트 원본을 돌려주어 화면 에러 방어
             for it in items:
                 if 'name' not in it: it['name'] = str(it['code'])
             return items 
@@ -4026,6 +4023,18 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             if item['code'] in real_cagrs:
                 item['cagr'] = real_cagrs[item['code']]['cagr']
                 item['list_date'] = real_cagrs[item['code']]['date']
+
+    # --- [신규 기능] 0원 에러 종목 검출기 ---
+    st.markdown("### 🚨 0원 에러 종목 검출기")
+    with st.expander("가격이 0원으로 조회되는 종목 확인하기", expanded=False):
+        error_items = [{'테마': item['theme'], '종목명': item['name'], '코드': item['code']} for item in etf_data if item.get('price', 0) == 0]
+        if error_items:
+            st.error(f"총 {len(error_items)}개의 종목이 0원으로 조회되고 있습니다. (상장폐지, 거래정지 또는 티커 오류)")
+            error_df = pd.DataFrame(error_items)
+            st.dataframe(error_df, use_container_width=True)
+            st.info("💡 위 종목들은 종목 코드가 잘못되었거나, 거래 정지 상태일 수 있습니다.")
+        else:
+            st.success("🎉 현재 0원으로 조회되는 에러 종목이 단 하나도 없습니다! 완벽합니다.")
 
     # --- 4. 포트폴리오 구성 UI ---
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
