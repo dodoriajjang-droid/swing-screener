@@ -3653,7 +3653,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # 👇 [핵심 업데이트 1] 주식 + ETF 통합 검색 엔진
+    # 주식 + ETF 통합 검색 엔진
     @st.cache_data(ttl=86400)
     def get_all_kr_assets():
         try:
@@ -3665,64 +3665,83 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         except:
             return pd.DataFrame()
 
-    # --- 2. 스마트 맞춤 종목 검색 및 다중 추가 기능 ---
+    # --- 2. 스마트 맞춤 종목 다중 검색 및 추가 기능 ---
     if 'custom_etfs' not in st.session_state or (len(st.session_state.custom_etfs) > 0 and isinstance(st.session_state.custom_etfs[0], str)):
         st.session_state.custom_etfs = []
 
-    st.markdown("### 🔎 2. 맞춤형 종목 다중 검색 및 추가")
+    st.markdown("### 🔎 2. 맞춤형 종목 검색 및 추가")
     with st.container(border=True):
-        st.write("리스트에 없는 종목을 검색합니다. **쉼표(,)로 구분하여 여러 개를 동시에 입력**할 수 있습니다.")
-        col_s, col_b = st.columns([4, 1])
-        new_tickers_input = col_s.text_input("종목명 또는 티커 입력", placeholder="예: TIGER 미국S&P500, TSLA, 005930").strip()
+        st.write("찾으시는 운용사(예: 미래에셋, TIGER)나 키워드를 **[검색]**하여 정확한 코드를 확인한 후 **[추가]**하세요. (쉼표로 다중 추가 가능)")
         
-        if col_b.button("목록에 검색 및 추가", use_container_width=True):
-            if new_tickers_input:
-                input_list = [x.strip() for x in new_tickers_input.split(',')]
-                kr_assets_df = get_all_kr_assets()
-                    
-                for query in input_list:
-                    if not query: continue
-                    found_name = ""
-                    found_code = ""
-                    
-                    # 1. 한국 주식 및 한국 ETF 통합 DB에서 검색
-                    if not kr_assets_df.empty:
-                        exact_code = kr_assets_df[kr_assets_df['Code'] == query]
-                        if not exact_code.empty:
-                            found_name = exact_code['Name'].iloc[0]
-                            found_code = exact_code['Code'].iloc[0]
-                        else:
-                            exact_name = kr_assets_df[kr_assets_df['Name'].str.upper() == query.upper()]
-                            if not exact_name.empty:
-                                found_name = exact_name['Name'].iloc[0]
-                                found_code = exact_name['Code'].iloc[0]
-                            else:
-                                contains_match = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
-                                if not contains_match.empty:
-                                    found_name = contains_match['Name'].iloc[0]
-                                    found_code = contains_match['Code'].iloc[0]
-                    
-                    # 2. 미국 주식/ETF 검색
-                    if not found_code:
-                        try:
-                            us_results = search_us_ticker(query)
-                            if us_results:
-                                found_code = us_results[0].split(" ")[0]
-                                found_name = us_results[0].split(" (")[1].split(" /")[0]
-                        except: pass
-                        
-                    if not found_code and re.match(r'^[A-Za-z]+$', query):
-                        found_code = query.upper()
-                        found_name = query.upper()
-                        
-                    if found_code:
-                        if not any(item['code'] == found_code for item in st.session_state.custom_etfs):
-                            st.session_state.custom_etfs.append({'name': found_name, 'code': found_code})
-                            st.success(f"✅ 추가 완료: **{found_name}** ({found_code})")
-                        else:
-                            st.warning(f"⚠️ 이미 추가된 종목입니다: {found_name}")
+        # 💡 [핵심 업데이트] 검색과 추가 버튼 분리
+        col_input, col_search, col_add = st.columns([5, 2, 2])
+        new_tickers_input = col_input.text_input("종목명 또는 티커 입력", placeholder="예: 미래에셋, 삼성전자, SCHD", label_visibility="collapsed").strip()
+        
+        btn_search = col_search.button("🔍 연관 종목 검색", use_container_width=True)
+        btn_add = col_add.button("➕ 장바구니 추가", type="primary", use_container_width=True)
+        
+        kr_assets_df = get_all_kr_assets()
+
+        # [기능 1] 연관 종목 검색기 표출
+        if btn_search and new_tickers_input:
+            query = new_tickers_input.split(',')[0].strip() # 다중 입력일 경우 첫 단어만 검색
+            st.markdown(f"#### 💡 '{query}' 검색 결과")
+            if not kr_assets_df.empty:
+                matches = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
+                if not matches.empty:
+                    st.success(f"총 {len(matches)}개의 관련 종목을 찾았습니다. 추가하고 싶은 종목의 **티커(코드)**를 복사해서 위 입력창에 넣고 [장바구니 추가]를 누르세요!")
+                    # 검색 결과를 250px 높이의 스크롤 가능한 데이터프레임으로 깔끔하게 표시
+                    st.dataframe(matches[['Name', 'Code']].rename(columns={'Name':'종목명', 'Code':'티커(코드)'}).reset_index(drop=True), use_container_width=True, height=250)
+                else:
+                    st.warning(f"국내 시장에서 '{query}'가 포함된 종목을 찾을 수 없습니다. 미국 주식은 영문 티커(예: TSLA)를 바로 입력해 추가하세요.")
+
+        # [기능 2] 내 장바구니 리스트에 추가
+        if btn_add and new_tickers_input:
+            input_list = [x.strip() for x in new_tickers_input.split(',')]
+            for query in input_list:
+                if not query: continue
+                found_name = ""
+                found_code = ""
+                
+                if not kr_assets_df.empty:
+                    exact_code = kr_assets_df[kr_assets_df['Code'] == query]
+                    if not exact_code.empty:
+                        found_name = exact_code['Name'].iloc[0]
+                        found_code = exact_code['Code'].iloc[0]
                     else:
-                        st.error(f"❌ '{query}' 종목을 찾을 수 없습니다. 정확한 명칭이나 코드를 입력해주세요.")
+                        exact_name = kr_assets_df[kr_assets_df['Name'].str.upper() == query.upper()]
+                        if not exact_name.empty:
+                            found_name = exact_name['Name'].iloc[0]
+                            found_code = exact_name['Code'].iloc[0]
+                        else:
+                            contains_match = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
+                            if not contains_match.empty:
+                                # 이름이 포함될 경우, 가장 짧은 이름(보통 본주/대표 ETF)을 우선 매칭하도록 지능화
+                                contains_match['Name_Len'] = contains_match['Name'].str.len()
+                                best_match = contains_match.sort_values('Name_Len').iloc[0]
+                                found_name = best_match['Name']
+                                found_code = best_match['Code']
+                
+                if not found_code:
+                    try:
+                        us_results = search_us_ticker(query)
+                        if us_results:
+                            found_code = us_results[0].split(" ")[0]
+                            found_name = us_results[0].split(" (")[1].split(" /")[0]
+                    except: pass
+                    
+                if not found_code and re.match(r'^[A-Za-z]+$', query):
+                    found_code = query.upper()
+                    found_name = query.upper()
+                    
+                if found_code:
+                    if not any(item['code'] == found_code for item in st.session_state.custom_etfs):
+                        st.session_state.custom_etfs.append({'name': found_name, 'code': found_code})
+                        st.success(f"✅ 추가 완료: **{found_name}** ({found_code})")
+                    else:
+                        st.warning(f"⚠️ 이미 추가된 종목입니다: {found_name}")
+                else:
+                    st.error(f"❌ '{query}' 종목을 찾을 수 없습니다. 정확한 명칭이나 코드를 입력해주세요.")
 
     # --- 3. ETF & 주식 데이터 정의 ---
     etf_data = [
@@ -3820,18 +3839,18 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "name": custom_item['name'], 
                 "code": custom_item['code'], 
                 "price": 0, 
-                "cagr": 0, # 초기화, 연산 후 덮어씌움
+                "cagr": 0, # 초기화, 연산 후 자동 반영됨
                 "holdings": "사용자가 직접 검색하여 추가한 맞춤 관심 종목"
             })
 
-    # 👇 [핵심 업데이트 2] 한국 ETF/주식은 네이버에서, 미국은 야후에서 CAGR 100% 완벽 조회
+    # 상장 이후 실제 연평균 수익률(CAGR) 계산 (네이버 XML + 야후 결합)
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
         us_codes = [c for c in codes if not c.isdigit()]
         kr_codes = [c for c in codes if c.isdigit()]
         
-        # 1. 미국 주식 (야후 파이낸스)
+        # 1. 미국 주식 (야후)
         try:
             if us_codes:
                 from yahooquery import Ticker as yq_Ticker
@@ -3853,7 +3872,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         except: pass
         except: pass
 
-        # 2. 한국 주식 및 ETF (네이버 금융 차트 XML - 상장 후 수정주가 완벽 반영)
+        # 2. 한국 주식 및 ETF (네이버)
         for c in kr_codes:
             try:
                 url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
@@ -3861,15 +3880,13 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 if res.status_code == 200:
                     soup = BeautifulSoup(res.text, 'html.parser')
                     items = soup.find_all('item')
-                    if len(items) > 12: # 최소 1년(12개월) 데이터 필요
+                    if len(items) > 12:
                         first_item = items[0].get('data').split('|')
                         last_item = items[-1].get('data').split('|')
-                        
                         first_date = pd.to_datetime(first_item[0])
                         last_date = pd.to_datetime(last_item[0])
-                        first_price = float(first_item[4]) # 수정 종가
+                        first_price = float(first_item[4])
                         last_price = float(last_item[4])
-                        
                         days = (last_date - first_date).days
                         if days >= 365 and first_price > 0:
                             cagr = ((last_price / first_price) ** (365.25 / days) - 1) * 100
@@ -3878,6 +3895,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             
         return cagr_dict
 
+    # 실시간 현재가 연동 로직
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
