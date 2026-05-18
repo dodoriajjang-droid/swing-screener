@@ -881,25 +881,27 @@ def get_krx_stocks():
         # 1. 한국 주식 기본 데이터 가져오기
         df = fdr.StockListing('KRX')
         
-        # 2. 상세 데이터(KRX-DESC)에서 'Sector(업종)' 정보 추가로 가져와서 합치기
+        # 2. 상세 데이터(KRX-DESC)에서 'Sector(업종)' 정보 가져오기
         try:
             df_desc = fdr.StockListing('KRX-DESC')
-            if not df_desc.empty and 'Sector' in df_desc.columns:
+            
+            # 💡 [핵심 해결] KRX-DESC는 'Code' 대신 'Symbol'을 쓰므로 이름을 똑같이 맞춰줍니다!
+            if not df_desc.empty and 'Symbol' in df_desc.columns and 'Sector' in df_desc.columns:
+                df_desc = df_desc.rename(columns={'Symbol': 'Code'})
+                
                 df['Code'] = df['Code'].astype(str).str.zfill(6)
                 df_desc['Code'] = df_desc['Code'].astype(str).str.zfill(6)
                 
-                # 기존 df에 Sector가 비어있거나 이상하게 들어있을 수 있으므로 덮어쓰기 위해 드롭
+                # 기존 df에 깡통 Sector가 있다면 지우고 꽉 찬 Sector로 병합
                 if 'Sector' in df.columns:
                     df = df.drop(columns=['Sector'])
                     
-                # 코드를 기준으로 병합하여 진짜 업종 데이터 장착
                 df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
         except Exception:
             pass
 
         if not df.empty:
             if 'Sector' not in df.columns: df['Sector'] = '기타/분류불가'
-            # 비어있는 업종만 '기타/분류불가'로 채움
             df['Sector'] = df['Sector'].fillna('기타/분류불가') 
             df = df[['Name', 'Code', 'Sector']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
