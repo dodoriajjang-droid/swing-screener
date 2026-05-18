@@ -4151,9 +4151,10 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         else:
             st.success("🎉 현재 0원으로 조회되는 에러 종목이 단 하나도 없습니다! 완벽합니다.")
 
-    # --- 4. 포트폴리오 구성 UI ---
+   # --- 4. 포트폴리오 구성 UI ---
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
     if 'retirement_cart' not in st.session_state: st.session_state.retirement_cart = {}
+    if 'ai_holdings_cache' not in st.session_state: st.session_state.ai_holdings_cache = {} # 🔥 [추가됨] 검색 결과를 기억하는 캐시
 
     theme_order = [
         "🌐 1. 시장 대표 지수 코어", 
@@ -4179,17 +4180,29 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             with st.expander(f"{theme} 선택", expanded=(theme=="🌐 1. 시장 대표 지수 코어")):
                 for idx, stock in enumerate(unique_stocks):
                     cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
+                    
                     with cols[0]:
                         st.markdown(f"**{stock['name']}** ({stock['code']})")
-                        st.caption(f"🔍 {stock.get('holdings', '')}")
-                        if theme == "🔎 내가 추가한 맞춤 종목" and "사용자가 직접 검색" in stock.get('holdings', ''):
+                        
+                        # 🔥 수정 1: AI가 검색한 결과가 캐시에 있으면 그것을 우선 표시합니다.
+                        display_holdings = st.session_state.ai_holdings_cache.get(stock['code'], stock.get('holdings', '해당 테마의 주요 종목'))
+                        st.caption(f"🔍 {display_holdings}")
+                        
+                        # 🔥 수정 2: '맞춤 종목' 제한을 없애고 모든 종목에 버튼을 띄웁니다. (단, 이미 검색한 종목은 버튼 숨김)
+                        if stock['code'] not in st.session_state.ai_holdings_cache:
                             if st.button("🤖 AI 편입종목 검색", key=f"ai_{stock['code']}"):
                                 if not api_key_input: st.error("좌측 사이드바에 API 키를 입력해주세요.")
                                 else:
                                     with st.spinner(f"{stock['name']} 분석 중..."):
-                                        ai_holdings = ask_gemini(f"'{stock['name']} ({stock['code']})' 주요 편입 종목 쉼표로 나열.", api_key_input)
+                                        # 🔥 수정 3: AI가 다른 말 없이 딱 종목명만 콤마로 출력하도록 프롬프트 강력 통제
+                                        prompt = f"'{stock['name']} ({stock['code']})'의 주요 편입 종목 상위 10개만 정확히 쉼표(,)로 구분해서 1줄로 출력해. 인사말, 참고사항, 주의사항, 날짜 등은 절대 포함하지 마."
+                                        ai_holdings = ask_gemini(prompt, api_key_input)
+                                        
+                                        clean_holdings = ai_holdings.replace('\n', '').strip()
+                                        st.session_state.ai_holdings_cache[stock['code']] = "💡 AI 분석: " + clean_holdings
+                                        
                                         for custom_item in st.session_state.custom_etfs:
-                                            if custom_item['code'] == stock['code']: custom_item['holdings'] = "💡 AI 분석: " + ai_holdings
+                                            if custom_item['code'] == stock['code']: custom_item['holdings'] = "💡 AI 분석: " + clean_holdings
                                         st.rerun()
                         
                     cols[1].markdown(f"현재가:<br>{stock['price']:,}원", unsafe_allow_html=True)
