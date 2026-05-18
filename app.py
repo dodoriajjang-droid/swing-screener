@@ -429,114 +429,117 @@ def get_dividend_portfolio(ex_rate):
     krx_list = []
     
     # -------------------------------------------------------------
-    # 🕵️‍♂️ [스텔스 모드 1] 네이버 차단 우회를 위한 완벽한 브라우저 세션 위장
+    # 1. 🇰🇷 한국 주식 (KRX): pykrx 공식 API 사용 (차단 확률 0%)
     # -------------------------------------------------------------
-    kr_session = requests.Session()
-    kr_session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': 'https://www.naver.com/',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'cross-site',
-        'Sec-Fetch-User': '?1'
-    })
-    
     try:
-        # 🕵️‍♂️ [스텔스 모드 2] 배당금 페이지를 바로 찌르지 않고, 금융 홈을 먼저 방문하여 정상적인 유저처럼 쿠키 발급
-        kr_session.get("https://finance.naver.com/", timeout=5)
-        time.sleep(0.5)
+        from pykrx import stock
+        from datetime import datetime, timedelta
         
-        for page in range(1, 6):
-            url = f"https://finance.naver.com/sise/dividend_list.naver?page={page}"
-            res = kr_session.get(url, timeout=5)
-            tables = pd.read_html(StringIO(res.content.decode('euc-kr', 'replace')))
-            
-            for t in tables:
-                if '종목명' in t.columns and '배당금' in t.columns:
-                    df = t.dropna(subset=['종목명', '배당금']).copy()
-                    for _, row in df.iterrows():
-                        name = str(row['종목명'])
-                        if name != '종목명' and name.strip():
-                            try:
-                                price_val = str(row['현재가']).replace(',', '').replace('원', '')
-                                div_val = str(row['배당금']).replace(',', '').replace('원', '')
-                                if float(div_val) > 0:
-                                    krx_list.append({'종목명': name, '현재가': f"{int(float(price_val)):,}원", '예상 배당금': float(div_val), '비고': 'Naver 실시간'})
-                            except Exception: pass
-                    break
-            time.sleep(0.5) # 사람이 클릭하는 것처럼 0.5초 대기
-    except Exception as e: 
-        pass # 에러 발생 시 빈 데이터프레임으로 넘김
-
-    krx_df = pd.DataFrame(krx_list).drop_duplicates(subset=['종목명']) if krx_list else pd.DataFrame()
+        # 가장 최근 영업일 찾기
+        b_days = stock.get_business_days_dates(datetime.today() - timedelta(days=10), datetime.today())
+        last_bday = b_days[-1].strftime("%Y%m%d")
+        
+        # KOSPI & KOSDAQ 전체 종목의 펀더멘털(배당금 포함) 및 종가 데이터 일괄 로드
+        fund_df = stock.get_market_fundamental(last_bday, market="ALL")
+        ohlcv_df = stock.get_market_ohlcv(last_bday, market="ALL")
+        
+        # 종가(Close)와 주당배당금(DPS) 병합
+        kr_df = pd.concat([ohlcv_df['종가'], fund_df['DPS']], axis=1).dropna()
+        # 배당금이 있는 종목만 필터링 후 상위 300개 추출 (속도 최적화)
+        kr_df = kr_df[kr_df['DPS'] > 0].sort_values('DPS', ascending=False).head(300)
+        
+        for ticker, row in kr_df.iterrows():
+            name = stock.get_market_ticker_name(ticker)
+            krx_list.append({
+                '종목명': name,
+                '현재가': f"{int(row['종가']):,}원",
+                '예상 배당금': float(row['DPS']),
+                '비고': 'KRX 공식 데이터'
+            })
+    except Exception as e:
+        pass
+        
+    krx_df = pd.DataFrame(krx_list)
     if not krx_df.empty:
-        krx_df = krx_df.sort_values('예상 배당금', ascending=False).head(300)
         krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
 
+
     # -------------------------------------------------------------
-    # 🇺🇸 미국 주식 & ETF 데이터 수집 로직 (기존 유지)
+    # 2. 🇺🇸 미국 주식 & ETF: yahooquery API 사용 (단일 요청 일괄 처리)
     # -------------------------------------------------------------
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
     
-    def fetch_yf_dividend_safe(ticker):
-        try:
-            us_session = requests.Session()
-            us_session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
-            t = yf.Ticker(ticker, session=us_session)
-            
-            hist = t.history(period="5d")
-            if hist.empty: return None
-            price = hist['Close'].iloc[-1]
-            
-            div_rate = 0.0
-            info = {}
-            try: info = t.info
-            except: pass
-
-            if info and info.get('dividendRate'):
-                div_rate = info.get('dividendRate')
-            elif info and info.get('yield') and price > 0:
-                div_rate = price * info.get('yield')
-            else:
-                divs = t.dividends
-                if not divs.empty:
-                    one_yr_ago = pd.Timestamp.now(tz=divs.index.tz) - pd.DateOffset(years=1)
-                    div_rate = float(divs[divs.index >= one_yr_ago].sum())
-
-            if price > 0 and div_rate > 0:
-                name_ko = get_korean_name(info.get('shortName', ticker)) if info else ticker
-                price_krw = int(price * ex_rate)
-                div_krw = int(div_rate * ex_rate)
-                return {
-                    '종목명': f"{name_ko} ({ticker})", 
-                    '현재가': f"${price:,.2f} ({price_krw:,}원)", 
-                    '예상 배당금': float(div_rate),
-                    '표시 배당금': f"${div_rate:,.2f} ({div_krw:,}원)",
-                    '비고': 'Yahoo API/역산'
-                }
-        except Exception: pass
-        return None
-
     us_list, etf_list = [], []
     
-    for ticker in us_tickers:
-        res = fetch_yf_dividend_safe(ticker)
-        if res: us_list.append(res)
-        time.sleep(0.2)
+    try:
+        from yahooquery import Ticker as yq_Ticker
+        all_tickers = us_tickers + etf_tickers
         
-    for ticker in etf_tickers:
-        res = fetch_yf_dividend_safe(ticker)
-        if res: etf_list.append(res)
-        time.sleep(0.2)
-
+        # 💡 [핵심] 수십 개의 티커를 리스트로 던져 한 번에 통신 (Rate Limit 원천 차단)
+        yq = yq_Ticker(all_tickers)
+        details = yq.summary_detail
+        prices = yq.price
+        
+        # 미국 개별 주식 파싱
+        for ticker in us_tickers:
+            try:
+                detail = details.get(ticker, {})
+                price_info = prices.get(ticker, {})
+                if isinstance(detail, str): continue # 에러 응답 시 스킵
+                
+                price = price_info.get('regularMarketPrice', 0)
+                div_rate = detail.get('dividendRate', 0)
+                
+                # 배당금 데이터가 없으면 수익률(yield)로 역산
+                if not div_rate or div_rate == 0:
+                    div_yield = detail.get('yield', detail.get('trailingAnnualDividendYield', 0))
+                    if div_yield and price > 0: div_rate = price * div_yield
+                    
+                if price > 0 and div_rate > 0:
+                    # 기존에 구현해두신 get_korean_name 함수가 있으면 적용, 없으면 영문 티커 그대로
+                    name_ko = get_korean_name(price_info.get('shortName', ticker)) if 'get_korean_name' in globals() else ticker
+                    us_list.append({
+                        '종목명': f"{name_ko} ({ticker})", 
+                        '현재가': f"${price:,.2f} ({int(price * ex_rate):,}원)", 
+                        '예상 배당금': float(div_rate),
+                        '표시 배당금': f"${div_rate:,.2f} ({int(div_rate * ex_rate):,}원)",
+                        '비고': 'yahooquery API'
+                    })
+            except Exception: pass
+            
+        # 미국 ETF 파싱
+        for ticker in etf_tickers:
+            try:
+                detail = details.get(ticker, {})
+                price_info = prices.get(ticker, {})
+                if isinstance(detail, str): continue
+                
+                price = price_info.get('regularMarketPrice', 0)
+                div_rate = detail.get('dividendRate', 0)
+                
+                if not div_rate or div_rate == 0:
+                    div_yield = detail.get('yield', detail.get('trailingAnnualDividendYield', 0))
+                    if div_yield and price > 0: div_rate = price * div_yield
+                    
+                if price > 0 and div_rate > 0:
+                    name_ko = get_korean_name(price_info.get('shortName', ticker)) if 'get_korean_name' in globals() else ticker
+                    etf_list.append({
+                        '종목명': f"{name_ko} ({ticker})", 
+                        '현재가': f"${price:,.2f} ({int(price * ex_rate):,}원)", 
+                        '예상 배당금': float(div_rate),
+                        '표시 배당금': f"${div_rate:,.2f} ({int(div_rate * ex_rate):,}원)",
+                        '비고': 'yahooquery API'
+                    })
+            except Exception: pass
+            
+    except Exception as e:
+        pass # API 전체 통신 실패 시 대비
+        
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
 
+    # 정렬 및 뷰 가공
     if not us_df.empty:
         us_df = us_df.sort_values('예상 배당금', ascending=False)
         us_df['예상 배당금'] = us_df['표시 배당금']
