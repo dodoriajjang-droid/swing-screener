@@ -892,11 +892,16 @@ def get_krx_stocks():
                 df['Code'] = df['Code'].astype(str).str.zfill(6)
                 df_desc['Code'] = df_desc['Code'].astype(str).str.zfill(6)
                 
-                # 기존 df에 깡통 Sector가 있다면 지우고 꽉 찬 Sector로 병합
+                # 🔥 [수정된 부분] 기존 df의 Sector를 무조건 지우지 않고, 서로 보완하도록 병합!
                 if 'Sector' in df.columns:
-                    df = df.drop(columns=['Sector'])
-                    
-                df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
+                    # 기존 Sector 이름이 겹치지 않게 desc 쪽은 접미사를 붙여 병합
+                    df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left', suffixes=('', '_desc'))
+                    # 기존 Sector가 비어있는 종목만 desc의 Sector 값으로 채워 넣음
+                    df['Sector'] = df['Sector'].fillna(df['Sector_desc']) 
+                    # 임시로 생성된 Sector_desc 컬럼은 깔끔하게 삭제
+                    df = df.drop(columns=['Sector_desc'])
+                else:
+                    df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
         except Exception:
             pass
 
