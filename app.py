@@ -3167,10 +3167,30 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
                 if not krx_etf.empty:
                     price_col = 'Close' if 'Close' in krx_etf.columns else 'Price'
                     display_etf = krx_etf[['Symbol', 'Name', price_col, 'Change', 'Volume']].head(50).copy()
+                    
+                    # 💡 [핵심 버그 수정] Change 컬럼은 '등락률(%)'이 아니라 '등락금액(원)'입니다!
+                    # 따라서 (등락금액 / 전일종가) * 100 으로 실제 등락률(%)을 직접 계산합니다.
+                    def calc_pct_change(row):
+                        try:
+                            current_price = float(row[price_col])
+                            change_amount = float(row['Change'])
+                            prev_price = current_price - change_amount  # 전일종가 역산
+                            if prev_price > 0:
+                                return (change_amount / prev_price) * 100
+                            return 0.0
+                        except:
+                            return 0.0
+                            
+                    display_etf['ChangeRatio'] = display_etf.apply(calc_pct_change, axis=1)
+                    
+                    # UI 표출용으로 컬럼 재배치 및 이름 변경
+                    display_etf = display_etf[['Symbol', 'Name', price_col, 'ChangeRatio', 'Volume']]
                     display_etf.columns = ['종목코드', '종목명', '현재가', '등락률', '거래량']
-                    display_etf['등락률'] = display_etf['등락률'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "0.00%")
+                    
+                    display_etf['등락률'] = display_etf['등락률'].apply(lambda x: f"{x:+.2f}%")
                     display_etf['현재가'] = display_etf['현재가'].apply(lambda x: f"{int(x):,}원" if pd.notna(x) else "0원")
                     display_etf['거래량'] = display_etf['거래량'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
+                    
                     st.dataframe(display_etf, use_container_width=True, hide_index=True)
             except Exception as e:
                 st.error(f"ETF 스크래핑 에러: {e}")
