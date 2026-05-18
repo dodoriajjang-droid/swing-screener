@@ -973,11 +973,10 @@ def get_scan_targets(limit=50):
             if targets: return targets
     except Exception: pass
 
-    # 🚨 서버 IP 차단 시 방어용 예비 데이터 (스캐너가 멈추지 않도록 우량주 강제 투입)
+    # 🚨 중복 현상 해결: limit 개수를 채우기 위해 억지로 리스트를 곱하여 복사하는 로직 제거
     fallback_targets = get_krx_stocks()[['Name', 'Code']].values.tolist()
     if fallback_targets:
-        result = fallback_targets * (limit // len(fallback_targets) + 1)
-        return result[:limit]
+        return fallback_targets[:limit] # 준비된 예비 데이터만큼만 중복 없이 반환
     return []
 
 @st.cache_data(ttl=86400)
@@ -1358,25 +1357,43 @@ def get_fundamentals(ticker_code):
 
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-    df = pd.DataFrame()
     if str(ticker_code).isdigit():
-        try: df = fdr.DataReader(ticker_code, start_date)
-        except Exception: pass
-        if df is None or df.empty:
-            try:
-                df = yf.Ticker(ticker_code + ".KS").history(start=start_date)
-                if not df.empty: df.index = df.index.tz_localize(None)
-            except Exception: pass
-    else:
+        # 💡 [핵심 우회] 네이버 금융 차트 XML 데이터 다이렉트 추출 (차단 우회 및 가장 정확한 수정주가 반환)
         try:
-            df = yf.Ticker(ticker_code).history(start=start_date)
-            if not df.empty: df.index = df.index.tz_localize(None)
+            url = f"https://fchart.stock.naver.com/sise.nhn?symbol={ticker_code}&timeframe=day&count={days}&requestType=0"
+            res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            items = soup.find_all('item')
+            data = []
+            for item in items:
+                val = item.get('data')
+                if val:
+                    parts = val.split('|')
+                    data.append([pd.to_datetime(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4]), float(parts[5])])
+            if data:
+                df = pd.DataFrame(data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                df.set_index('Date', inplace=True)
+                return df
         except Exception: pass
-        if df is None or df.empty:
-            try: df = fdr.DataReader(ticker_code, start_date)
-            except Exception: pass
-    return df
+        
+        # XML 통신 실패 시 yfinance 한국 티커로 우회
+        try:
+            df = yf.Ticker(f"{ticker_code}.KS").history(period=f"{days}d")
+            if not df.empty:
+                df.index = df.index.tz_localize(None)
+                return df
+        except Exception: pass
+        
+    else:
+        # 미국 주식은 기존대로 yfinance 사용
+        try:
+            df = yf.Ticker(ticker_code).history(period=f"{days}d")
+            if not df.empty:
+                df.index = df.index.tz_localize(None)
+                return df
+        except Exception: pass
+        
+    return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def get_advanced_chart_data(ticker_code, timeframe):
