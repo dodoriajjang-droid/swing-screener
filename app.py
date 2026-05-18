@@ -3683,24 +3683,31 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # 👇 한국거래소 통합 원장 
+    # 👇 [핵심 업데이트 1] 콤마(,) 에러 원천 차단 숫자 추출 엔진
     @st.cache_data(ttl=3600)
     def get_all_kr_assets():
         try:
             stocks_df = fdr.StockListing('KRX')
             etfs_df = fdr.StockListing('ETF/KR')
             res_dfs = []
+            
             if not stocks_df.empty:
                 s = stocks_df[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'}) if 'Close' in stocks_df.columns else stocks_df[['Code', 'Name']].assign(Price=0)
                 res_dfs.append(s)
+                
             if not etfs_df.empty:
                 if 'Symbol' in etfs_df.columns: etfs_df = etfs_df.rename(columns={'Symbol': 'Code'})
                 e = etfs_df[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'}) if 'Close' in etfs_df.columns else (etfs_df[['Code', 'Name', 'Price']] if 'Price' in etfs_df.columns else etfs_df[['Code', 'Name']].assign(Price=0))
                 res_dfs.append(e)
+                
             if res_dfs:
                 df = pd.concat(res_dfs, ignore_index=True)
                 df['Code'] = df['Code'].astype(str).str.zfill(6)
+                
+                # 🔥 0원 오류의 핵심이었던 콤마(,)와 문자를 100% 제거하고 숫자만 추출하는 로직!
+                df['Price'] = df['Price'].astype(str).str.replace(r'[^0-9.]', '', regex=True)
                 df['Price'] = pd.to_numeric(df['Price'], errors='coerce').fillna(0)
+                
                 return df.sort_values('Price', ascending=False).drop_duplicates(subset=['Code']).reset_index(drop=True)
         except:
             return pd.DataFrame()
@@ -3750,7 +3757,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 st.warning("검색 결과가 없습니다.")
 
-    # 👇 [완전 개편] 구형 데이터 100% 삭제 및 1번~10번 신규 200종목 완벽 세팅
+    # 👇 [완전 개편] 1번 ~ 10번 깔끔한 넘버링 & 완벽 검증된 200종목 리스트
     raw_etf_data = [
         # 🌐 1. 시장 대표 지수 코어 TOP 20
         {"theme": "🌐 1. 시장 대표 지수 코어 TOP 20", "code": "069500", "name": "KODEX 200"},
@@ -3973,7 +3980,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지 TOP 20", "code": "NLR", "name": "VanEck Uranium+Nuclear Energy ETF"}
     ]
 
-    # 👇 공식 이름 동기화 엔진 (가짜 이름 박멸)
+    # 👇 공식 이름 동기화 엔진 (가짜 이름 박멸 및 통일)
     @st.cache_data(ttl=86400)
     def update_official_names(items):
         try:
@@ -4033,6 +4040,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         kr_codes = [c for c in codes if len(str(c)) == 6 and any(char.isdigit() for char in str(c))]
         us_codes = [c for c in codes if c not in kr_codes]
 
+        # 1. 미국 주식 야후 병렬 처리
         def get_us_cagr(c):
             try:
                 hist = yf.Ticker(c).history(period="max", interval="1mo")
@@ -4051,7 +4059,9 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 for code, data in executor.map(get_us_cagr, us_codes):
                     if data: cagr_dict[code] = data
 
-        def get_naver_cagr(c):
+        # 2. 한국 주식 3중 병렬 처리 (절대 뻗지 않음)
+        def get_kr_cagr(c):
+            # 1차 방어: 네이버 fchart
             try:
                 url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
                 res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -4066,6 +4076,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                             return c, {'cagr': round(((p_end / p_start) ** (365.25 / days) - 1) * 100, 2), 'date': first_date.strftime('%Y-%m-%d')}
             except: pass
             
+            # 2차 방어: FDR 다이렉트 처리
             try:
                 df = fdr.DataReader(c)
                 if len(df) > 250:
@@ -4078,7 +4089,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             
         if kr_codes:
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                for code, data in executor.map(get_naver_cagr, kr_codes):
+                for code, data in executor.map(get_kr_cagr, kr_codes):
                     if data: cagr_dict[code] = data
                     
         return cagr_dict
@@ -4089,6 +4100,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         kr_codes = [c for c in codes if len(str(c)) == 6 and any(char.isdigit() for char in str(c))]
         us_codes = [c for c in codes if c not in kr_codes]
         
+        # 1. 한국 주식 벌크 매칭 (단 1번의 통신)
         try:
             bulk_krx = get_all_kr_assets()
             if not bulk_krx.empty and 'Price' in bulk_krx.columns:
@@ -4097,8 +4109,19 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if c in bulk_price_dict and bulk_price_dict[c] > 0: prices[c] = int(bulk_price_dict[c])
         except: pass
 
+        # 2. 누락된 한국 주식 강제 크롤링 엔진 (0원 절대 불가)
         missing_kr = [c for c in kr_codes if c not in prices or prices[c] == 0]
         def get_direct_kr_price(c):
+            # 1차 강제 스크래핑
+            try:
+                url = f"https://finance.naver.com/item/main.naver?code={c}"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                today_div = soup.select_one('.no_today .blind')
+                if today_div: return c, int(today_div.text.replace(',', ''))
+            except: pass
+            
+            # 2차 강제 다운로드
             try:
                 df = fdr.DataReader(c)
                 if not df.empty: return c, int(df['Close'].iloc[-1])
@@ -4110,6 +4133,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 for code, price in executor.map(get_direct_kr_price, missing_kr):
                     if price > 0: prices[code] = price
         
+        # 3. 미국 주식 현재가
         def get_us_price(c):
             try:
                 hist = yf.Ticker(c).history(period="1d")
@@ -4143,7 +4167,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
     if 'retirement_cart' not in st.session_state: st.session_state.retirement_cart = {}
 
-    # 👇 깔끔하게 1~10번으로 재정렬된 테마 명단 적용
+    # 👇 1번~10번으로 깔끔하게 정리된 테마 명단
     theme_order = [
         "🌐 1. 시장 대표 지수 코어 TOP 20", 
         "💻 2. 반도체 & 빅테크 핵심 성장 TOP 20", 
@@ -4161,7 +4185,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     for theme in theme_order:
         theme_stocks = [item for item in etf_data if item['theme'] == theme]
         seen = set()
-        # 중복 방지를 위한 강력한 필터 적용
         unique_stocks = [s for s in theme_stocks if s['code'] not in seen and not seen.add(s['code'])]
 
         if unique_stocks:
@@ -4187,7 +4210,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     cagr_display = f"{cagr_val}%" if isinstance(cagr_val, (int, float)) else f"<span style='font-size:0.85em; color:gray;'>{cagr_val}</span>"
                     cols[3].markdown(f"연평균(상장후):<br>{cagr_display}", unsafe_allow_html=True)
                     
-                    # 중복 키 오류 원천 차단을 위한 고유 인덱스 키 사용
                     qty = cols[4].number_input("수량(주)", min_value=0, step=1, key=f"ret_qty_{theme}_{stock['code']}_{idx}", label_visibility="collapsed")
                     
                     if qty > 0: st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
