@@ -429,23 +429,19 @@ def get_dividend_portfolio(ex_rate):
     krx_list = []
     
     # -------------------------------------------------------------
-    # 1. 🇰🇷 한국 주식 (KRX): pykrx 공식 API 사용 (차단 확률 0%)
+    # 1. 🇰🇷 한국 주식 (KRX): pykrx 공식 API 시도 (로컬 환경용)
     # -------------------------------------------------------------
     try:
         from pykrx import stock
         from datetime import datetime, timedelta
         
-        # 가장 최근 영업일 찾기
         b_days = stock.get_business_days_dates(datetime.today() - timedelta(days=10), datetime.today())
         last_bday = b_days[-1].strftime("%Y%m%d")
         
-        # KOSPI & KOSDAQ 전체 종목의 펀더멘털(배당금 포함) 및 종가 데이터 일괄 로드
         fund_df = stock.get_market_fundamental(last_bday, market="ALL")
         ohlcv_df = stock.get_market_ohlcv(last_bday, market="ALL")
         
-        # 종가(Close)와 주당배당금(DPS) 병합
         kr_df = pd.concat([ohlcv_df['종가'], fund_df['DPS']], axis=1).dropna()
-        # 배당금이 있는 종목만 필터링 후 상위 300개 추출 (속도 최적화)
         kr_df = kr_df[kr_df['DPS'] > 0].sort_values('DPS', ascending=False).head(300)
         
         for ticker, row in kr_df.iterrows():
@@ -456,16 +452,67 @@ def get_dividend_portfolio(ex_rate):
                 '예상 배당금': float(row['DPS']),
                 '비고': 'KRX 공식 데이터'
             })
-    except Exception as e:
+    except Exception:
         pass
         
+    # 🕵️‍♂️ [국장 우회 핵심] 만약 클라우드 IP 차단으로 pykrx 데이터가 텅 비었다면, 
+    # 국내 우량 고배당주 리스트를 yahooquery를 통해 글로벌 서버망으로 우회 조회합니다.
+    if not krx_list:
+        try:
+            from yahooquery import Ticker as yq_Ticker
+            kr_tickers = [
+                "024110.KS", "316140.KS", "086790.KS", "105560.KS", "055550.KS", "033780.KS", 
+                "017670.KS", "030200.KS", "032640.KS", "090430.KS", "000810.KS", "058300.KS", 
+                "001450.KS", "032830.KS", "029780.KS", "005930.KS", "005935.KS", "000270.KS", 
+                "005380.KS", "004800.KS", "003550.KS", "034730.KS", "078930.KS", "010130.KS", 
+                "010950.KS", "053690.KS", "000400.KS"
+            ]
+            kr_names = {
+                "024110.KS": "기업은행", "316140.KS": "우리금융지주", "086790.KS": "하나금융지주", 
+                "105560.KS": "KB금융", "055550.KS": "신한지주", "033780.KS": "KT&G", 
+                "017670.KS": "SK텔레콤", "030200.KS": "KT", "032640.KS": "LG유플러스", 
+                "090430.KS": "맥쿼리인프라", "000810.KS": "삼성화재", "058300.KS": "DB손해보험", 
+                "001450.KS": "현대해상", "032830.KS": "삼성생명", "029780.KS": "삼성카드", 
+                "005930.KS": "삼성전자", "005935.KS": "삼성전자우", "000270.KS": "기아", 
+                "005380.KS": "현대차", "004800.KS": "효성", "003550.KS": "LG", 
+                "034730.KS": "SK", "078930.KS": "GS", "010130.KS": "고려아연", 
+                "010950.KS": "S-Oil", "053690.KS": "LX인터내셔널", "000400.KS": "제일기획"
+            }
+            
+            yq_kr = yq_Ticker(kr_tickers)
+            kr_details = yq_kr.summary_detail
+            kr_prices = yq_kr.price
+            
+            for t_code in kr_tickers:
+                try:
+                    d = kr_details.get(t_code, {})
+                    p = kr_prices.get(t_code, {})
+                    if isinstance(d, str): continue
+                    
+                    price = p.get('regularMarketPrice', 0)
+                    div_rate = d.get('dividendRate', 0)
+                    
+                    if (not div_rate or div_rate == 0) and price > 0:
+                        div_yield = d.get('yield', d.get('trailingAnnualDividendYield', 0))
+                        if div_yield: div_rate = price * div_yield
+                        
+                    if price > 0 and div_rate > 0:
+                        krx_list.append({
+                            '종목명': kr_names[t_code],
+                            '현재가': f"{int(price):,}원",
+                            '예상 배당금': float(div_rate),
+                            '비고': 'Yahoo 글로벌망 우회 조회'
+                        })
+                except Exception: pass
+        except Exception: pass
+
     krx_df = pd.DataFrame(krx_list)
     if not krx_df.empty:
-        krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원")
-
+        krx_df = krx_df.sort_values('예상 배당금', ascending=False)
+        krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원" if isinstance(x, (int, float)) else str(x))
 
     # -------------------------------------------------------------
-    # 2. 🇺🇸 미국 주식 & ETF: yahooquery API 사용 (단일 요청 일괄 처리)
+    # 2. 🇺🇸 미국 주식 & ETF: yahooquery API 사용
     # -------------------------------------------------------------
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
     etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
@@ -476,28 +523,24 @@ def get_dividend_portfolio(ex_rate):
         from yahooquery import Ticker as yq_Ticker
         all_tickers = us_tickers + etf_tickers
         
-        # 💡 [핵심] 수십 개의 티커를 리스트로 던져 한 번에 통신 (Rate Limit 원천 차단)
         yq = yq_Ticker(all_tickers)
         details = yq.summary_detail
         prices = yq.price
         
-        # 미국 개별 주식 파싱
         for ticker in us_tickers:
             try:
                 detail = details.get(ticker, {})
                 price_info = prices.get(ticker, {})
-                if isinstance(detail, str): continue # 에러 응답 시 스킵
+                if isinstance(detail, str): continue
                 
                 price = price_info.get('regularMarketPrice', 0)
                 div_rate = detail.get('dividendRate', 0)
                 
-                # 배당금 데이터가 없으면 수익률(yield)로 역산
                 if not div_rate or div_rate == 0:
                     div_yield = detail.get('yield', detail.get('trailingAnnualDividendYield', 0))
                     if div_yield and price > 0: div_rate = price * div_yield
                     
                 if price > 0 and div_rate > 0:
-                    # 기존에 구현해두신 get_korean_name 함수가 있으면 적용, 없으면 영문 티커 그대로
                     name_ko = get_korean_name(price_info.get('shortName', ticker)) if 'get_korean_name' in globals() else ticker
                     us_list.append({
                         '종목명': f"{name_ko} ({ticker})", 
@@ -508,7 +551,6 @@ def get_dividend_portfolio(ex_rate):
                     })
             except Exception: pass
             
-        # 미국 ETF 파싱
         for ticker in etf_tickers:
             try:
                 detail = details.get(ticker, {})
@@ -533,13 +575,11 @@ def get_dividend_portfolio(ex_rate):
                     })
             except Exception: pass
             
-    except Exception as e:
-        pass # API 전체 통신 실패 시 대비
+    except Exception: pass
         
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
 
-    # 정렬 및 뷰 가공
     if not us_df.empty:
         us_df = us_df.sort_values('예상 배당금', ascending=False)
         us_df['예상 배당금'] = us_df['표시 배당금']
@@ -3211,6 +3251,38 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
         div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
         
     sort_opt = st.radio("⬇ 정렬 기준", ["기본 (분류순)", "예상 배당금 높은순", "현재가 높은순", "현재가 낮은순"], horizontal=True)
+    
+    def apply_sort(df, opt):
+        if df.empty: return df
+        temp_df = df.copy()
+        if opt == "기본 (분류순)": return temp_df 
+        def ex_val(val_str):
+            try: return float(str(val_str).split('(')[0].replace(',', '').replace('원', '').replace('$', '').strip())
+            except: return 0.0
+        sort_col = '예상 배당금' if "배당금" in opt else '현재가'
+        temp_df['__sort'] = temp_df[sort_col].apply(lambda x: ex_val(x))
+        if opt == "현재가 낮은순": return pd.concat([temp_df[temp_df['__sort']>0].sort_values('__sort'), temp_df[temp_df['__sort']==0]]).drop(columns=['__sort'])
+        return temp_df.sort_values('__sort', ascending=False).drop(columns=['__sort'])
+
+    t1, t2, t3 = st.tabs(["🇰🇷 국장", "🇺🇸 미장", "📈 ETF"])
+    
+    with t1: 
+        if div_dfs["KRX"].empty:
+            st.error("🚨 국내 거래소 및 외부 가치평가 서버망 통신 제한으로 인해 국내 주식 데이터를 불러오지 못했습니다. 잠시 후 사이드바 하단의 [새로고침]을 실행해 주세요.")
+        else:
+            st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
+            
+    with t2: 
+        if div_dfs["US"].empty:
+            st.error("🚨 글로벌 금융 서버망 접속 제한으로 인해 미국 주식 데이터를 가져오지 못했습니다.")
+        else:
+            st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
+            
+    with t3: 
+        if div_dfs["ETF"].empty:
+            st.error("🚨 글로벌 금융 서버망 접속 제한으로 인해 ETF 데이터를 가져오지 못했습니다.")
+        else:
+            st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
     
     def apply_sort(df, opt):
         if df.empty: return df
