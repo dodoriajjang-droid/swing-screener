@@ -3725,7 +3725,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         parsed_code = parts[1].replace("]", "").strip()
                         
                         if not any(item['code'] == parsed_code for item in st.session_state.custom_etfs):
-                            st.session_state.custom_etfs.append({'name': parsed_name, 'code': parsed_code})
+                            # 맞춤 종목 초기 데이터 구조에 holdings 상태 추가
+                            st.session_state.custom_etfs.append({'name': parsed_name, 'code': parsed_code, 'holdings': '사용자가 직접 검색하여 추가한 맞춤 관심 종목'})
                             added_count += 1
                             
                     if added_count > 0:
@@ -3830,12 +3831,12 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "name": custom_item['name'], 
                 "code": custom_item['code'], 
                 "price": 0, 
-                # 💡 [핵심 버그 수정] 임의의 10% 대신 문자열로 초기화하여 시각적 혼동 방지
                 "cagr": "데이터없음(1년미만)", 
-                "holdings": "사용자가 직접 검색하여 추가한 맞춤 관심 종목"
+                "list_date": "데이터없음",
+                "holdings": custom_item.get('holdings', "사용자가 직접 검색하여 추가한 맞춤 관심 종목")
             })
 
-    # 상장 이후 실제 연평균 수익률(CAGR) 계산 (네이버 XML + 야후 결합)
+    # 💡 [핵심 업데이트] 상장일(기준일)과 CAGR을 함께 가져오도록 반환 구조 변경
     @st.cache_data(ttl=86400)
     def fetch_historical_cagr(codes):
         cagr_dict = {}
@@ -3859,7 +3860,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                                 days = (last_date - first_date).days
                                 if days >= 365 and first_price > 0:
                                     cagr = ((last_price / first_price) ** (365.25 / days) - 1) * 100
-                                    cagr_dict[symbol] = round(cagr, 2)
+                                    cagr_dict[symbol] = {'cagr': round(cagr, 2), 'date': first_date.strftime('%Y-%m-%d')}
                         except: pass
         except: pass
 
@@ -3880,12 +3881,11 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         days = (last_date - first_date).days
                         if days >= 365 and first_price > 0:
                             cagr = ((last_price / first_price) ** (365.25 / days) - 1) * 100
-                            cagr_dict[c] = round(cagr, 2)
+                            cagr_dict[c] = {'cagr': round(cagr, 2), 'date': first_date.strftime('%Y-%m-%d')}
             except: pass
             
         return cagr_dict
 
-    # 실시간 현재가 연동 로직
     @st.cache_data(ttl=3600)
     def fetch_realtime_simulator_prices(codes, ex_rate):
         prices = {}
@@ -3935,10 +3935,13 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         real_cagrs = fetch_historical_cagr(all_codes)
         
         for item in etf_data:
+            if 'list_date' not in item:
+                item['list_date'] = "데이터없음"
             if item['code'] in real_prices and real_prices[item['code']] > 0:
                 item['price'] = real_prices[item['code']]
             if item['code'] in real_cagrs:
-                item['cagr'] = real_cagrs[item['code']]
+                item['cagr'] = real_cagrs[item['code']]['cagr']
+                item['list_date'] = real_cagrs[item['code']]['date']
 
     # --- 4. 포트폴리오 구성 UI ---
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
@@ -3963,25 +3966,42 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         if theme_stocks:
             with st.expander(f"{theme} 종목 선택", expanded=(theme=="🌐 시장 지수 코어 (국내상장)" or theme=="🔎 내가 추가한 맞춤 종목")):
                 for stock in theme_stocks:
-                    cols = st.columns([3.5, 2, 2, 1.5, 1]) 
+                    # 💡 상장일 컬럼을 넣기 위해 비율 재조정 [이름 30%, 가격 15%, 상장일 15%, 수익률 15%, 수량 15%, 삭제 10%]
+                    cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
                     
                     with cols[0]:
                         st.markdown(f"**{stock['name']}** ({stock['code']})")
                         st.caption(f"🔍 {stock.get('holdings', '')}")
                         
+                        # 💡 [핵심 업데이트 2] 내가 추가한 종목의 편입종목을 AI로 찾아주는 버튼
+                        if theme == "🔎 내가 추가한 맞춤 종목" and "사용자가 직접 검색" in stock.get('holdings', ''):
+                            if st.button("🤖 AI 편입종목 검색", key=f"ai_{stock['code']}"):
+                                if not api_key_input:
+                                    st.error("좌측 사이드바에 API 키를 입력해주세요.")
+                                else:
+                                    with st.spinner(f"{stock['name']}의 편입 종목 데이터를 AI가 분석 중입니다..."):
+                                        prompt = f"'{stock['name']} ({stock['code']})' ETF 또는 주식의 주요 포트폴리오 편입 종목(Top 10)을 쉼표로 구분해서 핵심만 짧게 나열해줘. 부연 설명 없이 딱 종목명만 출력해."
+                                        ai_holdings = ask_gemini(prompt, api_key_input)
+                                        for custom_item in st.session_state.custom_etfs:
+                                            if custom_item['code'] == stock['code']:
+                                                custom_item['holdings'] = ai_holdings
+                                        st.rerun()
+                        
                     cols[1].markdown(f"현재가:<br>{stock['price']:,}원", unsafe_allow_html=True)
                     
-                    # 💡 [핵심 버그 수정] 숫자가 아닌 문자열이면 그대로 출력하도록 분기 처리
+                    # 💡 [핵심 업데이트 1] 상장일(데이터 수집 시작일) 추가 표기
+                    cols[2].markdown(f"상장(기준)일:<br><span style='color:#328cc1; font-weight:bold;'>{stock.get('list_date', '데이터없음')}</span>", unsafe_allow_html=True)
+                    
                     cagr_val = stock['cagr']
                     if isinstance(cagr_val, (int, float)):
                         cagr_display = f"{cagr_val}%"
                     else:
                         cagr_display = f"<span style='font-size:0.85em; color:gray;'>{cagr_val}</span>"
                         
-                    cols[2].markdown(f"연평균(상장후):<br>{cagr_display}", unsafe_allow_html=True)
+                    cols[3].markdown(f"연평균(상장후):<br>{cagr_display}", unsafe_allow_html=True)
                     
                     unique_key = f"ret_qty_{theme}_{stock['code']}"
-                    qty = cols[3].number_input("수량(주)", min_value=0, step=1, key=unique_key, label_visibility="collapsed")
+                    qty = cols[4].number_input("수량(주)", min_value=0, step=1, key=unique_key, label_visibility="collapsed")
                     
                     if qty > 0:
                         st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr']}
@@ -3989,7 +4009,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         del st.session_state.retirement_cart[stock['code']]
 
                     if theme == "🔎 내가 추가한 맞춤 종목":
-                        if cols[4].button("🗑️ 삭제", key=f"del_{stock['code']}"):
+                        if cols[5].button("🗑️ 삭제", key=f"del_{stock['code']}"):
                             st.session_state.custom_etfs = [x for x in st.session_state.custom_etfs if x['code'] != stock['code']]
                             if stock['code'] in st.session_state.retirement_cart:
                                 del st.session_state.retirement_cart[stock['code']]
@@ -4006,7 +4026,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         total_principal = 0
         weighted_cagr_sum = 0
         
-        # 💡 [핵심 버그 수정] 문자열("데이터없음")인 종목은 시뮬레이션 계산 시 0%로 간주하여 에러 방지
         for k, v in cart.items():
             principal = v['qty'] * v['price']
             total_principal += principal
