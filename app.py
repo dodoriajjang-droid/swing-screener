@@ -3653,43 +3653,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
         c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
 
-    # --- 2. 스마트 맞춤 종목 검색 및 다중 추가 기능 ---
-    # (이전 버전의 문자열 에러를 방지하기 위해 딕셔너리 구조로 초기화)
-    if 'custom_etfs' not in st.session_state or (len(st.session_state.custom_etfs) > 0 and isinstance(st.session_state.custom_etfs[0], str)):
-        st.session_state.custom_etfs = []
-
-    st.markdown("### 🔎 2. 맞춤형 종목 다중 검색 및 추가")
-    with st.container(border=True):
-        st.write("리스트에 없는 종목을 검색합니다. **쉼표(,)로 구분하여 여러 개를 동시에 입력**할 수 있습니다.")
-        col_s, col_b = st.columns([4, 1])
-        new_tickers_input = col_s.text_input("종목명 또는 티커 입력", placeholder="예: 삼성전자, TSLA, 카카오, SCHD").strip()
-        
-        if col_b.button("목록에 검색 및 추가", use_container_width=True):
-            if new_tickers_input:
-                # 쉼표를 기준으로 여러 종목 분리elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
-    st.markdown("## 👴 노후 준비 핵심 ETF 테마별 통합 시뮬레이터")
-    st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
-
-    # --- 1. 절세 계좌 자동 배분 계산기 ---
-    st.markdown("### 🎯 1. 월 투자금액별 절세 계좌 배분 가이드")
-    with st.container(border=True):
-        col_in, col_spacer = st.columns([2, 1])
-        monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=1500000)
-        
-        temp_budget = monthly_budget
-        pension = min(500000, temp_budget) 
-        temp_budget -= pension
-        irp = min(250000, temp_budget)    
-        temp_budget -= irp
-        isa = min(1666666, temp_budget)   
-        normal = max(0, temp_budget - isa)
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("연금저축펀드", f"{int(pension):,}원", "연 600만 한도")
-        c2.metric("IRP (퇴직연금)", f"{int(irp):,}원", "합산 900만 한도")
-        c3.metric("중개형 ISA", f"{int(isa):,}원", "비과세 혜택")
-        c4.metric("일반/해외계좌", f"{int(normal):,}원", "한도 초과분")
-
     # 👇 [핵심 업데이트 1] 주식 + ETF 통합 검색 엔진
     @st.cache_data(ttl=86400)
     def get_all_kr_assets():
