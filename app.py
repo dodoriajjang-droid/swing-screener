@@ -3776,43 +3776,82 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
     st.markdown("### 🔎 2. 맞춤형 종목 검색 및 추가")
     with st.container(border=True):
-        st.write("찾으시는 운용사(예: 미래에셋, TIGER)나 키워드를 검색하시면 하단에서 선택하여 일괄 추가할 수 있습니다.")
-        col_input, col_search = st.columns([4, 1])
-        search_input = col_input.text_input("종목명 또는 키워드 입력", placeholder="예: 반도체, 미래에셋, SCHD", label_visibility="collapsed").strip()
-        if col_search.button("🔍 연관 종목 검색", use_container_width=True):
-            if search_input: st.session_state.search_query = search_input
+        st.markdown("**✨ 원하는 종목을 직접 찾아 내 포트폴리오에 담아보세요.**")
+        st.caption("국내 주식/ETF는 물론, 미국 주식 티커(예: AAPL, SCHD)도 검색할 수 있습니다.")
+        
+        # 🎨 [디자인 개선 1] 입력창과 버튼의 높이를 일직선으로 완벽하게 맞춤
+        cols = st.columns([4, 1], vertical_alignment="bottom")
+        with cols[0]:
+            search_input = st.text_input(
+                "검색어 입력", 
+                placeholder="🔍 검색어를 입력하세요. (예: 반도체, 삼성전자, SCHD)", 
+                label_visibility="collapsed"
+            ).strip()
+        with cols[1]:
+            # 🎨 [디자인 개선 2] 버튼 색상을 강조(primary)하고 꽉 채워서 클릭하기 편하게 만듦
+            search_clicked = st.button("종목 검색", type="primary", use_container_width=True)
 
+        # 검색 버튼이 눌렸을 때 세션에 저장
+        if search_clicked:
+            if search_input: 
+                st.session_state.search_query = search_input
+            else:
+                st.warning("⚠️ 검색어를 먼저 입력해주세요!")
+
+        # 검색어가 존재하면 결과 출력
         if st.session_state.search_query:
             query = st.session_state.search_query
-            kr_assets_df = get_naver_etf_and_stocks()
             search_options = []
-            if not kr_assets_df.empty:
-                matches = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
-                for _, row in matches.iterrows(): search_options.append(f"{row['Name']} [{row['Code']}]")
-            if re.search('[a-zA-Z]', query):
-                try:
-                    us_results = search_us_ticker(query)
-                    if us_results:
-                        for res in us_results:
-                            search_options.append(f"{res.split(' (')[1].split(' /')[0]} [{res.split(' ')[0]}]")
-                except: pass
-            st.markdown("---")
+            
+            with st.spinner("데이터베이스에서 종목을 찾는 중입니다..."):
+                kr_assets_df = get_naver_etf_and_stocks()
+                
+                if not kr_assets_df.empty:
+                    matches = kr_assets_df[kr_assets_df['Name'].str.contains(query, case=False, na=False)]
+                    for _, row in matches.iterrows(): search_options.append(f"{row['Name']} [{row['Code']}]")
+                
+                if re.search('[a-zA-Z]', query):
+                    try:
+                        us_results = search_us_ticker(query)
+                        if us_results:
+                            for res in us_results:
+                                search_options.append(f"{res.split(' (')[1].split(' /')[0]} [{res.split(' ')[0]}]")
+                    except: pass
+            
+            st.divider() # 시각적 분리선 
+            
             if search_options:
-                st.success(f"💡 '{query}' 검색 결과 총 {len(search_options)}개를 찾았습니다!")
-                selected_to_add = st.multiselect("👇 장바구니에 담을 종목을 모두 선택하세요:", options=search_options)
-                if st.button("➕ 선택한 종목 일괄 추가하기", type="primary"):
-                    added_count = 0
-                    for sel in selected_to_add:
-                        parts = sel.split(" [")
-                        parsed_name, parsed_code = parts[0].strip(), parts[1].replace("]", "").strip()
-                        if not any(item['code'] == parsed_code for item in st.session_state.custom_etfs):
-                            st.session_state.custom_etfs.append({'name': parsed_name, 'code': parsed_code, 'holdings': '사용자가 직접 검색하여 추가한 맞춤 관심 종목'})
-                            added_count += 1
-                    if added_count > 0: st.success(f"{added_count}개 종목 추가 완료!")
-                    st.session_state.search_query = ""
-                    st.rerun()
+                # 🎨 [디자인 개선 3] Form을 도입하여 종목 담기 후 화면이 지저분해지지 않고 깔끔하게 초기화되도록 함
+                with st.form(key="add_stock_form", clear_on_submit=True):
+                    st.success(f"🎉 '{query}' 검색 결과 총 **{len(search_options)}개**를 찾았습니다!")
+                    
+                    selected_to_add = st.multiselect(
+                        "👇 결과 목록에서 장바구니에 담을 종목을 모두 골라주세요:", 
+                        options=search_options,
+                        placeholder="여기를 클릭하여 여러 종목을 동시에 선택할 수 있습니다."
+                    )
+                    
+                    submit_btn = st.form_submit_button("🛒 선택한 종목 포트폴리오에 추가하기", use_container_width=True)
+                    
+                    if submit_btn:
+                        if selected_to_add:
+                            added_count = 0
+                            for sel in selected_to_add:
+                                parts = sel.split(" [")
+                                parsed_name, parsed_code = parts[0].strip(), parts[1].replace("]", "").strip()
+                                if not any(item['code'] == parsed_code for item in st.session_state.custom_etfs):
+                                    st.session_state.custom_etfs.append({'name': parsed_name, 'code': parsed_code, 'holdings': '사용자 검색 추가 종목'})
+                                    added_count += 1
+                            
+                            if added_count > 0:
+                                st.toast(f"✅ {added_count}개 종목이 성공적으로 추가되었습니다!", icon="✅")
+                            
+                            st.session_state.search_query = "" # 폼 제출 후 검색어 완전 초기화
+                            st.rerun() # 화면 새로고침하여 즉각 반영
+                        else:
+                            st.warning("⚠️ 추가할 종목을 위에서 먼저 선택해주세요.")
             else:
-                st.warning("검색 결과가 없습니다.")
+                st.error("앗! 검색 결과가 없습니다. 다른 키워드로 다시 시도해 주세요. 🥲")
 
     # 👇 [가짜 종목 전면 폐기] 오직 실존하는 핵심 대장주만 엄선한 무결점 리스트
     raw_etf_data = [
