@@ -4171,12 +4171,15 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             st.metric("가중평균 수익률", f"{w_cagr:.2f}%")
             yrs = st.select_slider("투자기간 (년)", options=[1, 5, 10, 20, 30], value=20)
             fv = total_p * ((1 + w_cagr/100) ** yrs)
+            
+            # 파이썬은 무한대 출력이 가능하므로 단순 출력은 int() 유지
             st.metric(f"{yrs}년 후 예상 자산", f"{int(fv):,}원")
         with d_col2:
-            df_chart = pd.DataFrame([{"년수": f"{y}년", "자산규모": int(total_p * ((1 + w_cagr/100) ** y))} for y in range(yrs + 1)])
+            # 👇 [오류 해결] 숫자가 너무 커졌을 때 차트 라이브러리가 뻗지 않도록 int() 대신 float() 사용!
+            df_chart = pd.DataFrame([{"년수": f"{y}년", "자산규모": float(total_p * ((1 + w_cagr/100) ** y))} for y in range(yrs + 1)])
             st.area_chart(df_chart.set_index("년수"))
 
-        # 👇 [핵심 조치 3] 포트폴리오 명세표 표출 복구 및 AI 포트폴리오 진단 부활
+        # 포트폴리오 명세표 표출 복구 및 AI 포트폴리오 진단 부활
         st.markdown("#### 📝 내 포트폴리오 명세서")
         st.table(pd.DataFrame([{'종목명': v['name'], '수량': f"{v['qty']}주", '현재가': f"{v['price']:,}원", '총액': f"{v['qty'] * v['price']:,}원", '연평균수익률': f"{v['cagr']}%"} for v in cart.values()]))
         st.caption("※ '데이터없음' 종목은 계산의 안전을 위해 수익률 0%로 보수적 적용됩니다.")
@@ -4194,7 +4197,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     else:
         st.info("💡 위 리스트에서 수량을 입력하시면 시뮬레이션이 즉시 시작됩니다.")
 
-    # 👇 [핵심 조치 4] 거슬렸던 0원 검출기를 화면 맨 하단으로 깔끔하게 이동 배치
+    # 0원 검출기를 화면 맨 하단으로 깔끔하게 이동 배치
     st.divider()
     st.markdown("### 🚨 시스템 상태 분석기")
     with st.expander("⚠️ 데이터 통신 지연 종목 확인 (0원 에러 검출기)", expanded=False):
