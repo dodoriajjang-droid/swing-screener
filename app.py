@@ -3887,7 +3887,6 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                                 parsed_name, parsed_code = parts[0].strip(), parts[1].replace("]", "").strip()
                                 if not any(item['code'] == parsed_code for item in st.session_state.custom_etfs):
                                     auto_theme = categorize_custom_etf_with_ai(parsed_name, api_key_input).strip()
-                                    # 💡 [핵심 조치] AI가 엉뚱한 테마명을 지어내면 강제로 '맞춤 종목' 테마에 안착시켜 유실 방지
                                     if auto_theme not in theme_order:
                                         auto_theme = "🔎 내가 추가한 맞춤 종목"
                                         
@@ -3904,7 +3903,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         else: st.warning("⚠️ 추가할 종목을 위에서 먼저 선택해주세요.")
             else: st.error("앗! 검색 결과가 없습니다. 🥲")
 
-    # 고정 마스터 리스트
+    # 👇 고정 마스터 리스트 (6번 항목에 미국 배당주 통합 완료 버전)
     raw_etf_data = [
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "069500", "name": "KODEX 200"},
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "102110", "name": "TIGER 200"},
@@ -3938,7 +3937,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449450", "name": "PLUS K방산"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449920", "name": "PLUS K방산Fn"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "432200", "name": "TIGER 우주항공iSelect"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 Tech", "code": "421550", "name": "HANARO 우주항공&UAM"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421550", "name": "HANARO 우주항공&UAM"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "482200", "name": "TIGER 글로벌우주항공액티브"},
 
         {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466950", "name": "TIGER 은행고배당플러스TOP10"},
@@ -3997,7 +3996,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SPY", "name": "SPDR S&P 500"},
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "VOO", "name": "Vanguard S&P 500"},
-        {"theme": "🌍 8. presidential 글로벌 메이저", "code": "QQQ", "name": "Invesco QQQ"},
+        {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "QQQ", "name": "Invesco QQQ"},
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SOXX", "name": "iShares Semiconductor"},
 
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180", "name": "KODEX 조선"},
@@ -4014,10 +4013,39 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"}
     ]
 
-    # 마스터 동기화 및 덮어쓰기
-    etf_data = raw_etf_data.copy()
+    # 공식 명칭 동기화 및 덮어쓰기
+    @st.cache_data(ttl=86400)
+    def update_official_names(items):
+        try:
+            krx_df = get_naver_etf_and_stocks()
+            krx_name_map = dict(zip(krx_df['Code'], krx_df['Name'])) if not krx_df.empty else {}
+            us_tickers = [it['code'] for it in items if not (len(str(it['code'])) == 6 and any(char.isdigit() for char in str(it['code'])))]
+            us_name_map = {}
+            import yfinance as yf
+            import concurrent.futures
+            def get_us_name(ticker):
+                try:
+                    info = yf.Ticker(ticker).info
+                    return ticker, info.get('longName', info.get('shortName', ticker))
+                except: return ticker, ticker
+            if us_tickers:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    for code, name in executor.map(get_us_name, us_tickers): us_name_map[code] = name
+            updated_items = []
+            for it in items:
+                new_it = it.copy()
+                code = str(it['code']).zfill(6) if str(it['code']).isdigit() else str(it['code'])
+                is_kr = len(code) == 6 and any(char.isdigit() for _ in code)
+                if is_kr and code in krx_name_map: new_it['name'] = krx_name_map[code]
+                elif not is_kr and code in us_name_map and us_name_map[code] != code: new_it['name'] = us_name_map[code]
+                new_it['code'] = code
+                updated_items.append(new_it)
+            return updated_items
+        except: return items 
+
+    etf_data = update_official_names(raw_etf_data)
     for item in etf_data:
-        item.update({"price": 0, "cagr": "데이터없음", "list_date": "데이터없음", "holdings": "해당 테마 우량 종목"})
+        item.update({"price": 0, "cagr": "데이터없음", "list_date": "데이터없음", "holdings": "해당 테마 핵심 우량종목"})
 
     for custom_item in st.session_state.custom_etfs:
         if not any(item['code'] == custom_item['code'] for item in etf_data):
@@ -4028,10 +4056,10 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 "price": 0, 
                 "cagr": "데이터없음", 
                 "list_date": "데이터없음", 
-                "holdings": "관심 종목"
+                "holdings": "사용자가 직접 추가한 관심 종목"
             })
 
-    # 👇 [수정 조치 3] 한국/미국 융합형 장기 백데이터 실시간 분석 엔진 (국내 CAGR 누락 버그 박멸)
+    # 👇 실시간 가격 및 백데이터(수익률/상장일) 로딩 엔진
     import yfinance as yf
     import concurrent.futures
     @st.cache_data(ttl=3600)
@@ -4040,14 +4068,14 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         kr_codes = [c for c in codes if len(str(c)) == 6 and any(char.isdigit() for char in str(c))]
         us_codes = [c for c in codes if c not in kr_codes]
         
-        # 1) 국내 자산 가격 호출
+        # 1) 국내 실시간 가격
         bulk_krx = get_naver_etf_and_stocks()
         if not bulk_krx.empty:
             p_dict = dict(zip(bulk_krx['Code'], bulk_krx['Price']))
             for c in kr_codes:
                 if c in p_dict: prices[c] = int(p_dict[c])
 
-        # 2) 국내 자산 상장일 및 연평균 성장률(CAGR) 계산기
+        # 2) 국내 백데이터 (상장일, CAGR)
         def get_kr_historical_info(c):
             try:
                 url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=month&count=1200&requestType=0"
@@ -4056,10 +4084,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     soup = BeautifulSoup(res.text, 'html.parser')
                     items = soup.find_all('item')
                     if len(items) > 12:
-                        first_date = items[0].get('data').split('|')[0]
-                        last_date = items[-1].get('data').split('|')[0]
-                        p_start = float(items[0].get('data').split('|')[4])
-                        p_end = float(items[-1].get('data').split('|')[4])
+                        first_date, last_date = items[0].get('data').split('|')[0], items[-1].get('data').split('|')[0]
+                        p_start, p_end = float(items[0].get('data').split('|')[4]), float(items[-1].get('data').split('|')[4])
                         days = (pd.to_datetime(last_date) - pd.to_datetime(first_date)).days
                         if days >= 365 and p_start > 0:
                             cagr = ((p_end / p_start) ** (365.25 / days) - 1) * 100
@@ -4081,7 +4107,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 for c, cg, dt in executor.map(get_kr_historical_info, kr_codes):
                     if dt != "데이터없음": cagrs[c] = {'cagr': cg, 'date': dt}
 
-        # 3) 미국 자산 가격 및 CAGR 추출기
+        # 3) 미국 실시간 가격 및 백데이터
         def get_us_info(c):
             try:
                 hist = yf.Ticker(c).history(period="max", interval="1mo")
@@ -4101,7 +4127,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if cg != 0: cagrs[c] = {'cagr': cg, 'date': dt}
         return prices, cagrs
 
-    with st.spinner("최신 마켓 데이터를 전수 매칭하는 중입니다..."):
+    with st.spinner("최신 마켓 데이터를 로딩 중입니다..."):
         ex_rate = st.session_state.get('ex_rate', 1350.0)
         real_prices, real_cagrs = fetch_realtime_data([item['code'] for item in etf_data], ex_rate)
         for item in etf_data:
@@ -4109,11 +4135,10 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             if item['code'] in real_cagrs:
                 item['cagr'], item['list_date'] = real_cagrs[item['code']]['cagr'], real_cagrs[item['code']]['date']
 
-    # --- 4. 포트폴리오 구성 UI ---
+    # --- 3. 포트폴리오 구성 UI ---
     st.markdown("### 🛒 3. 나만의 노후 포트폴리오 담기")
     if 'retirement_cart' not in st.session_state: st.session_state.retirement_cart = {}
 
-    # 세션 상태 및 커스텀 생성 테마 바인딩
     all_available_themes = list(dict.fromkeys([item['theme'] for item in etf_data]))
     
     for theme in all_available_themes:
@@ -4126,22 +4151,41 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             with st.expander(f"{theme} 선택", expanded=is_expanded):
                 for idx, stock in enumerate(unique_stocks):
                     cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
-                    with cols[0]: st.markdown(f"**{stock['name']}** ({stock['code']})")
+                    
+                    with cols[0]: 
+                        st.markdown(f"**{stock['name']}** ({stock['code']})")
+                        
+                        # 👇 [수정 조치 2] AI 편입종목 검색 기능 복구 (사용자 커스텀 종목 대상)
+                        is_custom = any(c['code'] == stock['code'] for c in st.session_state.custom_etfs)
+                        current_holdings = st.session_state.get(f"holdings_{stock['code']}", stock['holdings'])
+                        st.caption(f"🔍 {current_holdings}")
+                        
+                        if is_custom and "💡 AI" not in current_holdings:
+                            if st.button("🤖 편입종목 검색", key=f"ai_h_{stock['code']}"):
+                                if not api_key_input:
+                                    st.error("좌측에 API 키를 입력해주세요.")
+                                else:
+                                    with st.spinner("AI 분석 중..."):
+                                        ai_holdings = ask_gemini(f"'{stock['name']} ({stock['code']})' 주요 편입 종목 쉼표로 나열.", api_key_input)
+                                        st.session_state[f"holdings_{stock['code']}"] = "💡 AI 분석: " + ai_holdings
+                                        st.rerun()
+
                     cols[1].markdown(f"현재가:<br>{stock['price']:,}원", unsafe_allow_html=True)
                     cols[2].markdown(f"상장일:<br>{stock.get('list_date', '데이터없음')}", unsafe_allow_html=True)
                     c_val = stock['cagr']
                     cols[3].markdown(f"수익률:<br>{c_val}%" if isinstance(c_val, (int, float)) else f"수익률:<br>{c_val}", unsafe_allow_html=True)
                     
                     qty = cols[4].number_input("수량", min_value=0, step=1, key=f"ret_qty_{theme}_{stock['code']}_{idx}", label_visibility="collapsed")
+                    
                     if qty > 0: st.session_state.retirement_cart[stock['code']] = {"name": stock['name'], "qty": qty, "price": stock['price'], "cagr": stock['cagr'] if isinstance(stock['cagr'], (int, float)) else 0}
                     elif stock['code'] in st.session_state.retirement_cart: del st.session_state.retirement_cart[stock['code']]
                     
-                    if any(c['code'] == stock['code'] for c in st.session_state.custom_etfs):
+                    if is_custom:
                         if cols[5].button("🗑️", key=f"del_{theme}_{stock['code']}_{idx}"):
                             st.session_state.custom_etfs = [x for x in st.session_state.custom_etfs if x['code'] != stock['code']]
                             st.rerun()
 
-    # --- 5. 시뮬레이션 대시보드 ---
+    # --- 4. 시뮬레이션 대시보드 ---
     st.divider()
     st.markdown("### 📊 4. 복리 성장 시뮬레이션 결과")
     cart = st.session_state.retirement_cart
@@ -4151,24 +4195,39 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         d_col1, d_col2 = st.columns([1, 2])
         with d_col1:
             st.metric("총 매입 원금", f"{total_p:,}원")
-            st.metric("평균 수익률", f"{w_cagr:.2f}%")
-            yrs = st.select_slider("기간 (년)", options=[1, 5, 10, 20, 30], value=20)
+            st.metric("가중평균 수익률", f"{w_cagr:.2f}%")
+            yrs = st.select_slider("투자기간 (년)", options=[1, 5, 10, 20, 30], value=20)
             fv = total_p * ((1 + w_cagr/100) ** yrs)
-            st.metric(f"{yrs}년 후 자산", f"{int(fv):,}원")
+            st.metric(f"{yrs}년 후 예상 자산", f"{int(fv):,}원")
         with d_col2:
-            df_chart = pd.DataFrame([{"년수": f"{y}년", "자산": int(total_p * ((1 + w_cagr/100) ** y))} for y in range(yrs + 1)])
+            df_chart = pd.DataFrame([{"년수": f"{y}년", "자산규모": int(total_p * ((1 + w_cagr/100) ** y))} for y in range(yrs + 1)])
             st.area_chart(df_chart.set_index("년수"))
 
-        with st.expander("📝 선택한 종목 명세서 보기"):
-            st.table(pd.DataFrame([{'name': v['name'], 'qty': v['qty'], 'price': v['price'], '총액': v['qty'] * v['price'], 'cagr': f"{v['cagr']}%"} for v in cart.values()]))
+        # 👇 [수정 조치 1] 포트폴리오 명세서 표 및 AI 진단 버튼 전면 복구
+        st.markdown("#### 📝 내 포트폴리오 명세서")
+        st.table(pd.DataFrame([{'종목명': v['name'], '수량': f"{v['qty']}주", '현재가': f"{v['price']:,}원", '총액': f"{v['qty'] * v['price']:,}원", '수익률': f"{v['cagr']}%"} for v in cart.values()]))
+        st.caption("※ '데이터없음' 종목은 계산의 안전을 위해 수익률 0%로 보수적 적용됩니다.")
 
-    # 👇 [수정 조치 1] 시인성이 떨어지던 0원 검출기 대시보드를 최하단 영역으로 깔끔하게 하향 배치
+        st.markdown("---")
+        if st.button("🤖 AI 노후 포트폴리오 정밀 진단", type="primary", use_container_width=True):
+            if not api_key_input: 
+                st.error("API 키를 입력해주세요.")
+            else:
+                with st.spinner("AI가 포트폴리오를 분석 중입니다..."):
+                    port_str = "".join([f"- {v['name']}: 비중 {(v['qty'] * v['price'] / total_p) * 100:.1f}%, 현재가 {v['price']:,}원\n" for v in cart.values()])
+                    ai_prompt = f"은퇴 설계 전문가로서 다음 포트폴리오를 진단해 주세요.\n총 매입 원금: {total_p:,}원\n예상 CAGR: {w_cagr:.2f}%\n투자기간: {yrs}년\n{port_str}"
+                    st.success("✅ 진단 완료!")
+                    st.markdown(ask_gemini(ai_prompt, api_key_input))
+    else:
+        st.info("💡 위 리스트에서 수량을 입력하시면 시뮬레이션이 시작됩니다.")
+
+    # 👇 [수정 조치 3] 0원 검출기 최하단 이동
     st.divider()
-    st.markdown("### 🚨 시스템 이상 분석기")
-    with st.expander("⚠️ 실시간 0원 누락 에러 감출 현황판", expanded=False):
+    st.markdown("### 🚨 시스템 상태 분석기")
+    with st.expander("⚠️ 데이터 통신 지연 종목 확인 (0원 에러)", expanded=False):
         errs = [it for it in etf_data if it.get('price', 0) == 0]
         if errs:
             st.error(f"현재 총 {len(errs)}개 종목의 데이터 수집이 지연되고 있습니다.")
             st.table(pd.DataFrame([{'테마': i['theme'], '종목': i['name'], '코드': i['code']} for i in errs]))
         else: 
-            st.success("🎉 현재 시스템상 가격이 0원으로 조회되는 에러 종목이 단 하나도 없습니다! 무결점 상태입니다.")
+            st.success("🎉 현재 시스템상 가격이 0원으로 조회되는 종목이 없습니다! 완벽합니다.")
