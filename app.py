@@ -3750,7 +3750,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
     with st.container(border=True):
         col_in, col_spacer = st.columns([2, 1])
-        monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=1500000)
+        monthly_budget = col_in.number_input("월 총 노후대비 투자 가능 금액 (원)", min_value=0, step=100000, value=0)
         
         temp_budget = monthly_budget
         pension = min(500000, temp_budget) 
