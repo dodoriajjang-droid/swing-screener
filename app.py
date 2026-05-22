@@ -1688,46 +1688,40 @@ def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
         display_df['다중테마'] = theme_lists
         progress_bar.empty()
         
-    # --- 🌟 확실한 컬럼 순서 재배치 로직 (강화됨) ---
+    # --- 🌟 '섹터'와 '현재가' 사이로 정확하게 타겟팅하여 순서 고정 ---
     cols = list(display_df.columns)
     if "다중테마" in cols:
         cols.remove("다중테마")
         
-        insert_idx = len(cols) # 기본값: 맨 끝
-        
-        # 1순위: '현재가'라는 단어가 포함된 컬럼을 찾아 그 바로 앞에 삽입
-        for i, col in enumerate(cols):
-            if "현재가" in str(col):
-                insert_idx = i
-                break
-                
-        # 2순위: 현재가 컬럼을 못 찾았다면 '섹터'나 '업종' 뒤에 삽입
-        if insert_idx == len(cols):
-            for i, col in enumerate(cols):
-                if "섹터" in str(col) or "업종" in str(col):
-                    insert_idx = i + 1
-                    break
-                    
-        # 3순위: 둘 다 없으면 종목명 뒤(대략 인덱스 2)에 강제 삽입
-        if insert_idx == len(cols):
-            insert_idx = 2 
+        if "섹터" in cols and "현재가" in cols:
+            # '섹터' 바로 뒤 (즉, '현재가' 앞)에 삽입
+            idx = cols.index("섹터") + 1
+            cols.insert(idx, "다중테마")
+        elif "섹터" in cols:
+            idx = cols.index("섹터") + 1
+            cols.insert(idx, "다중테마")
+        elif "현재가" in cols:
+            idx = cols.index("현재가")
+            cols.insert(idx, "다중테마")
+        else:
+            cols.insert(2, "다중테마")
             
-        cols.insert(insert_idx, "다중테마")
         display_df = display_df[cols]
-    # ------------------------------------------------
+    # ----------------------------------------------------------------
         
     st.dataframe(
         display_df,
-        column_order=cols,  # ⭐ 스트림릿 UI 캐시를 강제로 덮어쓰고 순서를 고정하는 핵심 옵션!
+        column_order=cols,  # 캡처해주신 화면처럼 기본 배열을 강제 고정
         column_config={
             "종목코드": st.column_config.TextColumn("종목코드", width="small"),
             "종목명": st.column_config.TextColumn("종목명", width="medium"),
-            "현재가": st.column_config.NumberColumn("현재가(원)", format="%d ₩"),
+            "섹터": st.column_config.TextColumn("섹터", width="medium"),
             "다중테마": st.column_config.ListColumn(
                 "관련 핵심 테마 (Multi-Factor)",
                 help="기업이 속한 모든 밸류체인 및 시장 테마 목록입니다.",
                 width="large"
-            )
+            ),
+            "현재가": st.column_config.NumberColumn("현재가(원)", format="%d ₩")
         },
         hide_index=True,
         use_container_width=True
