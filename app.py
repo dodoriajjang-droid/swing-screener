@@ -2152,13 +2152,39 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
         return
+        
     st.success(f"🎯 총 {len(results_list)}개 종목 포착 완료!")
-    sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본 (검색순)", "RSI 낮은순 (바닥줍기)", "기관 연속 순매수 긴 순서"], horizontal=True, key=f"sort_radio_{tab_key}")
-    display_list = results_list.copy()
     
-    if "RSI 낮은순" in sort_opt: sorted_res = sorted(display_list, key=lambda x: x['RSI'])
-    elif "기관 연속" in sort_opt: sorted_res = sorted(display_list, key=lambda x: x.get('기관연속순매수', 0), reverse=True)
-    else: sorted_res = display_list
+    # --- 🌟 [추가됨] 시장 필터 및 정렬 옵션을 2열로 깔끔하게 배치 ---
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        market_filter = st.radio("🌍 시장 필터", ["전체 보기", "🇰🇷 국내 주식만", "🇺🇸 미국 주식만"], horizontal=True, key=f"market_filter_{tab_key}")
+    with col_f2:
+        sort_opt = st.radio("⬇️ 결과 정렬 방식", ["기본 (검색순)", "RSI 낮은순 (바닥줍기)", "기관 연속 순매수 긴 순서"], horizontal=True, key=f"sort_radio_{tab_key}")
+    
+    # 1. 시장 필터링 적용 (티커가 숫자인지 알파벳인지로 구분)
+    display_list = []
+    for res in results_list:
+        is_us = not str(res.get('티커', '')).isdigit()
+        
+        if market_filter == "🇰🇷 국내 주식만" and is_us:
+            continue
+        if market_filter == "🇺🇸 미국 주식만" and not is_us:
+            continue
+            
+        display_list.append(res)
+        
+    if not display_list:
+        st.warning(f"선택하신 '{market_filter}' 조건에 해당하는 종목이 없습니다.")
+        return
+
+    # 2. 정렬 방식 적용
+    if "RSI 낮은순" in sort_opt: 
+        sorted_res = sorted(display_list, key=lambda x: x['RSI'])
+    elif "기관 연속" in sort_opt: 
+        sorted_res = sorted(display_list, key=lambda x: x.get('기관연속순매수', 0), reverse=True)
+    else: 
+        sorted_res = display_list
 
     # --- 🌟 다중 테마 뷰어 버튼 (Streamlit Session State 토글 방어막 적용) ---
     btn_state_key = f"multi_theme_show_{tab_key}"
@@ -2174,6 +2200,7 @@ def display_sorted_results(results_list, tab_key, api_key=""):
         st.markdown("---")
     # -----------------------------------
 
+    # 3. 최종 결과 카드 출력
     for i, res in enumerate(sorted_res):
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
 
