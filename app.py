@@ -714,8 +714,8 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     return ask_gemini(prompt, _api_key)
 
 # 👇 [업그레이드 1] 한미 통합 듀얼 엔진으로 시장 주도 테마를 추출하는 함수
-    @st.cache_data(ttl=10800) # 3시간마다 캐시 갱신
-    def get_trending_themes_with_ai(api_key):
+@st.cache_data(ttl=10800) # 3시간마다 캐시 갱신
+def get_trending_themes_with_ai(api_key):
         if not api_key: return ["테스트 테마 A", "테스트 테마 B", "테스트 테마 C", "테스트 테마 D"]
         
         market_context = ""
@@ -776,8 +776,8 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
             return ["글로벌 AI 반도체", "비만치료제 및 K-바이오", "전력기기 및 K-방산", "자율주행 및 로보틱스"]
 
     # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
-    @st.cache_data(ttl=3600)
-    def get_theme_stocks_with_ai(theme, api_key):
+@st.cache_data(ttl=3600)
+def get_theme_stocks_with_ai(theme, api_key):
         prompt = f"""
         당신은 글로벌 테마주 발굴 전문가입니다.
         현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
