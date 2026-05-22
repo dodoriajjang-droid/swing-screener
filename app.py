@@ -713,45 +713,177 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     """
     return ask_gemini(prompt, _api_key)
 
-@st.cache_data(ttl=3600)  
-def get_trending_themes_with_ai(_api_key):
-    default_themes = ["AI 반도체", "비만치료제", "저PBR/밸류업", "전력 설비", "로봇/자동화"]
-    if not _api_key: return default_themes[:4]
-    try:
-        kings_df = get_trading_value_kings(30)
-        if kings_df.empty:
-            prompt = "최근 한국 증시에서 가장 자금이 많이 몰리고 상승세가 강한 주도 테마 4개만 정확히 쉼표(,)로 구분해서 1줄로 출력하세요."
-        else:
-            hot_stocks = ", ".join(kings_df['Name'].tolist())
-            prompt = f"오늘 한국 증시에서 실제 거래대금이 폭발한 상위 30개 종목입니다: [{hot_stocks}]. 이 종목들의 면면을 분석하여, 현재 시장의 돈이 집중적으로 몰리고 있는 구체적인 핵심 메가트렌드(테마) 4개만 쉼표(,)로 구분하여 단어로 출력하세요."
-        response = ask_gemini(prompt, _api_key)
-        valid_themes = [t.strip() for t in response.replace('\n', '').replace('*', '').replace('-', '').replace('.', '').split(',') if t.strip()]
-        return valid_themes[:4] if len(valid_themes) >= 4 else default_themes[:4]
-    except Exception: return default_themes[:4]
+# 👇 [업그레이드 1] 한미 통합 듀얼 엔진으로 시장 주도 테마를 추출하는 함수
+    @st.cache_data(ttl=10800) # 3시간마다 캐시 갱신
+    def get_trending_themes_with_ai(api_key):
+        if not api_key: return ["테스트 테마 A", "테스트 테마 B", "테스트 테마 C", "테스트 테마 D"]
+        
+        market_context = ""
+        try:
+            # 1. 한국 시장 (KRX) 거래대금 상위 종목 추출
+            krx_df = fdr.StockListing('KRX')
+            if 'Volume' in krx_df.columns and 'Close' in krx_df.columns:
+                krx_df['Amount'] = krx_df['Volume'] * krx_df['Close']
+                top_kr = krx_df.sort_values('Amount', ascending=False).head(30)
+                kr_tickers = ", ".join(top_kr['Name'].tolist())
+                market_context += f"🔥 [한국 증시(KRX) 거래대금 상위 30종목]: {kr_tickers}\n"
+            
+            # 2. 미국 시장 (US) S&P500 등 주요 종목 거래량 급증 탐지 (yfinance 활용)
+            # (시간 관계상 S&P500 대표 종목군 리스트를 활용하여 빠른 스캔)
+            us_major_tickers = ["NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "LLY", "AVGO", "TSM", "AMD", "SMCI"]
+            us_active = []
+            import yfinance as yf
+            import concurrent.futures
+            
+            def check_us_volume(ticker):
+                try:
+                    hist = yf.Ticker(ticker).history(period="5d")
+                    if len(hist) >= 2:
+                        # 최근 거래량이 5일 평균보다 급증했는지 확인 (단순 지표)
+                        vol_today = hist['Volume'].iloc[-1]
+                        vol_avg = hist['Volume'].mean()
+                        if vol_today > vol_avg * 1.2:  # 20% 이상 거래량 폭발 시
+                            return ticker
+                except: pass
+                return None
 
-@st.cache_data(ttl=3600)
-def get_theme_stocks_with_ai(theme_keyword, _api_key):
-    if not _api_key: return []
-    try:
-        response = ask_gemini(f"테마명: '{theme_keyword}'\n이 테마와 관련된 한국 코스피/코스닥 대장주 및 주요 관련주 20개를 찾아주세요. 반드시 파이썬 리스트로만 답변하세요. 예시: [('에코프로', '086520')]", _api_key)
-        raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
-        krx_df = get_krx_stocks()
-        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
-    
-        name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
-        code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
-        validated = []
-        seen = set()
-        for name, code in raw_list:
-            clean_name = name.replace('(주)', '').strip()
-            final_name, final_code = None, None
-            if clean_name in name_to_code: final_name, final_code = clean_name, name_to_code[clean_name]
-            elif code in code_to_name: final_name, final_code = code_to_name[code], code
-            if final_name and final_code and final_code not in seen:
-                seen.add(final_code)
-                validated.append((final_name, final_code))
-        return validated[:20]
-    except Exception: return []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                for res in executor.map(check_us_volume, us_major_tickers):
+                    if res: us_active.append(res)
+            
+            if us_active:
+                market_context += f"🦅 [미국 증시(US) 거래량 급증 주요 티커]: {', '.join(us_active)}\n"
+
+        except Exception as e:
+            market_context = "시장 데이터를 불러오는 중 오류 발생 (AI 자체 판단 필요)"
+
+        # 👇 [업그레이드 2] AI에게 글로벌(한+미) 시각으로 분석하도록 프롬프트 전면 수정
+        prompt = f"""
+        당신은 월스트리트와 여의도를 아우르는 글로벌 퀀트 애널리스트입니다.
+        아래는 오늘 한국 증시(KRX) 거래대금 상위 종목과 미국 증시(US) 거래량 급증 종목 데이터입니다.
+        
+        {market_context}
+        
+        이 데이터를 바탕으로, 현재 전 세계 주식시장을 관통하고 있는 '가장 뜨거운 메가트렌드 및 핵심 주도 테마' 4가지를 추출하세요.
+        반드시 쉼표(,)로만 구분된 텍스트로 출력해야 합니다.
+        예시: 차세대 AI 반도체, 비만치료제(GLP-1), 전력 인프라 및 변압기, 자율주행 및 로보택시
+        """
+        try:
+            res = ask_gemini(prompt, api_key)
+            themes = [t.strip() for t in res.split(',') if t.strip()]
+            return themes[:4] if len(themes) >= 4 else (themes + ["추가 테마 분석 필요"] * 4)[:4]
+        except:
+            return ["글로벌 AI 반도체", "비만치료제 및 K-바이오", "전력기기 및 K-방산", "자율주행 및 로보틱스"]
+
+    # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
+    @st.cache_data(ttl=3600)
+    def get_theme_stocks_with_ai(theme, api_key):
+        prompt = f"""
+        당신은 글로벌 테마주 발굴 전문가입니다.
+        현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
+        이 테마의 '진짜 수혜주'이자 폭발적인 상승(텐배거)이 기대되는 '핵심 대장주' 15개를 선정해 주세요.
+        
+        [필수 조건]
+        1. 반드시 한국 증시(KRX) 종목 10개와 미국 증시(US) 종목 5개를 섞어서 구성하세요.
+        2. 미국 주식은 한국인이 많이 투자하는 친숙한 티커(예: NVDA, TSLA 등) 위주로 선정하세요.
+        3. 출력 형식은 반드시 "종목명,종목코드" 여야 합니다. (예: 삼성전자,005930 / 엔비디아,NVDA)
+        4. 번호 매기기, 부연 설명, 마크다운 기호(-, * 등)는 절대 쓰지 말고 오직 종목 데이터만 한 줄에 하나씩 출력하세요.
+        """
+        try:
+            res = ask_gemini(prompt, api_key)
+            lines = res.split('\n')
+            stocks = []
+            for line in lines:
+                parts = line.split(',')
+                if len(parts) >= 2:
+                    name = parts[0].strip().replace("-", "").replace("*", "").strip()
+                    code = parts[1].strip()
+                    # 한국 종목(숫자 6자리)이거나 미국 티커(알파벳)인 경우만 허용
+                    if (len(code) == 6 and code.isdigit()) or code.isalpha():
+                        stocks.append((name, code))
+            return stocks[:15]
+        except:
+            return []
+
+    elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
+        st.markdown("## ⚡ 글로벌 메가트렌드 & 한미 주도 테마 스캐너")
+        st.write("AI가 최신 트렌드를 분석하여, 숨겨진 글로벌 텐배거(10배 상승) 후보와 한·미 양국의 핵심 수혜주를 동시에 발굴합니다.")
+        
+        if not api_key_input:
+            st.warning("⚠️ 사이드바에 Gemini API 키를 입력하시면 글로벌 AI 스캐너가 활성화됩니다.")
+        else:
+            st.markdown("### 🔥 현재 글로벌 시장 주도 테마 (AI 자동 추출)")
+            with st.spinner("한국(KRX) 및 미국(US) 주요 증시의 거래 데이터를 분석하여 핵심 테마를 추출 중입니다..."):
+                hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
+                
+            cols_d = st.columns(4) 
+            for idx, theme in enumerate(hot_themes_tab5[:4]):
+                if cols_d[idx].button(f"🔥 {theme}", key=f"hot_theme_btn_{idx}", use_container_width=True):
+                    st.session_state.deep_tech_query = theme
+                    st.session_state.deep_tech_results = None
+                    st.session_state.deep_tech_brief = None
+
+            st.markdown("### 🔎 직접 글로벌 테마 검색")
+            with st.form(key="theme_search_form", clear_on_submit=False):
+                col_in1, col_in2 = st.columns([8, 2], vertical_alignment="bottom")
+                with col_in1:
+                    custom_query = st.text_input(
+                        "분석할 메가트렌드나 테마를 입력하세요", 
+                        label_visibility="collapsed", 
+                        key="deep_tech_input", 
+                        placeholder="예: AI 데이터센터 전력, 비만치료제, 우주항공"
+                    )
+                with col_in2:
+                    submit_btn = st.form_submit_button("🚀 글로벌 대장주 발굴", use_container_width=True)
+                    
+                if submit_btn:
+                    if custom_query.strip():
+                        st.session_state.deep_tech_query = custom_query.strip()
+                        st.session_state.deep_tech_results = None
+                        st.session_state.deep_tech_brief = None
+                    else:
+                        st.warning("테마 키워드를 입력해주세요!")
+
+            if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None:
+                st.divider()
+                st.markdown(f"### 🎯 '{st.session_state.deep_tech_query}' 글로벌 밸류체인 정밀 분석")
+                
+                with st.spinner("AI가 해당 테마의 월스트리트 모멘텀과 글로벌 핵심 촉매를 분석 중입니다..."):
+                    theme_brief_prompt = f"당신은 글로벌 퀀트 애널리스트입니다.\n'{st.session_state.deep_tech_query}' 테마가 한국과 미국 시장을 주도하는 이유와 향후 글로벌 전망을 3줄로 명확하게 요약하세요."
+                    st.session_state.deep_tech_brief = ask_gemini(theme_brief_prompt, api_key_input)
+                    
+                with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 테마의 한·미 핵심 대장주 및 밸류체인 수혜주를 필터링 중입니다..."):
+                    theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
+                    if theme_stocks:
+                        progress_bar = st.progress(0.0)
+                        status_text = st.empty()
+                        theme_res_list = []
+                        completed, total = 0, len(theme_stocks)
+                        
+                        def process_theme_stock(item):
+                            if len(item) == 2:
+                                name, code = item
+                                time.sleep(0.1)
+                                return analyze_technical_pattern(name, code)
+                            return None
+                            
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                            for future in concurrent.futures.as_completed({executor.submit(process_theme_stock, t): t for t in theme_stocks}):
+                                res = future.result()
+                                completed += 1
+                                if res: theme_res_list.append(res)
+                                progress_bar.progress(min(1.0, completed / total))
+                                status_text.text(f"⚡ 한·미 증시 재무/차트 데이터 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 타점 확보")
+                        
+                        st.session_state.deep_tech_results = theme_res_list
+                    else:
+                        st.error(f"❌ '{st.session_state.deep_tech_query}' 테마와 관련된 종목을 찾지 못했습니다.")
+                        st.session_state.deep_tech_query = None
+
+            if st.session_state.deep_tech_results is not None:
+                if st.session_state.get('deep_tech_brief'):
+                    st.info(f"**💡 글로벌 AI 퀀트 인사이트:**\n{st.session_state.deep_tech_brief}")
+                display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
 @st.cache_data(ttl=3600)
 def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
