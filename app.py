@@ -1851,7 +1851,6 @@ def show_trading_guidelines():
 def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""):
     tech_result = stock_data
     
-    # 👇 [복구됨] 아래쪽 차트/분석에서 사용하는 가격 포맷 함수와 curr 변수를 부활시킵니다!
     def fmt_price(p, is_delta=False):
         try:
             prefix = "+" if is_delta and float(p) > 0 else ""
@@ -1863,11 +1862,11 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
 
     # 1. 기본 데이터 추출
     stock_name = stock_data.get('종목명', '알수없음')
-    ticker = stock_data.get('티커', '')              # 👈 [추가] 티커 정보 가져오기
-    is_us = not str(ticker).isdigit()                # 👈 [추가] 티커가 숫자가 아니면(알파벳이면) 미국 주식으로 판별!
+    ticker = stock_data.get('티커', '')
+    is_us = not str(ticker).isdigit()
     sector = stock_data.get('섹터', '분류없음')
     current_price = curr
-    status = stock_data.get('상태', '')
+    status = stock_data.get('상태', '') # 💡 여기에 "역배열~기준" 문구가 들어있습니다.
 
     # 2. AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
     core_theme = "일반"
@@ -1875,23 +1874,24 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         try:
             themes = get_granular_themes(stock_name, api_key_str)
             if themes:
-                core_theme = themes[0] # 여러 테마 중 가장 연관성 높은 첫 번째 텍스트만 가져옴
+                core_theme = themes[0]
         except:
             pass
 
-    # 3. "종목명 / 테마 / 업종 / 현재가" 포맷으로 조립
+    # 3. ⭕ [수정] 업체명(종목명)이 무조건 가장 먼저 나오도록 타이틀 조립 (진단 문구 제외)
     try:
         price_str = f"{int(current_price):,}원"
     except:
         price_str = f"{current_price}"
         
-    card_title = f"{status} {stock_name} / {core_theme} / {sector} / {price_str}"
+    card_title = f"{stock_name} / {core_theme} / {sector} / {price_str}"
 
+        
     # 👇 여기서부터는 들여쓰기에 주의하여 기존 코드를 그대로 유지합니다!
     with st.expander(card_title, expanded=is_expanded):
         detail_text = tech_result.get('상세진단', tech_result.get('이평선_상태_상세', ''))
         rsi_val = tech_result.get('RSI', '')
-        
+        st.info(f"{status} ｜ **📊 현재 RSI**: {rsi_val}")
         if detail_text or rsi_val:
             st.info(f"**상세 진단**: {detail_text} ｜ **📊 현재 RSI**: {rsi_val}")
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
