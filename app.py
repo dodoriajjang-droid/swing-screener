@@ -775,35 +775,34 @@ def get_trending_themes_with_ai(api_key):
         except:
             return ["글로벌 AI 반도체", "비만치료제 및 K-바이오", "전력기기 및 K-방산", "자율주행 및 로보틱스"]
 
-    # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
+# 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
 @st.cache_data(ttl=3600)
 def get_theme_stocks_with_ai(theme, api_key):
-        prompt = f"""
-        당신은 글로벌 테마주 발굴 전문가입니다.
-        현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
-        이 테마의 '진짜 수혜주'이자 폭발적인 상승(텐배거)이 기대되는 '핵심 대장주' 15개를 선정해 주세요.
-        
-        [필수 조건]
-        1. 반드시 한국 증시(KRX) 종목 10개와 미국 증시(US) 종목 5개를 섞어서 구성하세요.
-        2. 미국 주식은 한국인이 많이 투자하는 친숙한 티커(예: NVDA, TSLA 등) 위주로 선정하세요.
-        3. 출력 형식은 반드시 "종목명,종목코드" 여야 합니다. (예: 삼성전자,005930 / 엔비디아,NVDA)
-        4. 번호 매기기, 부연 설명, 마크다운 기호(-, * 등)는 절대 쓰지 말고 오직 종목 데이터만 한 줄에 하나씩 출력하세요.
-        """
-        try:
-            res = ask_gemini(prompt, api_key)
-            lines = res.split('\n')
-            stocks = []
-            for line in lines:
-                parts = line.split(',')
-                if len(parts) >= 2:
-                    name = parts[0].strip().replace("-", "").replace("*", "").strip()
-                    code = parts[1].strip()
-                    # 한국 종목(숫자 6자리)이거나 미국 티커(알파벳)인 경우만 허용
-                    if (len(code) == 6 and code.isdigit()) or code.isalpha():
-                        stocks.append((name, code))
-            return stocks[:15]
-        except:
-            return []
+    prompt = f"""
+    당신은 글로벌 테마주 발굴 전문가입니다.
+    현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
+    이 테마의 '진짜 수혜주'이자 폭발적인 상승(텐배거)이 기대되는 '핵심 대장주' 30개를 선정해 주세요.
+    [필수 조건]
+    1. 반드시 한국 증시(KRX) 종목 15개와 미국 증시(US) 종목 15개를 섞어서 구성하세요.
+    2. 미국 주식은 한국인이 많이 투자하는 친숙한 티커(예: NVDA, TSLA 등) 위주로 선정하세요.
+    3. 출력 형식은 반드시 "종목명,종목코드" 여야 합니다. (예: 삼성전자,005930 / 엔비디아,NVDA)
+    4. 번호 매기기, 부연 설명, 마크다운 기호(-, * 등)는 절대 쓰지 말고 오직 종목 데이터만 한 줄에 하나씩 출력하세요.
+    """
+    try:
+        res = ask_gemini(prompt, api_key)
+        lines = res.split('\n')
+        stocks = []
+        for line in lines:
+            parts = line.split(',')
+            if len(parts) >= 2:
+                name = parts[0].strip().replace("-", "").replace("*", "").strip()
+                code = parts[1].strip()
+                # 한국 종목(숫자 6자리)이거나 미국 티커(알파벳)인 경우만 허용
+                if (len(code) == 6 and code.isdigit()) or code.isalpha():
+                    stocks.append((name, code))
+        return stocks[:30] # 👈 기존 15에서 30으로 확장
+    except:
+        return []
 
 
 @st.cache_data(ttl=3600)
@@ -1656,7 +1655,29 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             except Exception:
                 sector_val = "개별이슈/기타"
                 
-        if is_us: sector_val = "ETF/미국주식"
+# 👇 수정된 미국 주식 섹터 파싱 로직
+        if is_us:
+            try:
+                info = yf.Ticker(ticker_code).info
+                raw_sector = info.get('sector', '미국주식')
+                
+                # 영문 섹터명을 한글로 매핑
+                sector_map = {
+                    "Technology": "IT/기술", 
+                    "Financial Services": "금융", 
+                    "Healthcare": "헬스케어/바이오", 
+                    "Consumer Cyclical": "임의소비재",
+                    "Industrials": "산업재", 
+                    "Communication Services": "통신/플랫폼",
+                    "Consumer Defensive": "필수소비재", 
+                    "Energy": "에너지",
+                    "Basic Materials": "소재", 
+                    "Real Estate": "부동산", 
+                    "Utilities": "유틸리티"
+                }
+                sector_val = sector_map.get(raw_sector, raw_sector)
+            except Exception:
+                sector_val = "미국주식"
         
         return {
             "종목명": stock_name, "티커": ticker_code, "섹터": sector_val, "현재가": current_price, "상태": status,
