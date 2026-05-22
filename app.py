@@ -1889,6 +1889,11 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
 
     # 👇 여기서부터는 들여쓰기에 주의하여 기존 코드를 그대로 유지합니다!
     with st.expander(card_title, expanded=is_expanded):
+        detail_text = tech_result.get('상세진단', tech_result.get('이평선_상태_상세', ''))
+        rsi_val = tech_result.get('RSI', '')
+        
+        if detail_text or rsi_val:
+            st.info(f"**상세 진단**: {detail_text} ｜ **📊 현재 RSI**: {rsi_val}")
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
