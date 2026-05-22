@@ -777,7 +777,7 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
 
     # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
     @st.cache_data(ttl=3600)
-def get_theme_stocks_with_ai(theme, api_key):
+    def get_theme_stocks_with_ai(theme, api_key):
         prompt = f"""
         당신은 글로벌 테마주 발굴 전문가입니다.
         현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
