@@ -1873,11 +1873,7 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         price_str = f"{current_price}"
         
     card_title = f"{status} {stock_name} / {core_theme} / {sector} / {price_str}"
-
-    # 4. 방금 조립한 card_title을 펼침막(expander) 제목으로 적용
-    with st.expander(card_title, expanded=is_expanded):
-        # ... (이 아래부터는 기존에 있던 세부 차트/분석 코드들을 그대로 두시면 됩니다!) ...
-    
+  
     with st.expander(expander_title, expanded=is_expanded):
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
