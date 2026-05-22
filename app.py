@@ -1703,6 +1703,32 @@ def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
         hide_index=True,
         use_container_width=True
     )
+def render_single_stock_themes(stock_name: str, api_key: str):
+    """
+    개별 기업 정밀 진단 화면용 다중 테마 렌더링 함수.
+    HTML/CSS를 활용하여 테마를 세련된 해시태그 뱃지 형태로 출력합니다.
+    """
+    if not api_key:
+        st.warning("API 키가 없어 테마 분석을 건너뜁니다.")
+        return
+        
+    with st.spinner(f"'{stock_name}'의 딥-다이브 밸류체인 테마를 스캐닝 중입니다..."):
+        # 이전에 추가한 AI 테마 추출 함수 재활용
+        themes = get_granular_themes(stock_name, api_key)
+        
+    if themes and themes[0] not in ["API_KEY_MISSING", "분류 오류", "데이터 확인 필요"]:
+        st.markdown("##### 🧩 AI 포착 핵심 밸류체인")
+        
+        # HTML과 CSS를 사용해 스트림릿 화면에 예쁜 태그(칩) 디자인 적용
+        tags_html = "".join([
+            f'<span style="display: inline-block; background-color: #1e3a8a; color: #ffffff; '
+            f'padding: 5px 12px; border-radius: 15px; margin-right: 8px; margin-bottom: 8px; '
+            f'font-size: 13px; font-weight: 600; box-shadow: 0px 2px 4px rgba(0,0,0,0.1);">'
+            f'# {theme}</span>' 
+            for theme in themes
+        ])
+        st.markdown(tags_html, unsafe_allow_html=True)
+        st.write("") # 아래 콘텐츠와의 간격을 위한 빈 줄
         
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
@@ -3465,7 +3491,11 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                     searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
                     with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
                         res = analyze_technical_pattern(searched_name, searched_code)
-                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                        if res: 
+                            # 🌟 다중 테마 뷰어 출력 (국내 주식) 🌟
+                            render_single_stock_themes(searched_name, api_key_input)
+                            
+                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
                         else: st.error("❌ 데이터 로드 실패")
         else:
             col_us1, col_us2 = st.columns([8, 2])
@@ -3483,7 +3513,11 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                     us_ticker = sel_us_opt.split(" ")[0]
                     with st.spinner(f"📡 '{us_ticker}' 분석 중..."):
                         res = analyze_technical_pattern(us_ticker, us_ticker)
-                        if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
+                        if res: 
+                            # 🌟 다중 테마 뷰어 출력 (미국 주식) 🌟
+                            render_single_stock_themes(us_ticker, api_key_input)
+                            
+                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
 
     with ana_tab2:
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
