@@ -1849,6 +1849,7 @@ def show_trading_guidelines():
         """)
 
 def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""):
+    tech_result = stock_data
     # 1. 기본 데이터 추출
     stock_name = stock_data.get('종목명', '알수없음')
     sector = stock_data.get('섹터', '분류없음')
