@@ -1620,7 +1620,47 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     except Exception as e: 
         print(f"Technical Analysis Error for {ticker_code}: {e}")
         return None
-
+        
+@st.cache_data(ttl=86400, max_entries=500)
+def get_granular_themes(stock_name: str, api_key: str) -> list:
+    if not api_key:
+        return ["API_KEY_MISSING"]
+    
+    try:
+        genai.configure(api_key=api_key)
+        
+        prompt = f"""
+        대상 기업: [{stock_name}]
+        이 기업의 핵심 사업 모델과 현재 주식 시장에서 편입되어 있는 구체적인 테마/섹터를 3~5개의 단어로 추출하세요.
+        - 지시사항 1: 'IT', '제조' 같은 포괄적인 단어는 제외합니다.
+        - 지시사항 2: 'AI 데이터센터 인프라', 'HBM', '전력기기', '토큰증권', '온디바이스 AI' 등 실전 투자에서 쓰이는 구체적인 밸류체인 용어를 사용하세요.
+        - 지시사항 3: 반드시 아래의 JSON 배열 형식으로만 출력하세요. 마크다운 기호나 추가 설명은 절대 포함하지 마세요.
+        
+        출력 예시:
+        ["메모리 반도체", "파운드리", "온디바이스 AI"]
+        """
+        
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:-3].strip()
+        elif text.startswith("```"):
+            text = text[3:-3].strip()
+            
+        themes = json.loads(text)
+        
+        if isinstance(themes, list):
+            return themes
+        else:
+            return ["분류 오류"]
+            
+    except Exception as e:
+        import logging
+        logging.error(f"[{stock_name}] 테마 추출 실패: {e}")
+        return ["데이터 확인 필요"]
+        
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
@@ -1899,7 +1939,49 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: 
                 st.error("데이터를 불러오지 못했습니다.")
-
+                
+def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
+    st.subheader("🔍 종목별 디테일 교집합 테마 분석")
+    st.caption("AI가 각 기업의 세부 밸류체인을 분석하여 중복 포함된 테마를 모두 찾아냅니다.")
+    
+    display_df = df.copy()
+    
+    if "다중테마" not in display_df.columns:
+        progress_text = "AI가 종목별 세부 밸류체인 테마를 스캐닝 중입니다..."
+        progress_bar = st.progress(0, text=progress_text)
+        
+        theme_lists = []
+        total_rows = len(display_df)
+        
+        for i, row in display_df.iterrows():
+            stock_name = row['종목명']
+            themes = get_granular_themes(stock_name, api_key)
+            theme_lists.append(themes)
+            
+            time.sleep(0.5) 
+            
+            percent_complete = int(((i + 1) / total_rows) * 100)
+            progress_bar.progress(percent_complete, text=f"{progress_text} ({stock_name} 완료)")
+            
+        display_df['다중테마'] = theme_lists
+        progress_bar.empty()
+        
+    st.dataframe(
+        display_df,
+        column_config={
+            "종목코드": st.column_config.TextColumn("종목코드", width="small"),
+            "종목명": st.column_config.TextColumn("종목명", width="medium"),
+            "현재가": st.column_config.NumberColumn("현재가(원)", format="%d ₩"),
+            "다중테마": st.column_config.ListColumn(
+                "관련 핵심 테마 (Multi-Factor)",
+                help="기업이 속한 모든 밸류체인 및 시장 테마 목록입니다.",
+                width="large"
+            )
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -1911,6 +1993,15 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     if "RSI 낮은순" in sort_opt: sorted_res = sorted(display_list, key=lambda x: x['RSI'])
     elif "기관 연속" in sort_opt: sorted_res = sorted(display_list, key=lambda x: x.get('기관연속순매수', 0), reverse=True)
     else: sorted_res = display_list
+
+    # --- 🌟 다중 테마 뷰어 버튼 추가 부분 ---
+    if st.button("🧩 포착된 종목 '다중 테마' 한눈에 보기", key=f"multi_theme_btn_{tab_key}", type="primary"):
+        df = pd.DataFrame(sorted_res)
+        if '티커' in df.columns:
+            df = df.rename(columns={'티커': '종목코드'})
+        render_multi_theme_dataframe(df, api_key)
+        st.markdown("---")
+    # -----------------------------------
 
     for i, res in enumerate(sorted_res):
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
