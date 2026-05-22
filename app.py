@@ -805,7 +805,7 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
         except:
             return []
 
-    elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
+elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
         st.markdown("## ⚡ 글로벌 메가트렌드 & 한미 주도 테마 스캐너")
         st.write("AI가 최신 트렌드를 분석하여, 숨겨진 글로벌 텐배거(10배 상승) 후보와 한·미 양국의 핵심 수혜주를 동시에 발굴합니다.")
         
