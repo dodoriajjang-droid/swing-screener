@@ -1640,7 +1640,8 @@ def get_granular_themes(stock_name: str, api_key: str) -> list:
         ["메모리 반도체", "파운드리", "온디바이스 AI"]
         """
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 시스템 통합 모델 버전 적용
+        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         response = model.generate_content(prompt)
         
         text = response.text.strip()
@@ -1660,6 +1661,48 @@ def get_granular_themes(stock_name: str, api_key: str) -> list:
         import logging
         logging.error(f"[{stock_name}] 테마 추출 실패: {e}")
         return ["데이터 확인 필요"]
+
+def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
+    st.subheader("🔍 종목별 디테일 교집합 테마 분석")
+    st.caption("AI가 각 기업의 세부 밸류체인을 분석하여 중복 포함된 테마를 모두 찾아냅니다.")
+    
+    display_df = df.copy()
+    
+    if "다중테마" not in display_df.columns:
+        progress_text = "AI가 종목별 세부 밸류체인 테마를 스캐닝 중입니다..."
+        progress_bar = st.progress(0, text=progress_text)
+        
+        theme_lists = []
+        total_rows = len(display_df)
+        
+        for i, row in display_df.iterrows():
+            stock_name = row['종목명']
+            themes = get_granular_themes(stock_name, api_key)
+            theme_lists.append(themes)
+            
+            time.sleep(0.5) 
+            
+            percent_complete = int(((i + 1) / total_rows) * 100)
+            progress_bar.progress(percent_complete, text=f"{progress_text} ({stock_name} 완료)")
+            
+        display_df['다중테마'] = theme_lists
+        progress_bar.empty()
+        
+    st.dataframe(
+        display_df,
+        column_config={
+            "종목코드": st.column_config.TextColumn("종목코드", width="small"),
+            "종목명": st.column_config.TextColumn("종목명", width="medium"),
+            "현재가": st.column_config.NumberColumn("현재가(원)", format="%d ₩"),
+            "다중테마": st.column_config.ListColumn(
+                "관련 핵심 테마 (Multi-Factor)",
+                help="기업이 속한 모든 밸류체인 및 시장 테마 목록입니다.",
+                width="large"
+            )
+        },
+        hide_index=True,
+        use_container_width=True
+    )
         
 # ==========================================
 # 3. UI 렌더링 가이드 및 카드 함수
@@ -1994,8 +2037,13 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     elif "기관 연속" in sort_opt: sorted_res = sorted(display_list, key=lambda x: x.get('기관연속순매수', 0), reverse=True)
     else: sorted_res = display_list
 
-    # --- 🌟 다중 테마 뷰어 버튼 추가 부분 ---
+    # --- 🌟 다중 테마 뷰어 버튼 (Streamlit Session State 토글 방어막 적용) ---
+    btn_state_key = f"multi_theme_show_{tab_key}"
     if st.button("🧩 포착된 종목 '다중 테마' 한눈에 보기", key=f"multi_theme_btn_{tab_key}", type="primary"):
+        # 버튼을 누르면 상태를 On/Off (토글) 처리하여 표가 증발하는 것을 방지합니다.
+        st.session_state[btn_state_key] = not st.session_state.get(btn_state_key, False)
+
+    if st.session_state.get(btn_state_key, False):
         df = pd.DataFrame(sorted_res)
         if '티커' in df.columns:
             df = df.rename(columns={'티커': '종목코드'})
