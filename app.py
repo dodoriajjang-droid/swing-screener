@@ -1688,23 +1688,37 @@ def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
         display_df['다중테마'] = theme_lists
         progress_bar.empty()
         
-    # --- 🌟 컬럼 순서 재배치: '다중테마'를 '섹터'와 '현재가' 사이로 이동 ---
+    # --- 🌟 확실한 컬럼 순서 재배치 로직 (강화됨) ---
     cols = list(display_df.columns)
     if "다중테마" in cols:
         cols.remove("다중테마")
-        if "섹터" in cols and "현재가" in cols:
-            idx = cols.index("현재가")
-            cols.insert(idx, "다중테마")
-        elif "현재가" in cols:
-            idx = cols.index("현재가")
-            cols.insert(idx, "다중테마")
-        else:
-            cols.insert(1, "다중테마")
+        
+        insert_idx = len(cols) # 기본값: 맨 끝
+        
+        # 1순위: '현재가'라는 단어가 포함된 컬럼을 찾아 그 바로 앞에 삽입
+        for i, col in enumerate(cols):
+            if "현재가" in str(col):
+                insert_idx = i
+                break
+                
+        # 2순위: 현재가 컬럼을 못 찾았다면 '섹터'나 '업종' 뒤에 삽입
+        if insert_idx == len(cols):
+            for i, col in enumerate(cols):
+                if "섹터" in str(col) or "업종" in str(col):
+                    insert_idx = i + 1
+                    break
+                    
+        # 3순위: 둘 다 없으면 종목명 뒤(대략 인덱스 2)에 강제 삽입
+        if insert_idx == len(cols):
+            insert_idx = 2 
+            
+        cols.insert(insert_idx, "다중테마")
         display_df = display_df[cols]
-    # -----------------------------------------------------------------
+    # ------------------------------------------------
         
     st.dataframe(
         display_df,
+        column_order=cols,  # ⭐ 스트림릿 UI 캐시를 강제로 덮어쓰고 순서를 고정하는 핵심 옵션!
         column_config={
             "종목코드": st.column_config.TextColumn("종목코드", width="small"),
             "종목명": st.column_config.TextColumn("종목명", width="medium"),
