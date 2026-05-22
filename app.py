@@ -664,7 +664,7 @@ def ask_gemini(prompt, _api_key):
         genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
         
-        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite')
         
         response = model.generate_content(full_prompt)
         
@@ -684,7 +684,7 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
         today_str = now_kst.strftime("%Y년 %m월 %d일")
         system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 과거 데이터로 답변하지 마세요.\n\n"
         genai.configure(api_key=_api_key)
-        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite')
         response = model.generate_content([system_date_instruction + prompt, image_obj])
         return response.text
     except Exception as e: return f"🚨 비전 분석 오류: {str(e)}"
@@ -1715,7 +1715,7 @@ def get_granular_themes(stock_name: str, api_key: str) -> list:
         """
         
         # 시스템 통합 모델 버전 적용
-        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite')
         response = model.generate_content(prompt)
         
         text = response.text.strip()
@@ -2425,7 +2425,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     """
                     try:
                         genai.configure(api_key=api_key_input)
-                        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview', tools='google_search_retrieval')
+                        model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
                         response = model.generate_content(sys_prompt)
                         
                         if response.candidates and response.candidates[0].content.parts:
