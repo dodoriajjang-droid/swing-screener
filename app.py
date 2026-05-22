@@ -1737,13 +1737,13 @@ def get_granular_themes(stock_name: str, api_key: str) -> list:
         return ["데이터 확인 필요"]
 
 def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
-    st.subheader("🔍 종목별 디테일 교집합 테마 분석")
-    st.caption("AI가 각 기업의 세부 밸류체인을 분석하여 중복 포함된 테마를 모두 찾아냅니다.")
+    st.subheader("🔍 종목별 디테일 업종/테마 분석")
+    st.caption("AI가 각 기업의 세부 밸류체인을 분석하여 속해있는 모든 업종과 테마를 찾아냅니다.")
     
     display_df = df.copy()
     
-    if "다중테마" not in display_df.columns:
-        progress_text = "AI가 종목별 세부 밸류체인 테마를 스캐닝 중입니다..."
+    if "업종/테마" not in display_df.columns:
+        progress_text = "AI가 종목별 세부 업종/테마를 스캐닝 중입니다..."
         progress_bar = st.progress(0, text=progress_text)
         
         theme_lists = []
@@ -1759,43 +1759,43 @@ def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
             percent_complete = int(((i + 1) / total_rows) * 100)
             progress_bar.progress(percent_complete, text=f"{progress_text} ({stock_name} 완료)")
             
-        display_df['다중테마'] = theme_lists
+        display_df['업종/테마'] = theme_lists
         progress_bar.empty()
         
     # --- 🌟 '섹터'와 '현재가' 사이로 정확하게 타겟팅하여 순서 고정 ---
     cols = list(display_df.columns)
-    if "다중테마" in cols:
-        cols.remove("다중테마")
+    if "업종/테마" in cols:
+        cols.remove("업종/테마")
         
         if "섹터" in cols and "현재가" in cols:
             # '섹터' 바로 뒤 (즉, '현재가' 앞)에 삽입
             idx = cols.index("섹터") + 1
-            cols.insert(idx, "다중테마")
+            cols.insert(idx, "업종/테마")
         elif "섹터" in cols:
             idx = cols.index("섹터") + 1
-            cols.insert(idx, "다중테마")
+            cols.insert(idx, "업종/테마")
         elif "현재가" in cols:
             idx = cols.index("현재가")
-            cols.insert(idx, "다중테마")
+            cols.insert(idx, "업종/테마")
         else:
-            cols.insert(2, "다중테마")
+            cols.insert(2, "업종/테마")
             
         display_df = display_df[cols]
     # ----------------------------------------------------------------
         
     st.dataframe(
         display_df,
-        column_order=cols,  # 캡처해주신 화면처럼 기본 배열을 강제 고정
+        column_order=cols, 
         column_config={
             "종목코드": st.column_config.TextColumn("종목코드", width="small"),
             "종목명": st.column_config.TextColumn("종목명", width="medium"),
             "섹터": st.column_config.TextColumn("섹터", width="medium"),
-            "다중테마": st.column_config.ListColumn(
-                "관련 핵심 테마 (Multi-Factor)",
+            "업종/테마": st.column_config.ListColumn(
+                "업종 / 테마",
                 help="기업이 속한 모든 밸류체인 및 시장 테마 목록입니다.",
                 width="large"
             ),
-            "현재가": st.column_config.NumberColumn("현재가(원)", format="%d ₩")
+            "현재가": st.column_config.NumberColumn("현재가", format="%d")
         },
         hide_index=True,
         use_container_width=True
@@ -2105,49 +2105,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: 
                 st.error("데이터를 불러오지 못했습니다.")
-                
-def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
-    st.subheader("🔍 종목별 디테일 교집합 테마 분석")
-    st.caption("AI가 각 기업의 세부 밸류체인을 분석하여 중복 포함된 테마를 모두 찾아냅니다.")
-    
-    display_df = df.copy()
-    
-    if "다중테마" not in display_df.columns:
-        progress_text = "AI가 종목별 세부 밸류체인 테마를 스캐닝 중입니다..."
-        progress_bar = st.progress(0, text=progress_text)
-        
-        theme_lists = []
-        total_rows = len(display_df)
-        
-        for i, row in display_df.iterrows():
-            stock_name = row['종목명']
-            themes = get_granular_themes(stock_name, api_key)
-            theme_lists.append(themes)
-            
-            time.sleep(0.5) 
-            
-            percent_complete = int(((i + 1) / total_rows) * 100)
-            progress_bar.progress(percent_complete, text=f"{progress_text} ({stock_name} 완료)")
-            
-        display_df['다중테마'] = theme_lists
-        progress_bar.empty()
-        
-    st.dataframe(
-        display_df,
-        column_config={
-            "종목코드": st.column_config.TextColumn("종목코드", width="small"),
-            "종목명": st.column_config.TextColumn("종목명", width="medium"),
-            "현재가": st.column_config.NumberColumn("현재가(원)", format="%d ₩"),
-            "다중테마": st.column_config.ListColumn(
-                "관련 핵심 테마 (Multi-Factor)",
-                help="기업이 속한 모든 밸류체인 및 시장 테마 목록입니다.",
-                width="large"
-            )
-        },
-        hide_index=True,
-        use_container_width=True
-    )
-    
+                 
 def display_sorted_results(results_list, tab_key, api_key=""):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
@@ -2188,7 +2146,9 @@ def display_sorted_results(results_list, tab_key, api_key=""):
 
     # --- 🌟 다중 테마 뷰어 버튼 (Streamlit Session State 토글 방어막 적용) ---
     btn_state_key = f"multi_theme_show_{tab_key}"
-    if st.button("🧩 포착된 종목 '다중 테마' 한눈에 보기", key=f"multi_theme_btn_{tab_key}", type="primary"):
+    
+    # 👇 이 부분의 버튼 텍스트를 '업종/테마'로 수정했습니다.
+    if st.button("🧩 포착된 종목 '업종/테마' 한눈에 보기", key=f"multi_theme_btn_{tab_key}", type="primary"):
         # 버튼을 누르면 상태를 On/Off (토글) 처리하여 표가 증발하는 것을 방지합니다.
         st.session_state[btn_state_key] = not st.session_state.get(btn_state_key, False)
 
