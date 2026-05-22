@@ -715,7 +715,7 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
 
 # 👇 [업그레이드 1] 한미 통합 듀얼 엔진으로 시장 주도 테마를 추출하는 함수
     @st.cache_data(ttl=10800) # 3시간마다 캐시 갱신
-    def get_trending_themes_with_ai(api_key):
+def get_trending_themes_with_ai(api_key):
         if not api_key: return ["테스트 테마 A", "테스트 테마 B", "테스트 테마 C", "테스트 테마 D"]
         
         market_context = ""
@@ -777,7 +777,7 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
 
     # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
     @st.cache_data(ttl=3600)
-    def get_theme_stocks_with_ai(theme, api_key):
+def get_theme_stocks_with_ai(theme, api_key):
         prompt = f"""
         당신은 글로벌 테마주 발굴 전문가입니다.
         현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
@@ -805,85 +805,6 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
         except:
             return []
 
-elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
-        st.markdown("## ⚡ 글로벌 메가트렌드 & 한미 주도 테마 스캐너")
-        st.write("AI가 최신 트렌드를 분석하여, 숨겨진 글로벌 텐배거(10배 상승) 후보와 한·미 양국의 핵심 수혜주를 동시에 발굴합니다.")
-        
-        if not api_key_input:
-            st.warning("⚠️ 사이드바에 Gemini API 키를 입력하시면 글로벌 AI 스캐너가 활성화됩니다.")
-        else:
-            st.markdown("### 🔥 현재 글로벌 시장 주도 테마 (AI 자동 추출)")
-            with st.spinner("한국(KRX) 및 미국(US) 주요 증시의 거래 데이터를 분석하여 핵심 테마를 추출 중입니다..."):
-                hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
-                
-            cols_d = st.columns(4) 
-            for idx, theme in enumerate(hot_themes_tab5[:4]):
-                if cols_d[idx].button(f"🔥 {theme}", key=f"hot_theme_btn_{idx}", use_container_width=True):
-                    st.session_state.deep_tech_query = theme
-                    st.session_state.deep_tech_results = None
-                    st.session_state.deep_tech_brief = None
-
-            st.markdown("### 🔎 직접 글로벌 테마 검색")
-            with st.form(key="theme_search_form", clear_on_submit=False):
-                col_in1, col_in2 = st.columns([8, 2], vertical_alignment="bottom")
-                with col_in1:
-                    custom_query = st.text_input(
-                        "분석할 메가트렌드나 테마를 입력하세요", 
-                        label_visibility="collapsed", 
-                        key="deep_tech_input", 
-                        placeholder="예: AI 데이터센터 전력, 비만치료제, 우주항공"
-                    )
-                with col_in2:
-                    submit_btn = st.form_submit_button("🚀 글로벌 대장주 발굴", use_container_width=True)
-                    
-                if submit_btn:
-                    if custom_query.strip():
-                        st.session_state.deep_tech_query = custom_query.strip()
-                        st.session_state.deep_tech_results = None
-                        st.session_state.deep_tech_brief = None
-                    else:
-                        st.warning("테마 키워드를 입력해주세요!")
-
-            if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None:
-                st.divider()
-                st.markdown(f"### 🎯 '{st.session_state.deep_tech_query}' 글로벌 밸류체인 정밀 분석")
-                
-                with st.spinner("AI가 해당 테마의 월스트리트 모멘텀과 글로벌 핵심 촉매를 분석 중입니다..."):
-                    theme_brief_prompt = f"당신은 글로벌 퀀트 애널리스트입니다.\n'{st.session_state.deep_tech_query}' 테마가 한국과 미국 시장을 주도하는 이유와 향후 글로벌 전망을 3줄로 명확하게 요약하세요."
-                    st.session_state.deep_tech_brief = ask_gemini(theme_brief_prompt, api_key_input)
-                    
-                with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 테마의 한·미 핵심 대장주 및 밸류체인 수혜주를 필터링 중입니다..."):
-                    theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
-                    if theme_stocks:
-                        progress_bar = st.progress(0.0)
-                        status_text = st.empty()
-                        theme_res_list = []
-                        completed, total = 0, len(theme_stocks)
-                        
-                        def process_theme_stock(item):
-                            if len(item) == 2:
-                                name, code = item
-                                time.sleep(0.1)
-                                return analyze_technical_pattern(name, code)
-                            return None
-                            
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                            for future in concurrent.futures.as_completed({executor.submit(process_theme_stock, t): t for t in theme_stocks}):
-                                res = future.result()
-                                completed += 1
-                                if res: theme_res_list.append(res)
-                                progress_bar.progress(min(1.0, completed / total))
-                                status_text.text(f"⚡ 한·미 증시 재무/차트 데이터 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 타점 확보")
-                        
-                        st.session_state.deep_tech_results = theme_res_list
-                    else:
-                        st.error(f"❌ '{st.session_state.deep_tech_query}' 테마와 관련된 종목을 찾지 못했습니다.")
-                        st.session_state.deep_tech_query = None
-
-            if st.session_state.deep_tech_results is not None:
-                if st.session_state.get('deep_tech_brief'):
-                    st.info(f"**💡 글로벌 AI 퀀트 인사이트:**\n{st.session_state.deep_tech_brief}")
-                display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
 @st.cache_data(ttl=3600)
 def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
@@ -3293,85 +3214,85 @@ elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
     if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
 elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
-    st.markdown("## ⚡ 글로벌 메가트렌드 & 주도 테마 스캐너")
-    st.write("AI가 최신 트렌드를 분석하여, 숨겨진 텐배거(10배 상승) 후보와 핵심 수혜주를 발굴합니다.")
-    
-    if not api_key_input:
-        st.warning("⚠️ 사이드바에 Gemini API 키를 입력하시면 AI 기반 테마 스캐너가 활성화됩니다.")
-    else:
-        st.markdown("### 🔥 현재 시장 주도 테마 (AI 자동 추출)")
-        with st.spinner("한국 증시 거래대금 상위 종목들을 분석하여 핵심 주도 테마를 추출 중입니다..."):
-            hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
-            
-        cols_d = st.columns(4) 
-        for idx, theme in enumerate(hot_themes_tab5[:4]):
-            if cols_d[idx].button(f"🔥 {theme}", key=f"hot_theme_btn_{idx}", use_container_width=True):
-                st.session_state.deep_tech_query = theme
-                st.session_state.deep_tech_results = None
-                st.session_state.deep_tech_brief = None
-
-        st.markdown("### 🔎 직접 테마 검색")
-        with st.form(key="theme_search_form", clear_on_submit=False):
-            # 🎨 디자인 개선: 텍스트 입력창과 검색 버튼의 높이를 바닥(bottom)으로 깔끔하게 맞춤
-            col_in1, col_in2 = st.columns([8, 2], vertical_alignment="bottom")
-            with col_in1:
-                custom_query = st.text_input(
-                    "분석할 메가트렌드나 테마를 입력하세요", 
-                    label_visibility="collapsed", 
-                    key="deep_tech_input", 
-                    placeholder="예: 양자암호, 전고체 배터리, 비만치료제"
-                )
-            with col_in2:
-                submit_btn = st.form_submit_button("🚀 대장주 발굴", use_container_width=True)
+        st.markdown("## ⚡ 글로벌 메가트렌드 & 한미 주도 테마 스캐너")
+        st.write("AI가 최신 트렌드를 분석하여, 숨겨진 글로벌 텐배거(10배 상승) 후보와 한·미 양국의 핵심 수혜주를 동시에 발굴합니다.")
+        # ... (이하 해당 블록 내용 전체)
+        
+        if not api_key_input:
+            st.warning("⚠️ 사이드바에 Gemini API 키를 입력하시면 글로벌 AI 스캐너가 활성화됩니다.")
+        else:
+            st.markdown("### 🔥 현재 글로벌 시장 주도 테마 (AI 자동 추출)")
+            with st.spinner("한국(KRX) 및 미국(US) 주요 증시의 거래 데이터를 분석하여 핵심 테마를 추출 중입니다..."):
+                hot_themes_tab5 = get_trending_themes_with_ai(api_key_input)
                 
-            if submit_btn:
-                if custom_query.strip():
-                    st.session_state.deep_tech_query = custom_query.strip()
+            cols_d = st.columns(4) 
+            for idx, theme in enumerate(hot_themes_tab5[:4]):
+                if cols_d[idx].button(f"🔥 {theme}", key=f"hot_theme_btn_{idx}", use_container_width=True):
+                    st.session_state.deep_tech_query = theme
                     st.session_state.deep_tech_results = None
                     st.session_state.deep_tech_brief = None
-                else:
-                    st.warning("테마 키워드를 입력해주세요!")
 
-        if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None:
-            st.divider()
-            st.markdown(f"### 🎯 '{st.session_state.deep_tech_query}' 테마 정밀 분석 결과")
-            
-            with st.spinner("AI가 해당 테마의 시장 모멘텀과 핵심 촉매를 분석 중입니다..."):
-                theme_brief_prompt = f"당신은 테마주 퀀트 애널리스트입니다.\n'{st.session_state.deep_tech_query}' 테마가 시장을 주도하는 이유와 향후 전망을 3줄로 명확하게 요약하세요."
-                st.session_state.deep_tech_brief = ask_gemini(theme_brief_prompt, api_key_input)
+            st.markdown("### 🔎 직접 글로벌 테마 검색")
+            with st.form(key="theme_search_form", clear_on_submit=False):
+                col_in1, col_in2 = st.columns([8, 2], vertical_alignment="bottom")
+                with col_in1:
+                    custom_query = st.text_input(
+                        "분석할 메가트렌드나 테마를 입력하세요", 
+                        label_visibility="collapsed", 
+                        key="deep_tech_input", 
+                        placeholder="예: AI 데이터센터 전력, 비만치료제, 우주항공"
+                    )
+                with col_in2:
+                    submit_btn = st.form_submit_button("🚀 글로벌 대장주 발굴", use_container_width=True)
+                    
+                if submit_btn:
+                    if custom_query.strip():
+                        st.session_state.deep_tech_query = custom_query.strip()
+                        st.session_state.deep_tech_results = None
+                        st.session_state.deep_tech_brief = None
+                    else:
+                        st.warning("테마 키워드를 입력해주세요!")
+
+            if st.session_state.deep_tech_query and st.session_state.deep_tech_results is None:
+                st.divider()
+                st.markdown(f"### 🎯 '{st.session_state.deep_tech_query}' 글로벌 밸류체인 정밀 분석")
                 
-            with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 테마의 핵심 대장주 및 밸류체인 수혜주를 필터링 중입니다..."):
-                theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
-                if theme_stocks:
-                    progress_bar = st.progress(0.0)
-                    status_text = st.empty()
-                    theme_res_list = []
-                    completed, total = 0, len(theme_stocks)
+                with st.spinner("AI가 해당 테마의 월스트리트 모멘텀과 글로벌 핵심 촉매를 분석 중입니다..."):
+                    theme_brief_prompt = f"당신은 글로벌 퀀트 애널리스트입니다.\n'{st.session_state.deep_tech_query}' 테마가 한국과 미국 시장을 주도하는 이유와 향후 글로벌 전망을 3줄로 명확하게 요약하세요."
+                    st.session_state.deep_tech_brief = ask_gemini(theme_brief_prompt, api_key_input)
                     
-                    def process_theme_stock(item):
-                        if len(item) == 2:
-                            name, code = item
-                            time.sleep(0.1)
-                            return analyze_technical_pattern(name, code)
-                        return None
+                with st.spinner(f"✨ '{st.session_state.deep_tech_query}' 테마의 한·미 핵심 대장주 및 밸류체인 수혜주를 필터링 중입니다..."):
+                    theme_stocks = get_theme_stocks_with_ai(st.session_state.deep_tech_query, api_key_input)
+                    if theme_stocks:
+                        progress_bar = st.progress(0.0)
+                        status_text = st.empty()
+                        theme_res_list = []
+                        completed, total = 0, len(theme_stocks)
                         
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                        for future in concurrent.futures.as_completed({executor.submit(process_theme_stock, t): t for t in theme_stocks}):
-                            res = future.result()
-                            completed += 1
-                            if res: theme_res_list.append(res)
-                            progress_bar.progress(min(1.0, completed / total))
-                            status_text.text(f"⚡ 재무/차트 데이터 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 타점 확보")
-                    
-                    st.session_state.deep_tech_results = theme_res_list
-                else:
-                    st.error(f"❌ '{st.session_state.deep_tech_query}' 테마와 관련된 종목을 찾지 못했습니다.")
-                    st.session_state.deep_tech_query = None
+                        def process_theme_stock(item):
+                            if len(item) == 2:
+                                name, code = item
+                                time.sleep(0.1)
+                                return analyze_technical_pattern(name, code)
+                            return None
+                            
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                            for future in concurrent.futures.as_completed({executor.submit(process_theme_stock, t): t for t in theme_stocks}):
+                                res = future.result()
+                                completed += 1
+                                if res: theme_res_list.append(res)
+                                progress_bar.progress(min(1.0, completed / total))
+                                status_text.text(f"⚡ 한·미 증시 재무/차트 데이터 파싱 중... ({completed}/{total}) - {len(theme_res_list)}개 타점 확보")
+                        
+                        st.session_state.deep_tech_results = theme_res_list
+                    else:
+                        st.error(f"❌ '{st.session_state.deep_tech_query}' 테마와 관련된 종목을 찾지 못했습니다.")
+                        st.session_state.deep_tech_query = None
 
-        if st.session_state.deep_tech_results is not None:
-            if st.session_state.get('deep_tech_brief'):
-                st.info(f"**💡 AI 퀀트 인사이트:**\n{st.session_state.deep_tech_brief}")
-            display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
+            if st.session_state.deep_tech_results is not None:
+                if st.session_state.get('deep_tech_brief'):
+                    st.info(f"**💡 글로벌 AI 퀀트 인사이트:**\n{st.session_state.deep_tech_brief}")
+                display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
 elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
     st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
