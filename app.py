@@ -1850,31 +1850,42 @@ def show_trading_guidelines():
 
 def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""):
     tech_result = stock_data
+    
+    # 👇 [복구됨] 아래쪽 차트/분석에서 사용하는 가격 포맷 함수와 curr 변수를 부활시킵니다!
+    def fmt_price(p, is_delta=False):
+        try:
+            prefix = "+" if is_delta and float(p) > 0 else ""
+            return f"{prefix}{int(float(p)):,}원"
+        except:
+            return str(p)
+            
+    curr = stock_data.get('현재가', 0)
+
     # 1. 기본 데이터 추출
     stock_name = stock_data.get('종목명', '알수없음')
     sector = stock_data.get('섹터', '분류없음')
-    current_price = stock_data.get('현재가', 0)
+    current_price = curr
     status = stock_data.get('상태', '')
 
-    # 👇 2. [추가됨] AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
+    # 2. AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
     core_theme = "일반"
     if api_key_str:
         try:
-            # 이전에 만들어둔 테마 분석 함수를 재활용
             themes = get_granular_themes(stock_name, api_key_str)
             if themes:
                 core_theme = themes[0] # 여러 테마 중 가장 연관성 높은 첫 번째 텍스트만 가져옴
         except:
             pass
 
-    # 👇 3. [변경됨] "종목명 / 테마 / 업종 / 현재가" 포맷으로 조립
+    # 3. "종목명 / 테마 / 업종 / 현재가" 포맷으로 조립
     try:
         price_str = f"{int(current_price):,}원"
     except:
         price_str = f"{current_price}"
         
     card_title = f"{status} {stock_name} / {core_theme} / {sector} / {price_str}"
-  
+
+    # 👇 여기서부터는 들여쓰기에 주의하여 기존 코드를 그대로 유지합니다!
     with st.expander(card_title, expanded=is_expanded):
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
         if tech_result.get('과거검증'):
