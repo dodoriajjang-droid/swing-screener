@@ -1848,52 +1848,44 @@ def show_trading_guidelines():
         * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` 
         """)
 
-def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""):
-    tech_result = stock_data
-    curr = stock_data.get('현재가', 0)
+def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
+    # 1. 보조 함수 정의 (카드 내부에서만 사용)
+    def fmt_price(p, is_delta=False):
+        try:
+            val = float(p)
+            prefix = "+" if is_delta and val > 0 else ""
+            return f"{prefix}{int(val):,}원"
+        except:
+            return str(p)
 
-    # 1. 기본 데이터 추출
-    stock_name = stock_data.get('종목명', '알수없음')
-    ticker = stock_data.get('티커', '')
-    sector = stock_data.get('섹터', '분류없음')
-    current_price = curr
-    status = stock_data.get('상태', '')
+    # 2. 기본 데이터 추출
+    stock_name = tech_result.get('종목명', '알수없음')
+    sector = tech_result.get('섹터', '분류없음')
+    curr = tech_result.get('현재가', 0)
+    status = tech_result.get('상태', '')
 
-    # 👇 [추가] 상세 진단과 RSI 값 추출
-    # '배열상태'에서 "❄️ 역배열 (하락 추세)" 같은 핵심 진단명만 가져옵니다.
-    align_status_short = str(stock_data.get('배열상태', '')).split(' ｜ ')[0] 
-    if not align_status_short: 
-        align_status_short = status
-        
-    try:
-        rsi_raw = tech_result.get('RSI', '-')
-        rsi_val = f"{float(rsi_raw):.1f}" if rsi_raw != '-' else '-'
-    except:
-        rsi_val = tech_result.get('RSI', '-')
-
-    # 2. AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
+    # 3. 상세 진단(배열상태) 및 RSI 가공
+    align_status = str(tech_result.get('배열상태', '')).split(' ｜ ')[0]
+    if not align_status: align_status = status
+    
+    rsi_val = str(tech_result.get('RSI', '-'))
+    
+    # 4. AI 테마 추출
     core_theme = "일반"
     if api_key_str:
         try:
             themes = get_granular_themes(stock_name, api_key_str)
-            if themes:
+            if themes and themes[0] not in ["데이터 확인 필요", "분류 오류"]:
                 core_theme = themes[0]
         except:
             pass
 
-    # 3. 🎯 타이틀 조립 (업체명 / 테마 / 업종 / 현재가 / 상세진단 / RSI)
-    try:
-        price_str = f"{int(current_price):,}원"
-    except:
-        price_str = f"{current_price}"
-        
-    card_title = f"{stock_name} / {core_theme} / {sector} / {price_str} / {align_status_short} / RSI: {rsi_val}"
+    # 5. 타이틀 조립: 업체명 / 테마 / 업종 / 현재가 / 상세진단 / RSI
+    card_title = f"{stock_name} / {core_theme} / {sector} / {fmt_price(curr)} / {align_status} / RSI: {rsi_val}"
 
-    # 4. 펼침막(Expander) 생성
+    # 6. 펼침막 생성 (하단 지표 삭제)
     with st.expander(card_title, expanded=is_expanded):
-        # 모든 정보가 제목에 들어갔으므로, 카드를 펼쳤을 때는 참고용 상세 설명만 가볍게 남겨둡니다.
-        full_align = tech_result.get('배열상태', '')
-        st.info(f"**💡 진단 기준**: {full_align} ｜ **상태**: {status}")
+        st.info(f"**상세 진단 상세정보**: {tech_result.get('배열상태', status)}")
         
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
         if tech_result.get('과거검증'):
