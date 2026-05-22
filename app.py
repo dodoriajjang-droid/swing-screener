@@ -1863,6 +1863,8 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
 
     # 1. 기본 데이터 추출
     stock_name = stock_data.get('종목명', '알수없음')
+    ticker = stock_data.get('티커', '')              # 👈 [추가] 티커 정보 가져오기
+    is_us = not str(ticker).isdigit()                # 👈 [추가] 티커가 숫자가 아니면(알파벳이면) 미국 주식으로 판별!
     sector = stock_data.get('섹터', '분류없음')
     current_price = curr
     status = stock_data.get('상태', '')
