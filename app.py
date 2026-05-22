@@ -1874,7 +1874,8 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         
     card_title = f"{status} {stock_name} / {core_theme} / {sector} / {price_str}"
   
-    with st.expander(expander_title, expanded=is_expanded):
+    with st.expander(card_title, expanded=is_expanded):
+        tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
             color = "#ff4b4b" if pnl > 0 else "#1f77b4"
