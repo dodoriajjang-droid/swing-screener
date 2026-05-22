@@ -1864,6 +1864,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     curr = tech_result.get('현재가', 0)
     status = tech_result.get('상태', '')
 
+    ticker_code = tech_result.get('티커', '')
+    is_us = not str(ticker_code).isdigit()
+    
     # 3. 상세 진단(배열상태) 및 RSI 가공
     align_status = str(tech_result.get('배열상태', '')).split(' ｜ ')[0]
     if not align_status: align_status = status
