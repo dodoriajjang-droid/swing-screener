@@ -1688,6 +1688,21 @@ def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
         display_df['다중테마'] = theme_lists
         progress_bar.empty()
         
+    # --- 🌟 컬럼 순서 재배치: '다중테마'를 '섹터'와 '현재가' 사이로 이동 ---
+    cols = list(display_df.columns)
+    if "다중테마" in cols:
+        cols.remove("다중테마")
+        if "섹터" in cols and "현재가" in cols:
+            idx = cols.index("현재가")
+            cols.insert(idx, "다중테마")
+        elif "현재가" in cols:
+            idx = cols.index("현재가")
+            cols.insert(idx, "다중테마")
+        else:
+            cols.insert(1, "다중테마")
+        display_df = display_df[cols]
+    # -----------------------------------------------------------------
+        
     st.dataframe(
         display_df,
         column_config={
