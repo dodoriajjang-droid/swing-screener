@@ -1857,7 +1857,19 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
     ticker = stock_data.get('티커', '')
     sector = stock_data.get('섹터', '분류없음')
     current_price = curr
-    status = stock_data.get('상태', '') # 진단 문구가 들어있는 변수
+    status = stock_data.get('상태', '')
+
+    # 👇 [추가] 상세 진단과 RSI 값 추출
+    # '배열상태'에서 "❄️ 역배열 (하락 추세)" 같은 핵심 진단명만 가져옵니다.
+    align_status_short = str(stock_data.get('배열상태', '')).split(' ｜ ')[0] 
+    if not align_status_short: 
+        align_status_short = status
+        
+    try:
+        rsi_raw = tech_result.get('RSI', '-')
+        rsi_val = f"{float(rsi_raw):.1f}" if rsi_raw != '-' else '-'
+    except:
+        rsi_val = tech_result.get('RSI', '-')
 
     # 2. AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
     core_theme = "일반"
@@ -1869,20 +1881,19 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         except:
             pass
 
-    # 3. 타이틀 조립 (업체명 / 테마 / 업종 / 현재가)
+    # 3. 🎯 타이틀 조립 (업체명 / 테마 / 업종 / 현재가 / 상세진단 / RSI)
     try:
         price_str = f"{int(current_price):,}원"
     except:
         price_str = f"{current_price}"
         
-    card_title = f"{stock_name} / {core_theme} / {sector} / {price_str}"
+    card_title = f"{stock_name} / {core_theme} / {sector} / {price_str} / {align_status_short} / RSI: {rsi_val}"
 
-    # 4. 펼침막(Expander) 생성 및 한 줄 요약 출력
+    # 4. 펼침막(Expander) 생성
     with st.expander(card_title, expanded=is_expanded):
-        rsi_val = tech_result.get('RSI', '-')
-        
-        # 🎯 보충 요청하신 대로 상세 진단, 기준, RSI를 깔끔하게 한 줄의 박스로만 표현합니다.
-        st.info(f"**상세 진단**: {status} ｜ **📊 현재 RSI**: {rsi_val}")
+        # 모든 정보가 제목에 들어갔으므로, 카드를 펼쳤을 때는 참고용 상세 설명만 가볍게 남겨둡니다.
+        full_align = tech_result.get('배열상태', '')
+        st.info(f"**💡 진단 기준**: {full_align} ｜ **상태**: {status}")
         
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
         if tech_result.get('과거검증'):
