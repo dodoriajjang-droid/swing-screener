@@ -1850,23 +1850,14 @@ def show_trading_guidelines():
 
 def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""):
     tech_result = stock_data
-    
-    def fmt_price(p, is_delta=False):
-        try:
-            prefix = "+" if is_delta and float(p) > 0 else ""
-            return f"{prefix}{int(float(p)):,}원"
-        except:
-            return str(p)
-            
     curr = stock_data.get('현재가', 0)
 
     # 1. 기본 데이터 추출
     stock_name = stock_data.get('종목명', '알수없음')
     ticker = stock_data.get('티커', '')
-    is_us = not str(ticker).isdigit()
     sector = stock_data.get('섹터', '분류없음')
     current_price = curr
-    status = stock_data.get('상태', '') # 💡 여기에 "역배열~기준" 문구가 들어있습니다.
+    status = stock_data.get('상태', '') # 진단 문구가 들어있는 변수
 
     # 2. AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
     core_theme = "일반"
@@ -1878,7 +1869,7 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         except:
             pass
 
-    # 3. ⭕ [수정] 업체명(종목명)이 무조건 가장 먼저 나오도록 타이틀 조립 (진단 문구 제외)
+    # 3. 타이틀 조립 (업체명 / 테마 / 업종 / 현재가)
     try:
         price_str = f"{int(current_price):,}원"
     except:
@@ -1886,12 +1877,14 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         
     card_title = f"{stock_name} / {core_theme} / {sector} / {price_str}"
 
-        
-    # 👇 여기서부터는 들여쓰기에 주의하여 기존 코드를 그대로 유지합니다!
+    # 4. 펼침막(Expander) 생성 및 한 줄 요약 출력
     with st.expander(card_title, expanded=is_expanded):
-        detail_text = tech_result.get('상세진단', tech_result.get('이평선_상태_상세', ''))
-        rsi_val = tech_result.get('RSI', '')
-        st.info(f"{status} ｜ **📊 현재 RSI**: {rsi_val}")
+        rsi_val = tech_result.get('RSI', '-')
+        
+        # 🎯 보충 요청하신 대로 상세 진단, 기준, RSI를 깔끔하게 한 줄의 박스로만 표현합니다.
+        st.info(f"**상세 진단**: {status} ｜ **📊 현재 RSI**: {rsi_val}")
+        
+        # ⚠️ [삭제 완료] 기존에 존재하던 탭(st.tabs), 차트, 진입가 가이드(metric) 등의 모든 하단 코드를 제거했습니다.
         if detail_text or rsi_val:
             st.info(f"**상세 진단**: {detail_text} ｜ **📊 현재 RSI**: {rsi_val}")
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
