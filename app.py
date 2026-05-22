@@ -1848,31 +1848,35 @@ def show_trading_guidelines():
         * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` 
         """)
 
-def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
-    status_emoji = tech_result['상태'].split(' ')[0]
-    is_us = not str(tech_result['티커']).isdigit() 
+def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""):
+    # 1. 기본 데이터 추출
+    stock_name = stock_data.get('종목명', '알수없음')
+    sector = stock_data.get('섹터', '분류없음')
+    current_price = stock_data.get('현재가', 0)
+    status = stock_data.get('상태', '')
 
-    def get_short_trend(trend_text):
-        val = str(trend_text).split(' ')[0]
-        if "🔥" in str(trend_text): return f"🔥{val}"
-        if "💧" in str(trend_text): return f"💧{val}"
-        return f"➖{val}"
+    # 👇 2. [추가됨] AI 세부 테마 중 첫 번째(핵심 대장 테마) 추출
+    core_theme = "일반"
+    if api_key_str:
+        try:
+            # 이전에 만들어둔 테마 분석 함수를 재활용
+            themes = get_granular_themes(stock_name, api_key_str)
+            if themes:
+                core_theme = themes[0] # 여러 테마 중 가장 연관성 높은 첫 번째 텍스트만 가져옴
+        except:
+            pass
+
+    # 👇 3. [변경됨] "종목명 / 테마 / 업종 / 현재가" 포맷으로 조립
+    try:
+        price_str = f"{int(current_price):,}원"
+    except:
+        price_str = f"{current_price}"
         
-    f_trend = get_short_trend(tech_result['외인수급'])
-    i_trend = get_short_trend(tech_result['기관수급'])
-    sector_info = tech_result.get('섹터', '기타')
-    if len(sector_info) > 12: sector_info = sector_info[:12] + ".."
-    align_status_short = tech_result['배열상태'].split(' ｜ ')[0]
-    
-    def fmt_price(p, delta=False):
-        if is_us: return f"{'+' if p>0 else ''}${p:,.2f}" if delta else f"${p:,.2f}"
-        else: return f"{'+' if p>0 else ''}{int(p):,}원" if delta else f"{int(p):,}원"
-            
-    if is_us: base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ RSI: {tech_result['RSI']:.1f})"
-    else: base_info = f"(진단: {tech_result['상태']} ｜ 상세 진단: {align_status_short} ｜ 외인: {f_trend} ｜ 기관: {i_trend} ｜ RSI: {tech_result['RSI']:.1f})"
-    
-    header_block = f"{status_emoji} {tech_result['종목명']} / {sector_info} / {fmt_price(tech_result['현재가'])}"
-    expander_title = f"{header_block} ｜ {base_info}"
+    card_title = f"{status} {stock_name} / {core_theme} / {sector} / {price_str}"
+
+    # 4. 방금 조립한 card_title을 펼침막(expander) 제목으로 적용
+    with st.expander(card_title, expanded=is_expanded):
+        # ... (이 아래부터는 기존에 있던 세부 차트/분석 코드들을 그대로 두시면 됩니다!) ...
     
     with st.expander(expander_title, expanded=is_expanded):
         if tech_result.get('과거검증'):
