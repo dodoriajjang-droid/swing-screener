@@ -715,7 +715,7 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
 
 # 👇 [업그레이드 1] 한미 통합 듀얼 엔진으로 시장 주도 테마를 추출하는 함수
     @st.cache_data(ttl=10800) # 3시간마다 캐시 갱신
-def get_trending_themes_with_ai(api_key):
+    def get_trending_themes_with_ai(api_key):
         if not api_key: return ["테스트 테마 A", "테스트 테마 B", "테스트 테마 C", "테스트 테마 D"]
         
         market_context = ""
