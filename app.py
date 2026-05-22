@@ -1884,9 +1884,6 @@ def draw_stock_card(stock_data, api_key_str="", is_expanded=False, key_suffix=""
         # 🎯 보충 요청하신 대로 상세 진단, 기준, RSI를 깔끔하게 한 줄의 박스로만 표현합니다.
         st.info(f"**상세 진단**: {status} ｜ **📊 현재 RSI**: {rsi_val}")
         
-        # ⚠️ [삭제 완료] 기존에 존재하던 탭(st.tabs), 차트, 진입가 가이드(metric) 등의 모든 하단 코드를 제거했습니다.
-        if detail_text or rsi_val:
-            st.info(f"**상세 진단**: {detail_text} ｜ **📊 현재 RSI**: {rsi_val}")
         tabs = st.tabs(["AI 종목 리포트", "기술적 분석", "재무/가치 분석"])
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
