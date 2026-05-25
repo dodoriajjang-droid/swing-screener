@@ -3080,7 +3080,7 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     final_strat = (bt_df['Cumulative_Strategy'].iloc[-1] - 1) * 100
                     
                     st.markdown("### 📊 백테스트 성과 리포트")
-                    c1, c2, c3, c4 = st.columns(4)
+                    c1, c2, c3 = st.columns(3)  # c4 삭제 및 3열로 변경
                     def metric_card(title, value, delta=None, is_red=False, is_green=False):
                         bg_color = "rgba(100, 100, 100, 0.05)"
                         border_color = "#888"
@@ -3095,8 +3095,8 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
 
                     with c1: st.markdown(metric_card("전략 누적 수익률", f"{final_strat:.2f}%", f"단순 보유 대비 {final_strat - final_market:+.2f}%p", is_red=(final_strat>0), is_green=(final_strat<0)), unsafe_allow_html=True) 
                     with c2: st.markdown(metric_card("최대 낙폭 (MDD)", f"{mdd:.2f}%", "계좌 최대 하락률", is_green=(mdd<-20)), unsafe_allow_html=True)
-                    with c3: st.markdown(metric_card("총 매매 횟수", f"{total_trades}회", "신규 진입 기준"), unsafe_allow_html=True)
-                    with c4: st.markdown(metric_card("승률 (Win Rate)", f"{win_rate:.1f}%", "수익 마감 거래일 기준", is_red=(win_rate>50)), unsafe_allow_html=True)
+                    with c3: st.markdown(metric_card("총 매매 횟수", f"{int(total_trades)}회", "신규 진입 기준"), unsafe_allow_html=True)  # int()를 씌워 소수점 제거
+                    #with c4: st.markdown(metric_card("승률 (Win Rate)", f"{win_rate:.1f}%", "수익 마감 거래일 기준", is_red=(win_rate>50)), unsafe_allow_html=True)
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
 
 elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
