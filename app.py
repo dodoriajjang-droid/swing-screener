@@ -1736,6 +1736,43 @@ def style_us_gainers_table(df):
     sty = sty.set_properties(**{'font-size': '13px'})
     sty = sty.set_properties(subset=['기업명'], **{'font-weight': '600'})
     return sty
+
+
+# [v7.0] AI 밸류체인 리포트에서 '한국 수혜주' 종목명만 추출 → KRX 코드 매칭
+def extract_beneficiary_stocks(report_text, krx_df, max_n=8):
+    if not report_text or krx_df is None or krx_df.empty:
+        return []
+    name_to_code = dict(zip(krx_df['Name'].astype(str), krx_df['Code'].astype(str)))
+    names_sorted = sorted(name_to_code.keys(), key=len, reverse=True)  # 긴 이름 우선(부분 오매칭 방지)
+    found, seen = [], set()
+
+    def add_match(cand):
+        cand = re.sub(r'\(.*?\)', '', str(cand)).strip().strip('*•-· ')
+        if not cand:
+            return
+        if cand in name_to_code and cand not in seen:          # 정확 일치
+            found.append((cand, name_to_code[cand])); seen.add(cand); return
+        for nm in names_sorted:                                # 부분 일치(긴 이름 우선)
+            if len(nm) >= 2 and nm in cand and nm not in seen:
+                found.append((nm, name_to_code[nm])); seen.add(nm); return
+
+    # 1) AI가 마지막에 넣어준 '[수혜주]: A, B, C' 라인 우선 파싱
+    m = re.search(r'\[?\s*수혜주[^\]:：]*\]?\s*[:：]\s*(.+)', report_text)
+    if m:
+        line = m.group(1).split('\n')[0]
+        for c in re.split(r'[,/·、|]+', line):
+            add_match(c)
+            if len(found) >= max_n:
+                return found[:max_n]
+
+    # 2) 폴백: 리포트 본문 전체에서 KRX 종목명 직접 스캔 (3글자 이상만, 과매칭 방지)
+    if len(found) < 2:
+        for nm in names_sorted:
+            if len(nm) >= 3 and nm in report_text and nm not in seen:
+                found.append((nm, name_to_code[nm])); seen.add(nm)
+                if len(found) >= max_n:
+                    break
+    return found[:max_n]
     articles = []
     now_kst = datetime.utcnow() + timedelta(hours=9)
     three_hours_ago = now_kst - timedelta(hours=3)
@@ -4363,27 +4400,62 @@ elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
         st.subheader("🔗 3. 글로벌 밸류체인 & 갭상승 대응 시나리오")
         if sel_tick != "N/A" and api_key_input:
             comp_name = sel_opt.split(" (")[1].replace(")", "")
-            with st.spinner(f"✨ AI가 '{sel_tick}'의 공급망과 국장 수혜주를 분석 중입니다..."):
-                prompt = f"간밤에 미국 증시에서 '{comp_name}({sel_tick})' 종목이 급등했습니다. 1.급등사유 2.한국 수혜주 3~5개 3.시초가 갭상승 대응 시나리오를 작성하세요."
-                report = ask_gemini(prompt, api_key_input)
-                st.success("✅ 밸류체인 및 대응 시나리오 분석 완료!")
-                st.markdown(report)
+            krx_df = get_krx_stocks()
+
+            # [v7.0] 같은 종목이면 AI를 다시 부르지 않도록 세션에 캐싱 (폼 클릭 시 재호출 방지)
+            if st.session_state.get('us_vc_ticker') != sel_tick:
+                with st.spinner(f"✨ AI가 '{sel_tick}'의 공급망과 국장 수혜주를 분석 중입니다..."):
+                    prompt = (
+                        f"간밤에 미국 증시에서 '{comp_name}({sel_tick})' 종목이 급등했습니다. "
+                        f"1.급등사유 2.한국 수혜주 3~5개(각 종목의 수혜 이유 포함) 3.시초가 갭상승 대응 시나리오를 작성하세요.\n"
+                        f"⚠️ 반드시 맨 마지막 줄에 한국거래소에 상장된 정확한 종목명만 다음 형식으로 나열하세요: "
+                        f"[수혜주]: 종목명1, 종목명2, 종목명3"
+                    )
+                    report = ask_gemini(prompt, api_key_input)
+                    beneficiaries = extract_beneficiary_stocks(report, krx_df)
+                    st.session_state.us_vc_ticker = sel_tick
+                    st.session_state.us_vc_report = report
+                    st.session_state.us_vc_benef = beneficiaries
+
+            report = st.session_state.get('us_vc_report', '')
+            beneficiaries = st.session_state.get('us_vc_benef', [])
+
+            st.success("✅ 밸류체인 및 대응 시나리오 분석 완료!")
+            # 화면에는 [수혜주] 파싱용 라인은 숨겨서 깔끔하게 표시
+            display_report = re.sub(r'\n?\[?\s*수혜주[^\]:：]*\]?\s*[:：].*$', '', report).strip()
+            st.markdown(display_report)
+
             st.divider()
             st.subheader("🎯 추천된 국장 수혜주 타점 즉시 확인")
-            krx_df = get_krx_stocks()
-            if not krx_df.empty:
-                opts_krx = ["🔍 종목명 검색 후 엔터"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+            if beneficiaries:
+                st.caption(f"💡 위 AI 분석에서 언급된 한국 수혜주 {len(beneficiaries)}개만 골라뒀어요. 선택하면 바로 타점을 분석합니다.")
+                opts_krx = ["🔍 추천 수혜주 선택"] + [f"{n} ({c})" for n, c in beneficiaries]
                 with st.form("vs_kr_form"):
-                    col_v1, col_v2 = st.columns([8,2])
-                    with col_v1: us_sub_query = st.selectbox("수혜주 차트 상태 확인:", opts_krx, key="us_sub_scan", label_visibility="collapsed")
+                    col_v1, col_v2 = st.columns([8, 2])
+                    with col_v1: us_sub_query = st.selectbox("추천 수혜주 타점 확인:", opts_krx, key="us_sub_scan", label_visibility="collapsed")
                     with col_v2: vs_btn = st.form_submit_button("🔍 타점 확인", use_container_width=True)
-                if vs_btn and us_sub_query != "🔍 종목명 검색 후 엔터":
+                if vs_btn and us_sub_query != "🔍 추천 수혜주 선택":
                     q_name = us_sub_query.rsplit(" (", 1)[0]
                     q_code = us_sub_query.rsplit("(", 1)[-1].replace(")", "").strip()
                     with st.spinner("차트 타점 분석 중..."):
                         res = analyze_technical_pattern(q_name, q_code)
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain")
                         else: st.error("❌ 해당 종목 데이터를 불러올 수 없습니다.")
+            else:
+                st.warning("AI 분석에서 한국 수혜주를 자동으로 추출하지 못했어요. 아래에서 직접 검색해 확인할 수 있습니다.")
+                if not krx_df.empty:
+                    opts_krx = ["🔍 종목명 검색 후 엔터"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                    with st.form("vs_kr_form_fallback"):
+                        col_v1, col_v2 = st.columns([8, 2])
+                        with col_v1: us_sub_query = st.selectbox("수혜주 차트 상태 확인:", opts_krx, key="us_sub_scan_fb", label_visibility="collapsed")
+                        with col_v2: vs_btn = st.form_submit_button("🔍 타점 확인", use_container_width=True)
+                    if vs_btn and us_sub_query != "🔍 종목명 검색 후 엔터":
+                        q_name = us_sub_query.rsplit(" (", 1)[0]
+                        q_code = us_sub_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                        with st.spinner("차트 타점 분석 중..."):
+                            res = analyze_technical_pattern(q_name, q_code)
+                            if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain_fb")
+                            else: st.error("❌ 해당 종목 데이터를 불러올 수 없습니다.")
         elif sel_tick != "N/A" and not api_key_input:
             st.warning("⬅️ 왼쪽에서 종목은 선택됐어요. AI 밸류체인 분석을 보려면 사이드바에 API 키를 입력해주세요.")
         else:
