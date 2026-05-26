@@ -3319,7 +3319,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     macro_data = get_macro_indicators()
     fg_data = get_fear_and_greed()
     
-    st.markdown("## 🎛️ 트레이딩 관제 센터 (Command Center)")
+    st.markdown("## 🎛️ 홈: 종합 대시보드")
 
     # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
     render_market_regime_banner()
@@ -3468,7 +3468,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
         st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
-    st.markdown("## 💼 내 계좌 & 포트폴리오 진단 및 리밸런싱")
+    st.markdown("## 💼 내 계좌 & 포트폴리오 진단")
     st.write("현재 보유 중인 종목들을 표에 입력하면, 단순 개별 분석이 아닌 **계좌 전체의 자산 배분(비중)과 리스크를 고려한 종합 리밸런싱 전략**을 AI가 진단해 드립니다.")
 
     if "portfolio_df" not in st.session_state:
@@ -3636,7 +3636,7 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                         st.markdown(plan_result)
 
 elif selected_menu == "⭐ 내 관심종목 모니터링":
-    st.subheader("⭐ 나만의 관심종목 (Watchlist)")
+    st.subheader("⭐ 내 관심종목 모니터링")
     if not st.session_state.watchlist: 
         st.info("추가된 종목이 없습니다. 스캐너나 분석기에서 관심종목을 추가해보세요.")
     else:
@@ -3653,7 +3653,7 @@ elif selected_menu == "⭐ 내 관심종목 모니터링":
                 except Exception as e: st.error(f"❌ '{item['종목명']}' 데이터 분석 중 치명적 오류 발생: {str(e)}")
 
 elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
-    st.markdown("## 🚀 v6.0 메이저 업데이트 (Beta 테스트 룸)")
+    st.markdown("## 🌍 글로벌 매크로 & AI 분석 (v6.0)")
     st.write("기관 프랍 트레이더 수준의 거시경제 분석, AI 어닝 리포트 해독, 포트폴리오 최적화 등 하이엔드 기능을 제공합니다.")
     v6_t1, v6_t2, v6_t3, v6_t4, v6_t5 = st.tabs(["🌍 1. 글로벌 매크로 관제소", "💼 2. 스마트머니 & 밸류업 추적", "🧠 3. AI PDF 리포트 해독", "🏆 4. 마코위츠 포트폴리오 최적화", "⚡ 5. 체결강도 & 틱(Tick) 분석"])
     
@@ -3818,7 +3818,7 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
                 except Exception as e: st.error(f"분석 실패: {e}")
 
 elif selected_menu == "🗺️ 시장 주도주 자금 히트맵":
-    st.subheader("🗺️ 시장 주도주 & 스마트머니 유입 섹터 히트맵")
+    st.subheader("🗺️ 시장 주도주 자금 히트맵")
     st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 상승 / 붉은색: 하락)")
     heatmap_limit = st.radio("🔥 히트맵 표시 종목 수 선택 (개)", [30, 50, 100], index=1, horizontal=True)
     
@@ -3853,7 +3853,7 @@ elif selected_menu == "🗺️ 시장 주도주 자금 히트맵":
                 if res := analyze_technical_pattern(sel_king, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
 
 elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
-    st.markdown("## 🕸️ 실시간 스마트머니 물길 추적 (Sankey Diagram)")
+    st.markdown("## 🕸️ 실시간 섹터 순환매 추적")
     st.write("현재 시점의 시장 데이터를 실시간 역산하여, **수익률이 가장 저조한 3개 섹터(자금 유출)**에서 **가장 높은 3개 섹터(자금 유입)**로 수급이 이동하는 '순환매' 흐름을 시각화합니다.")
     
     period_sk = st.radio("분석 기간", ["1개월", "3개월", "6개월"], horizontal=True)
@@ -3885,7 +3885,7 @@ elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
     else: st.error("테마별 시장 데이터를 불러오지 못했습니다.")
 
 elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
-    st.subheader("📅 핵심 증시 일정 & 스마트머니 달력")
+    st.subheader("📅 핵심 증시 일정 & IPO 달력")
     cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 경제 지표", "🧠 통합 수급 달력 (국장+미장)", "🇰🇷 국내 IPO 분석"])
     
     with cal_tab1: 
@@ -4017,7 +4017,7 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다. (주말·연휴엔 비어 있을 수 있어요)")
 
 elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
-    st.markdown("## 🚀 실시간 조건 검색 및 1년 백테스팅 시뮬레이터")
+    st.markdown("## 🚀 단기 스윙 퀀트 스캐너")
     scan_tab, backtest_tab = st.tabs(["🚀 실시간 조건 검색 스캐너", "🧪 1년 전략 백테스팅"])
     
     with scan_tab:
@@ -4170,7 +4170,7 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
 
 elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
-    st.markdown("## 👨‍🦳 기관/외인 메이저 수급 스캐너 (Smart Money Tracker)")
+    st.markdown("## 👨‍🦳 기관/외인 수급 스캐너")
     show_trading_guidelines()
     
     col_c1, col_c2 = st.columns(2)
@@ -4210,7 +4210,7 @@ elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
     if st.session_state.pension_scan_results is not None: display_sorted_results(st.session_state.pension_scan_results, tab_key="pension", api_key=api_key_input)
 
 elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
-    st.markdown("## 🏛️ 국민연금(NPS) 메가 포트폴리오 트래커")
+    st.markdown("## 🏛️ 국민연금 5% 대량보유 픽")
     st.write("국민연금이 대량 보유한 국내/해외 핵심 기업 포트폴리오를 실시간 스크래핑하여 추적합니다.")
 
     col_btn1, col_btn2 = st.columns([2, 8])
@@ -4260,7 +4260,7 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
                     st.warning("현재 황금 콤보 조건에 부합하는 종목이 없습니다.")
 
 elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
-    st.markdown("## 💎 여의도 데스크: 멀티팩터 가치/성장 스캐너 v2")
+    st.markdown("## 💎 장기 우량주 & 가치주 발굴")
     st.caption("위험 성향(안전·중립·공격)을 고르고 세부 전략을 선택하면 → AI 후보 발굴 → 멀티팩터 검증(PER·PBR·배당·ROE·부채·성장·모멘텀) → 차트 타점까지 한 번에.")
 
     tier = st.radio("🎚️ 위험 성향", list(VALUE_STRATEGIES.keys()), horizontal=True)
@@ -4343,7 +4343,7 @@ elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
         display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
 elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
-        st.markdown("## ⚡ 글로벌 메가트렌드 & 한미 주도 테마 스캐너")
+        st.markdown("## ⚡ 메가트렌드 & 테마 대장주")
         st.write("AI가 최신 트렌드를 분석하여, 숨겨진 글로벌 텐배거(10배 상승) 후보와 한·미 양국의 핵심 수혜주를 동시에 발굴합니다.")
         # ... (이하 해당 블록 내용 전체)
         
@@ -4424,7 +4424,7 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
                 display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
 
 elif selected_menu == "🇰🇷 국민성장펀드 12대 산업 수혜주":
-    st.markdown("## 🇰🇷 국민성장펀드 12대 첨단전략산업 수혜주 스캐너")
+    st.markdown("## 🇰🇷 국민성장펀드 12대 산업 수혜주")
     st.write("정부 주도 **150조원 규모 국민성장펀드**가 집중 투자하는 12개 첨단전략산업을 선택하면, "
              "AI가 해당 분야의 국내(KRX) 핵심 수혜 대장주를 발굴하고 차트·수급 타점을 즉시 분석합니다.")
 
@@ -4487,7 +4487,7 @@ elif selected_menu == "🇰🇷 국민성장펀드 12대 산업 수혜주":
             display_sorted_results(st.session_state.gf_results, tab_key="gf", api_key=api_key_input)
 
 elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
-    st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
+    st.markdown("## 🔥 간밤의 미국 급등주 & 수혜주")
     st.caption("간밤 미국 증시에서 급등한 종목 → AI가 한국 수혜주(밸류체인)를 찾아주고 → 그 수혜주의 매매 타점까지 한 번에 확인하는 페이지입니다.")
 
     # [v7.0] ① 간밤 미국 시황 미니 배너 — 급등주 보기 전 위험선호부터 파악
@@ -4605,7 +4605,7 @@ elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
             st.info("⬅️ 왼쪽 급등주 목록에서 분석할 종목을 선택하면, AI가 한국 수혜주와 대응 시나리오를 여기에 보여줍니다.")
 
 elif selected_menu == "🚨 당일 상/하한가 분석":
-    st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
+    st.subheader("🚨 당일 상/하한가 분석")
     with st.spinner("데이터 수집 중..."): upper_df, lower_df = get_limit_stocks()
     if api_key_input and not upper_df.empty:
         if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):
@@ -4641,7 +4641,7 @@ elif selected_menu == "🚨 당일 상/하한가 분석":
         else: st.info("현재 하한가 종목이 없습니다.")
 
 elif selected_menu == "🚦 거래량 급증 & 시장 경보":
-    st.markdown("## 🚦 거래량 급증/급감 & 투자자 보호(시장경보)")
+    st.markdown("## 🚦 거래량 급증 & 시장 경보")
     tab_regime, tab_vol, tab_warn = st.tabs(["🚦 오늘 매매해도 될까? (시장 국면)", "📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
 
     with tab_regime:
@@ -4706,7 +4706,7 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
             st.success("✅ 현재 지정된 시장경보 종목이 없습니다.")
 
 elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
-    st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
+    st.subheader("📰 실시간 특징주 속보 & 리포트")
     news_sub1, news_sub2, news_sub3 = st.tabs(["🚨 실시간 특징주/속보", "📋 증권사 종목 리포트 검색", "🔥 AI 데일리 리포트 (TEBI-Style)"])
     
     with news_sub1:
@@ -4857,7 +4857,7 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
             st.warning("API 키를 입력해야 AI 데일리 리포트를 생성할 수 있습니다.")
 
 elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
-    st.markdown("## 🔬 기업 정밀 진단 (차트/수급/비전 AI)")
+    st.markdown("## 🔬 개별 기업 정밀 진단 (AI 비전)")
     ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
     
     with ana_tab1:
@@ -4928,7 +4928,7 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                     st.success(result)
 
 elif selected_menu == "📊 국내외 핵심 ETF 분석":
-    st.markdown("## 📊 국내외 핵심 ETF 종목 분석")
+    st.markdown("## 📊 국내외 핵심 ETF 분석")
     etf_tab1, etf_tab2 = st.tabs(["🇰🇷 국내 핵심 ETF", "🇺🇸 미국 핵심 ETF"])
     
     with etf_tab1:
@@ -4997,7 +4997,7 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
                 if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_etf")
 
 elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
-    st.subheader("💰 고배당주 & ETF 파이프라인 (TOP 300)")
+    st.subheader("💰 고배당주 파이프라인 (TOP 300)")
     
     with st.spinner("배당 데이터를 다운로드 중입니다..."): 
         div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
@@ -5037,7 +5037,7 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
             st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
 
 elif selected_menu == "🎯 증권사 목표가 컨센서스":
-    st.markdown("## 🎯 증권사 목표가 컨센서스 대시보드")
+    st.markdown("## 🎯 증권사 목표가 컨센서스")
     st.write("특정 종목에 대한 여러 증권사의 최근 6개월 목표가 추이와 투자의견 분포를 시각적으로 분석합니다.")
     
     krx_df = get_krx_stocks()
@@ -5173,7 +5173,7 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                             st.success(ask_gemini(prompt, api_key_input))
 
 elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
-    st.markdown("## ⚖️ 워런 버핏식 가치투자 퀀트 계산기")
+    st.markdown("## ⚖️ 적정 주가 계산기 (버핏 모델)")
     b_tab1, b_tab2, b_tab3 = st.tabs(["📊 적정 주가 계산기 (DCF 모델)", "📈 버핏 지수 & 72의 법칙", "🔍 퀀트 스크리닝 가이드"])
     
     with b_tab1:
@@ -5290,7 +5290,7 @@ elif selected_menu == "⚖️ 적정 주가 계산기 (버핏 모델)":
         """)
 
 elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
-    st.markdown("## 👴 노후 준비 핵심 ETF 테마별 통합 시뮬레이터")
+    st.markdown("## 👴 노후 준비 ETF 시뮬레이터 (v2.0)")
     st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
 
     # --- 1. 절세 계좌 자동 배분 계산기 ---
