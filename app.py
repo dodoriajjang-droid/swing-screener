@@ -1849,16 +1849,8 @@ def show_trading_guidelines():
         """)
 
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
-    # 1. 보조 함수 정의 (카드 내부에서만 사용)
-    def fmt_price(p, is_delta=False):
-        try:
-            val = float(p)
-            prefix = "+" if is_delta and val > 0 else ""
-            return f"{prefix}{int(val):,}원"
-        except:
-            return str(p)
 
-    # 2. 기본 데이터 추출
+    # 1. 기본 데이터 추출
     stock_name = tech_result.get('종목명', '알수없음')
     sector = tech_result.get('섹터', '분류없음')
     curr = tech_result.get('현재가', 0)
@@ -1866,14 +1858,28 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
 
     ticker_code = tech_result.get('티커', '')
     is_us = not str(ticker_code).isdigit()
-    
-    # 3. 상세 진단(배열상태) 및 RSI 가공
+
+    # 보조 함수 정의 (미국 주식이면 $, 국내 주식이면 원 단위 적용)
+    def fmt_price(p, is_delta=False):
+        try:
+            val = float(p)
+            prefix = "+" if is_delta and val > 0 else ""
+            if is_us:
+                # 미국 주식: 달러 + 소수점 2자리
+                return f"{prefix}${val:,.2f}"
+            else:
+                # 국내 주식: 원 + 정수
+                return f"{prefix}{int(val):,}원"
+        except:
+            return str(p)
+            
+    # 2. 상세 진단(배열상태) 및 RSI 가공
     align_status = str(tech_result.get('배열상태', '')).split(' ｜ ')[0]
     if not align_status: align_status = status
     
     rsi_val = str(tech_result.get('RSI', '-'))
     
-    # 4. AI 테마 추출
+    # 3. AI 테마 추출
     core_theme = "일반"
     if api_key_str:
         try:
@@ -1883,7 +1889,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         except:
             pass
 
-# 5. 타이틀 조립: 업체명 / 테마 / 업종 / 현재가 / (진단 / 상세진단 / 외인 / 기관 / RSI)
+# 4. 타이틀 조립: 업체명 / 테마 / 업종 / 현재가 / (진단 / 상세진단 / 외인 / 기관 / RSI)
     # RSI 소수점 정리 (84.0 형태)
     try:
         rsi_display = f"{float(tech_result.get('RSI', 0)):.1f}"
@@ -1911,7 +1917,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     detail_str = f"(진단: {status} ｜ 상세 진단: {align_status} ｜ 외인: {forgn_disp} ｜ 기관: {inst_disp} ｜ RSI: {rsi_display})"
     card_title = f"{stock_name} / {core_theme} / {sector} / {fmt_price(curr)} / {detail_str}"
 
-    # 6. 펼침막 생성 (하단 지표 삭제)
+    # 5. 펼침막 생성 (하단 지표 삭제)
     with st.expander(card_title, expanded=is_expanded):
         
         if tech_result.get('과거검증'):
