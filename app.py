@@ -2767,7 +2767,7 @@ def show_beginner_guide():
         """)
 
 def show_trading_guidelines():
-    with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=True):
+    with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=False):
         st.markdown("""
         *💡 단기 스윙 전략 가이드*
         * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증` 
@@ -3354,7 +3354,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     if selected_us_stock != "선택하세요":
                         us_ticker = selected_us_stock.split(" ")[0]
                         st.link_button(f"🛒 '{us_ticker}' 야후 파이낸스 바로가기", f"https://finance.yahoo.com/quote/{us_ticker}", use_container_width=True)
-                        with st.expander(f"📊 '{us_ticker}' 퀵 타점 보기", expanded=True):
+                        with st.expander(f"📊 '{us_ticker}' 퀵 타점 보기", expanded=False):
                             with st.spinner("미국 주식 기술적 데이터 불러오는 중..."):
                                 res = analyze_technical_pattern(us_ticker, us_ticker)
                                 if res:
@@ -5662,8 +5662,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         unique_stocks = [s for s in theme_stocks if s['code'] not in seen and not seen.add(s['code'])]
 
         if unique_stocks:
-            is_expanded = theme == "💰 6. 고배당 & 월배당 인컴 밸류업" or theme == "🔎 내가 추가한 맞춤 종목"
-            with st.expander(f"{theme} 선택", expanded=is_expanded):
+            with st.expander(f"{theme} 선택", expanded=False):
                 for idx, stock in enumerate(unique_stocks):
                     cols = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1]) 
                     
@@ -5704,38 +5703,99 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
     # --- 4. 시뮬레이션 대시보드 ---
     st.divider()
-    st.markdown("### 📊 4. 복리 성장 시뮬레이션 결과")
+    st.markdown("### 📊 4. 복리 성장 & 노후 현금흐름 시뮬레이션")
     cart = st.session_state.retirement_cart
     if cart:
         total_p = sum(v['qty'] * v['price'] for v in cart.values())
         w_cagr = sum(v['qty'] * v['price'] * v['cagr'] for v in cart.values()) / total_p if total_p > 0 else 0
-        d_col1, d_col2 = st.columns([1, 2])
-        with d_col1:
-            st.metric("총 매입 원금", f"{total_p:,}원")
-            st.metric("가중평균 수익률", f"{w_cagr:.2f}%")
-            yrs = st.select_slider("투자기간 (년)", options=[1, 5, 10, 20, 30], value=20)
-            fv = total_p * ((1 + w_cagr/100) ** yrs)
-            
-            # 파이썬은 무한대 출력이 가능하므로 단순 출력은 int() 유지
-            st.metric(f"{yrs}년 후 예상 자산", f"{int(fv):,}원")
-        with d_col2:
-            # 👇 [오류 해결] 숫자가 너무 커졌을 때 차트 라이브러리가 뻗지 않도록 int() 대신 float() 사용!
-            df_chart = pd.DataFrame([{"년수": f"{y}년", "자산규모": float(total_p * ((1 + w_cagr/100) ** y))} for y in range(yrs + 1)])
-            st.area_chart(df_chart.set_index("년수"))
 
-        # 포트폴리오 명세표 표출 복구 및 AI 포트폴리오 진단 부활
-        st.markdown("#### 📝 내 포트폴리오 명세서")
-        st.table(pd.DataFrame([{'종목명': v['name'], '수량': f"{v['qty']}주", '현재가': f"{v['price']:,}원", '총액': f"{v['qty'] * v['price']:,}원", '연평균수익률': f"{v['cagr']}%"} for v in cart.values()]))
-        st.caption("※ '데이터없음' 종목은 계산의 안전을 위해 수익률 0%로 보수적 적용됩니다.")
+        # 투자 방식 / 기간 / 월 적립금 입력
+        opt1, opt2, opt3 = st.columns([1.3, 1, 1])
+        invest_mode = opt1.radio("투자 방식", ["💰 거치식 (목돈 한 번)", "📅 적립식 (매달 추가)"], horizontal=False)
+        yrs = opt2.select_slider("투자기간 (년)", options=[1, 3, 5, 10, 15, 20, 25, 30], value=20)
+        default_monthly = int(monthly_budget) if 'monthly_budget' in dir() and monthly_budget else 0
+        monthly_add = opt3.number_input("매달 추가 투자금 (원)", min_value=0, step=100000, value=default_monthly,
+                                        help="위 1번에서 입력한 월 투자금이 기본값으로 들어옵니다. 적립식일 때 사용됩니다.")
+
+        r = w_cagr / 100.0
+        is_install = invest_mode.startswith("📅")
+        # 미래가치 계산
+        fv_lump = total_p * ((1 + r) ** yrs)
+        if is_install and monthly_add > 0:
+            r_m = r / 12.0
+            n = yrs * 12
+            fv_series = monthly_add * ((((1 + r_m) ** n) - 1) / r_m) if r_m != 0 else monthly_add * n
+            fv = fv_lump + fv_series
+            total_invested = total_p + monthly_add * n
+        else:
+            fv = fv_lump
+            total_invested = total_p
+
+        inflation = 0.025  # 연 2.5% 물가 가정
+        real_fv = fv / ((1 + inflation) ** yrs)
+        monthly_pension = fv * 0.04 / 12  # 4% 인출 룰 → 월 연금
+        profit = fv - total_invested
+
+        # 핵심 지표 4종
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("총 투자 원금", f"{int(total_invested):,}원",
+                  f"수익 +{int(profit):,}원" if profit >= 0 else f"{int(profit):,}원", delta_color="normal")
+        m2.metric(f"{yrs}년 후 예상 자산", f"{int(fv):,}원")
+        m3.metric("실질가치 (오늘 돈 기준)", f"{int(real_fv):,}원", help="연 2.5% 물가상승률을 반영한 현재가치")
+        m4.metric("은퇴 후 예상 월 연금", f"{int(monthly_pension):,}원", help="4% 인출 룰 기준 (자산의 연 4%를 매년 인출)")
+
+        st.caption(f"📈 가중평균 수익률(CAGR) **{w_cagr:.2f}%** 가정 · "
+                   f"{'매달 ' + format(monthly_add, ',') + '원씩 ' + str(yrs) + '년 적립' if is_install and monthly_add > 0 else '목돈 거치 ' + str(yrs) + '년'}")
+
+        # 자산 성장 차트 (투입 원금 vs 평가액)
+        rows = []
+        for y in range(yrs + 1):
+            lump_y = total_p * ((1 + r) ** y)
+            if is_install and monthly_add > 0:
+                r_m = r / 12.0; n_y = y * 12
+                ser_y = monthly_add * ((((1 + r_m) ** n_y) - 1) / r_m) if r_m != 0 else monthly_add * n_y
+                val_y = lump_y + ser_y
+                inv_y = total_p + monthly_add * n_y
+            else:
+                val_y = lump_y
+                inv_y = total_p
+            rows.append({"년수": f"{y}년", "투입 원금": float(inv_y), "평가액": float(val_y)})
+        st.area_chart(pd.DataFrame(rows).set_index("년수"))
+
+        # 포트폴리오 비중 (막대) + 명세서
+        pf_col1, pf_col2 = st.columns([1, 1])
+        with pf_col1:
+            st.markdown("#### 🥧 포트폴리오 비중")
+            wdf = pd.DataFrame([{"종목": v['name'], "비중": round(v['qty'] * v['price'] / total_p * 100, 1)}
+                                for v in cart.values()]).sort_values("비중", ascending=False)
+            wdf_show = wdf.set_index("종목")
+            try:
+                sty_w = wdf_show.style.format({"비중": "{:.1f}%"}).bar(subset=["비중"], color="#ffd8a8", vmin=0)
+                st.dataframe(sty_w, use_container_width=True, height=300)
+            except Exception:
+                st.dataframe(wdf_show, use_container_width=True)
+            if len(wdf) >= 1 and wdf.iloc[0]["비중"] >= 50:
+                st.caption(f"⚠️ '{wdf.iloc[0]['종목']}' 비중이 {wdf.iloc[0]['비중']}%로 높아요. 분산을 권장합니다.")
+        with pf_col2:
+            st.markdown("#### 📝 내 포트폴리오 명세서")
+            st.dataframe(pd.DataFrame([{'종목명': v['name'], '수량': f"{v['qty']}주",
+                                        '현재가': f"{v['price']:,}원", '총액': f"{v['qty'] * v['price']:,}원",
+                                        '연수익률': f"{v['cagr']}%"} for v in cart.values()]),
+                         use_container_width=True, hide_index=True, height=300)
+        st.caption("※ '데이터없음' 종목은 계산 안전을 위해 수익률 0%로 보수 적용 ｜ 4% 룰·물가 2.5%는 가정치이며 실제와 다를 수 있습니다.")
 
         st.markdown("---")
         if st.button("🤖 AI 노후 포트폴리오 정밀 진단 (클릭)", type="primary", use_container_width=True):
-            if not api_key_input: 
+            if not api_key_input:
                 st.error("사이드바에 API 키를 먼저 입력해주세요.")
             else:
                 with st.spinner("AI가 은퇴 설계 전문가의 관점으로 포트폴리오를 분석 중입니다..."):
                     port_str = "".join([f"- {v['name']}: 비중 {(v['qty'] * v['price'] / total_p) * 100:.1f}%, 총액 {v['qty'] * v['price']:,}원\n" for v in cart.values()])
-                    ai_prompt = f"은퇴 설계 전문가로서 다음 포트폴리오를 진단해 주세요.\n총 매입 원금: {total_p:,}원\n예상 CAGR: {w_cagr:.2f}%\n투자기간: {yrs}년\n{port_str}"
+                    ai_prompt = (f"은퇴 설계 전문가로서 다음 포트폴리오를 진단해 주세요.\n"
+                                 f"투자 방식: {'적립식(매달 ' + format(monthly_add, ',') + '원)' if is_install else '거치식'}\n"
+                                 f"총 투자원금: {int(total_invested):,}원\n예상 CAGR: {w_cagr:.2f}%\n투자기간: {yrs}년\n"
+                                 f"{yrs}년 후 예상자산(명목): {int(fv):,}원, 은퇴 후 월 연금(4%룰): {int(monthly_pension):,}원\n{port_str}\n"
+                                 f"1.분산/리스크 진단 2.개선 제안 3.이 월 연금으로 노후가 충분한지 평가, 순으로 작성하세요.")
                     st.success("✅ 진단 완료!")
                     st.markdown(ask_gemini(ai_prompt, api_key_input))
     else:
