@@ -1572,6 +1572,44 @@ def style_warning_table(df, kind="mgmt"):
         sty = sty.set_properties(subset=['지정사유'], **{'text-align': 'left'})
     return sty
 
+
+# [v7.0] 증권사 리포트 목표가 상/하향 랭킹 — 깨지던 막대그래프 대신 가독성 표로 교체
+def style_report_table(df, kind="up"):
+    """오늘 발간 리포트를 종목명·증권사·투자의견·목표가·변동률 표로 정리."""
+    if df is None or df.empty:
+        return None
+    cols = [c for c in ['종목명', '증권사', '투자의견', '목표가', '변동률'] if c in df.columns]
+    if '종목명' not in cols:
+        return None
+    out = df[cols].copy().reset_index(drop=True)
+    out.index = out.index + 1
+    out.index.name = '순위'
+
+    def color_updown(v):
+        if pd.isna(v): return ''
+        if v > 0.05: return 'color:#e74c3c;font-weight:700;'
+        if v < -0.05: return 'color:#2e86de;font-weight:700;'
+        return 'color:gray;'
+
+    fmt = {}
+    if '목표가' in out.columns:
+        fmt['목표가'] = lambda x: f"{int(x):,}원" if pd.notna(x) and x > 0 else "-"
+    if '변동률' in out.columns:
+        fmt['변동률'] = lambda x: (f"{x:+.1f}%" if pd.notna(x) and abs(x) >= 0.05 else "신규/유지")
+
+    sty = out.style.format(fmt)
+    if '변동률' in out.columns:
+        sty = sty.map(color_updown, subset=['변동률'])
+        try:
+            if (out['변동률'].abs().fillna(0) >= 0.05).sum() >= 1:
+                bar_color = '#ffd8a8' if kind == "up" else '#a5d8ff'
+                sty = sty.bar(subset=['변동률'], color=bar_color, align='zero')
+        except Exception:
+            pass
+    sty = sty.set_properties(**{'font-size': '13px'})
+    sty = sty.set_properties(subset=['종목명'], **{'font-weight': '600'})
+    return sty
+
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
@@ -4371,25 +4409,27 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                         c4.metric("SELL (비중축소)", f"{sells}건")
                         
                         st.markdown("#### 📈 당일 목표가(TP) 상/하향 랭킹")
+                        st.caption("💡 증권사가 직전 리포트 대비 목표가를 올렸으면 🔴상향, 내렸으면 🔵하향. "
+                                   "원문에 '종전 목표가'가 없으면 변동률은 `신규/유지`로 표시됩니다.")
                         upgrades = today_reports[today_reports['변동'] == '상향'].sort_values('변동률', ascending=False)
                         downgrades = today_reports[today_reports['변동'] == '하향'].sort_values('변동률', ascending=True)
-                        
+
                         col_up, col_down = st.columns(2)
                         with col_up:
                             st.success(f"**▲ 상향 리포트 ({len(upgrades)}건)**")
-                            if not upgrades.empty:
-                                fig_up = px.bar(upgrades, x='변동률', y='종목명', orientation='h', text='증권사', color_discrete_sequence=['#ff4b4b'])
-                                fig_up.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), yaxis={'categoryorder':'total ascending'})
-                                st.plotly_chart(fig_up, use_container_width=True)
-                            else: st.write("목표가 상향 종목이 없습니다.")
-                        
+                            sty_up = style_report_table(upgrades, "up")
+                            if sty_up is not None:
+                                st.dataframe(sty_up, use_container_width=True, height=min(420, 80 + len(upgrades) * 36))
+                            else:
+                                st.write("목표가 상향 종목이 없습니다.")
+
                         with col_down:
                             st.error(f"**▼ 하향 리포트 ({len(downgrades)}건)**")
-                            if not downgrades.empty:
-                                fig_down = px.bar(downgrades, x='변동률', y='종목명', orientation='h', text='증권사', color_discrete_sequence=['#1f77b4'])
-                                fig_down.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0), yaxis={'categoryorder':'total descending'})
-                                st.plotly_chart(fig_down, use_container_width=True)
-                            else: st.write("목표가 하향 종목이 없습니다.")
+                            sty_down = style_report_table(downgrades, "down")
+                            if sty_down is not None:
+                                st.dataframe(sty_down, use_container_width=True, height=min(420, 80 + len(downgrades) * 36))
+                            else:
+                                st.write("목표가 하향 종목이 없습니다.")
                             
                         st.markdown("#### ⚔️ 애널리스트 갑론을박 & 💡 Bottom Line")
                         report_texts = "\n".join([f"- [{r['증권사']}] {r['종목명']} (의견: {r['투자의견']}, TP변동: {r['변동']}): {r['제목']}" for _, r in today_reports.iterrows()])
