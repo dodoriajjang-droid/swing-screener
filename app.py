@@ -623,24 +623,145 @@ def get_naver_ipo_data():
 
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
+    # =========================================================
+    # [공용] yfinance 견고 수집기 : (현재가, 연간배당금, 이름) 반환
+    #   - Yahoo 차단/지연 대비 세션 위장 + 다중 폴백
+    #   - 연간배당금은 "최근 12개월 실배당 합계"를 최우선으로 사용
+    # =========================================================
+    def _yf_fetch_one(ticker_code):
+        try:
+            import yfinance as yf
+        except Exception:
+            return ticker_code, 0.0, 0.0, ticker_code
+
+        t = None
+        try:
+            sess = requests.Session()
+            sess.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+            t = yf.Ticker(ticker_code, session=sess)
+        except Exception:
+            try:
+                t = yf.Ticker(ticker_code)
+            except Exception:
+                return ticker_code, 0.0, 0.0, ticker_code
+
+        price = 0.0
+        annual_div = 0.0
+        name = ticker_code
+
+        # 1) 현재가 (fast_info → info → 최근 종가 순)
+        try:
+            fi = t.fast_info
+            price = float(fi.get('lastPrice') or fi.get('last_price') or 0) or 0.0
+        except Exception:
+            price = 0.0
+
+        info = {}
+        try:
+            info = t.info or {}
+        except Exception:
+            info = {}
+
+        if not price:
+            price = float(info.get('currentPrice') or info.get('regularMarketPrice')
+                          or info.get('previousClose') or 0) or 0.0
+        if not price:
+            try:
+                h = t.history(period="5d")
+                if not h.empty:
+                    price = float(h['Close'].dropna().iloc[-1])
+            except Exception:
+                pass
+
+        name = info.get('shortName') or info.get('longName') or ticker_code
+
+        # 2) 연간 배당금 — 최근 12개월 실지급 배당 합계 (가장 신뢰도 높음)
+        try:
+            divs = t.dividends
+            if divs is not None and len(divs) > 0:
+                idx = divs.index
+                try:
+                    cutoff = pd.Timestamp.now(tz=idx.tz) - pd.Timedelta(days=365)
+                except Exception:
+                    cutoff = pd.Timestamp.now() - pd.Timedelta(days=365)
+                recent = divs[idx >= cutoff]
+                if len(recent) > 0:
+                    annual_div = float(recent.sum())
+        except Exception:
+            pass
+
+        # 폴백 A : info 의 배당금 필드
+        if not annual_div:
+            annual_div = float(info.get('dividendRate') or info.get('trailingAnnualDividendRate') or 0) or 0.0
+
+        # 폴백 B : 배당수익률 × 현재가
+        if not annual_div and price:
+            dy = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or 0
+            try:
+                dy = float(dy)
+                if dy > 1:           # 일부 버전은 퍼센트(예: 3.5)로 반환
+                    dy = dy / 100.0
+                if dy:
+                    annual_div = price * dy
+            except Exception:
+                pass
+
+        return ticker_code, float(price or 0), float(annual_div or 0), name
+
+    def _yf_fetch_many(tickers, max_workers=8):
+        out = {}
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+                for tk, pr, dv, nm in ex.map(_yf_fetch_one, tickers):
+                    out[tk] = (pr, dv, nm)
+        except Exception:
+            for tk in tickers:
+                try:
+                    _, pr, dv, nm = _yf_fetch_one(tk)
+                    out[tk] = (pr, dv, nm)
+                except Exception:
+                    out[tk] = (0.0, 0.0, tk)
+        return out
+
+    # ----- 조회 대상 종목 -----
+    kr_tickers = [
+        "024110.KS", "316140.KS", "086790.KS", "105560.KS", "055550.KS", "033780.KS",
+        "017670.KS", "030200.KS", "032640.KS", "090430.KS", "000810.KS", "058300.KS",
+        "001450.KS", "032830.KS", "029780.KS", "005930.KS", "005935.KS", "000270.KS",
+        "005380.KS", "004800.KS", "003550.KS", "034730.KS", "078930.KS", "010130.KS",
+        "010950.KS", "053690.KS", "000400.KS"
+    ]
+    kr_names = {
+        "024110.KS": "기업은행", "316140.KS": "우리금융지주", "086790.KS": "하나금융지주",
+        "105560.KS": "KB금융", "055550.KS": "신한지주", "033780.KS": "KT&G",
+        "017670.KS": "SK텔레콤", "030200.KS": "KT", "032640.KS": "LG유플러스",
+        "090430.KS": "맥쿼리인프라", "000810.KS": "삼성화재", "058300.KS": "DB손해보험",
+        "001450.KS": "현대해상", "032830.KS": "삼성생명", "029780.KS": "삼성카드",
+        "005930.KS": "삼성전자", "005935.KS": "삼성전자우", "000270.KS": "기아",
+        "005380.KS": "현대차", "004800.KS": "효성", "003550.KS": "LG",
+        "034730.KS": "SK", "078930.KS": "GS", "010130.KS": "고려아연",
+        "010950.KS": "S-Oil", "053690.KS": "LX인터내셔널", "000400.KS": "제일기획"
+    }
+    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK",
+                  "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM",
+                  "VZ", "MMM", "MO", "CAT", "UPS"]
+    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY",
+                   "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
+
+    # =========================================================
+    # 1. 🇰🇷 한국 주식 (KRX)
+    # =========================================================
     krx_list = []
-    
-    # -------------------------------------------------------------
-    # 1. 🇰🇷 한국 주식 (KRX): pykrx 공식 API 시도 (로컬 환경용)
-    # -------------------------------------------------------------
+
+    # (1-A) pykrx 공식 API (국내 IP / 로컬에서 최상)
     try:
         from pykrx import stock
-        from datetime import datetime, timedelta
-        
         b_days = stock.get_business_days_dates(datetime.today() - timedelta(days=10), datetime.today())
         last_bday = b_days[-1].strftime("%Y%m%d")
-        
         fund_df = stock.get_market_fundamental(last_bday, market="ALL")
         ohlcv_df = stock.get_market_ohlcv(last_bday, market="ALL")
-        
         kr_df = pd.concat([ohlcv_df['종가'], fund_df['DPS']], axis=1).dropna()
         kr_df = kr_df[kr_df['DPS'] > 0].sort_values('DPS', ascending=False).head(300)
-        
         for ticker, row in kr_df.iterrows():
             name = stock.get_market_ticker_name(ticker)
             krx_list.append({
@@ -651,129 +772,122 @@ def get_dividend_portfolio(ex_rate):
             })
     except Exception:
         pass
-        
-    # 🕵️‍♂️ [국장 우회 핵심] 만약 클라우드 IP 차단으로 pykrx 데이터가 텅 비었다면, 
-    # 국내 우량 고배당주 리스트를 yahooquery를 통해 글로벌 서버망으로 우회 조회합니다.
+
+    # (1-B) yfinance 우회 — 클라우드 IP에서 pykrx 가 막혔을 때 (가장 안정적)
+    if not krx_list:
+        kr_res = _yf_fetch_many(kr_tickers)
+        for t_code in kr_tickers:
+            pr, dv, _ = kr_res.get(t_code, (0.0, 0.0, t_code))
+            if pr > 0 and dv > 0:
+                krx_list.append({
+                    '종목명': kr_names.get(t_code, t_code),
+                    '현재가': f"{int(pr):,}원",
+                    '예상 배당금': float(dv),
+                    '비고': 'Yahoo(yfinance) 우회'
+                })
+
+    # (1-C) yahooquery 우회 — 최후의 폴백
     if not krx_list:
         try:
             from yahooquery import Ticker as yq_Ticker
-            kr_tickers = [
-                "024110.KS", "316140.KS", "086790.KS", "105560.KS", "055550.KS", "033780.KS", 
-                "017670.KS", "030200.KS", "032640.KS", "090430.KS", "000810.KS", "058300.KS", 
-                "001450.KS", "032830.KS", "029780.KS", "005930.KS", "005935.KS", "000270.KS", 
-                "005380.KS", "004800.KS", "003550.KS", "034730.KS", "078930.KS", "010130.KS", 
-                "010950.KS", "053690.KS", "000400.KS"
-            ]
-            kr_names = {
-                "024110.KS": "기업은행", "316140.KS": "우리금융지주", "086790.KS": "하나금융지주", 
-                "105560.KS": "KB금융", "055550.KS": "신한지주", "033780.KS": "KT&G", 
-                "017670.KS": "SK텔레콤", "030200.KS": "KT", "032640.KS": "LG유플러스", 
-                "090430.KS": "맥쿼리인프라", "000810.KS": "삼성화재", "058300.KS": "DB손해보험", 
-                "001450.KS": "현대해상", "032830.KS": "삼성생명", "029780.KS": "삼성카드", 
-                "005930.KS": "삼성전자", "005935.KS": "삼성전자우", "000270.KS": "기아", 
-                "005380.KS": "현대차", "004800.KS": "효성", "003550.KS": "LG", 
-                "034730.KS": "SK", "078930.KS": "GS", "010130.KS": "고려아연", 
-                "010950.KS": "S-Oil", "053690.KS": "LX인터내셔널", "000400.KS": "제일기획"
-            }
-            
             yq_kr = yq_Ticker(kr_tickers)
             kr_details = yq_kr.summary_detail
             kr_prices = yq_kr.price
-            
             for t_code in kr_tickers:
                 try:
                     d = kr_details.get(t_code, {})
                     p = kr_prices.get(t_code, {})
                     if isinstance(d, str): continue
-                    
                     price = p.get('regularMarketPrice', 0)
                     div_rate = d.get('dividendRate', 0)
-                    
                     if (not div_rate or div_rate == 0) and price > 0:
                         div_yield = d.get('yield', d.get('trailingAnnualDividendYield', 0))
                         if div_yield: div_rate = price * div_yield
-                        
                     if price > 0 and div_rate > 0:
                         krx_list.append({
-                            '종목명': kr_names[t_code],
+                            '종목명': kr_names.get(t_code, t_code),
                             '현재가': f"{int(price):,}원",
                             '예상 배당금': float(div_rate),
-                            '비고': 'Yahoo 글로벌망 우회 조회'
+                            '비고': 'yahooquery 우회'
                         })
-                except Exception: pass
-        except Exception: pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     krx_df = pd.DataFrame(krx_list)
     if not krx_df.empty:
         krx_df = krx_df.sort_values('예상 배당금', ascending=False)
         krx_df['예상 배당금'] = krx_df['예상 배당금'].apply(lambda x: f"{int(x):,}원" if isinstance(x, (int, float)) else str(x))
 
-    # -------------------------------------------------------------
-    # 2. 🇺🇸 미국 주식 & ETF: yahooquery API 사용
-    # -------------------------------------------------------------
-    us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK", "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM", "VZ", "MMM", "MO", "CAT", "UPS"]
-    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
-    
+    # =========================================================
+    # 2. 🇺🇸 미국 주식 & 📈 ETF
+    # =========================================================
     us_list, etf_list = [], []
-    
-    try:
-        from yahooquery import Ticker as yq_Ticker
-        all_tickers = us_tickers + etf_tickers
-        
-        yq = yq_Ticker(all_tickers)
-        details = yq.summary_detail
-        prices = yq.price
-        
-        for ticker in us_tickers:
-            try:
-                detail = details.get(ticker, {})
-                price_info = prices.get(ticker, {})
-                if isinstance(detail, str): continue
-                
-                price = price_info.get('regularMarketPrice', 0)
-                div_rate = detail.get('dividendRate', 0)
-                
-                if not div_rate or div_rate == 0:
-                    div_yield = detail.get('yield', detail.get('trailingAnnualDividendYield', 0))
-                    if div_yield and price > 0: div_rate = price * div_yield
-                    
-                if price > 0 and div_rate > 0:
-                    name_ko = get_korean_name(price_info.get('shortName', ticker)) if 'get_korean_name' in globals() else ticker
-                    us_list.append({
-                        '종목명': f"{name_ko} ({ticker})", 
-                        '현재가': f"${price:,.2f} ({int(price * ex_rate):,}원)", 
-                        '예상 배당금': float(div_rate),
-                        '표시 배당금': f"${div_rate:,.2f} ({int(div_rate * ex_rate):,}원)",
-                        '비고': 'yahooquery API'
-                    })
-            except Exception: pass
-            
-        for ticker in etf_tickers:
-            try:
-                detail = details.get(ticker, {})
-                price_info = prices.get(ticker, {})
-                if isinstance(detail, str): continue
-                
-                price = price_info.get('regularMarketPrice', 0)
-                div_rate = detail.get('dividendRate', 0)
-                
-                if not div_rate or div_rate == 0:
-                    div_yield = detail.get('yield', detail.get('trailingAnnualDividendYield', 0))
-                    if div_yield and price > 0: div_rate = price * div_yield
-                    
-                if price > 0 and div_rate > 0:
-                    name_ko = get_korean_name(price_info.get('shortName', ticker)) if 'get_korean_name' in globals() else ticker
-                    etf_list.append({
-                        '종목명': f"{name_ko} ({ticker})", 
-                        '현재가': f"${price:,.2f} ({int(price * ex_rate):,}원)", 
-                        '예상 배당금': float(div_rate),
-                        '표시 배당금': f"${div_rate:,.2f} ({int(div_rate * ex_rate):,}원)",
-                        '비고': 'yahooquery API'
-                    })
-            except Exception: pass
-            
-    except Exception: pass
-        
+
+    def _build_us_row(ticker, pr, dv, nm, src):
+        if pr > 0 and dv > 0:
+            name_ko = ticker
+            if 'get_korean_name' in globals():
+                name_ko = get_korean_name(nm)
+                if name_ko == nm:          # 사전 미매칭 → 티커로 재시도
+                    name_ko = get_korean_name(ticker)
+            return {
+                '종목명': f"{name_ko} ({ticker})",
+                '현재가': f"${pr:,.2f} ({int(pr * ex_rate):,}원)",
+                '예상 배당금': float(dv),
+                '표시 배당금': f"${dv:,.2f} ({int(dv * ex_rate):,}원)",
+                '비고': src
+            }
+        return None
+
+    # (2-A) yfinance 우선 (이 앱에서 검증된 경로)
+    yf_res = _yf_fetch_many(us_tickers + etf_tickers)
+    for tk in us_tickers:
+        pr, dv, nm = yf_res.get(tk, (0.0, 0.0, tk))
+        row = _build_us_row(tk, pr, dv, nm, 'yfinance')
+        if row: us_list.append(row)
+    for tk in etf_tickers:
+        pr, dv, nm = yf_res.get(tk, (0.0, 0.0, tk))
+        row = _build_us_row(tk, pr, dv, nm, 'yfinance')
+        if row: etf_list.append(row)
+
+    # (2-B) yahooquery 폴백 — yfinance 가 비었을 때만
+    if not us_list or not etf_list:
+        try:
+            from yahooquery import Ticker as yq_Ticker
+            need = ([] if us_list else us_tickers) + ([] if etf_list else etf_tickers)
+            if need:
+                yq = yq_Ticker(need)
+                details = yq.summary_detail
+                prices = yq.price
+
+                def _yq_row(ticker):
+                    try:
+                        detail = details.get(ticker, {})
+                        price_info = prices.get(ticker, {})
+                        if isinstance(detail, str): return None
+                        price = price_info.get('regularMarketPrice', 0)
+                        div_rate = detail.get('dividendRate', 0)
+                        if not div_rate or div_rate == 0:
+                            dy = detail.get('yield', detail.get('trailingAnnualDividendYield', 0))
+                            if dy and price > 0: div_rate = price * dy
+                        nm = price_info.get('shortName', ticker)
+                        return _build_us_row(ticker, price, div_rate, nm, 'yahooquery')
+                    except Exception:
+                        return None
+
+                if not us_list:
+                    for tk in us_tickers:
+                        r = _yq_row(tk)
+                        if r: us_list.append(r)
+                if not etf_list:
+                    for tk in etf_tickers:
+                        r = _yq_row(tk)
+                        if r: etf_list.append(r)
+        except Exception:
+            pass
+
     us_df = pd.DataFrame(us_list)
     etf_df = pd.DataFrame(etf_list)
 
@@ -4998,7 +5112,13 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
 
 elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
     st.subheader("💰 고배당주 파이프라인 (TOP 300)")
-    
+
+    hcol1, hcol2 = st.columns([5, 1])
+    with hcol2:
+        if st.button("🔄 데이터 다시 불러오기", use_container_width=True, key="div_refetch"):
+            get_dividend_portfolio.clear()   # 이 함수의 캐시만 비우고 즉시 재조회
+            st.rerun()
+
     with st.spinner("배당 데이터를 다운로드 중입니다..."): 
         div_dfs = get_dividend_portfolio(st.session_state.get('ex_rate', 1350.0))
         
@@ -5020,19 +5140,26 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
     
     with t1: 
         if div_dfs["KRX"].empty:
-            st.error("🚨 국내 거래소 및 외부 가치평가 서버망 통신 제한으로 인해 국내 주식 데이터를 불러오지 못했습니다. 잠시 후 사이드바 하단의 [새로고침]을 실행해 주세요.")
+            st.error("🚨 국내 주식 배당 데이터를 불러오지 못했습니다.")
+            st.caption("• 클라우드(서버) 환경에서는 한국거래소(pykrx)·야후 접속이 일시 차단될 수 있습니다.\n"
+                       "• 위의 [🔄 데이터 다시 불러오기]를 눌러 재시도해 주세요. (캐시를 비우고 새로 조회합니다)\n"
+                       "• 계속 실패하면 requirements.txt 에 `yfinance`, `pykrx`, `yahooquery` 가 포함됐는지 확인하세요.")
         else:
             st.dataframe(apply_sort(div_dfs["KRX"], sort_opt), use_container_width=True, hide_index=True)
             
     with t2: 
         if div_dfs["US"].empty:
-            st.error("🚨 글로벌 금융 서버망 접속 제한으로 인해 미국 주식 데이터를 가져오지 못했습니다.")
+            st.error("🚨 미국 주식 배당 데이터를 가져오지 못했습니다.")
+            st.caption("• Yahoo Finance 접속이 일시 제한됐을 수 있습니다. 위의 [🔄 데이터 다시 불러오기]로 재시도해 주세요.\n"
+                       "• 계속 실패하면 requirements.txt 에 `yfinance` 설치 여부를 확인하세요.")
         else:
             st.dataframe(apply_sort(div_dfs["US"], sort_opt), use_container_width=True, hide_index=True)
             
     with t3: 
         if div_dfs["ETF"].empty:
-            st.error("🚨 글로벌 금융 서버망 접속 제한으로 인해 ETF 데이터를 가져오지 못했습니다.")
+            st.error("🚨 ETF 배당 데이터를 가져오지 못했습니다.")
+            st.caption("• Yahoo Finance 접속이 일시 제한됐을 수 있습니다. 위의 [🔄 데이터 다시 불러오기]로 재시도해 주세요.\n"
+                       "• 계속 실패하면 requirements.txt 에 `yfinance` 설치 여부를 확인하세요.")
         else:
             st.dataframe(apply_sort(div_dfs["ETF"], sort_opt), use_container_width=True, hide_index=True)
 
