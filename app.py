@@ -1913,7 +1913,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
 
     # 6. 펼침막 생성 (하단 지표 삭제)
     with st.expander(card_title, expanded=is_expanded):
-        st.info(f"**상세 진단 상세정보**: {tech_result.get('배열상태', status)}")
         
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
