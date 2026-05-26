@@ -306,6 +306,56 @@ def get_us_sector_etfs():
     })
 
 @st.cache_data(ttl=3600)
+def analyze_theme_trends():
+    """국내 대표 섹터 ETF의 1·3·6개월 수익률을 실측해 섹터 순환매 분석용 DataFrame 반환.
+       컬럼: 테마, 1M수익률, 3M수익률, 6M수익률 (단위: %)"""
+    sector_etfs = {
+        "반도체": "091160",
+        "2차전지": "305720",
+        "자동차": "091180",
+        "은행": "091170",
+        "증권": "102970",
+        "건설": "117700",
+        "에너지화학": "117460",
+        "철강": "117680",
+        "헬스케어": "266420",
+        "미디어/엔터": "266360",
+        "기계장비": "102960",
+        "운송": "140710",
+    }
+    end = datetime.now()
+    start = end - timedelta(days=240)
+
+    def _calc(item):
+        name, c = item
+        try:
+            df = fdr.DataReader(c, start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+            if df is None or df.empty or 'Close' not in df.columns:
+                return None
+            s = df['Close'].dropna()
+            if len(s) < 5:
+                return None
+            last = float(s.iloc[-1])
+            def _ret(days):
+                target = s.index[-1] - pd.Timedelta(days=days)
+                past = s[s.index <= target]
+                if past.empty:
+                    past = s
+                base = float(past.iloc[0]) if past is s else float(past.iloc[-1])
+                return round((last / base - 1) * 100, 2) if base > 0 else 0.0
+            return {"테마": name, "1M수익률": _ret(30), "3M수익률": _ret(90), "6M수익률": _ret(180)}
+        except Exception:
+            return None
+
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for r in executor.map(_calc, list(sector_etfs.items())):
+            if r:
+                rows.append(r)
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=3600)
 def get_naver_ipo_data():
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
@@ -4434,7 +4484,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             for it in items:
                 new_it = it.copy()
                 code = str(it['code']).zfill(6) if str(it['code']).isdigit() else str(it['code'])
-                is_kr = len(code) == 6 and any(char.isdigit() for _ in code)
+                is_kr = len(code) == 6 and code.isdigit()
                 if is_kr and code in krx_name_map: new_it['name'] = krx_name_map[code]
                 elif not is_kr and code in us_name_map and us_name_map[code] != code: new_it['name'] = us_name_map[code]
                 new_it['code'] = code
