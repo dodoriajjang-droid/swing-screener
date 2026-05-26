@@ -1422,6 +1422,68 @@ def get_volume_surge_drop():
     drop_df = fetch_vol_table(f"https://finance.naver.com/sise/sise_quant_low.naver?_ts={ts}")
     return surge_df, drop_df
 
+
+# [v7.0] 거래량 표 가독성 개선 — 핵심 컬럼만 추려 색상·단위·막대그래프로 표시
+def style_volume_table(df, kind="surge"):
+    """네이버 원본 표 → 종목명/현재가/등락률/거래량증감률 4컬럼으로 정리 후 Styler 반환."""
+    if df is None or df.empty:
+        return None, None
+    def to_num(x):
+        try: return float(re.sub(r'[^0-9.\-]', '', str(x)))
+        except Exception: return np.nan
+
+    df = df.copy()
+    colmap = {}
+    for c in df.columns:
+        cs = str(c)
+        if '종목' in cs: colmap[c] = '종목명'
+        elif '현재가' in cs: colmap[c] = '현재가'
+        elif '등락' in cs: colmap[c] = '등락률'
+        elif ('증가율' in cs) or ('감소율' in cs): colmap[c] = '_rate'
+    df = df.rename(columns=colmap)
+
+    keep = ['종목명'] if '종목명' in df.columns else []
+    if not keep:  # 종목명조차 없으면 원본 그대로
+        return None, None
+    if '현재가' in df.columns:
+        df['현재가'] = df['현재가'].apply(to_num); keep.append('현재가')
+    if '등락률' in df.columns:
+        df['등락률'] = df['등락률'].apply(to_num); keep.append('등락률')
+    rate_name = '🔥 거래량 폭증률' if kind == "surge" else '❄️ 거래량 감소율'
+    if '_rate' in df.columns:
+        df['_rate'] = df['_rate'].apply(to_num).abs()
+        df = df.rename(columns={'_rate': rate_name}); keep.append(rate_name)
+    else:
+        rate_name = None
+
+    out = df[keep].reset_index(drop=True)
+    out.index = out.index + 1
+    out.index.name = '순위'
+
+    def color_updown(v):
+        if pd.isna(v): return ''
+        if v > 0: return 'color:#e74c3c;font-weight:700;'   # 빨강=상승(한국식)
+        if v < 0: return 'color:#2e86de;font-weight:700;'   # 파랑=하락
+        return 'color:gray;'
+
+    fmt = {}
+    if '현재가' in out.columns: fmt['현재가'] = lambda x: f"{int(x):,}원" if pd.notna(x) else "-"
+    if '등락률' in out.columns: fmt['등락률'] = lambda x: f"{x:+.2f}%" if pd.notna(x) else "-"
+    if rate_name: fmt[rate_name] = lambda x: f"{x:,.0f}%" if pd.notna(x) else "-"
+
+    sty = out.style.format(fmt)
+    if '등락률' in out.columns:
+        sty = sty.map(color_updown, subset=['등락률'])
+    if rate_name:
+        bar_color = '#ffd8a8' if kind == "surge" else '#a5d8ff'
+        try:
+            sty = sty.bar(subset=[rate_name], color=bar_color, vmin=0)
+        except Exception:
+            pass
+    sty = sty.set_properties(**{'font-size': '14px', 'text-align': 'center'})
+    sty = sty.set_properties(subset=['종목명'], **{'text-align': 'left', 'font-weight': '600'})
+    return sty, rate_name
+
 @st.cache_data(ttl=3600)
 def get_market_warnings():
     def fetch_warning_table(url):
@@ -4080,15 +4142,28 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
 
     with tab_vol:
         with st.spinner("데이터 스크래핑 중..."): surge_df, drop_df = get_volume_surge_drop()
+        st.caption("💡 **거래량 폭증** = 평소보다 돈·관심이 몰린 종목 (세력 의심 / 급등 후보). "
+                   "색상은 한국식 — 🔴빨강=상승, 🔵파랑=하락. 막대가 길수록 거래량이 더 터진 종목입니다.")
+
         c_surge, c_drop = st.columns(2)
         with c_surge:
-            st.markdown("### 🔥 거래량 급증")
-            if not surge_df.empty: st.dataframe(surge_df, use_container_width=True, hide_index=True)
-            else: st.error("❌ 현재 데이터를 불러올 수 없습니다.")
+            st.markdown("#### 🔥 거래량 급증 TOP")
+            sty_s, _ = style_volume_table(surge_df, "surge")
+            if sty_s is not None:
+                st.dataframe(sty_s, use_container_width=True, height=560)
+            elif not surge_df.empty:
+                st.dataframe(surge_df, use_container_width=True, hide_index=True)
+            else:
+                st.error("❌ 현재 데이터를 불러올 수 없습니다.")
         with c_drop:
-            st.markdown("### ❄️ 거래량 급감")
-            if not drop_df.empty: st.dataframe(drop_df, use_container_width=True, hide_index=True)
-            else: st.error("❌ 현재 데이터를 불러올 수 없습니다.")
+            st.markdown("#### ❄️ 거래량 급감 TOP")
+            sty_d, _ = style_volume_table(drop_df, "drop")
+            if sty_d is not None:
+                st.dataframe(sty_d, use_container_width=True, height=560)
+            elif not drop_df.empty:
+                st.dataframe(drop_df, use_container_width=True, hide_index=True)
+            else:
+                st.error("❌ 현재 데이터를 불러올 수 없습니다.")
     with tab_warn:
         with st.spinner("시장경보 데이터 스크래핑 중..."): mgmt_df, alert_df = get_market_warnings()
         st.markdown("### 🛑 관리종목 (상장폐지 위험)")
