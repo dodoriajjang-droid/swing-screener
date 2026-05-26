@@ -1823,6 +1823,47 @@ def style_ipo_table(df):
     return sty
 
 
+# [v7.0] 하드코딩된 ETF 코드가 틀렸을 때, 이름으로 실시간 목록에서 정확한 코드를 자동 보정
+_ETF_BRANDS = ['KODEX', 'TIGER', 'PLUS', 'ARIRANG', 'HANARO', 'SOL', 'RISE', 'KBSTAR', 'KB STAR',
+               'ACE', 'KOSEF', 'TIMEFOLIO', 'WON', '히어로즈', '마이다스', 'TREX', 'FOCUS',
+               '파워', 'BNK', 'HK', '네비게이터', '우리', '신한', '하나', '미래에셋']
+
+def _norm_etf_name(s):
+    s = str(s).upper()
+    for b in _ETF_BRANDS:
+        s = s.replace(b.upper(), '')
+    return re.sub(r'[^가-힣A-Z0-9]', '', s)   # 공백·특수문자 제거
+
+def resolve_etf_codes(etf_data, live_df):
+    """live_df(실시간 ETF 목록: Code,Name)에서 이름으로 정확한 코드를 찾아 보정.
+    리브랜딩(예: HANARO→PLUS)·오타 코드를 자동 교정하고, 매칭 시 정식 이름으로 갱신."""
+    if live_df is None or live_df.empty:
+        return etf_data
+    exact, normed = {}, {}
+    for _, r in live_df.iterrows():
+        code = str(r['Code']).zfill(6)
+        nm = str(r['Name'])
+        exact[re.sub(r'\s+', '', nm)] = code
+        k = _norm_etf_name(nm)
+        if not k:
+            continue
+        if k in normed and normed[k][0] != code:
+            normed[k] = None            # 정규화 이름이 모호하면 사용 안 함
+        elif k not in normed:
+            normed[k] = (code, nm)
+    for item in etf_data:
+        if not str(item.get('code', '')).isdigit():   # 미국·맞춤종목은 건드리지 않음
+            continue
+        nm_ws = re.sub(r'\s+', '', str(item['name']))
+        if nm_ws in exact:                              # 1순위: 정확 일치
+            item['code'] = exact[nm_ws]
+            continue
+        k = _norm_etf_name(item['name'])                # 2순위: 브랜드 무시 정규화 일치(모호하지 않을 때만)
+        if k and normed.get(k):
+            item['code'], item['name'] = normed[k][0], normed[k][1]
+    return etf_data
+
+
 # [v7.0] AI 밸류체인 리포트에서 '한국 수혜주' 종목명만 추출 → KRX 코드 매칭
 def extract_beneficiary_stocks(report_text, krx_df, max_n=8):
     if not report_text or krx_df is None or krx_df.empty:
@@ -5421,9 +5462,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "275980", "name": "TIGER 글로벌4차산업혁신기술(합성 H)"},
 
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449450", "name": "PLUS K방산"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449920", "name": "PLUS K방산Fn"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "432200", "name": "TIGER 우주항공iSelect"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421550", "name": "HANARO 우주항공&UAM"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421320", "name": "PLUS 우주항공&UAM"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "482200", "name": "TIGER 글로벌우주항공액티브"},
 
         {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466950", "name": "TIGER 은행고배당플러스TOP10"},
@@ -5487,7 +5527,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180", "name": "KODEX 조선"},
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "380960", "name": "HANARO Fn조선해운"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466960", "name": "SOL 조선TOP3플러스"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466920", "name": "SOL 조선TOP3플러스"},
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "485520", "name": "KODEX K-조선배당플러스"},
 
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "226490", "name": "KODEX 에너지화학"},
@@ -5646,6 +5686,8 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
 
     with st.spinner("최신 마켓 데이터를 전수 매칭하는 중입니다..."):
         ex_rate = st.session_state.get('ex_rate', 1350.0)
+        # [v7.0] 잘못된/리브랜딩된 코드 자동 보정 (이름 기준 실시간 목록 매칭)
+        resolve_etf_codes(etf_data, get_naver_etf_and_stocks())
         real_prices, real_cagrs = fetch_realtime_data([item['code'] for item in etf_data], ex_rate)
         for item in etf_data:
             if item['code'] in real_prices: item['price'] = real_prices[item['code']]
