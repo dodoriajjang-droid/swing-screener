@@ -436,8 +436,31 @@ def analyze_theme_trends():
 
 
 @st.cache_data(ttl=3600)
+def _parse_ipo_enddate(s):
+    """청약일정 문자열에서 종료 날짜를 파싱 (예: '26.05.22~05.26' → 2026-05-26)."""
+    s = str(s).strip()
+    full = re.findall(r'(\d{2,4})[.\-/](\d{1,2})[.\-/](\d{1,2})', s)
+    if not full:
+        return None
+    y, m, d = full[0]
+    y = int(y); y = (2000 + y) if y < 100 else y
+    try:
+        start = datetime(y, int(m), int(d))
+    except Exception:
+        return None
+    end = start
+    rng = re.search(r'[~∼\-]\s*(?:(\d{1,2})[.\-/])?(\d{1,2})\s*$', s)
+    if rng:
+        em, ed = rng.groups()
+        try:
+            end = datetime(y, int(em) if em else int(m), int(ed))
+        except Exception:
+            end = start
+    return end
+
+
 def _clean_ipo_df(df):
-    """IPO 표 후처리: 가비지 행 제거 + 공모가 정제 + 종목명 기준 중복 제거."""
+    """IPO 표 후처리: 가비지 제거 + 컬럼 검증 + 공모가 포맷 + 다가오는 일정 정렬/필터 + 중복 제거."""
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.copy()
@@ -447,43 +470,80 @@ def _clean_ipo_df(df):
             df[c] = '-'
     df = df[base_cols]
     for c in base_cols:
-        df[c] = df[c].astype(str).str.strip().replace({'nan': '-', 'None': '-', '': '-'})
+        df[c] = df[c].fillna('-').astype(str).str.strip().replace({'nan': '-', 'None': '-', 'NaN': '-', '': '-'})
 
-    # 1) 가비지 행 제거: 종목명이 설명문장(너무 길거나 안내 키워드 포함)인 경우
+    # 1) 가비지 행 제거 (종목명이 안내문장)
     df = df[df['종목명'].str.len().between(1, 25)]
     df = df[~df['종목명'].str.contains('공모함|수요예측|기관투자|파악|결정됨|청약을|투자자의', na=False)]
 
-    # 2) 공모가 정제: 가격 패턴만 인정, 설명문장이면 '-'
+    # 2) 청약일정 검증 — 날짜 형태가 아니면(예: 경쟁률 '747:1') '-' 처리
+    def valid_date(s):
+        s = str(s)
+        if re.search(r'\d{1,2}\s*:\s*1', s):      # 경쟁률 패턴
+            return '-'
+        if re.search(r'\d{1,4}[.\-/]\d{1,2}', s):  # 날짜 패턴
+            return s
+        return '-'
+    df['청약일정'] = df['청약일정'].apply(valid_date)
+    df['상장일'] = df['상장일'].apply(lambda x: x if (re.search(r'\d{1,4}[.\-/]\d{1,2}', str(x)) or '미정' in str(x)) else '-')
+
+    # 3) 공모가 포맷 (숫자만 → '12,300원', 범위 → '10,000~12,000원')
     def clean_price(v):
         s = str(v).strip()
         if not s or s == '-':
             return '-'
-        if re.search(r'결정|파악|수요|공모함|기관|투자자', s):
+        if re.search(r'결정|파악|수요|공모함|기관|투자자', s) or re.search(r'[가-힣]{4,}', s):
             return '-'
-        if re.search(r'[가-힣]{4,}', s):  # 한글이 길게 이어지면 가격이 아님
+        nums = re.findall(r'\d[\d,]*', s)
+        if not nums:
             return '-'
-        m = re.search(r'[\d,]+\s*[~∼\-]?\s*[\d,]*\s*원?', s)
-        return m.group(0).strip() if m else '-'
+        def fmt(n):
+            n = n.replace(',', '')
+            return f"{int(n):,}" if n.isdigit() else None
+        a = fmt(nums[0]); b = fmt(nums[1]) if len(nums) > 1 else None
+        if a and b and a != b:
+            return f"{a}~{b}원"
+        return f"{a}원" if a else '-'
     df['공모가'] = df['공모가'].apply(clean_price)
 
-    # 3) 종목명 기준 중복 제거 — 실데이터(비 '-')가 많은 행을 우선 보존
+    # 4) 종목명 중복 제거 (실데이터 많은 행 우선)
     def score(row):
         return sum(1 for c in ['청약일정', '상장일', '공모가', '주관사', '경쟁률', '업종']
                    if str(row[c]).strip() not in ('-', '', 'nan'))
     df['_score'] = df.apply(score, axis=1)
     df = (df.sort_values('_score', ascending=False)
             .drop_duplicates(subset=['종목명'], keep='first')
-            .drop(columns=['_score'])
-            .reset_index(drop=True))
-    return df.head(20)
+            .drop(columns=['_score']))
+
+    # 5) 날짜 파싱 → 다가오는(또는 최근) 일정만, 빠른 순 정렬
+    df['_end'] = df['청약일정'].apply(_parse_ipo_enddate)
+    today = datetime.now()
+    recent_or_future = df[df['_end'].notna() & (df['_end'] >= today - timedelta(days=5))]
+    if len(recent_or_future) >= 1:
+        dated = recent_or_future.sort_values('_end', ascending=True)           # 다가오는 순
+        undated = df[df['_end'].isna()]
+        out = pd.concat([dated, undated])
+    else:
+        # 다가오는 게 없으면(소스에 과거만 있으면) 최근 날짜 순으로라도 보여줌
+        out = df.sort_values('_end', ascending=False, na_position='last')
+    out = out.drop(columns=['_end']).reset_index(drop=True)
+    return out.head(20)
 
 
 @st.cache_data(ttl=3600)
 def get_naver_ipo_data():
-    # [v7.0] 소스 우선순위: 표 기반(38.co.kr → 네이버 read_html) → 문자열 스크래핑(최후).
-    # 어느 소스든 _clean_ipo_df로 중복/가비지를 제거한 뒤 반환.
+    # [v7.0] 표 기반(38.co.kr → 네이버 read_html) 우선, _clean_ipo_df로 정제 후 반환.
 
-    # ── 소스 A: 38커뮤니케이션 공모청약 일정 (가장 깔끔한 표) ──
+    def priority_pick(cols, cands, exclude=None):
+        for cand in cands:                       # 우선순위 순
+            for c in cols:
+                if exclude and any(x in c for x in exclude):
+                    continue
+                if cand in c:
+                    return c
+        return None
+
+    # ── 소스 A: 38커뮤니케이션 공모청약 일정 ──
     try:
         url = "http://www.38.co.kr/html/fund/index.htm?o=k"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -491,39 +551,30 @@ def get_naver_ipo_data():
         tables = pd.read_html(StringIO(res.text))
         for t in tables:
             cols = [str(c) for c in t.columns]
-            if any('기업명' in c or '종목명' in c for c in cols):
-                t = t.copy()
-                t.columns = cols
-                def pick(cands):
-                    for c in cols:
-                        if any(k in c for k in cands):
-                            return c
-                    return None
-                name_c = pick(['기업명', '종목명'])
-                if not name_c:
-                    continue
-                res_df = pd.DataFrame()
-                res_df['시장'] = '-'
-                res_df['종목명'] = t[name_c]
-                sub_c = pick(['공모청약일', '청약일', '청약'])
-                res_df['청약일정'] = t[sub_c] if sub_c else '-'
-                list_c = pick(['상장일', '상장'])
-                res_df['상장일'] = t[list_c] if list_c else '-'
-                price_c = pick(['확정공모가', '공모가'])
-                res_df['공모가'] = t[price_c] if price_c else '-'
-                mgr_c = pick(['주간사', '주관사'])
-                res_df['주관사'] = t[mgr_c] if mgr_c else '-'
-                comp_c = pick(['경쟁률'])
-                res_df['경쟁률'] = t[comp_c] if comp_c else '-'
-                ind_c = pick(['업종', '업태'])
-                res_df['업종'] = t[ind_c] if ind_c else '-'
-                cleaned = _clean_ipo_df(res_df)
-                if not cleaned.empty:
-                    return cleaned
+            if not any(('기업명' in c or '종목명' in c) for c in cols):
+                continue
+            t = t.copy(); t.columns = cols
+            name_c = priority_pick(cols, ['기업명', '종목명'])
+            if not name_c:
+                continue
+            res_df = pd.DataFrame()
+            res_df['종목명'] = t[name_c]
+            res_df['시장'] = '-'
+            # 청약일정: '경쟁률/률' 들어간 컬럼은 제외하고 날짜 컬럼만
+            sub_c = priority_pick(cols, ['공모청약일', '공모주일정', '청약일정', '청약일', '청약', '일정'], exclude=['경쟁', '률'])
+            res_df['청약일정'] = t[sub_c] if sub_c else '-'
+            res_df['상장일'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['상장일', '상장'], exclude=['주가', '수익']))
+            res_df['공모가'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['확정공모가', '공모가', '희망공모가']))
+            res_df['주관사'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['주간사', '주관사']))
+            res_df['경쟁률'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['청약경쟁률', '경쟁률']))
+            res_df['업종'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['업종', '업태']))
+            cleaned = _clean_ipo_df(res_df)
+            if not cleaned.empty:
+                return cleaned
     except Exception:
         pass
 
-    # ── 소스 B: 네이버 IPO 표 (read_html) ──
+    # ── 소스 B: 네이버 IPO 표 ──
     try:
         url = "https://finance.naver.com/sise/ipo.naver"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
@@ -534,7 +585,7 @@ def get_naver_ipo_data():
             if '공모가' in t_str and ('청약' in t_str or '상장일' in t_str):
                 cols = [str(c) for c in t.columns]
                 t = t.copy(); t.columns = cols
-                name_col = next((c for c in cols if any(k in c for k in ['종목', '기업', '회사'])), cols[0])
+                name_col = priority_pick(cols, ['종목', '기업', '회사']) or cols[0]
                 t = t.dropna(subset=[name_col]).copy()
                 t = t[t[name_col].astype(str) != str(name_col)]
 
@@ -554,14 +605,13 @@ def get_naver_ipo_data():
                 res_df = pd.DataFrame()
                 res_df['시장'] = t[name_col].apply(extract_market)
                 res_df['종목명'] = t[name_col].apply(clean_name)
-                for col in cols:
-                    c = col.replace(' ', '')
-                    if '청약' in c: res_df['청약일정'] = t[col]
-                    elif '상장일' in c: res_df['상장일'] = t[col]
-                    elif '공모가' in c: res_df['공모가'] = t[col]
-                    elif '주관' in c or '주간' in c: res_df['주관사'] = t[col]
-                    elif '경쟁률' in c: res_df['경쟁률'] = t[col]
-                    elif '업종' in c: res_df['업종'] = t[col]
+                sub_c = priority_pick(cols, ['공모청약일', '청약일', '청약', '일정'], exclude=['경쟁', '률'])
+                res_df['청약일정'] = t[sub_c] if sub_c else '-'
+                res_df['상장일'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['상장일']))
+                res_df['공모가'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['확정공모가', '공모가']))
+                res_df['주관사'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['주관', '주간']))
+                res_df['경쟁률'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['경쟁률']))
+                res_df['업종'] = (lambda c: t[c] if c else '-')(priority_pick(cols, ['업종']))
                 cleaned = _clean_ipo_df(res_df)
                 if not cleaned.empty:
                     return cleaned
