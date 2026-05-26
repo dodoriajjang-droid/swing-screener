@@ -5463,9 +5463,9 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "275980", "name": "TIGER 글로벌4차산업혁신기술(합성 H)"},
 
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449450", "name": "PLUS K방산"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "432200", "name": "TIGER 우주항공iSelect"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "463250", "name": "TIGER K방산&우주"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421320", "name": "PLUS 우주항공&UAM"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "482200", "name": "TIGER 글로벌우주항공액티브"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "440910", "name": "WON 미국우주항공방산"},
 
         {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466950", "name": "TIGER 은행고배당플러스TOP10"},
         {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "474220", "name": "KODEX 은행고배당플러스"},
@@ -5529,11 +5529,10 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180", "name": "KODEX 조선"},
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "380960", "name": "HANARO Fn조선해운"},
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466920", "name": "SOL 조선TOP3플러스"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "485520", "name": "KODEX K-조선배당플러스"},
 
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "226490", "name": "KODEX 에너지화학"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "117460", "name": "TIGER 에너지화학"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "444000", "name": "RISE 글로벌원자력iSelect"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "442320", "name": "RISE 글로벌원자력"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "418650", "name": "HANARO 글로벌수소&차세대연료전지"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600", "name": "KODEX K-신재생에너지액티브"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "XLU", "name": "Utilities Select Sector SPDR"},
