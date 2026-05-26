@@ -1501,6 +1501,77 @@ def get_market_warnings():
     alert_df = fetch_warning_table("https://finance.naver.com/sise/investment_alert.naver")
     return mgmt_df, alert_df
 
+
+# [v7.0] 시장경보 표 가독성 개선 — 핵심 컬럼만 + 지정사유 중복 제거 + 심각도 색상
+def style_warning_table(df, kind="mgmt"):
+    """관리종목/투자경보 표를 종목명·현재가·등락률·(지정일)·(지정사유)로 정리."""
+    if df is None or df.empty:
+        return None
+    def to_num(x):
+        try: return float(re.sub(r'[^0-9.\-]', '', str(x)))
+        except Exception: return np.nan
+    def dedup_text(s):
+        # 네이버가 같은 사유를 두 번 붙여 보내는 버그 교정 ("A 발생 A 발생" → "A 발생")
+        s = str(s).strip()
+        toks = s.split()
+        n = len(toks)
+        if n >= 2 and n % 2 == 0 and toks[:n // 2] == toks[n // 2:]:
+            return ' '.join(toks[:n // 2])
+        return s
+
+    df = df.copy()
+    colmap = {}
+    for c in df.columns:
+        cs = str(c)
+        if '종목' in cs: colmap[c] = '종목명'
+        elif '현재가' in cs: colmap[c] = '현재가'
+        elif '등락' in cs: colmap[c] = '등락률'
+        elif ('지정일' in cs) or ('날짜' in cs) or ('일자' in cs): colmap[c] = '지정일'
+        elif ('사유' in cs) or ('구분' in cs): colmap[c] = '지정사유'
+    df = df.rename(columns=colmap)
+    if '종목명' not in df.columns:
+        return None
+
+    order = ['종목명', '현재가', '등락률', '지정일', '지정사유']
+    keep = [c for c in order if c in df.columns]
+    df = df[keep]
+    if '현재가' in df.columns: df['현재가'] = df['현재가'].apply(to_num)
+    if '등락률' in df.columns: df['등락률'] = df['등락률'].apply(to_num)
+    if '지정사유' in df.columns: df['지정사유'] = df['지정사유'].apply(dedup_text)
+
+    out = df.reset_index(drop=True)
+    out.index = out.index + 1
+    out.index.name = '순위'
+
+    def color_updown(v):
+        if pd.isna(v): return ''
+        if v > 0: return 'color:#e74c3c;font-weight:700;'
+        if v < 0: return 'color:#2e86de;font-weight:700;'
+        return 'color:gray;'
+
+    def color_reason(s):
+        s = str(s)
+        if any(k in s for k in ['상장폐지', '파산', '정리매매', '거래정지']):
+            return 'color:#c0392b;font-weight:700;'   # 🔴 치명적
+        if any(k in s for k in ['실질심사', '적격성', '회생', '감사의견', '미제출']):
+            return 'color:#e67e22;font-weight:600;'    # 🟠 위험
+        return 'color:#b7791f;'                          # 🟡 주의
+
+    fmt = {}
+    if '현재가' in out.columns: fmt['현재가'] = lambda x: f"{int(x):,}원" if pd.notna(x) else "-"
+    if '등락률' in out.columns: fmt['등락률'] = lambda x: f"{x:+.2f}%" if pd.notna(x) else "-"
+
+    sty = out.style.format(fmt)
+    if '등락률' in out.columns:
+        sty = sty.map(color_updown, subset=['등락률'])
+    if '지정사유' in out.columns:
+        sty = sty.map(color_reason, subset=['지정사유'])
+    sty = sty.set_properties(**{'font-size': '14px'})
+    sty = sty.set_properties(subset=['종목명'], **{'font-weight': '600'})
+    if '지정사유' in out.columns:
+        sty = sty.set_properties(subset=['지정사유'], **{'text-align': 'left'})
+    return sty
+
 @st.cache_data(ttl=120)
 def get_latest_naver_news():
     articles = []
@@ -4166,12 +4237,27 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
                 st.error("❌ 현재 데이터를 불러올 수 없습니다.")
     with tab_warn:
         with st.spinner("시장경보 데이터 스크래핑 중..."): mgmt_df, alert_df = get_market_warnings()
-        st.markdown("### 🛑 관리종목 (상장폐지 위험)")
-        if not mgmt_df.empty: st.dataframe(mgmt_df, use_container_width=True, hide_index=True)
-        else: st.success("현재 지정된 관리종목이 없습니다.")
-        st.markdown("### ⚠️ 투자주의/경고/위험 종목")
-        if not alert_df.empty: st.dataframe(alert_df, use_container_width=True, hide_index=True)
-        else: st.success("현재 지정된 시장경보 종목이 없습니다.")
+
+        st.markdown("#### 🛑 관리종목 (상장폐지 위험)")
+        st.caption("⚠️ 여기 있는 종목은 **상장폐지·거래정지 위험**이 있는 고위험군입니다. 매매 전 반드시 사유를 확인하세요. "
+                   "사유 색상: 🔴빨강=치명적(폐지·파산) / 🟠주황=위험(실질심사·회생) / 🟡노랑=주의")
+        sty_m = style_warning_table(mgmt_df, "mgmt")
+        if sty_m is not None:
+            st.dataframe(sty_m, use_container_width=True, height=420)
+        elif not mgmt_df.empty:
+            st.dataframe(mgmt_df, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ 현재 지정된 관리종목이 없습니다.")
+
+        st.markdown("#### ⚠️ 투자주의/경고/위험 종목")
+        st.caption("💡 이상 급등·단기과열 등으로 거래소가 **투자자 보호 차원에서 지정**한 종목입니다. 변동성이 매우 큽니다.")
+        sty_a = style_warning_table(alert_df, "alert")
+        if sty_a is not None:
+            st.dataframe(sty_a, use_container_width=True, height=420)
+        elif not alert_df.empty:
+            st.dataframe(alert_df, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ 현재 지정된 시장경보 종목이 없습니다.")
 
 elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
     st.subheader("📰 실시간 속보 및 증권사 리포트 터미널")
