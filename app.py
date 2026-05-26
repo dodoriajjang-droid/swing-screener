@@ -51,11 +51,171 @@ def save_watchlist(wl):
 st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
+# ==========================================
+# 🎨 글로벌 테마: 딥 스페이스 터미널 (Deep Space Terminal)
+#   - 다크 배경 + 미세 그리드 / 일렉트릭 시안 강조 / 상승=초록·하락=빨강
+#   - 한글: Pretendard, 숫자·데이터: JetBrains Mono (탭형 숫자)
+#   * 로직과 무관한 순수 스타일 레이어. 색상은 :root 변수만 바꾸면 전체 톤 변경 가능.
+# ==========================================
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
-th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+
+:root{
+  --bg-0:#070a0f; --bg-1:#0b0f17; --bg-2:#111722; --bg-3:#161d2b;
+  --line:rgba(120,160,200,0.10); --line-strong:rgba(120,160,200,0.24);
+  --txt-0:#e6edf6; --txt-1:#9fb0c4; --txt-2:#5f7088;
+  --accent:#22e0c8; --accent-dim:rgba(34,224,200,0.14); --accent-glow:rgba(34,224,200,0.35);
+  --up:#21d07a; --down:#ff4d5e; --warn:#f7b955;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Pretendard','Pretendard Variable',-apple-system,BlinkMacSystemFont,sans-serif;
+}
+
+/* ===== 배경 분위기 ===== */
+.stApp{
+  background:
+    radial-gradient(1200px 600px at 12% -8%, rgba(34,224,200,0.07), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(80,120,255,0.06), transparent 55%),
+    linear-gradient(180deg,var(--bg-1),var(--bg-0));
+  color:var(--txt-0); font-family:var(--sans);
+}
+.stApp:before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image:
+    linear-gradient(rgba(120,160,200,0.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(120,160,200,0.035) 1px,transparent 1px);
+  background-size:42px 42px;
+  -webkit-mask-image:radial-gradient(circle at 50% 0%,#000,transparent 80%);
+          mask-image:radial-gradient(circle at 50% 0%,#000,transparent 80%);
+}
+.main .block-container{padding-top:2.2rem; max-width:1500px;}
+
+/* ===== 타이포 ===== */
+html,body,[class*="css"],.stMarkdown,p,span,div,label{font-family:var(--sans);}
+h1,h2,h3,h4{font-family:var(--sans); color:var(--txt-0); letter-spacing:-0.02em; font-weight:800;}
+h1{font-size:2rem;}
+h2{position:relative; padding-left:.7rem; margin-top:.4rem;}
+h2:before{content:""; position:absolute; left:0; top:.12em; bottom:.12em; width:4px; border-radius:4px;
+  background:linear-gradient(var(--accent),rgba(34,224,200,0)); box-shadow:0 0 14px var(--accent-glow);}
+[data-testid="stMetricValue"],[data-testid="stMetricDelta"],
+table,.stDataFrame,code,.stCode{font-family:var(--mono)!important; font-feature-settings:"tnum" 1,"zero" 1;}
+
+/* ===== 상단 헤더 ===== */
+[data-testid="stHeader"]{background:transparent;}
+[data-testid="stToolbar"]{right:1rem;}
+
+/* ===== 사이드바 ===== */
+section[data-testid="stSidebar"]{
+  background:linear-gradient(180deg,var(--bg-2),var(--bg-1));
+  border-right:1px solid var(--line);
+}
+section[data-testid="stSidebar"] .block-container{padding-top:1.3rem;}
+
+/* 사이드바 메뉴(라디오)를 내비게이션 리스트처럼 */
+section[data-testid="stSidebar"] div[role="radiogroup"]{gap:2px;}
+section[data-testid="stSidebar"] div[role="radiogroup"]>label{
+  display:flex; align-items:center; width:100%;
+  padding:8px 12px; border-radius:9px; margin:0; cursor:pointer;
+  color:var(--txt-1); font-size:.92rem; line-height:1.25;
+  border:1px solid transparent; transition:all .15s ease;}
+section[data-testid="stSidebar"] div[role="radiogroup"]>label:hover{background:var(--bg-3); color:var(--txt-0);}
+section[data-testid="stSidebar"] div[role="radiogroup"]>label>div:first-child{display:none;}
+section[data-testid="stSidebar"] div[role="radiogroup"]>label:has(input:checked){
+  background:linear-gradient(90deg,var(--accent-dim),transparent);
+  border:1px solid var(--line-strong); color:var(--txt-0); font-weight:700;
+  box-shadow:inset 3px 0 0 var(--accent);}
+
+/* ===== 지표(Metric) 카드 ===== */
+[data-testid="stMetric"]{
+  background:linear-gradient(180deg,var(--bg-3),var(--bg-2));
+  border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+  box-shadow:0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px rgba(0,0,0,0.35);}
+[data-testid="stMetric"]:hover{border-color:var(--line-strong);}
+[data-testid="stMetricLabel"]{color:var(--txt-2)!important; text-transform:uppercase; letter-spacing:.08em; font-size:.7rem!important;}
+[data-testid="stMetricValue"]{color:var(--txt-0)!important; font-weight:800;}
+[data-testid="stMetricDelta"] svg{display:none;}
+
+/* ===== 버튼 ===== */
+.stButton>button,.stDownloadButton>button,.stFormSubmitButton>button{
+  font-family:var(--sans); font-weight:700; letter-spacing:.01em;
+  background:var(--bg-3); color:var(--txt-0);
+  border:1px solid var(--line-strong); border-radius:10px;
+  padding:.5rem .9rem; transition:all .16s ease;}
+.stButton>button:hover,.stFormSubmitButton>button:hover{
+  border-color:var(--accent); color:#fff;
+  box-shadow:0 0 0 1px var(--accent-dim),0 0 18px var(--accent-glow); transform:translateY(-1px);}
+.stButton>button:active{transform:translateY(0);}
+.stButton>button[kind="primary"],.stFormSubmitButton>button[kind="primaryFormSubmit"]{
+  background:linear-gradient(180deg,var(--accent),#12b9a4); color:#04221d; border:none;
+  box-shadow:0 0 22px var(--accent-glow);}
+.stButton>button[kind="primary"]:hover{filter:brightness(1.08); color:#04221d;}
+
+/* ===== 본문 가로 라디오 = 알약 토글 ===== */
+.main div[role="radiogroup"]{gap:8px; flex-wrap:wrap;}
+.main div[role="radiogroup"]>label{
+  background:var(--bg-2); border:1px solid var(--line); border-radius:999px;
+  padding:5px 14px; color:var(--txt-1); transition:all .15s;}
+.main div[role="radiogroup"]>label:hover{border-color:var(--line-strong); color:var(--txt-0);}
+.main div[role="radiogroup"]>label:has(input:checked){
+  background:var(--accent-dim); border-color:var(--accent); color:#fff; font-weight:700;}
+.main div[role="radiogroup"]>label>div:first-child{display:none;}
+
+/* ===== 입력/셀렉트 ===== */
+.stTextInput input,.stNumberInput input,.stTextArea textarea,
+[data-baseweb="select"]>div,[data-baseweb="input"]{
+  background:var(--bg-2)!important; border:1px solid var(--line)!important;
+  border-radius:10px!important; color:var(--txt-0)!important;}
+.stTextInput input:focus,.stNumberInput input:focus,[data-baseweb="select"]>div:focus-within{
+  border-color:var(--accent)!important; box-shadow:0 0 0 2px var(--accent-dim)!important;}
+
+/* ===== 탭 ===== */
+.stTabs [data-baseweb="tab-list"]{gap:4px; border-bottom:1px solid var(--line);}
+.stTabs [data-baseweb="tab"]{background:transparent; color:var(--txt-1); border-radius:8px 8px 0 0; padding:8px 14px;}
+.stTabs [aria-selected="true"]{color:var(--accent); border-bottom:2px solid var(--accent);}
+
+/* ===== 익스팬더 ===== */
+[data-testid="stExpander"]{
+  border:1px solid var(--line)!important; border-radius:12px!important;
+  background:var(--bg-2); overflow:hidden;}
+[data-testid="stExpander"] summary{padding:12px 16px; color:var(--txt-0); font-weight:600;}
+[data-testid="stExpander"] summary:hover{color:var(--accent);}
+
+/* ===== 데이터프레임 / 테이블 ===== */
+.stDataFrame,[data-testid="stTable"]{border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+table{border-collapse:collapse; width:100%;}
+thead th{background:var(--bg-3)!important; color:var(--txt-1)!important;
+  text-transform:uppercase; font-size:.72rem; letter-spacing:.06em; font-weight:700!important;
+  border-bottom:1px solid var(--line-strong)!important;}
+tbody td{color:var(--txt-0); border-bottom:1px solid var(--line)!important;}
+tbody tr:nth-child(even){background:rgba(255,255,255,0.015);}
+tbody tr:hover{background:var(--accent-dim);}
+
+/* ===== 알림 ===== */
+div[data-testid="stAlert"]{border-radius:12px; border:1px solid var(--line);
+  border-left:3px solid var(--accent); background:var(--bg-2); color:var(--txt-0);}
+
+/* ===== 진행바 ===== */
+.stProgress>div>div>div{background:linear-gradient(90deg,var(--accent),#5ad6ff)!important;}
+.stProgress>div>div{background:var(--bg-3)!important;}
+
+/* ===== 구분선 ===== */
+hr,[data-testid="stDivider"]{border:none!important; height:1px!important;
+  background:linear-gradient(90deg,transparent,var(--line-strong),transparent)!important;}
+
+/* ===== 차트 컨테이너 ===== */
+[data-testid="stPlotlyChart"],[data-testid="stVegaLiteChart"]{
+  background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:8px;}
+
+/* ===== 스크롤바 ===== */
+::-webkit-scrollbar{width:10px; height:10px;}
+::-webkit-scrollbar-track{background:var(--bg-1);}
+::-webkit-scrollbar-thumb{background:var(--bg-3); border-radius:8px; border:2px solid var(--bg-1);}
+::-webkit-scrollbar-thumb:hover{background:var(--line-strong);}
+
+/* ===== 캡션 / 스피너 ===== */
+[data-testid="stCaptionContainer"],.stCaption{color:var(--txt-2)!important;}
+.stSpinner>div{border-top-color:var(--accent)!important;}
 </style>
 """, unsafe_allow_html=True)
 
