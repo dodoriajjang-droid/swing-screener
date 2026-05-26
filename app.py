@@ -304,13 +304,86 @@ def get_nps_us_portfolio():
     return pd.DataFrame(fallback_holdings)
 
 @st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def get_us_sector_etfs():
-    return pd.DataFrame({
-        '섹터': ['기술(Technology)', '금융(Financials)', '헬스케어(Healthcare)', '에너지(Energy)', '소비재(Consumer)'],
-        'ETF': ['XLK', 'XLF', 'XLV', 'XLE', 'XLY'],
-        '현재가': [215.50, 41.20, 145.80, 89.30, 185.20],
-        '등락률': [1.5, -0.2, 0.8, -1.1, 2.1]
-    })
+    # [v7.0] 하드코딩 더미 → yfinance 실데이터로 교체 (전일 종가 대비 등락률)
+    sectors = [
+        ("기술(Technology)", "XLK"), ("금융(Financials)", "XLF"),
+        ("헬스케어(Healthcare)", "XLV"), ("에너지(Energy)", "XLE"),
+        ("임의소비재(Consumer)", "XLY"), ("필수소비재(Staples)", "XLP"),
+        ("산업재(Industrials)", "XLI"), ("반도체(Semicon)", "SMH"),
+        ("커뮤니케이션(Comm)", "XLC"), ("유틸리티(Utilities)", "XLU"),
+    ]
+    def fetch_one(item):
+        name, tk = item
+        try:
+            h = yf.Ticker(tk).history(period="5d")
+            if len(h) >= 2:
+                close = float(h['Close'].iloc[-1])
+                pct = (close / float(h['Close'].iloc[-2]) - 1) * 100
+                return {"섹터": name, "ETF": tk, "현재가": round(close, 2), "등락률": round(pct, 2)}
+        except Exception:
+            pass
+        return None
+    rows = []
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+            for r in ex.map(fetch_one, sectors):
+                if r: rows.append(r)
+    except Exception:
+        pass
+    if rows:
+        return pd.DataFrame(rows).sort_values('등락률', ascending=False).reset_index(drop=True)
+    # 통신 실패 시 안전 폴백 (값 없음 표시)
+    return pd.DataFrame({'섹터': [s[0] for s in sectors], 'ETF': [s[1] for s in sectors],
+                         '현재가': [0] * len(sectors), '등락률': [0.0] * len(sectors)})
+
+
+@st.cache_data(ttl=600)
+def get_overnight_us_market():
+    """간밤 미국 주요 지수·VIX·환율 스냅샷 (전일 대비 %)."""
+    targets = [("나스닥", "^IXIC"), ("S&P500", "^GSPC"), ("다우", "^DJI"),
+               ("VIX(공포지수)", "^VIX"), ("원/달러", "KRW=X")]
+    out = []
+    def fetch(item):
+        label, tk = item
+        try:
+            h = yf.Ticker(tk).history(period="5d")
+            if len(h) >= 2:
+                last = float(h['Close'].iloc[-1]); prev = float(h['Close'].iloc[-2])
+                pct = (last / prev - 1) * 100 if prev else 0
+                return {"label": label, "ticker": tk, "value": last, "pct": pct}
+        except Exception:
+            pass
+        return None
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+            for r in ex.map(fetch, targets):
+                if r: out.append(r)
+    except Exception:
+        pass
+    order = {t[1]: i for i, t in enumerate(targets)}
+    out.sort(key=lambda x: order.get(x['ticker'], 99))
+    return out
+
+
+def render_overnight_banner():
+    """간밤 미국 시황 미니 배너 — 급등주 보기 전에 위험선호(Risk-on/off)부터 파악."""
+    data = get_overnight_us_market()
+    if not data:
+        st.caption("⚠️ 간밤 미국 시황 데이터를 불러오지 못했습니다.")
+        return
+    cols = st.columns(len(data))
+    for col, d in zip(cols, data):
+        if d['ticker'] == "KRW=X":
+            val = f"{d['value']:,.1f}원"
+        elif d['ticker'] == "^VIX":
+            val = f"{d['value']:.2f}"
+        else:
+            val = f"{d['value']:,.0f}"
+        # VIX는 오르면 위험(빨강이 나쁨)이므로 색 반전
+        delta_color = "inverse" if d['ticker'] == "^VIX" else "normal"
+        col.metric(d['label'], val, f"{d['pct']:+.2f}%", delta_color=delta_color)
 
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
@@ -1610,8 +1683,59 @@ def style_report_table(df, kind="up"):
     sty = sty.set_properties(subset=['종목명'], **{'font-weight': '600'})
     return sty
 
-@st.cache_data(ttl=120)
-def get_latest_naver_news():
+
+# [v7.0] 미국 섹터 ETF 표 — 등락률 색상 + 막대
+def style_sector_etf_table(df):
+    if df is None or df.empty:
+        return None
+    out = df.copy().reset_index(drop=True)
+    out.index = out.index + 1
+    out.index.name = '순위'
+
+    def color_updown(v):
+        if pd.isna(v): return ''
+        if v > 0: return 'color:#e74c3c;font-weight:700;'
+        if v < 0: return 'color:#2e86de;font-weight:700;'
+        return 'color:gray;'
+
+    fmt = {}
+    if '현재가' in out.columns: fmt['현재가'] = lambda x: f"${x:,.2f}" if pd.notna(x) and x > 0 else "-"
+    if '등락률' in out.columns: fmt['등락률'] = lambda x: f"{x:+.2f}%" if pd.notna(x) else "-"
+    sty = out.style.format(fmt)
+    if '등락률' in out.columns:
+        sty = sty.map(color_updown, subset=['등락률'])
+        try: sty = sty.bar(subset=['등락률'], color=['#a5d8ff', '#ffd8a8'], align='zero')
+        except Exception: pass
+    sty = sty.set_properties(**{'font-size': '13px'})
+    sty = sty.set_properties(subset=['섹터'], **{'font-weight': '600'})
+    return sty
+
+
+# [v7.0] 미국 급등주 표 — 핵심 컬럼 정리 + 등락률 색상 (문자열 데이터 처리)
+def style_us_gainers_table(df):
+    if df is None or df.empty:
+        return None
+    cols = [c for c in ['종목코드', '기업명', '현재가', '환산(원)', '등락률', '등락금액'] if c in df.columns]
+    if '기업명' not in cols:
+        return None
+    out = df[cols].copy().reset_index(drop=True)
+    out.index = out.index + 1
+    out.index.name = '순위'
+
+    def color_str(s):
+        s = str(s)
+        if s.startswith('+') or (s.startswith('$') is False and '+' in s):
+            return 'color:#e74c3c;font-weight:700;'
+        if s.startswith('-'):
+            return 'color:#2e86de;font-weight:700;'
+        return ''
+    sty = out.style
+    for c in ['등락률', '등락금액']:
+        if c in out.columns:
+            sty = sty.map(color_str, subset=[c])
+    sty = sty.set_properties(**{'font-size': '13px'})
+    sty = sty.set_properties(subset=['기업명'], **{'font-weight': '600'})
+    return sty
     articles = []
     now_kst = datetime.utcnow() + timedelta(hours=9)
     three_hours_ago = now_kst - timedelta(hours=3)
@@ -2480,11 +2604,44 @@ def render_single_stock_themes(stock_name: str, api_key: str):
 def show_beginner_guide():
     with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
         st.markdown("""
-        ### 1. 📊 차트 상태 (상세 진단 기준 & 이평선)
-        * **이동평균선(이평선):** 일정 기간 동안의 주가 평균을 이은 선입니다.
-        * **🔥 완벽 정배열 (상승 추세):** `5일선 > 20일선 > 60일선`
-        * **❄️ 역배열 (하락 추세):** `5일선 < 20일선 < 60일선`
-        * **✨ 5-20 골든크로스:** 어제까지 아래에 있던 단기선이 중기선을 오늘 상향 돌파
+### 1. 📊 차트 상태 — 이동평균선(이평선) 완전 정복
+
+**이동평균선(이평선)이란?** 매일 출렁이는 주가를 보기 쉽게, *최근 며칠간의 평균 가격*을 이은 선입니다.
+- **5일선** = 최근 5일 평균 → 단기 흐름 *(요즘 분위기)*
+- **20일선** = 최근 20일 평균 → 중기 추세 *(이번 달 컨디션)* ← **이 앱에서 가장 중요!**
+- **60일선** = 최근 60일 평균 → 큰 추세 *(올해 체질)*
+
+| 상태 | 기준 | 초보자 해석 |
+|---|---|---|
+| 🔥 **완벽 정배열** | `5일선 > 20일선 > 60일선` | 꾸준히 우상향. 올라타기 좋은 추세 |
+| ❄️ **역배열** | `5일선 < 20일선 < 60일선` | 떨어지는 칼날. 함부로 잡지 말 것 |
+| ✨ **5-20 골든크로스** | 5일선이 20일선을 *오늘* 상향 돌파 | 상승 전환의 첫 깃발 |
+| 🌀 **혼조세/횡보** | 이평선들이 서로 얽힘 | 방향 미정. 굳이 진입 X |
+
+---
+
+### 2. ✅ 매매 타점 — "지금 사도 되는 자리인가?"
+이 앱은 **현재가와 20일선의 거리(%)** 로 매수 자리를 판정합니다.
+
+| 화면 표시 | 기준 | 행동 |
+|---|---|---|
+| ✅ **타점 근접 (분할매수)** | 20일선 **±3% 이내** | 한 번에 X, **나눠서** 매수 |
+| ⚠️ **이격 과다 (눌림 대기)** | 20일선 **+3% 초과** | 추격 X, 내려올 때까지 대기 |
+| 🛑 **20일선 이탈 (관망)** | 20일선 **-3% 아래** | 지지 깨짐, 신규 매수 멈춤 |
+
+> 💧 **눌림목:** 오르던 주식이 잠깐 쉬며 20일선까지 내려온 자리.
+> **상승 추세 + 눌림목**이 가장 좋은 매수 타이밍입니다.
+> 🛑 **손절가 = 20일선 -3%** 로 자동 계산됩니다. (매수와 동시에 손절선을 정하세요!)
+
+---
+
+### 3. 📈 화면에 같이 뜨는 보조지표
+- **RSI (0~100):** 과열·과매도 온도계. **70↑ 과열 / 30↓ 과매도(낙폭과대)**
+- **🔥 거래량 급증:** 최근 10일 최대 거래량이 *20일 평균의 2배 초과*. 돈과 관심이 몰렸다는 신호
+- **🐋 수급:** 누가 사나? **기관·외인이 동시 순매수(쌍끌이)** 하면 강력 신호 (`+` = 그날 더 샀다는 뜻)
+- **📅 주봉 추세 (v7.0):** 일봉보다 한 단계 큰 흐름. **일봉 타점 + 주봉 상승**이 겹치면 가짜 신호 확률↓
+
+> 💡 핵심: **좋은 자리(타점) + 거래량/수급**이 겹칠 때가 진짜입니다. 가격만 보지 마세요.
         """)
 
 def show_trading_guidelines():
@@ -4151,24 +4308,56 @@ elif selected_menu == "🇰🇷 국민성장펀드 12대 산업 수혜주":
 
 elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
     st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
+    st.caption("간밤 미국 증시에서 급등한 종목 → AI가 한국 수혜주(밸류체인)를 찾아주고 → 그 수혜주의 매매 타점까지 한 번에 확인하는 페이지입니다.")
+
+    # [v7.0] ① 간밤 미국 시황 미니 배너 — 급등주 보기 전 위험선호부터 파악
+    st.markdown("#### 🌙 간밤 미국 시황 (Risk-On / Off 체크)")
+    with st.spinner("간밤 지수·VIX·환율 수집 중..."):
+        render_overnight_banner()
+    st.caption("💡 VIX(공포지수)가 급등하거나 지수가 크게 빠진 날은, 미국 급등주가 있어도 국장이 위험회피로 갈 수 있으니 보수적으로 접근하세요.")
+
+    # [v7.0] ② 초보자 가이드 배치 (이 페이지도 타점 분석을 쓰므로)
+    show_beginner_guide()
+    show_trading_guidelines()
+    st.divider()
+
     col_sec, col_gain = st.columns([1, 1.2], gap="large")
     with col_sec:
         st.subheader("📊 1. 미 증시 주도 섹터 (ETF)")
+        st.caption("간밤 어느 섹터로 돈이 몰렸는지 (등락률 높은 순). 🔴빨강=상승 / 🔵파랑=하락")
         with st.spinner("섹터 ETF 등락률 산출 중..."):
             etf_df = get_us_sector_etfs()
-            if not etf_df.empty:
-                etf_df['등락률'] = etf_df['등락률'].apply(lambda x: f"{'+' if x>0 else ''}{x:.2f}%")
+            sty_etf = style_sector_etf_table(etf_df)
+            if sty_etf is not None:
+                st.dataframe(sty_etf, use_container_width=True, height=400)
+            elif not etf_df.empty:
                 st.dataframe(etf_df, use_container_width=True, hide_index=True)
+
         st.subheader("🚀 2. 글로벌 급등주 필터링")
+        fetch_t = st.session_state.get('us_fetch_time', '-')
+        rc1, rc2 = st.columns([3, 1])
+        rc1.caption(f"기준 시각: {fetch_t} (KST) · 전일 대비 +5% 이상 급등주")
+        if rc2.button("🔄 새로고침", use_container_width=True, key="refresh_gainers"):
+            get_us_top_gainers.clear()
+            df, ex_rate, ft = get_us_top_gainers()
+            st.session_state.gainers_df = df
+            st.session_state.ex_rate = ex_rate
+            st.session_state.us_fetch_time = ft
+            st.rerun()
+
         if not st.session_state.gainers_df.empty:
-            display_df = st.session_state.gainers_df[['종목코드', '기업명', '현재가', '등락률']].copy()
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-            opts = ["🔍 종목 선택"] + [f"{r['종목코드']} ({r['기업명']})" for _, r in display_df.iterrows()]
-            sel_opt = st.selectbox("#### 🎯 분석할 주도주 선택", opts)
+            sty_g = style_us_gainers_table(st.session_state.gainers_df)
+            if sty_g is not None:
+                st.dataframe(sty_g, use_container_width=True, height=420)
+            else:
+                st.dataframe(st.session_state.gainers_df, use_container_width=True, hide_index=True)
+            opts = ["🔍 종목 선택"] + [f"{r['종목코드']} ({r['기업명']})" for _, r in st.session_state.gainers_df.iterrows()]
+            sel_opt = st.selectbox("🎯 분석할 주도주 선택", opts)
             sel_tick = "N/A" if sel_opt == "🔍 종목 선택" else sel_opt.split(" ")[0]
         else:
             sel_tick = "N/A"
-            st.error("❌ 현재 급등주 데이터를 불러올 수 없습니다.")
+            sel_opt = "🔍 종목 선택"
+            st.error("❌ 현재 급등주 데이터를 불러올 수 없습니다. (장 마감 직후·주말이면 데이터가 없을 수 있어요) 새로고침을 눌러보세요.")
 
     with col_gain:
         st.subheader("🔗 3. 글로벌 밸류체인 & 갭상승 대응 시나리오")
@@ -4195,6 +4384,10 @@ elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
                         res = analyze_technical_pattern(q_name, q_code)
                         if res: draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="us_val_chain")
                         else: st.error("❌ 해당 종목 데이터를 불러올 수 없습니다.")
+        elif sel_tick != "N/A" and not api_key_input:
+            st.warning("⬅️ 왼쪽에서 종목은 선택됐어요. AI 밸류체인 분석을 보려면 사이드바에 API 키를 입력해주세요.")
+        else:
+            st.info("⬅️ 왼쪽 급등주 목록에서 분석할 종목을 선택하면, AI가 한국 수혜주와 대응 시나리오를 여기에 보여줍니다.")
 
 elif selected_menu == "🚨 당일 상/하한가 분석":
     st.subheader("🚨 오늘의 상/하한가 및 테마 분석")
