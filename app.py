@@ -1883,8 +1883,33 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         except:
             pass
 
-    # 5. 타이틀 조립: 업체명 / 테마 / 업종 / 현재가 / 상세진단 / RSI
-    card_title = f"{stock_name} / {core_theme} / {sector} / {fmt_price(curr)} / {align_status} / RSI: {rsi_val}"
+# 5. 타이틀 조립: 업체명 / 테마 / 업종 / 현재가 / (진단 / 상세진단 / 외인 / 기관 / RSI)
+    # RSI 소수점 정리 (84.0 형태)
+    try:
+        rsi_display = f"{float(tech_result.get('RSI', 0)):.1f}"
+    except (ValueError, TypeError):
+        rsi_display = str(tech_result.get('RSI', '-'))
+
+    # 외인/기관 수급 이모지+숫자만 깔끔하게 추출 (예: "💧-345,982", "🔥+329,151")
+    def _fmt_flow(raw):
+        s = str(raw)
+        if s in ("조회불가", "", "None"):
+            return "조회불가"
+        # "+329,151 (🔥매집)" / "-345,982 (💧매도)" → 부호 숫자만 추출
+        num_part = s.split(' (')[0].strip()
+        if num_part.startswith('-'):
+            return f"💧{num_part}"
+        elif num_part.startswith('+') or (num_part.replace(',', '').isdigit()):
+            return f"🔥{num_part}"
+        else:
+            return num_part
+
+    forgn_disp = _fmt_flow(tech_result.get('외인수급', '조회불가'))
+    inst_disp = _fmt_flow(tech_result.get('기관수급', '조회불가'))
+
+    # 진단(상태) / 상세진단(배열상태 앞부분) / 외인 / 기관 / RSI 를 괄호로 묶어 표시
+    detail_str = f"(진단: {status} ｜ 상세 진단: {align_status} ｜ 외인: {forgn_disp} ｜ 기관: {inst_disp} ｜ RSI: {rsi_display})"
+    card_title = f"{stock_name} / {core_theme} / {sector} / {fmt_price(curr)} / {detail_str}"
 
     # 6. 펼침막 생성 (하단 지표 삭제)
     with st.expander(card_title, expanded=is_expanded):
