@@ -28,6 +28,13 @@ try:
 except ImportError:
     HAS_PYPDF = False
 
+# [v7.0] 공매도/대차 등 한국시장 리스크 지표용 (pip install pykrx)
+try:
+    from pykrx import stock as pykrx_stock
+    HAS_PYKRX = True
+except Exception:
+    HAS_PYKRX = False
+
 # ==========================================
 # 0. 로컬 영구 저장소 (관심종목 유지용)
 # ==========================================
@@ -48,7 +55,7 @@ def save_watchlist(wl):
 # ==========================================
 # 1. 초기 설정 
 # ==========================================
-st.set_page_config(page_title="Jaemini PRO 터미널 v6.1", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Jaemini PRO 터미널 v7.0", layout="wide", page_icon="📈")
 st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
 
 st.markdown("""
@@ -1763,6 +1770,235 @@ def get_historical_data(ticker_code, days):
         
     return pd.DataFrame()
 
+# =====================================================================
+# [v7.0 신규] ① 멀티 타임프레임 — 주봉 추세 판정
+# 일봉 df를 주봉으로 리샘플링 → 주봉 이평선 배열로 큰 추세를 확인.
+# "일봉 타점 + 주봉 상승"이 겹칠 때 가짜 신호가 크게 줄어듭니다.
+# =====================================================================
+def get_weekly_trend(daily_df):
+    try:
+        if daily_df is None or daily_df.empty or len(daily_df) < 35:
+            return "❔ 주봉 데이터 부족"
+        # 일봉 OHLCV → 주봉(매주 금요일 기준) 리샘플링
+        wdf = daily_df.resample('W-FRI').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+        }).dropna()
+        if len(wdf) < 11:
+            return "❔ 주봉 데이터 부족"
+        wdf['WMA5'] = wdf['Close'].rolling(5).mean()
+        wdf['WMA10'] = wdf['Close'].rolling(10).mean()
+        wdf['WMA20'] = wdf['Close'].rolling(20).mean()
+        last = wdf.iloc[-1]
+        w5, w10, w20 = last['WMA5'], last['WMA10'], last['WMA20']
+        price = last['Close']
+        # 20주선이 없으면(데이터 짧음) 5/10주선만으로 판정
+        if pd.isna(w20):
+            if pd.notna(w5) and pd.notna(w10):
+                if price > w5 > w10: return "🔥 주봉 상승추세"
+                elif price < w5 < w10: return "❄️ 주봉 하락추세"
+            return "🌀 주봉 중립"
+        if w5 > w10 > w20: return "🔥 주봉 상승추세"
+        elif w5 < w10 < w20: return "❄️ 주봉 하락추세"
+        else: return "🌀 주봉 중립"
+    except Exception:
+        return "❔ 주봉 분석불가"
+
+
+# =====================================================================
+# [v7.0 신규] ② 시장 국면 대시보드 — "지금 매매해도 되는 장인가?"
+# KOSPI/KOSDAQ 지수의 이평선 배열·추세 + 시장 폭(상승/하락 종목 비율)으로
+# 🟢매수우호 / 🟡중립 / 🔴위험 신호등을 산출합니다.
+# =====================================================================
+@st.cache_data(ttl=900)
+def get_market_regime():
+    result = {}
+
+    def analyze_index(code, name):
+        try:
+            df = fdr.DataReader(code)
+            if df.empty or len(df) < 65:
+                return None
+            df = df.tail(120).copy()
+            df['MA5'] = df['Close'].rolling(5).mean()
+            df['MA20'] = df['Close'].rolling(20).mean()
+            df['MA60'] = df['Close'].rolling(60).mean()
+            last = df.iloc[-1]
+            ma20_prev = df['MA20'].iloc[-6]  # 5거래일 전 20일선 (기울기)
+            price, ma5, ma20, ma60 = last['Close'], last['MA5'], last['MA20'], last['MA60']
+            ma20_rising = ma20 > ma20_prev
+
+            # RSI(14)
+            delta = df['Close'].diff()
+            gain = delta.where(delta > 0, 0.0).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+            rs = gain / loss.replace(0, np.nan)
+            rsi = float((100 - (100 / (1 + rs))).iloc[-1])
+
+            # 점수화: 정배열·이평선 위·우상향일수록 가산
+            score = 0
+            if ma5 > ma20 > ma60: score += 2     # 완전 정배열
+            elif ma5 > ma20: score += 1
+            if price > ma20: score += 1
+            if ma20_rising: score += 1
+            if ma5 < ma20 < ma60: score -= 2     # 역배열
+            elif ma5 < ma20: score -= 1
+            if price < ma20: score -= 1
+
+            if score >= 3: light = "🟢"
+            elif score <= -2: light = "🔴"
+            else: light = "🟡"
+
+            pct = (price / df['Close'].iloc[-2] - 1) * 100 if len(df) > 1 else 0
+            return {
+                "name": name, "light": light, "score": score,
+                "price": float(price), "pct": float(pct), "rsi": rsi,
+                "ma20_rising": ma20_rising, "above_ma20": price > ma20,
+                "align": "정배열" if ma5 > ma20 > ma60 else ("역배열" if ma5 < ma20 < ma60 else "혼조"),
+            }
+        except Exception:
+            return None
+
+    result['KOSPI'] = analyze_index('KS11', 'KOSPI')
+    result['KOSDAQ'] = analyze_index('KQ11', 'KOSDAQ')
+
+    # 시장 폭(Breadth): 상승 vs 하락 종목 비율
+    breadth = None
+    try:
+        listing = fdr.StockListing('KOSPI')
+        chg_col = next((c for c in ['ChagesRatio', 'ChangesRatio', 'ChangeRatio', 'Changes'] if c in listing.columns), None)
+        if chg_col:
+            vals = pd.to_numeric(listing[chg_col], errors='coerce').dropna()
+            up = int((vals > 0).sum())
+            down = int((vals < 0).sum())
+            flat = int((vals == 0).sum())
+            total = up + down + flat
+            if total > 0:
+                breadth = {"up": up, "down": down, "flat": flat,
+                           "up_ratio": round(up / total * 100, 1)}
+    except Exception:
+        breadth = None
+    result['breadth'] = breadth
+
+    # 종합 신호등
+    scores = [v['score'] for k, v in result.items() if isinstance(v, dict) and 'score' in v]
+    avg = sum(scores) / len(scores) if scores else 0
+    if breadth:
+        if breadth['up_ratio'] >= 60: avg += 0.5
+        elif breadth['up_ratio'] <= 40: avg -= 0.5
+    if avg >= 2:
+        result['verdict'] = ("🟢", "매수 우호적인 장", "추세·타점 신호가 나오면 적극 대응 가능한 환경입니다.")
+    elif avg <= -1:
+        result['verdict'] = ("🔴", "위험 — 신규 진입 자제", "시장이 약합니다. 현금 비중을 늘리고 손절을 타이트하게 가져가세요.")
+    else:
+        result['verdict'] = ("🟡", "중립 / 혼조", "선별적으로만 대응하세요. 강한 신호(정배열+거래량+수급)만 골라 진입.")
+    return result
+
+
+def render_market_regime_banner():
+    """홈/경보 화면 상단에 시장 국면 신호등 배너를 그립니다."""
+    try:
+        reg = get_market_regime()
+    except Exception:
+        return
+    light, title, desc = reg.get('verdict', ("🟡", "데이터 지연", ""))
+    bg = {"🟢": "rgba(40,167,69,0.12)", "🟡": "rgba(255,193,7,0.12)", "🔴": "rgba(220,53,69,0.12)"}.get(light, "rgba(120,120,120,0.1)")
+    border = {"🟢": "#28a745", "🟡": "#ffc107", "🔴": "#dc3545"}.get(light, "#888")
+    st.markdown(
+        f"""<div style="background:{bg};border:1px solid {border};border-radius:10px;padding:12px 16px;margin-bottom:10px;">
+        <span style="font-size:20px;font-weight:700;">{light} 오늘의 시장 국면: {title}</span><br>
+        <span style="font-size:13px;color:#666;">{desc}</span></div>""",
+        unsafe_allow_html=True)
+    cols = st.columns(3)
+    for i, key in enumerate(['KOSPI', 'KOSDAQ']):
+        d = reg.get(key)
+        if isinstance(d, dict):
+            cols[i].metric(f"{d['light']} {d['name']} ({d['align']})",
+                           f"{d['price']:,.2f}", f"{d['pct']:+.2f}%")
+    b = reg.get('breadth')
+    if b:
+        cols[2].metric("📊 시장 폭 (상승종목 비율)", f"{b['up_ratio']}%",
+                       f"▲{b['up']} ▼{b['down']}", delta_color="off")
+
+
+# =====================================================================
+# [v7.0 신규] ③ 공매도 & 빚투(신용) 리스크 진단 — 한국 시장 특화
+# 공매도: pykrx로 거래 비중 + 잔고 비중 산출 (신뢰도 높음)
+# 신용잔고: 무료 공개 소스가 제한적이라 네이버 베스트에포트(환경 따라 조정 필요)
+# =====================================================================
+@st.cache_data(ttl=3600)
+def get_short_selling_risk(code):
+    if not str(code).isdigit() or not HAS_PYKRX:
+        return None
+    try:
+        today = datetime.now()
+        frm = (today - timedelta(days=40)).strftime("%Y%m%d")
+        to = today.strftime("%Y%m%d")
+
+        out = {}
+        # (1) 공매도 거래 비중 — 오늘 거래량 중 공매도 비율
+        try:
+            vol = pykrx_stock.get_shorting_volume_by_date(frm, to, code)
+            if vol is not None and not vol.empty and '비중' in vol.columns:
+                ratio = vol['비중'].dropna()  # 0~1 또는 % 형태 (라이브러리 버전차)
+                if not ratio.empty:
+                    latest = float(ratio.iloc[-1])
+                    avg5 = float(ratio.tail(5).mean())
+                    # 0~1 스케일이면 %로 변환
+                    if latest <= 1.5:
+                        latest *= 100; avg5 *= 100
+                    out['short_vol_ratio'] = round(latest, 2)
+                    out['short_vol_avg5'] = round(avg5, 2)
+                    out['short_vol_trend'] = "📈 증가" if latest > avg5 * 1.1 else ("📉 감소" if latest < avg5 * 0.9 else "➖ 유지")
+        except Exception:
+            pass
+
+        # (2) 공매도 잔고 비중 — 전체 주식 중 공매도로 잠긴 비율
+        try:
+            bal = pykrx_stock.get_shorting_balance_by_date(frm, to, code)
+            if bal is not None and not bal.empty and '비중' in bal.columns:
+                br = bal['비중'].dropna()
+                if not br.empty:
+                    out['short_bal_ratio'] = round(float(br.iloc[-1]), 2)
+                    if len(br) >= 5:
+                        out['short_bal_trend'] = "📈 증가" if br.iloc[-1] > br.tail(5).mean() else "📉 감소"
+        except Exception:
+            pass
+
+        if not out:
+            return None
+
+        # 위험도 종합 판정
+        svr = out.get('short_vol_ratio', 0)
+        sbr = out.get('short_bal_ratio', 0)
+        if svr >= 20 or sbr >= 3.0:
+            out['level'] = ("🔴", "공매도 과열 — 단기 하락 압력 큼 (단, 숏스퀴즈 반등 가능성도)")
+        elif svr >= 10 or sbr >= 1.5:
+            out['level'] = ("🟡", "공매도 보통 — 흐름 주시 필요")
+        else:
+            out['level'] = ("🟢", "공매도 부담 낮음")
+        return out
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600)
+def get_credit_balance_naver(code):
+    """신용잔고(빚투) 베스트에포트 스크래핑. 실패 시 None.
+    ※ 무료 소스가 불안정하여 환경에 따라 조정이 필요할 수 있습니다."""
+    if not str(code).isdigit():
+        return None
+    try:
+        url = f"https://finance.naver.com/item/coinfo.naver?code={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        text = BeautifulSoup(res.text, 'html.parser').get_text(separator=' ', strip=True)
+        m = re.search(r'신용[가-힣]*잔고[율]?\s*([0-9.]+)\s*%', text)
+        if m:
+            return {"credit_ratio": float(m.group(1))}
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=300)
 def get_advanced_chart_data(ticker_code, timeframe):
     is_us = not str(ticker_code).isdigit()
@@ -1850,6 +2086,9 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         if (ma20_val * 0.97) <= current_price <= (ma20_val * 1.03): status = "✅ 타점 근접 (분할 매수)"
         elif current_price > (ma20_val * 1.03): status = "⚠️ 이격 과다 (눌림목 대기)"
         else: status = "🛑 20일선 이탈 (관망)"
+
+        # [v7.0] 멀티 타임프레임: 주봉 추세 판정
+        weekly_trend = get_weekly_trend(analysis_df)
         
         is_us = not str(ticker_code).isdigit()
         if is_us:
@@ -1920,7 +2159,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "종목명": stock_name, "티커": ticker_code, "섹터": sector_val, "현재가": current_price, "상태": status,
             "진입가_가이드": ma20_val, "목표가1": target_1, "목표가2": target_2, "목표가3": target_3, "손절가": ma20_val * 0.97,
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
-            "RSI": latest['RSI'], "배열상태": align_status, 
+            "RSI": latest['RSI'], "배열상태": align_status, "주봉추세": weekly_trend,
             "기관수급": inst_vol, "외인수급": forgn_vol, "개인수급": ind_vol, "장중잠정수급": intraday_est,
             "기관연속순매수": inst_streak, "외인연속순매수": forgn_streak,
             "연기금추정순매수": pension_sum, "연기금연속순매수": pension_streak,
@@ -2070,88 +2309,28 @@ def render_single_stock_themes(stock_name: str, api_key: str):
 def show_beginner_guide():
     with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
         st.markdown("""
-### 1. 📊 차트 상태 — 이동평균선(이평선) 완전 정복
- 
-**이동평균선(이평선)이란?** 매일 출렁이는 주가를 보기 쉽게, *최근 며칠간의 평균 가격*을 이은 선입니다.
-- **5일선** = 최근 5일 평균 → 단기 흐름 *(요즘 분위기)*
-- **20일선** = 최근 20일 평균 → 중기 추세 *(이번 달 컨디션)* ← **이 앱에서 가장 중요!**
-- **60일선** = 최근 60일 평균 → 큰 추세 *(올해 체질)*
- 
-| 상태 | 기준 | 초보자 해석 |
-|---|---|---|
-| 🔥 **완벽 정배열** | `5일선 > 20일선 > 60일선` | 꾸준히 우상향. 올라타기 좋은 추세 |
-| ❄️ **역배열** | `5일선 < 20일선 < 60일선` | 떨어지는 칼날. 함부로 잡지 말 것 |
-| ✨ **5-20 골든크로스** | 5일선이 20일선을 *오늘* 상향 돌파 | 상승 전환의 첫 깃발 |
-| 🌀 **혼조세/횡보** | 이평선들이 서로 얽힘 | 방향 미정. 굳이 진입 X |
- 
----
- 
-### 2. ✅ 매매 타점 — "지금 사도 되는 자리인가?"
-이 앱은 **현재가와 20일선의 거리(%)** 로 매수 자리를 판정합니다.
- 
-| 화면 표시 | 기준 | 행동 |
-|---|---|---|
-| ✅ **타점 근접 (분할매수)** | 20일선 **±3% 이내** | 한 번에 X, **나눠서** 매수 |
-| ⚠️ **이격 과다 (눌림 대기)** | 20일선 **+3% 초과** | 추격 X, 내려올 때까지 대기 |
-| 🛑 **20일선 이탈 (관망)** | 20일선 **-3% 아래** | 지지 깨짐, 신규 매수 멈춤 |
- 
-> 💧 **눌림목:** 오르던 주식이 잠깐 쉬며 20일선까지 내려온 자리.
-> **상승 추세 + 눌림목**이 가장 좋은 매수 타이밍입니다.
-> 🛑 **손절가 = 20일선 -3%** 로 자동 계산됩니다. (매수와 동시에 손절선을 정하세요!)
- 
----
- 
-### 3. 📈 화면에 같이 뜨는 보조지표
-- **RSI (0~100):** 과열·과매도 온도계. **70↑ 과열 / 30↓ 과매도(낙폭과대)**
-- **🔥 거래량 급증:** 최근 10일 최대 거래량이 *20일 평균의 2배 초과*. 돈과 관심이 몰렸다는 신호
-- **🐋 수급:** 누가 사나? **기관·외인이 동시 순매수(쌍끌이)** 하면 강력 신호 (`+` = 그날 더 샀다는 뜻)
- 
-> 💡 핵심: **좋은 자리(타점) + 거래량/수급**이 겹칠 때가 진짜입니다. 가격만 보지 마세요.
+        ### 1. 📊 차트 상태 (상세 진단 기준 & 이평선)
+        * **이동평균선(이평선):** 일정 기간 동안의 주가 평균을 이은 선입니다.
+        * **🔥 완벽 정배열 (상승 추세):** `5일선 > 20일선 > 60일선`
+        * **❄️ 역배열 (하락 추세):** `5일선 < 20일선 < 60일선`
+        * **✨ 5-20 골든크로스:** 어제까지 아래에 있던 단기선이 중기선을 오늘 상향 돌파
         """)
 
 def show_trading_guidelines():
     with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=True):
         st.markdown("""
-*💡 스윙(swing) = 며칠~몇 주 들고 가는 단기 매매*
- 
-**🅰️ 안전 스윙 (목표 3일~2주)** · *초보 추천* 🥇
-`✅ 20일선 눌림목` + `🔥 거래량 급증`
-→ 상승 추세 종목이 20일선까지 눌렸을 때 반등을 노림. 손절선이 가까워 손실이 작음.
- 
-**🅱️ 추세 탑승 (목표 1일~5일)** · *변동성 큼*
-`✨ 정배열 초입 / 골든크로스` + `🔥 거래량 급증`
-→ 막 상승 전환한 종목에 빠르게 탑승. 안전 스윙에 익숙해진 뒤 도전.
- 
----
- 
-#### 📋 매수 전 4단계 체크리스트
-1. **추세** → 🔥정배열 또는 ✨골든크로스인가? *(역배열이면 패스)*
-2. **타점** → ✅타점 근접인가? *(이격 과다면 눌림목까지 대기)*
-3. **에너지** → 🔥거래량 터짐 / 🐋쌍끌이 수급이 있는가?
-4. **방어선** → 손절가(20일선 -3%)·목표가를 **사기 전에** 메모했는가?
- 
-> ✅ 3개 이상이면 진입. 손절·목표는 **무조건 정하고** 들어갑니다.
- 
----
- 
-#### 🔍 좋은 종목 찾는 법 (스캐너 추천 조합)
-**`✅ 20일선 눌림목` + `✨ 골든크로스/정배열` + `🔥 거래량 급증`** 3개 체크
-→ "상승 추세 + 지금 살 자리 + 돈 몰림" 종목만 추려집니다. (안전 스윙용)
-※ 조건이 많을수록 결과가 적어집니다. 처음엔 2~3개만 켜고 좁혀가세요.
- 
----
- 
-#### ⚠️ 초보자 5대 원칙
-1. **손절은 기계처럼** (20일선 -3% 닿으면 미련 없이)
-2. **분할 매수·분할 매도** (한 번에 다 사거나 팔지 않기)
-3. **몰빵 금지** (최소 3~5종목 분산)
-4. **역배열·관망은 쉰다** (안 건드리는 것도 실력)
-5. **앱은 보조도구** (확률 높은 자리일 뿐, 100%가 아님 / 잃어도 되는 돈으로)
- 
-> 📌 **한 줄 요약:** *정배열 종목이 20일선까지 눌렸을 때, 거래량·수급이 붙으면 분할 매수.
-> 손절 -3%, 익절은 1·2차 목표에서 분할.*
- 
-*⚠️ 본 자료는 교육용이며 특정 종목 매매를 권유하지 않습니다. 투자 책임은 본인에게 있습니다.*
+        *💡 단기 스윙 전략 가이드*
+        * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증` 
+        * 🅱️ **추세 탑승 (목표 1일~5일):** `✨정배열 초입` + `🔥거래량 급증` 
+
+        ---
+        **🆕 v7.0 강화 체크리스트 (이 순서로 확인하세요)**
+        0. 🚦 **시장 국면 먼저!** 홈 화면 신호등이 🔴면 신규 진입 자제 (장이 안 좋으면 좋은 종목도 떨어집니다)
+        1. 📈 일봉 추세(정배열/골든크로스) + ✅타점 근접인가?
+        2. 📅 **주봉도 상승추세인가?** → `🎯 일봉+주봉 합류` 배지가 뜨면 가짜 신호 확률↓ (신뢰도 최상)
+        3. 🔥 거래량/수급(쌍끌이)이 받쳐주는가?
+        4. 🩸 **공매도 비중**이 과하지 않은가? (🔴 과열이면 하락 압력 주의)
+        5. 🛑 손절가(20일선 -3%)·목표가를 **사기 전에** 정했는가?
         """)
 
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
@@ -2219,8 +2398,12 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     forgn_disp = _fmt_flow(tech_result.get('외인수급', '조회불가'))
     inst_disp = _fmt_flow(tech_result.get('기관수급', '조회불가'))
 
+    # [v7.0] 주봉 추세 (멀티 타임프레임)
+    weekly_trend = tech_result.get('주봉추세', '')
+    weekly_short = weekly_trend.split(' ')[0] if weekly_trend else ''
+
     # 진단(상태) / 상세진단(배열상태 앞부분) / 외인 / 기관 / RSI 를 괄호로 묶어 표시
-    detail_str = f"(진단: {status} ｜ 상세 진단: {align_status} ｜ 외인: {forgn_disp} ｜ 기관: {inst_disp} ｜ RSI: {rsi_display})"
+    detail_str = f"(진단: {status} ｜ 상세 진단: {align_status} ｜ 주봉: {weekly_short} ｜ 외인: {forgn_disp} ｜ 기관: {inst_disp} ｜ RSI: {rsi_display})"
     card_title = f"{stock_name} / {core_theme} / {sector} / {fmt_price(curr)} / {detail_str}"
 
     # 5. 펼침막 생성 (하단 지표 삭제)
@@ -2237,6 +2420,43 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             
         col_btn1, col_btn3 = st.columns([8, 2])
         col_btn1.markdown(f"**상세 진단:** {tech_result['배열상태']}")
+
+        # [v7.0] ① 멀티 타임프레임 합류 신호
+        wt = tech_result.get('주봉추세', '')
+        daily_bull = ("정배열" in str(tech_result.get('배열상태', ''))) or ("골든크로스" in str(tech_result.get('배열상태', '')))
+        good_entry = tech_result.get('상태', '') == "✅ 타점 근접 (분할 매수)"
+        if "상승추세" in wt:
+            if daily_bull and good_entry:
+                col_btn1.success(f"🎯 **일봉 타점 + {wt} 합류!** → 신뢰도 높은 자리 (가짜 신호 확률 ↓)")
+            else:
+                col_btn1.info(f"📅 큰 추세 양호: {wt} (일봉 신호 대기 중)")
+        elif "하락추세" in wt:
+            col_btn1.warning(f"📅 주의: {wt} — 큰 흐름이 하락입니다. 단기 반등도 보수적으로 접근하세요.")
+        elif wt:
+            col_btn1.caption(f"📅 주봉 추세: {wt}")
+
+        # [v7.0] ③ 공매도 & 빚투 리스크 (국내 주식만)
+        if str(tech_result.get('티커', '')).isdigit():
+            with col_btn1.expander("🩸 공매도 & 빚투(신용) 리스크 진단", expanded=False):
+                ss = get_short_selling_risk(tech_result['티커'])
+                cb = get_credit_balance_naver(tech_result['티커'])
+                if ss:
+                    lv_icon, lv_msg = ss.get('level', ("⚪", ""))
+                    st.markdown(f"**{lv_icon} 공매도 종합:** {lv_msg}")
+                    rc1, rc2, rc3 = st.columns(3)
+                    if 'short_vol_ratio' in ss:
+                        rc1.metric("오늘 공매도 비중", f"{ss['short_vol_ratio']}%",
+                                   ss.get('short_vol_trend', ''), delta_color="off")
+                    if 'short_vol_avg5' in ss:
+                        rc2.metric("5일 평균 비중", f"{ss['short_vol_avg5']}%")
+                    if 'short_bal_ratio' in ss:
+                        rc3.metric("공매도 잔고 비중", f"{ss['short_bal_ratio']}%",
+                                   ss.get('short_bal_trend', ''), delta_color="off")
+                    st.caption("💡 공매도 비중↑ = 하락 베팅 多. 단, 잔고가 과도하면 숏커버링(되사기) 반등이 나올 수도 있습니다.")
+                else:
+                    st.caption("공매도 데이터를 불러올 수 없습니다. (pykrx 미설치 또는 일시적 통신 지연)")
+                if cb and 'credit_ratio' in cb:
+                    st.markdown(f"**💳 신용잔고율:** {cb['credit_ratio']}% — 높을수록 빚투 과열(반대매매 위험) 신호")
         
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if not is_in_wl:
@@ -2525,8 +2745,9 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v6.1")
+    st.title("📈 Jaemini PRO v7.0")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
+    st.caption("🆕 v7.0: 주봉 멀티타임프레임 · 시장 국면 신호등 · 공매도/빚투 리스크")
     
     menu_options = [
         "📂 [ 홈 & 자산 관리 ]",
@@ -2607,6 +2828,10 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     fg_data = get_fear_and_greed()
     
     st.markdown("## 🎛️ 트레이딩 관제 센터 (Command Center)")
+
+    # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
+    render_market_regime_banner()
+
     m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
     def draw_gauge(val, prev, title, steps, is_error=False):
         if is_error: return go.Figure(go.Indicator(mode="gauge", value=50, title={'text': f"<b>{title}</b><br><span style='font-size:12px;color:red'>서버 통신 지연 (방어)</span>"}, gauge={'axis': {'range': [0, steps[-1]['range'][1]]}, 'bar': {'color': "gray"}}))
@@ -3296,7 +3521,7 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
         with col_c1: cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입"); cond_pullback = st.checkbox("✅ 20일선 눌림목 (타점 근접)", value=True)
         with col_c2: cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (낙폭과대)"); cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 의심)")
         with col_c3: cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수")
-        with col_c4: cond_pension = st.checkbox("👴 기관 3일 연속 순매수")
+        with col_c4: cond_pension = st.checkbox("👴 기관 3일 연속 순매수"); cond_weekly = st.checkbox("📅 주봉도 상승 추세만 (멀티TF)")
         
         scan_limit = st.selectbox("스캔할 상위 종목 수", [50, 100, 200, 300], index=3)
         
@@ -3322,6 +3547,7 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                             if cond_vol_spike and res['거래량 급증'] != "🔥 거래량 터짐": return None
                             if cond_twin_buy and ("+" not in str(res['기관수급']) or "+" not in str(res['외인수급'])): return None
                             if cond_pension and res.get('연기금연속순매수', 0) < 3: return None
+                            if cond_weekly and "상승추세" not in str(res.get('주봉추세', '')): return None
                             return res
                         return None
                     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -3837,7 +4063,21 @@ elif selected_menu == "🚨 당일 상/하한가 분석":
 
 elif selected_menu == "🚦 거래량 급증 & 시장 경보":
     st.markdown("## 🚦 거래량 급증/급감 & 투자자 보호(시장경보)")
-    tab_vol, tab_warn = st.tabs(["📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
+    tab_regime, tab_vol, tab_warn = st.tabs(["🚦 오늘 매매해도 될까? (시장 국면)", "📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
+
+    with tab_regime:
+        st.markdown("### 🚦 시장 국면 신호등")
+        st.caption("개별 종목 신호가 아무리 좋아도 시장 전체가 약하면 승률이 떨어집니다. 먼저 '장'부터 확인하세요.")
+        with st.spinner("KOSPI/KOSDAQ 지수 추세와 시장 폭을 분석 중입니다..."):
+            render_market_regime_banner()
+        with st.expander("📖 신호등 읽는 법", expanded=False):
+            st.markdown("""
+- **🟢 매수 우호:** 지수가 20일선 위 + 우상향(정배열). 추세·타점 신호가 나오면 적극 대응 OK.
+- **🟡 중립/혼조:** 방향 불분명. 강한 신호(정배열+거래량+수급)만 선별 진입.
+- **🔴 위험/관망:** 지수 역배열 또는 20일선 이탈. 신규 진입 자제, 현금 비중↑, 손절 타이트하게.
+- **📊 시장 폭(Breadth):** 오른 종목 비율. **60%↑면 강세장**, 40%↓면 약세장으로 봅니다.
+            """)
+
     with tab_vol:
         with st.spinner("데이터 스크래핑 중..."): surge_df, drop_df = get_volume_surge_drop()
         c_surge, c_drop = st.columns(2)
