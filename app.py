@@ -436,127 +436,140 @@ def analyze_theme_trends():
 
 
 @st.cache_data(ttl=3600)
+def _clean_ipo_df(df):
+    """IPO 표 후처리: 가비지 행 제거 + 공모가 정제 + 종목명 기준 중복 제거."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.copy()
+    base_cols = ['시장', '종목명', '청약일정', '상장일', '공모가', '주관사', '경쟁률', '업종']
+    for c in base_cols:
+        if c not in df.columns:
+            df[c] = '-'
+    df = df[base_cols]
+    for c in base_cols:
+        df[c] = df[c].astype(str).str.strip().replace({'nan': '-', 'None': '-', '': '-'})
+
+    # 1) 가비지 행 제거: 종목명이 설명문장(너무 길거나 안내 키워드 포함)인 경우
+    df = df[df['종목명'].str.len().between(1, 25)]
+    df = df[~df['종목명'].str.contains('공모함|수요예측|기관투자|파악|결정됨|청약을|투자자의', na=False)]
+
+    # 2) 공모가 정제: 가격 패턴만 인정, 설명문장이면 '-'
+    def clean_price(v):
+        s = str(v).strip()
+        if not s or s == '-':
+            return '-'
+        if re.search(r'결정|파악|수요|공모함|기관|투자자', s):
+            return '-'
+        if re.search(r'[가-힣]{4,}', s):  # 한글이 길게 이어지면 가격이 아님
+            return '-'
+        m = re.search(r'[\d,]+\s*[~∼\-]?\s*[\d,]*\s*원?', s)
+        return m.group(0).strip() if m else '-'
+    df['공모가'] = df['공모가'].apply(clean_price)
+
+    # 3) 종목명 기준 중복 제거 — 실데이터(비 '-')가 많은 행을 우선 보존
+    def score(row):
+        return sum(1 for c in ['청약일정', '상장일', '공모가', '주관사', '경쟁률', '업종']
+                   if str(row[c]).strip() not in ('-', '', 'nan'))
+    df['_score'] = df.apply(score, axis=1)
+    df = (df.sort_values('_score', ascending=False)
+            .drop_duplicates(subset=['종목명'], keep='first')
+            .drop(columns=['_score'])
+            .reset_index(drop=True))
+    return df.head(20)
+
+
+@st.cache_data(ttl=3600)
 def get_naver_ipo_data():
-    try:
-        url = "https://finance.naver.com/sise/ipo.naver"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
-        html_text = res.content.decode('euc-kr', 'replace')
-        
-        soup = BeautifulSoup(html_text, 'html.parser')
-        rows = []
-        
-        for tag in soup.find_all(string=re.compile('공모가|상장일')):
-            container = tag.find_parent(['table', 'tbody', 'dl', 'ul', 'div'])
-            if not container or getattr(container, 'processed', False): continue
-            
-            if len(container.get_text()) > 1000: continue
-            
-            container.processed = True
-            text_tokens = [t.strip() for t in container.stripped_strings if t.strip()]
-            
-            name = "이름없음"
-            name_tag = container.find_previous(['h3', 'h4', 'h5', 'strong'])
-            if name_tag: name = name_tag.get_text(separator=' ', strip=True)
-            elif text_tokens: name = text_tokens[0]
-            name = re.sub(r'\[.*?\]', '', name).strip()
-            
-            market = "-"
-            name_clean = name.strip()
-            if name_clean.startswith("코스닥"):
-                market = "코스닥"
-                name = name_clean[3:].strip()
-            elif name_clean.startswith("유가증권"):
-                market = "유가증권"
-                name = name_clean[4:].strip()
-            elif name_clean.startswith("코넥스"):
-                market = "코넥스"
-                name = name_clean[3:].strip()
-            
-            row_data = {'시장': market, '종목명': name, '청약일정': '-', '상장일': '-', '공모가': '-', '주관사': '-', '경쟁률': '-', '업종': '-'}
-            
-            for i, token in enumerate(text_tokens):
-                for key, mapped_key in [('공모가', '공모가'), ('업종', '업종'), ('주관사', '주관사'), ('주간사', '주관사'), 
-                                        ('경쟁률', '경쟁률'), ('개인청약', '청약일정'), ('청약일', '청약일정'), ('상장일', '상장일')]:
-                    if key in token:
-                        val = token.replace(key, '', 1).replace(':', '').strip()
-                        if val: row_data[mapped_key] = val
-                        elif i + 1 < len(text_tokens): row_data[mapped_key] = text_tokens[i+1]
-                        
-            if row_data['공모가'] != '-' or row_data['상장일'] != '-':
-                rows.append(row_data)
-                
-        if rows:
-            return pd.DataFrame(rows).head(15)
-            
-        tables = pd.read_html(StringIO(html_text))
-        for t in tables:
-            t_str = t.to_string()
-            if '공모가' in t_str and ('청약' in t_str or '상장일' in t_str):
-                name_col = None
-                for c in t.columns:
-                    if any(k in str(c) for k in ['종목', '기업', '회사']): name_col = c; break
-                if not name_col: name_col = t.columns[0] 
-                
-                t = t.dropna(subset=[name_col]).copy()
-                t = t[t[name_col].astype(str) != str(name_col)] 
-                
-                res_df = pd.DataFrame()
-                
-                def extract_market(x):
-                    x_str = str(x).replace(" ", "")
-                    if x_str.startswith("코스닥"): return "코스닥"
-                    if x_str.startswith("유가증권"): return "유가증권"
-                    if x_str.startswith("코넥스"): return "코넥스"
-                    return "-"
-                  
-                def clean_name(x):
-                    x_str = str(x).strip()
-                    if x_str.startswith("코스닥"): return x_str[3:].strip()
-                    if x_str.startswith("유가증권"): return x_str[4:].strip()
-                    if x_str.startswith("코넥스"): return x_str[3:].strip()
-                    return x_str
+    # [v7.0] 소스 우선순위: 표 기반(38.co.kr → 네이버 read_html) → 문자열 스크래핑(최후).
+    # 어느 소스든 _clean_ipo_df로 중복/가비지를 제거한 뒤 반환.
 
-                res_df['시장'] = t[name_col].apply(extract_market)
-                res_df['종목명'] = t[name_col].apply(clean_name)
-                
-                for col in t.columns:
-                    c_str = str(col).replace(' ', '')
-                    if '청약' in c_str: res_df['청약일정'] = t[col]
-                    elif '상장일' in c_str: res_df['상장일'] = t[col]
-                    elif '공모가' in c_str: res_df['공모가'] = t[col]
-                    elif '주관' in c_str or '주간' in c_str: res_df['주관사'] = t[col]
-                    elif '경쟁률' in c_str: res_df['경쟁률'] = t[col]
-                    elif '업종' in c_str: res_df['업종'] = t[col]
-                    
-                for req_col in ['청약일정', '상장일', '공모가', '주관사', '경쟁률', '업종']:
-                    if req_col not in res_df.columns: res_df[req_col] = '-'
-                    
-                return res_df.head(15).reset_index(drop=True)
-
-    except Exception: pass
-    
+    # ── 소스 A: 38커뮤니케이션 공모청약 일정 (가장 깔끔한 표) ──
     try:
         url = "http://www.38.co.kr/html/fund/index.htm?o=k"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
         res.encoding = 'euc-kr'
         tables = pd.read_html(StringIO(res.text))
         for t in tables:
-            if '기업명' in t.columns and '공모청약일' in t.columns:
-                df = t.dropna(subset=['기업명', '공모청약일']).copy()
-                df = df[df['기업명'] != '기업명']
+            cols = [str(c) for c in t.columns]
+            if any('기업명' in c or '종목명' in c for c in cols):
+                t = t.copy()
+                t.columns = cols
+                def pick(cands):
+                    for c in cols:
+                        if any(k in c for k in cands):
+                            return c
+                    return None
+                name_c = pick(['기업명', '종목명'])
+                if not name_c:
+                    continue
                 res_df = pd.DataFrame()
-                res_df['시장'] = "-" 
-                res_df['종목명'] = df['기업명']
-                res_df['청약일정'] = df['공모청약일']
-                res_df['상장일'] = "-"
-                res_df['공모가'] = df['확정공모가'] if '확정공모가' in df.columns else "-"
-                res_df['주관사'] = df['주간사'] if '주간사' in df.columns else "-"
-                res_df['경쟁률'] = "-"
-                res_df['업종'] = "-"
-                if not res_df.empty: return res_df.head(15).reset_index(drop=True)
-    except Exception: pass
-    
+                res_df['시장'] = '-'
+                res_df['종목명'] = t[name_c]
+                sub_c = pick(['공모청약일', '청약일', '청약'])
+                res_df['청약일정'] = t[sub_c] if sub_c else '-'
+                list_c = pick(['상장일', '상장'])
+                res_df['상장일'] = t[list_c] if list_c else '-'
+                price_c = pick(['확정공모가', '공모가'])
+                res_df['공모가'] = t[price_c] if price_c else '-'
+                mgr_c = pick(['주간사', '주관사'])
+                res_df['주관사'] = t[mgr_c] if mgr_c else '-'
+                comp_c = pick(['경쟁률'])
+                res_df['경쟁률'] = t[comp_c] if comp_c else '-'
+                ind_c = pick(['업종', '업태'])
+                res_df['업종'] = t[ind_c] if ind_c else '-'
+                cleaned = _clean_ipo_df(res_df)
+                if not cleaned.empty:
+                    return cleaned
+    except Exception:
+        pass
+
+    # ── 소스 B: 네이버 IPO 표 (read_html) ──
+    try:
+        url = "https://finance.naver.com/sise/ipo.naver"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        html_text = res.content.decode('euc-kr', 'replace')
+        tables = pd.read_html(StringIO(html_text))
+        for t in tables:
+            t_str = t.to_string()
+            if '공모가' in t_str and ('청약' in t_str or '상장일' in t_str):
+                cols = [str(c) for c in t.columns]
+                t = t.copy(); t.columns = cols
+                name_col = next((c for c in cols if any(k in c for k in ['종목', '기업', '회사'])), cols[0])
+                t = t.dropna(subset=[name_col]).copy()
+                t = t[t[name_col].astype(str) != str(name_col)]
+
+                def extract_market(x):
+                    x = str(x).replace(' ', '')
+                    for m in ['코스닥', '유가증권', '코넥스']:
+                        if x.startswith(m):
+                            return m
+                    return '-'
+                def clean_name(x):
+                    x = str(x).strip()
+                    for m in ['코스닥', '유가증권', '코넥스']:
+                        if x.startswith(m):
+                            return x[len(m):].strip()
+                    return x
+
+                res_df = pd.DataFrame()
+                res_df['시장'] = t[name_col].apply(extract_market)
+                res_df['종목명'] = t[name_col].apply(clean_name)
+                for col in cols:
+                    c = col.replace(' ', '')
+                    if '청약' in c: res_df['청약일정'] = t[col]
+                    elif '상장일' in c: res_df['상장일'] = t[col]
+                    elif '공모가' in c: res_df['공모가'] = t[col]
+                    elif '주관' in c or '주간' in c: res_df['주관사'] = t[col]
+                    elif '경쟁률' in c: res_df['경쟁률'] = t[col]
+                    elif '업종' in c: res_df['업종'] = t[col]
+                cleaned = _clean_ipo_df(res_df)
+                if not cleaned.empty:
+                    return cleaned
+    except Exception:
+        pass
+
     return pd.DataFrame()
+
 
 @st.cache_data(ttl=86400)
 def get_dividend_portfolio(ex_rate):
@@ -1735,6 +1748,28 @@ def style_us_gainers_table(df):
             sty = sty.map(color_str, subset=[c])
     sty = sty.set_properties(**{'font-size': '13px'})
     sty = sty.set_properties(subset=['기업명'], **{'font-weight': '600'})
+    return sty
+
+
+# [v7.0] IPO 표 — 청약 예정(일정 있는) 종목 강조 + 종목명 굵게
+def style_ipo_table(df):
+    if df is None or df.empty:
+        return None
+    out = df.copy().reset_index(drop=True)
+    out.index = out.index + 1
+    out.index.name = 'No'
+
+    def highlight_active(row):
+        active = str(row.get('청약일정', '-')).strip() not in ('-', '', 'nan')
+        bg = 'background-color: rgba(46,134,222,0.08);' if active else ''
+        return [bg] * len(row)
+
+    sty = out.style.apply(highlight_active, axis=1)
+    sty = sty.set_properties(**{'font-size': '13px'})
+    sty = sty.set_properties(subset=['종목명'], **{'font-weight': '700'})
+    for c in ['청약일정', '상장일', '공모가', '경쟁률']:
+        if c in out.columns:
+            sty = sty.set_properties(subset=[c], **{'text-align': 'center'})
     return sty
 
 
@@ -3867,11 +3902,27 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
         with st.spinner("최신 IPO 일정을 파싱 중입니다..."):
             ipo_df = get_naver_ipo_data()
         if not ipo_df.empty:
-            st.dataframe(ipo_df, use_container_width=True, hide_index=True)
-            if api_key_input and st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
-                st.success(ask_gemini(f"다음 상장 일정: {ipo_df[['종목명', '청약일정']].to_string()}\n따상 가능성 높은 1~2개 꼽고 이유 3줄 평가.", api_key_input))
-        else: 
-            st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다.")
+            active_n = (ipo_df['청약일정'].astype(str).str.strip().replace({'nan': '-'}) != '-').sum()
+            st.caption(f"📋 총 {len(ipo_df)}개 종목 · 청약 일정 확정 {active_n}개 (파란 음영) ｜ "
+                       "**공모가**=주식을 처음 파는 가격, **청약**=상장 전 미리 사겠다고 신청, "
+                       "**경쟁률**=청약 경쟁 정도(높을수록 인기), **따상**=상장일 시초가 2배+상한가")
+            sty_ipo = style_ipo_table(ipo_df)
+            if sty_ipo is not None:
+                st.dataframe(sty_ipo, use_container_width=True, height=460)
+            else:
+                st.dataframe(ipo_df, use_container_width=True, hide_index=True)
+            if api_key_input:
+                if st.button("🤖 AI 공모주 옥석 가리기", type="primary"):
+                    with st.spinner("AI가 공모주를 분석 중입니다..."):
+                        ai_cols = [c for c in ['종목명', '청약일정', '공모가', '경쟁률', '업종'] if c in ipo_df.columns]
+                        st.success(ask_gemini(
+                            f"다음은 예정된 IPO 공모주 목록입니다:\n{ipo_df[ai_cols].to_string()}\n"
+                            "이 중 상장일 '따상(시초가 2배+상한가)' 가능성이 높은 1~2개를 꼽고, "
+                            "업종 매력도·경쟁률·시장 분위기를 근거로 각 3줄 이내로 평가해줘.", api_key_input))
+            else:
+                st.info("💡 사이드바에 API 키를 입력하면 'AI 공모주 옥석 가리기'로 따상 후보를 분석할 수 있어요.")
+        else:
+            st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다. (주말·연휴엔 비어 있을 수 있어요)")
 
 elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
     st.markdown("## 🚀 실시간 조건 검색 및 1년 백테스팅 시뮬레이터")
