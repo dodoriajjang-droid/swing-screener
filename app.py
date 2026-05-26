@@ -3577,6 +3577,97 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
     ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
     
     with ana_tab1:
+        # --- 🌟 커스텀 분석 카드 렌더링 (2번 이미지 스타일) 함수 ---
+        def render_custom_analysis_card(res, is_us, stock_name, ticker_code):
+            def metric_card_local(title, value, delta=None, is_red=False, is_green=False):
+                bg_color = "rgba(100, 100, 100, 0.05)"
+                border_color = "#888"
+                if is_red:
+                    bg_color = "rgba(220, 38, 38, 0.08)"
+                    border_color = "#dc2626"
+                elif is_green:
+                    bg_color = "rgba(22, 163, 74, 0.08)"
+                    border_color = "#16a34a"
+                delta_html = f"<div style='font-size:0.85em; margin-top:5px; color:#555;'>{delta}</div>" if delta else ""
+                return f"<div style='background-color: {bg_color}; padding: 15px; border-radius: 8px; border-left: 4px solid {border_color}; margin-bottom: 10px;'><div style='font-size:0.9em; color:#555; font-weight:bold;'>{title}</div><div style='font-size:1.6em; font-weight:bold; font-family:\"JetBrains Mono\", monospace; margin-top:5px;'>{value}</div>{delta_html}</div>"
+
+            def fmt_price_local(p, is_delta=False):
+                try:
+                    val = float(p)
+                    prefix = "+" if is_delta and val > 0 else ""
+                    return f"{prefix}${val:,.2f}" if is_us else f"{prefix}{int(val):,}원"
+                except:
+                    return str(p)
+
+            # 1. 펼침막 형태의 일별 시세 및 매매동향 표 (2번 이미지 상단)
+            with st.expander(f"⭐ 관심종목: (1개 종목) - [{ticker_code}] {stock_name}", expanded=True):
+                with st.spinner("최신 수급 데이터 로딩 중..."):
+                    daily_df = get_daily_sise_and_investor(ticker_code)
+                    if not daily_df.empty:
+                        st.dataframe(daily_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("해당 종목의 일별 수급 데이터를 제공하지 않습니다.")
+
+            # 2. 기술적 분석 및 수급 카드 (2번 이미지 하단)
+            c1, c2, c3, c4 = st.columns(4)
+            curr = res['현재가']
+            c1.metric("📌 진입 기준가", fmt_price_local(res['진입가_가이드']), fmt_price_local(res['진입가_가이드'] - curr, True) + " (대비)", delta_color="off")
+            c2.metric("🎯 1차 (볼밴상단)", fmt_price_local(res['목표가1']), fmt_price_local(res['목표가1'] - curr, True), delta_color="normal")
+            c3.metric("🚀 2차 (스윙전고)", fmt_price_local(res['목표가2']), fmt_price_local(res['목표가2'] - curr, True), delta_color="normal")
+            c4.metric("🌌 3차 (오버슈팅)", fmt_price_local(res['목표가3']), fmt_price_local(res['목표가3'] - curr, True), delta_color="normal")
+            
+            st.markdown("---")
+            
+            c5, c6, c7, c8 = st.columns([1.2, 1.2, 1, 2.5]) 
+            
+            with c5:
+                st.markdown(metric_card_local("🛑 손절 라인", fmt_price_local(res['손절가']), fmt_price_local(res['손절가'] - curr, True) + " (리스크)", is_green=True), unsafe_allow_html=True)
+            
+            with c6:
+                targets_html = f"""
+                <div style='background-color: rgba(100, 100, 100, 0.05); padding: 15px; border-radius: 8px; border-left: 4px solid #888; margin-bottom: 10px;'>
+                    <div style='font-size:0.9em; color:#555; font-weight:bold;'>🎯 목표 도달 현황</div>
+                    <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top:10px;'>
+                        <div>
+                            <div style='font-size:0.75em; color:#555;'>1차 목표</div>
+                            <div style='font-size:1.1em; font-weight:bold; color:#16a34a;'>{fmt_price_local(res['목표가1'])}</div>
+                        </div>
+                        <div>
+                            <div style='font-size:0.75em; color:#555;'>현재 달성률</div>
+                            <div style='font-size:1.1em; font-weight:bold; color:#16a34a;'>{int((curr/res['목표가1'])*100) if res['목표가1'] > 0 else 0}%</div>
+                        </div>
+                        <div>
+                            <div style='font-size:0.75em; color:#555;'>2차 목표</div>
+                            <div style='font-size:1.1em; font-weight:bold; color:#ff9800;'>{fmt_price_local(res['목표가2'])}</div>
+                        </div>
+                        <div>
+                            <div style='font-size:0.75em; color:#555;'>현재 달성률</div>
+                            <div style='font-size:1.1em; font-weight:bold; color:#ff9800;'>{int((curr/res['목표가2'])*100) if res['목표가2'] > 0 else 0}%</div>
+                        </div>
+                    </div>
+                </div>
+                """
+                st.markdown(targets_html, unsafe_allow_html=True)
+
+            with c7:
+                st.markdown(metric_card_local("📊 RSI (상대강도)", f"{res['RSI']:.1f}", "🔵 과열" if res['RSI'] >= 70 else "🔴 바닥" if res['RSI'] <= 30 else "⚪ 보통"), unsafe_allow_html=True)
+            
+            with c8: 
+                inst_val = res.get('기관수급', '조회불가')
+                forgn_val = res.get('외인수급', '조회불가')
+                info_html = f"""
+                <div style='background-color: rgba(100, 100, 100, 0.05); padding: 15px; border-radius: 8px; border-left: 4px solid #888; margin-bottom: 10px;'>
+                    <div style='font-size:0.9em; color:#555; font-weight:bold;'>🕵️ 당시 수급 동향 (5일 누적)</div>
+                    <div style='margin-top:10px; font-size:0.9em; color:#333; line-height:1.5;'>
+                        외국인: <span style='color:#dc2626;'>{forgn_val}</span> ｜ 기관: <span style='color:#dc2626;'>{inst_val}</span><br>
+                        기관 매집 강도: <span style='color:#dc2626; font-weight:bold;'>{'높음' if '+' in str(inst_val) else '낮음'}</span> ｜ 외인 매집 강도: <span style='color:#dc2626; font-weight:bold;'>{'높음' if '+' in str(forgn_val) else '낮음'}</span>
+                    </div>
+                    <div style='margin-top:10px; font-size:0.8em; color:#666;'>※ 본 분석은 기술적 및 수급 패턴에 기반한 데이터로 실제 투자 결과와는 다를 수 있습니다.</div>
+                </div>
+                """
+                st.markdown(info_html, unsafe_allow_html=True)
+        # --- 🌟 커스텀 분석 카드 함수 종료 ---
+
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
@@ -3591,11 +3682,11 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                     with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
                         res = analyze_technical_pattern(searched_name, searched_code)
                         if res: 
-                            # 🌟 다중 테마 뷰어 출력 (국내 주식) 🌟
+                            # 🌟 다중 테마 뷰어 출력
                             render_single_stock_themes(searched_name, api_key_input)
-                            
-                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                        else: st.error("❌ 데이터 로드 실패")
+                            # 🌟 2번 이미지 스타일 카드 렌더링
+                            render_custom_analysis_card(res, is_us=False, stock_name=searched_name, ticker_code=searched_code)
+                else: st.error("❌ 데이터 로드 실패")
         else:
             col_us1, col_us2 = st.columns([8, 2])
             with col_us1: us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
@@ -3610,13 +3701,16 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                 analyze_btn = st.button("📊 분석 시작", use_container_width=True)
                 if analyze_btn and sel_us_opt != "선택하세요":
                     us_ticker = sel_us_opt.split(" ")[0]
+                    us_name = sel_us_opt.split(" (")[1].split(" /")[0]
                     with st.spinner(f"📡 '{us_ticker}' 분석 중..."):
                         res = analyze_technical_pattern(us_ticker, us_ticker)
                         if res: 
-                            # 🌟 다중 테마 뷰어 출력 (미국 주식) 🌟
+                            # 🌟 다중 테마 뷰어 출력
                             render_single_stock_themes(us_ticker, api_key_input)
-                            
-                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
+                            # 🌟 2번 이미지 스타일 카드 렌더링
+                            render_custom_analysis_card(res, is_us=True, stock_name=us_name, ticker_code=us_ticker)
+
+    with ana_tab2:
 
     with ana_tab2:
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
