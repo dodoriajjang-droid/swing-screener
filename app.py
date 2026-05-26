@@ -940,6 +940,132 @@ def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
         return validated[:20]
     except Exception: return []
 
+
+# ==========================================
+# [추가] 멀티팩터 가치/성장 스캐너 v2
+#   - 위험성향 3단계 × 세부전략 9종, PER·PBR·배당·ROE·부채·성장·모멘텀 사용
+#   - PER/PBR/모멘텀은 하드 필터(신뢰도 높은 데이터), 나머지는 소프트(값 있을 때만 탈락)
+# ==========================================
+VALUE_STRATEGIES = {
+    "🛡️ 안전/방어": [
+        {"name": "그레이엄 딥밸류 (안전마진)", "per": 10, "pbr": 1.0, "div": None, "roe": None, "debt": None, "growth": None, "mom": None,
+         "desc": "초저 PER·PBR + 흑자. 자산가치 대비 싼 종목.",
+         "hint": "저평가 자산가치주, 청산가치 근처의 안전마진이 큰 흑자 기업"},
+        {"name": "고배당 방어주 (인컴)", "per": 15, "pbr": 2.0, "div": 4.0, "roe": None, "debt": 150, "growth": None, "mom": None,
+         "desc": "배당 4%+ , 부채 적고 현금흐름 안정적인 방어주.",
+         "hint": "배당수익률이 높고 부채가 적으며 현금흐름이 안정적인 방어적 고배당주"},
+        {"name": "퀄리티 우량주 (버핏형 해자)", "per": 25, "pbr": 6.0, "div": None, "roe": 15, "debt": 150, "growth": None, "mom": None,
+         "desc": "높은 ROE + 독점력(해자) + 낮은 부채의 컴파운더.",
+         "hint": "높은 ROE와 경제적 해자, 브랜드/독점력을 가진 우량 기업"},
+    ],
+    "⚖️ 중립/균형": [
+        {"name": "GARP 합리적 성장 (피터 린치)", "per": 20, "pbr": 3.0, "div": None, "roe": 12, "debt": None, "growth": 10, "mom": None,
+         "desc": "합리적 PER에 이익 성장(낮은 PEG)을 겸비.",
+         "hint": "이익이 꾸준히 성장하면서 PER이 성장률 대비 합리적인 GARP 종목"},
+        {"name": "마법공식 (그린블라트)", "per": 15, "pbr": None, "div": None, "roe": 15, "debt": None, "growth": None, "mom": None,
+         "desc": "높은 자본수익률(ROE) + 높은 이익수익률(저 PER) 결합.",
+         "hint": "자본수익률(ROE/ROIC)이 높고 이익수익률(저PER)도 높은 마법공식형 저평가 우량주"},
+        {"name": "배당성장주 (디비던드 그로스)", "per": 20, "pbr": 4.0, "div": 2.0, "roe": 12, "debt": None, "growth": 8, "mom": None,
+         "desc": "배당 2%+ 와 이익 성장을 함께 가진 복리 배당주.",
+         "hint": "배당을 꾸준히 늘려온 이익 성장형 배당성장주"},
+    ],
+    "🚀 공격/성장": [
+        {"name": "모멘텀 성장주 (강세 추세)", "per": 60, "pbr": None, "div": None, "roe": None, "debt": None, "growth": 15, "mom": "strong",
+         "desc": "강한 가격 모멘텀(3·6개월 상승) + 고성장. PER 관대.",
+         "hint": "매출·이익이 고성장하며 주가가 강한 상승 추세(신고가 부근)인 모멘텀 주도주"},
+        {"name": "턴어라운드 역발상 (바닥 탈출)", "per": None, "pbr": 1.5, "div": None, "roe": None, "debt": None, "growth": None, "mom": "weak",
+         "desc": "52주 고점 대비 크게 하락 + 저 PBR. 실적 바닥 반등 기대.",
+         "hint": "실적/주가가 바닥을 치고 턴어라운드가 기대되는 낙폭과대 저평가 역발상 종목"},
+        {"name": "중소형 폭발 성장주 (스몰캡)", "per": 50, "pbr": None, "div": None, "roe": None, "debt": None, "growth": 20, "mom": "strong",
+         "desc": "코스닥 중소형 고성장 + 강세 모멘텀. 고위험·고수익.",
+         "hint": "시가총액이 작지만 폭발적 성장과 강한 모멘텀을 가진 코스닥 중소형 성장주"},
+    ],
+}
+
+@st.cache_data(ttl=3600)
+def get_value_metrics(code):
+    """멀티팩터 스캐너용 지표 수집. 반환 dict: per,pbr,div,roe,debt,growth,mom3,mom6,off_high"""
+    out = {"per": None, "pbr": None, "div": None, "roe": None, "debt": None,
+           "growth": None, "mom3": None, "mom6": None, "off_high": None}
+    # 1) PER/PBR (네이버 - 신뢰도 높음)
+    try:
+        per_str, pbr_str, _, _, _ = get_fundamentals(code)
+        def _f(x):
+            try:
+                v = float(str(x).replace(",", ""))
+                return v if v != 0 else None
+            except Exception:
+                return None
+        out["per"], out["pbr"] = _f(per_str), _f(pbr_str)
+    except Exception:
+        pass
+    # 2) ROE/배당/부채/성장 (yfinance - KR 커버리지 편차 있어 소프트 처리)
+    try:
+        t = yf.Ticker(f"{code}.KS")
+        info = t.info
+        if not info or (info.get("currentPrice") is None and info.get("regularMarketPrice") is None):
+            t = yf.Ticker(f"{code}.KQ")
+            info = t.info
+        def _pct(v):
+            if v is None:
+                return None
+            v = float(v)
+            return round(v * 100, 1) if abs(v) < 5 else round(v, 1)
+        out["roe"] = _pct(info.get("returnOnEquity"))
+        out["growth"] = _pct(info.get("earningsGrowth"))
+        dy = info.get("dividendYield")
+        if dy is not None:
+            dy = float(dy)
+            out["div"] = round(dy * 100, 2) if dy < 1 else round(dy, 2)
+        de = info.get("debtToEquity")
+        out["debt"] = round(float(de), 1) if de is not None else None
+    except Exception:
+        pass
+    # 3) 모멘텀 (fdr 가격 - 신뢰도 높음)
+    try:
+        end = datetime.now()
+        start = end - timedelta(days=400)
+        df = fdr.DataReader(code, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+        if df is not None and not df.empty and "Close" in df.columns:
+            s = df["Close"].dropna()
+            if len(s) > 20:
+                last = float(s.iloc[-1])
+                def _ret(days):
+                    tgt = s.index[-1] - pd.Timedelta(days=days)
+                    past = s[s.index <= tgt]
+                    base = float(past.iloc[-1]) if not past.empty else float(s.iloc[0])
+                    return round((last / base - 1) * 100, 1) if base > 0 else None
+                out["mom3"], out["mom6"] = _ret(90), _ret(180)
+                hi = float(s.max())
+                out["off_high"] = round((last / hi - 1) * 100, 1) if hi > 0 else None
+    except Exception:
+        pass
+    return out
+
+def value_passes(m, s):
+    """전략 s 기준 통과 여부. PER/PBR/모멘텀=하드, ROE/배당/부채/성장=소프트(값 있을 때만 탈락)."""
+    if s["per"] is not None:
+        if m["per"] is None or not (0 < m["per"] <= s["per"]):
+            return False
+    if s["pbr"] is not None:
+        if m["pbr"] is None or not (0 < m["pbr"] <= s["pbr"]):
+            return False
+    if s["div"] is not None and m["div"] is not None and m["div"] < s["div"]:
+        return False
+    if s["roe"] is not None and m["roe"] is not None and m["roe"] < s["roe"]:
+        return False
+    if s["debt"] is not None and m["debt"] is not None and m["debt"] > s["debt"]:
+        return False
+    if s["growth"] is not None and m["growth"] is not None and m["growth"] < s["growth"]:
+        return False
+    if s["mom"] == "strong":
+        if m["mom3"] is None or m["mom6"] is None or m["mom3"] <= 0 or m["mom6"] <= 0:
+            return False
+    elif s["mom"] == "weak":
+        if m["off_high"] is None or m["off_high"] > -25:
+            return False
+    return True
+
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
     results = {}
@@ -3331,52 +3457,87 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
                     st.warning("현재 황금 콤보 조건에 부합하는 종목이 없습니다.")
 
 elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
-    st.markdown("## 💎 여의도 데스크: 기관급 가치주/성장주 스캐너")
+    st.markdown("## 💎 여의도 데스크: 멀티팩터 가치/성장 스캐너 v2")
+    st.caption("위험 성향(안전·중립·공격)을 고르고 세부 전략을 선택하면 → AI 후보 발굴 → 멀티팩터 검증(PER·PBR·배당·ROE·부채·성장·모멘텀) → 차트 타점까지 한 번에.")
+
+    tier = st.radio("🎚️ 위험 성향", list(VALUE_STRATEGIES.keys()), horizontal=True)
+    tier_list = VALUE_STRATEGIES[tier]
     col_v1, col_v2 = st.columns([2, 1])
     with col_v1:
-        expert_strategy = st.selectbox("🧠 펀드매니저 투자 전략 선택:", [
-            "👑 벤저민 그레이엄형 (안전마진 + 딥밸류: 초저PER & PBR)", "📈 피터 린치형 (GARP: 합리적 가격의 우량 성장주)",
-            "🏰 워런 버핏형 (경제적 해자 + 독점력 + 높은 ROE)", "🔄 턴어라운드 & 배당 (실적 바닥 탈출 또는 고배당 방어주)"
-        ])
-    with col_v2: cap_size = st.selectbox("🏢 기업 규모 선택:", ["대/중/소형 상관없음", "코스피 대형우량주만", "코스닥 중소형 숨은진주"], index=0)
-        
-    if "그레이엄" in expert_strategy: max_per, max_pbr = 10.0, 1.0
-    elif "피터 린치" in expert_strategy: max_per, max_pbr = 20.0, 3.0
-    elif "워런 버핏" in expert_strategy: max_per, max_pbr = 30.0, 5.0
-    else: max_per, max_pbr = 999.0, 3.0
-        
-    st.info(f"💡 **현재 전략 필터 기준:** AI가 1차 발굴한 종목 중 **[PER {max_per} 이하 ｜ PBR {max_pbr} 이하]**인 펀더멘털 합격 종목만 2차로 차트 타점을 검증합니다.")
+        pick = st.selectbox("🧠 세부 전략", [s["name"] for s in tier_list])
+    with col_v2:
+        cap_size = st.selectbox("🏢 기업 규모", ["대/중/소형 상관없음", "코스피 대형우량주만", "코스닥 중소형 숨은진주"], index=0)
+    strat = next(s for s in tier_list if s["name"] == pick)
 
-    if st.button("💎 딥 밸류 병렬 스캔 시작", type="primary", use_container_width=True):
-        if not api_key_input: st.warning("API 키를 입력해주세요.")
+    cond = []
+    if strat["per"] is not None: cond.append(f"PER ≤ {strat['per']}")
+    if strat["pbr"] is not None: cond.append(f"PBR ≤ {strat['pbr']}")
+    if strat["div"] is not None: cond.append(f"배당 ≥ {strat['div']}%")
+    if strat["roe"] is not None: cond.append(f"ROE ≥ {strat['roe']}%")
+    if strat["debt"] is not None: cond.append(f"부채비율 ≤ {strat['debt']}")
+    if strat["growth"] is not None: cond.append(f"이익성장 ≥ {strat['growth']}%")
+    if strat["mom"] == "strong": cond.append("강세 모멘텀(3·6M 상승)")
+    if strat["mom"] == "weak": cond.append("낙폭과대(고점 -25%↓)")
+    st.info(f"**{strat['name']}** — {strat['desc']}\n\n**적용 필터:** " + " ｜ ".join(cond) + "\n\n※ PER·PBR·모멘텀은 하드 필터, ROE·배당·부채·성장은 데이터가 있을 때만 적용(소프트)됩니다.")
+
+    if st.button("💎 멀티팩터 병렬 스캔 시작", type="primary", use_container_width=True):
+        if not api_key_input:
+            st.warning("API 키를 입력해주세요.")
         else:
-            with st.spinner("여의도 퀀트 알고리즘으로 스캔 중..."):
-                candidates = get_longterm_value_stocks_with_ai(expert_strategy, cap_size, api_key_input)
-                if not candidates: st.error("❌ 관련 기업을 찾지 못했습니다.")
-                else:
-                    progress_bar = st.progress(0)
-                    value_results = []
-                    completed, total = 0, len(candidates)
-                    def process_fundamental(target):
-                        name, code = target
-                        time.sleep(0.1) 
-                        per_str, pbr_str, _, _, _ = get_fundamentals(code)
-                        try:
-                            per_val = float(str(per_str).replace(',', '')) if str(per_str) not in ['N/A', 'None', ''] else 9999.0
-                            pbr_val = float(str(pbr_str).replace(',', '')) if str(pbr_str) not in ['N/A', 'None', ''] else 9999.0
-                            if (0 < per_val <= max_per) and (0 < pbr_val <= max_pbr):
-                                return analyze_technical_pattern(name, code)
-                        except Exception: pass
+            with st.spinner("AI가 전략 부합 후보를 발굴 중..."):
+                candidates = get_longterm_value_stocks_with_ai(strat["name"] + " — " + strat["hint"], cap_size, api_key_input)
+            if not candidates:
+                st.error("❌ 관련 기업을 찾지 못했습니다.")
+            else:
+                progress = st.progress(0.0)
+                total, completed, passed = len(candidates), 0, []
+
+                def _work(t):
+                    name, c = t
+                    m = get_value_metrics(c)
+                    if not value_passes(m, strat):
                         return None
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                        for future in concurrent.futures.as_completed({executor.submit(process_fundamental, c): c for c in candidates}):
-                            res = future.result()
-                            completed += 1
-                            if res: value_results.append(res)
-                            progress_bar.progress(completed / total)
-                    st.session_state.value_scan_results = value_results
-                    st.rerun()
-    if st.session_state.value_scan_results is not None: display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
+                    res = analyze_technical_pattern(name, c)
+                    return {"name": name, "code": c, "m": m, "res": res}
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+                    for fut in concurrent.futures.as_completed({ex.submit(_work, c): c for c in candidates}):
+                        r = fut.result()
+                        completed += 1
+                        progress.progress(min(1.0, completed / total))
+                        if r:
+                            passed.append(r)
+
+                if passed:
+                    def _fmt(v, suf="", plus=False):
+                        if v is None: return "-"
+                        return (f"{v:+.1f}{suf}" if plus else f"{v:.1f}{suf}")
+                    summary = pd.DataFrame([{
+                        "종목명": p["name"], "코드": p["code"],
+                        "PER": _fmt(p["m"]["per"]), "PBR": (f"{p['m']['pbr']:.2f}" if p["m"]["pbr"] else "-"),
+                        "배당%": _fmt(p["m"]["div"]), "ROE%": (f"{p['m']['roe']:.0f}" if p["m"]["roe"] is not None else "-"),
+                        "3M%": _fmt(p["m"]["mom3"], plus=True), "6M%": _fmt(p["m"]["mom6"], plus=True),
+                        "고점대비%": _fmt(p["m"]["off_high"], plus=True),
+                    } for p in passed])
+                    st.session_state.value_scan_summary = summary
+                    st.session_state.value_scan_results = [p["res"] for p in passed if p["res"]]
+                else:
+                    st.session_state.value_scan_summary = None
+                    st.session_state.value_scan_results = []
+                st.session_state.value_scan_meta = (strat["name"], total, len(passed))
+
+    meta = st.session_state.get("value_scan_meta")
+    if meta:
+        if meta[2] > 0:
+            st.success(f"✅ {meta[1]}개 후보 중 **{meta[2]}개** 종목이 '{meta[0]}' 조건을 통과했습니다.")
+        else:
+            st.warning(f"'{meta[0]}' 조건을 통과한 종목이 없습니다. 위험 성향을 바꾸거나 다른 전략을 시도해보세요.")
+    if st.session_state.get("value_scan_summary") is not None:
+        st.markdown("#### 📋 조건 통과 종목 요약 (멀티팩터)")
+        st.dataframe(st.session_state.value_scan_summary, use_container_width=True, hide_index=True)
+    if st.session_state.value_scan_results:
+        st.markdown("#### 📈 통과 종목 차트·타점 정밀 분석")
+        display_sorted_results(st.session_state.value_scan_results, tab_key="t3", api_key=api_key_input)
 
 elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
         st.markdown("## ⚡ 글로벌 메가트렌드 & 한미 주도 테마 스캐너")
