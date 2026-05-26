@@ -4348,7 +4348,37 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         if not bulk_krx.empty:
             p_dict = dict(zip(bulk_krx['Code'], bulk_krx['Price']))
             for c in kr_codes:
-                if c in p_dict: prices[c] = int(p_dict[c])
+                if c in p_dict and int(p_dict[c]) > 0: prices[c] = int(p_dict[c])
+
+        # 1-B) [0원 방어] 일괄 조회에서 누락(0원)된 국내 종목만 개별 보강
+        def get_kr_price_fallback(c):
+            # (a) 네이버 차트 API의 가장 최근 종가를 현재가로 사용
+            try:
+                url = f"https://fchart.stock.naver.com/sise.nhn?symbol={c}&timeframe=day&count=5&requestType=0"
+                res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                if res.status_code == 200:
+                    soup = BeautifulSoup(res.text, 'html.parser')
+                    items = soup.find_all('item')
+                    if items:
+                        last_close = float(items[-1].get('data').split('|')[4])
+                        if last_close > 0:
+                            return c, int(last_close)
+            except: pass
+            # (b) FinanceDataReader 최근 종가로 2차 보강
+            try:
+                df = fdr.DataReader(c)
+                if not df.empty:
+                    last_close = float(df['Close'].iloc[-1])
+                    if last_close > 0:
+                        return c, int(last_close)
+            except: pass
+            return c, 0
+
+        missing_kr = [c for c in kr_codes if prices.get(c, 0) == 0]
+        if missing_kr:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                for c, p in executor.map(get_kr_price_fallback, missing_kr):
+                    if p > 0: prices[c] = p
 
         # 2) 국내 백데이터
         def get_kr_historical_info(c):
