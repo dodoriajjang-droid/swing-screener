@@ -1847,9 +1847,10 @@ def resolve_etf_codes(etf_data, live_df):
         k = _norm_etf_name(nm)
         if not k:
             continue
-        if k in normed and normed[k][0] != code:
-            normed[k] = None            # 정규화 이름이 모호하면 사용 안 함
-        elif k not in normed:
+        if k in normed:
+            if normed[k] is not None and normed[k][0] != code:
+                normed[k] = None        # 정규화 이름이 모호하면 사용 안 함
+        else:
             normed[k] = (code, nm)
     for item in etf_data:
         if not str(item.get('code', '')).isdigit():   # 미국·맞춤종목은 건드리지 않음
