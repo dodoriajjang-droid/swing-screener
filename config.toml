@@ -1,7 +1,0 @@
-[theme]
-base = "light"
-primaryColor = "#3182f6"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f2f4f6"
-textColor = "#191f28"
-# font 은 기본 유지 — Pretendard 는 CSS에서 적용합니다.
