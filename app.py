@@ -74,6 +74,10 @@ if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_resul
 if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input = ""
 if 'deep_tech_brief' not in st.session_state: st.session_state.deep_tech_brief = None
 
+# [추가] 국민성장펀드 스캐너 상태
+if 'gf_sector_query' not in st.session_state: st.session_state.gf_sector_query = None
+if 'gf_results' not in st.session_state: st.session_state.gf_results = None
+
 now = datetime.now()
 if 'smart_cal_year' not in st.session_state: st.session_state.smart_cal_year = now.year
 if 'smart_cal_month' not in st.session_state: st.session_state.smart_cal_month = now.month
@@ -803,6 +807,63 @@ def get_theme_stocks_with_ai(theme, api_key):
         return stocks[:30] # 👈 기존 15에서 30으로 확장
     except:
         return []
+
+
+# ==========================================
+# [추가] 국민성장펀드 12대 첨단전략산업 연동
+# ==========================================
+# 금융위원회 지정 주목적 투자대상 12개 첨단전략산업 (2026년 기준)
+GROWTH_FUND_SECTORS = {
+    "🤖 미래 기술": [
+        ("AI 인공지능", "AI 인공지능"),
+        ("반도체", "반도체 소부장"),
+        ("바이오", "바이오 신약"),
+        ("백신", "백신 주권"),
+        ("로봇", "로봇 자동화"),
+    ],
+    "🔋 에너지·모빌리티": [
+        ("이차전지", "이차전지 배터리"),
+        ("수소", "수소 경제"),
+        ("미래차", "미래차 전기차 자율주행"),
+        ("디스플레이", "디스플레이 OLED"),
+    ],
+    "🛡️ 전략·소재·콘텐츠": [
+        ("방산", "방위산업 항공우주"),
+        ("콘텐츠", "미디어 콘텐츠"),
+        ("핵심광물", "핵심광물 희토류"),
+    ],
+}
+# 정부 자금 배분 하이라이트
+GROWTH_FUND_ALLOC = {"총 규모": "150조", "AI": "30조", "반도체": "20.9조", "모빌리티": "15.4조"}
+
+@st.cache_data(ttl=3600)
+def get_growth_fund_stocks_with_ai(sector_query, _api_key):
+    """국민성장펀드 특정 첨단전략산업의 국내(KRX) 수혜 대장주를 AI로 발굴"""
+    if not _api_key:
+        return []
+    prompt = f"""당신은 한국 정책펀드(국민성장펀드, 150조원) 전문 애널리스트입니다.
+정부가 첨단전략산업으로 지정한 '{sector_query}' 분야에서, 국민성장펀드 투자 및 정책 수혜가 기대되는
+한국 증시(KRX) 상장 핵심 대장주 및 밸류체인(소재·부품·장비) 종목 20개를 선정하세요.
+[필수 조건]
+1. 반드시 한국 증시(KRX)에 상장된 종목만 선정하세요.
+2. 출력 형식은 반드시 "종목명,종목코드(6자리 숫자)" 입니다. (예: 삼성전자,005930)
+3. 번호, 부연 설명, 마크다운 기호(-, * 등) 없이 오직 종목 데이터만 한 줄에 하나씩 출력하세요."""
+    try:
+        res = ask_gemini(prompt, _api_key)
+        stocks = []
+        seen = set()
+        for line in res.split("\n"):
+            parts = line.split(",")
+            if len(parts) >= 2:
+                name = parts[0].strip().replace("-", "").replace("*", "").strip()
+                code = parts[1].strip()
+                if len(code) == 6 and code.isdigit() and code not in seen:
+                    seen.add(code)
+                    stocks.append((name, code))
+        return stocks[:20]
+    except Exception:
+        return []
+
 
 
 @st.cache_data(ttl=3600)
@@ -2239,7 +2300,8 @@ with st.sidebar:
         " ┣ 👨‍🦳 기관/외인 수급 스캐너",
         " ┣ 🏛️ 국민연금 5% 대량보유 픽",
         " ┣ 💎 장기 우량주 & 가치주 발굴",
-        " ┗ ⚡ 메가트렌드 & 테마 대장주",
+        " ┣ ⚡ 메가트렌드 & 테마 대장주",
+        " ┗ 🇰🇷 국민성장펀드 12대 산업 수혜주",
         "   ", 
         "📂 [ 트레이딩 & 시장 경보 ]",
         " ┣ 🔥 간밤의 미국 급등주 & 수혜주",
@@ -3346,6 +3408,69 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
                 if st.session_state.get('deep_tech_brief'):
                     st.info(f"**💡 글로벌 AI 퀀트 인사이트:**\n{st.session_state.deep_tech_brief}")
                 display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
+
+elif selected_menu == "🇰🇷 국민성장펀드 12대 산업 수혜주":
+    st.markdown("## 🇰🇷 국민성장펀드 12대 첨단전략산업 수혜주 스캐너")
+    st.write("정부 주도 **150조원 규모 국민성장펀드**가 집중 투자하는 12개 첨단전략산업을 선택하면, "
+             "AI가 해당 분야의 국내(KRX) 핵심 수혜 대장주를 발굴하고 차트·수급 타점을 즉시 분석합니다.")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("총 펀드 규모", GROWTH_FUND_ALLOC["총 규모"] + "원")
+    c2.metric("AI 배정", GROWTH_FUND_ALLOC["AI"] + "원")
+    c3.metric("반도체 배정", GROWTH_FUND_ALLOC["반도체"] + "원")
+    c4.metric("모빌리티 배정", GROWTH_FUND_ALLOC["모빌리티"] + "원")
+    st.caption("※ 금융위원회 지정 주목적 투자대상 12개 산업 기준. 개별 자펀드는 결성액의 60% 이상을 해당 산업에 투자합니다.")
+    st.divider()
+
+    if not api_key_input:
+        st.warning("⚠️ 사이드바에 Gemini API 키를 입력하시면 수혜주 스캐너가 활성화됩니다.")
+    else:
+        st.markdown("### 🎯 분석할 첨단전략산업을 선택하세요")
+        for cat_name, sectors in GROWTH_FUND_SECTORS.items():
+            st.markdown(f"**{cat_name}**")
+            cols = st.columns(len(sectors))
+            for idx, (label, query) in enumerate(sectors):
+                if cols[idx].button(label, key=f"gf_btn_{label}", use_container_width=True):
+                    st.session_state.gf_sector_query = query
+                    st.session_state.gf_results = None
+
+        if st.session_state.gf_sector_query and st.session_state.gf_results is None:
+            st.divider()
+            q = st.session_state.gf_sector_query
+            st.markdown(f"### 📈 '{q}' 국민성장펀드 수혜주 정밀 분석")
+            with st.spinner(f"✨ '{q}' 분야의 국내 핵심 수혜주 및 밸류체인을 필터링 중입니다..."):
+                gf_stocks = get_growth_fund_stocks_with_ai(q, api_key_input)
+
+            if gf_stocks:
+                progress_bar = st.progress(0.0)
+                status_text = st.empty()
+                gf_res_list = []
+                completed, total = 0, len(gf_stocks)
+
+                def process_gf_stock(item):
+                    name, code = item
+                    time.sleep(0.1)
+                    return analyze_technical_pattern(name, code)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(process_gf_stock, t): t for t in gf_stocks}
+                    for future in concurrent.futures.as_completed(futures):
+                        res = future.result()
+                        completed += 1
+                        if res:
+                            gf_res_list.append(res)
+                        progress_bar.progress(min(1.0, completed / total))
+                        status_text.text(f"⚡ KRX 재무/차트 데이터 파싱 중... ({completed}/{total}) - {len(gf_res_list)}개 타점 확보")
+
+                st.session_state.gf_results = gf_res_list
+            else:
+                st.error(f"❌ '{q}' 분야 수혜주를 찾지 못했습니다. 다시 시도해주세요.")
+                st.session_state.gf_sector_query = None
+
+        if st.session_state.gf_results is not None:
+            st.info(f"💡 **{st.session_state.gf_sector_query}** 분야의 국민성장펀드 정책 수혜 기대 종목입니다. "
+                    "(아래에서 RSI·수급 기준 정렬 가능)")
+            display_sorted_results(st.session_state.gf_results, tab_key="gf", api_key=api_key_input)
 
 elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
     st.markdown("## 🔥 오버나이트 모멘텀 & 밸류체인 스캐너")
