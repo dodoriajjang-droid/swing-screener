@@ -32,8 +32,11 @@ except ImportError:
 try:
     from pykrx import stock as pykrx_stock
     HAS_PYKRX = True
-except Exception:
+    PYKRX_IMPORT_ERR = ""
+except Exception as e:
+    pykrx_stock = None
     HAS_PYKRX = False
+    PYKRX_IMPORT_ERR = f"{type(e).__name__}: {e}"   # 실제 import 실패 원인 보존
 
 # ==========================================
 # 0. 로컬 영구 저장소 (관심종목 유지용)
@@ -3126,32 +3129,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         elif wt:
             col_btn1.caption(f"📅 주봉 추세: {wt}")
 
-        # [v7.0] ③ 공매도 & 빚투 리스크 (국내 주식만)
-        if str(tech_result.get('티커', '')).isdigit():
-            with col_btn1.expander("🩸 공매도 & 빚투(신용) 리스크 진단", expanded=False):
-                ss = get_short_selling_risk(tech_result['티커'])
-                cb = get_credit_balance_naver(tech_result['티커'])
-                if ss:
-                    lv_icon, lv_msg = ss.get('level', ("⚪", ""))
-                    st.markdown(f"**{lv_icon} 공매도 종합:** {lv_msg}")
-                    rc1, rc2, rc3 = st.columns(3)
-                    if 'short_vol_ratio' in ss:
-                        rc1.metric("오늘 공매도 비중", f"{ss['short_vol_ratio']}%",
-                                   ss.get('short_vol_trend', ''), delta_color="off")
-                    if 'short_vol_avg5' in ss:
-                        rc2.metric("5일 평균 비중", f"{ss['short_vol_avg5']}%")
-                    if 'short_bal_ratio' in ss:
-                        rc3.metric("공매도 잔고 비중", f"{ss['short_bal_ratio']}%",
-                                   ss.get('short_bal_trend', ''), delta_color="off")
-                    st.caption("💡 공매도 비중↑ = 하락 베팅 多. 단, 잔고가 과도하면 숏커버링(되사기) 반등이 나올 수도 있습니다.")
-                else:
-                    if not HAS_PYKRX:
-                        st.caption("⚠️ 공매도 모듈(pykrx)이 설치돼 있지 않습니다. requirements.txt 에 `pykrx` 추가 후 재배포해 주세요.")
-                    else:
-                        st.caption("공매도·신용 데이터는 한국거래소(KRX)에서만 제공돼, 해외·클라우드 서버 IP에서는 차단·지연될 수 있습니다(이미 자동 재시도했습니다). "
-                                   "계속 비어 있으면 ① 한국 IP에서 실행(로컬·국내 서버)하거나 ② 한국 프록시를 `KRX_PROXY` 시크릿/환경변수로 설정하면 우회됩니다.")
-                if cb and 'credit_ratio' in cb:
-                    st.markdown(f"**💳 신용잔고율:** {cb['credit_ratio']}% — 높을수록 빚투 과열(반대매매 위험) 신호")
         
         is_in_wl = any(x['티커'] == tech_result['티커'] for x in st.session_state.watchlist)
         if not is_in_wl:
