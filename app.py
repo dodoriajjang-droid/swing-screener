@@ -729,7 +729,16 @@ def get_dividend_portfolio(ex_rate):
         "017670.KS", "030200.KS", "032640.KS", "090430.KS", "000810.KS", "058300.KS",
         "001450.KS", "032830.KS", "029780.KS", "005930.KS", "005935.KS", "000270.KS",
         "005380.KS", "004800.KS", "003550.KS", "034730.KS", "078930.KS", "010130.KS",
-        "010950.KS", "053690.KS", "000400.KS"
+        "010950.KS", "053690.KS", "000400.KS",
+        # --- 추가 확장분 (pykrx 차단 시 폴백용 대형 배당주) ---
+        "000660.KS", "005490.KS", "051910.KS", "006400.KS", "035420.KS", "035720.KS",
+        "028260.KS", "012330.KS", "068270.KS", "051900.KS", "097950.KS", "271560.KS",
+        "011170.KS", "096770.KS", "015760.KS", "036460.KS", "009540.KS", "010140.KS",
+        "011200.KS", "086280.KS", "000120.KS", "003490.KS", "138040.KS", "088350.KS",
+        "005830.KS", "005385.KS", "071050.KS", "016360.KS", "006800.KS", "039490.KS",
+        "004170.KS", "023530.KS", "069960.KS", "161390.KS", "009150.KS", "018260.KS",
+        "010120.KS", "006260.KS", "001120.KS", "012450.KS", "047810.KS", "267250.KS",
+        "004020.KS", "001040.KS", "002790.KS", "000150.KS", "064350.KS", "272210.KS"
     ]
     kr_names = {
         "024110.KS": "기업은행", "316140.KS": "우리금융지주", "086790.KS": "하나금융지주",
@@ -744,9 +753,24 @@ def get_dividend_portfolio(ex_rate):
     }
     us_tickers = ["AAPL", "MSFT", "JNJ", "XOM", "JPM", "PG", "CVX", "HD", "ABBV", "MRK",
                   "KO", "PEP", "BAC", "PFE", "TMO", "CSCO", "MCD", "WMT", "TXN", "IBM",
-                  "VZ", "MMM", "MO", "CAT", "UPS"]
-    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY",
-                   "SDY", "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ"]
+                  "VZ", "MMM", "MO", "CAT", "UPS", "T", "KMB", "CL", "CLX", "K",
+                  "ADP", "EMR", "ITW", "GD", "LMT", "NOC", "RTX", "HON", "SHW", "APD",
+                  "LIN", "NEE", "DUK", "SO", "D", "AEP", "O", "PLD", "AMT", "PSA",
+                  "ABT", "MDT", "BMY", "AMGN", "LLY", "UNH", "CVS", "TGT", "LOW", "COST",
+                  "TJX", "KR", "HSY", "MDLZ", "STZ", "PM", "KDP", "COP", "EOG", "SLB",
+                  "PSX", "MPC", "VLO", "OKE", "KMI", "WMB", "NUE", "WFC", "C", "USB",
+                  "PNC", "TFC", "AXP", "BLK", "SPGI", "TROW", "GS", "PRU", "TRV", "QCOM",
+                  "AVGO", "AMAT", "INTC", "NKE", "SBUX", "CMCSA", "UNP", "FDX", "MMC", "WM"]
+    etf_tickers = ["SCHD", "JEPI", "VYM", "VIG", "SPYD", "JEPQ", "DGRO", "NOBL", "DVY", "SDY",
+                   "HDV", "PFF", "TLT", "HYG", "LQD", "VNQ", "DGRW", "FVD", "RDVY", "PEY",
+                   "DHS", "DLN", "DTD", "DON", "DES", "FDVV", "SPHD", "DIV", "SCHY", "VYMI",
+                   "IDV", "DWX", "DEM", "DGS", "HDEF", "QYLD", "XYLD", "RYLD", "DIVO", "QYLG",
+                   "XYLG", "NUSI", "SPYI", "QQQI", "GPIX", "GPIQ", "JEPY", "FEPI", "BALI", "SVOL",
+                   "TLTW", "HYGW", "PFFD", "PGX", "PGF", "VRP", "PFXF", "FPE", "PFFA", "PFFR",
+                   "PFLD", "IEF", "IEI", "SHY", "GOVT", "BND", "AGG", "VCIT", "VCSH", "VCLT",
+                   "JNK", "USHY", "SHYG", "SJNK", "EMB", "BNDX", "MUB", "TFI", "HYD", "BAB",
+                   "ANGL", "FALN", "BIL", "SGOV", "USFR", "FLOT", "JAAA", "BINC", "SCHH", "RWR",
+                   "IYR", "REM", "MORT", "SRET", "KBWY", "SDIV", "KBWD", "YYY"]
 
     # =========================================================
     # 1. 🇰🇷 한국 주식 (KRX)
@@ -777,10 +801,10 @@ def get_dividend_portfolio(ex_rate):
     if not krx_list:
         kr_res = _yf_fetch_many(kr_tickers)
         for t_code in kr_tickers:
-            pr, dv, _ = kr_res.get(t_code, (0.0, 0.0, t_code))
+            pr, dv, nm = kr_res.get(t_code, (0.0, 0.0, t_code))
             if pr > 0 and dv > 0:
                 krx_list.append({
-                    '종목명': kr_names.get(t_code, t_code),
+                    '종목명': kr_names.get(t_code) or nm or t_code,
                     '현재가': f"{int(pr):,}원",
                     '예상 배당금': float(dv),
                     '비고': 'Yahoo(yfinance) 우회'
@@ -805,7 +829,7 @@ def get_dividend_portfolio(ex_rate):
                         if div_yield: div_rate = price * div_yield
                     if price > 0 and div_rate > 0:
                         krx_list.append({
-                            '종목명': kr_names.get(t_code, t_code),
+                            '종목명': kr_names.get(t_code) or p.get('shortName') or p.get('longName') or t_code,
                             '현재가': f"{int(price):,}원",
                             '예상 배당금': float(div_rate),
                             '비고': 'yahooquery 우회'
