@@ -2542,6 +2542,47 @@ def render_market_regime_banner():
 # 공매도: pykrx로 거래 비중 + 잔고 비중 산출 (신뢰도 높음)
 # 신용잔고: 무료 공개 소스가 제한적이라 네이버 베스트에포트(환경 따라 조정 필요)
 # =====================================================================
+def _krx_retry(fn, *args, retries=3, **kwargs):
+    """pykrx(→KRX) 호출 우회/안정화 래퍼.
+    KRX 는 해외·클라우드 IP 를 자주 차단/지연시키므로:
+      ① 일시적 통신 지연 → 짧은 백오프로 재시도
+      ② 하드 IP 차단     → st.secrets['KRX_PROXY'] 또는 환경변수 KRX_PROXY 가
+                            설정돼 있으면 '한국 IP 프록시'로 우회 시도
+    프록시 미설정 시 기존과 동일하게 직접 호출(재시도만 적용)."""
+    proxy = None
+    try:
+        proxy = st.secrets.get("KRX_PROXY")
+    except Exception:
+        proxy = None
+    proxy = proxy or os.environ.get("KRX_PROXY")
+
+    keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+    saved = {}
+    if proxy:
+        for k in keys:
+            saved[k] = os.environ.get(k)
+            os.environ[k] = proxy
+    try:
+        for i in range(max(1, retries)):
+            try:
+                res = fn(*args, **kwargs)
+                # DataFrame 은 '비어있지 않을 때'만 성공으로 간주
+                if res is not None and not getattr(res, "empty", False):
+                    return res
+            except Exception:
+                pass
+            time.sleep(0.7 * (i + 1))
+        return None
+    finally:
+        if proxy:   # 환경변수 원복 (yfinance 등 다른 요청에 영향 없도록)
+            for k in keys:
+                v = saved.get(k)
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 @st.cache_data(ttl=3600)
 def get_short_selling_risk(code):
     if not str(code).isdigit() or not HAS_PYKRX:
@@ -2554,7 +2595,7 @@ def get_short_selling_risk(code):
         out = {}
         # (1) 공매도 거래 비중 — 오늘 거래량 중 공매도 비율
         try:
-            vol = pykrx_stock.get_shorting_volume_by_date(frm, to, code)
+            vol = _krx_retry(pykrx_stock.get_shorting_volume_by_date, frm, to, code)
             if vol is not None and not vol.empty and '비중' in vol.columns:
                 ratio = vol['비중'].dropna()  # 0~1 또는 % 형태 (라이브러리 버전차)
                 if not ratio.empty:
@@ -2571,7 +2612,7 @@ def get_short_selling_risk(code):
 
         # (2) 공매도 잔고 비중 — 전체 주식 중 공매도로 잠긴 비율
         try:
-            bal = pykrx_stock.get_shorting_balance_by_date(frm, to, code)
+            bal = _krx_retry(pykrx_stock.get_shorting_balance_by_date, frm, to, code)
             if bal is not None and not bal.empty and '비중' in bal.columns:
                 br = bal['비중'].dropna()
                 if not br.empty:
@@ -3104,7 +3145,11 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                    ss.get('short_bal_trend', ''), delta_color="off")
                     st.caption("💡 공매도 비중↑ = 하락 베팅 多. 단, 잔고가 과도하면 숏커버링(되사기) 반등이 나올 수도 있습니다.")
                 else:
-                    st.caption("공매도 데이터를 불러올 수 없습니다. (pykrx 미설치 또는 일시적 통신 지연)")
+                    if not HAS_PYKRX:
+                        st.caption("⚠️ 공매도 모듈(pykrx)이 설치돼 있지 않습니다. requirements.txt 에 `pykrx` 추가 후 재배포해 주세요.")
+                    else:
+                        st.caption("공매도·신용 데이터는 한국거래소(KRX)에서만 제공돼, 해외·클라우드 서버 IP에서는 차단·지연될 수 있습니다(이미 자동 재시도했습니다). "
+                                   "계속 비어 있으면 ① 한국 IP에서 실행(로컬·국내 서버)하거나 ② 한국 프록시를 `KRX_PROXY` 시크릿/환경변수로 설정하면 우회됩니다.")
                 if cb and 'credit_ratio' in cb:
                     st.markdown(f"**💳 신용잔고율:** {cb['credit_ratio']}% — 높을수록 빚투 과열(반대매매 위험) 신호")
         
