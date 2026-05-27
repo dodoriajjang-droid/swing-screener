@@ -2148,30 +2148,52 @@ def get_financial_deep_data(code):
         return fin_df, peer_df, consensus
     except Exception: return None, None, "데이터 스크래핑 오류"
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=120)
 def get_intraday_estimate(code):
-    if not code.isdigit(): return None
+    """장중 '잠정' 외국인·기관 순매매 — 네이버 frgn 페이지의 실시간 잠정치.
+    확정 수급은 장 마감 후에만 공개되므로, 장중에는 이 잠정치가 사실상 유일한 실시간 소스다.
+    실패 시 None → 표에는 '장중 집계중' 으로 표기된다."""
+    if not str(code).isdigit():
+        return None
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
+        res.encoding = 'euc-kr'   # 네이버 금융 레거시 페이지는 EUC-KR
         soup = BeautifulSoup(res.text, 'html.parser')
-        tables = soup.find_all('table', {'class': 'type2'})
-        for table in tables:
-            summary = table.get('summary', '')
-            if '잠정치' in summary:
-                trs = table.find_all('tr')
-                for tr in trs:
-                    tds = tr.find_all('td')
-                    if len(tds) >= 3 and not '비어있습니다' in tr.text:
-                        time_str = tds[0].text.strip()
-                        if not time_str or time_str == '': continue
-                        forgn_str = tds[1].text.strip().replace(',', '').replace('+', '')
-                        inst_str = tds[2].text.strip().replace(',', '').replace('+', '')
-                        forgn_val = int(forgn_str) if forgn_str.lstrip('-').isdigit() else 0
-                        inst_val = int(inst_str) if inst_str.lstrip('-').isdigit() else 0
-                        return {"time": time_str, "forgn": forgn_val, "inst": inst_val}
+
+        # 장중 잠정치 표 찾기:
+        #  ① summary 에 '잠정' 이 들어간 표  → ② 없으면 type2 첫 번째 표(=장중 잠정)
+        cand = None
+        for table in soup.find_all('table'):
+            if '잠정' in (table.get('summary', '') or ''):
+                cand = table
+                break
+        if cand is None:
+            t2 = soup.select('table.type2')
+            if t2:
+                cand = t2[0]
+        if cand is None:
+            return None
+
+        def _num(td):
+            s = td.get_text(strip=True).replace(',', '').replace('+', '')
+            return int(s) if s.lstrip('-').isdigit() else None
+
+        for tr in cand.find_all('tr'):
+            tds = tr.find_all('td')
+            if len(tds) < 3:
+                continue
+            time_str = tds[0].get_text(strip=True)
+            # 'HH:MM'(장중 시각) 행만 잠정치로 인정 — 날짜(YYYY.MM.DD) 행은 일별표라 제외
+            if not re.match(r'^\d{1,2}:\d{2}$', time_str):
+                continue
+            f_val, i_val = _num(tds[1]), _num(tds[2])
+            if f_val is None and i_val is None:
+                continue
+            return {"time": time_str, "forgn": f_val or 0, "inst": i_val or 0}
         return None
-    except Exception: return None
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
@@ -3170,8 +3192,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         if not is_us:
             with c8: 
                 st.markdown(f"🕵️ **당시 수급 동향 (5일 누적)**<br>**외국인:** `{tech_result['외인수급']}` ｜ **기관:** `{tech_result['기관수급']}` ｜ **개인:** `{tech_result.get('개인수급', '조회불가')}`", unsafe_allow_html=True)
-                if tech_result.get('장중잠정수급'):
-                    id_data = tech_result['장중잠정수급']
+                id_data = get_intraday_estimate(tech_result['티커'])
+                if id_data:
                     f_val_str = f"🔥+{id_data['forgn']:,}" if id_data['forgn'] > 0 else f"💧{id_data['forgn']:,}"
                     i_val_str = f"🔥+{id_data['inst']:,}" if id_data['inst'] > 0 else f"💧{id_data['inst']:,}"
                     st.markdown(f"⚡ **오늘 장중 실시간 수급 (잠정)**<br>외인 `{f_val_str}` ｜ 기관 `{i_val_str}` `({id_data['time']} 기준)`", unsafe_allow_html=True)
@@ -3307,7 +3329,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         today_date = now_kst.strftime('%Y.%m.%d')
                         
                         if today_date not in str(daily_df.iloc[0]['날짜']):
-                            est = tech_result.get('장중잠정수급')
+                            # 장중 잠정 수급은 1시간 캐시되는 분석결과가 아니라, 매 렌더마다 신선하게 조회
+                            #  (get_intraday_estimate 자체는 2분 캐시 → 실시간성 + 과도호출 방지)
+                            est = get_intraday_estimate(tech_result['티커'])
                             try:
                                 prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
                                 curr_price = int(tech_result['현재가'])
