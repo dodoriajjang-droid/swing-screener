@@ -3407,6 +3407,11 @@ with st.sidebar:
     selected_menu = pure_menu_name
     clean_menu = pure_menu_name
 
+    # [추가] 메뉴(페이지) 전환 감지 — 메뉴를 '새로 눌렀을 때'만 1회 동작시키기 위함.
+    #  (자동 새로고침/챗봇 입력 등 일반적인 rerun 때는 False 가 되어 화면이 튀지 않음)
+    _nav_changed = st.session_state.get("_prev_menu_nav") != selected_menu
+    st.session_state["_prev_menu_nav"] = selected_menu
+
     st.divider()
     
     st.header("🧠 AI 엔진 연결 상태")
@@ -3430,6 +3435,37 @@ with st.sidebar:
 # ==========================================
 
 if selected_menu == "🎛️ 홈: 종합 대시보드":
+    # [추가] 메뉴를 '새로 눌러서' 이 화면으로 들어왔을 때만 화면을 맨 위로 올림.
+    #  → 페이지 하단의 '실시간 퀀트 챗봇(채팅 입력창)'으로 화면이 튀어 내려가는 현상 방지.
+    #  자동 새로고침/챗봇 입력 같은 일반 rerun 때는 동작하지 않으므로 챗봇은 정상 사용 가능.
+    if _nav_changed:
+        components.html(
+            """
+            <script>
+            (function () {
+              function toTop() {
+                try {
+                  var d = window.parent.document;
+                  var sels = ['section.main', '[data-testid="stMain"]',
+                              '[data-testid="stAppViewContainer"]', '.main',
+                              '.stMainBlockContainer', '.appview-container'];
+                  sels.forEach(function (s) {
+                    var el = d.querySelector(s);
+                    if (el) { try { el.scrollTo(0, 0); } catch (e) {} el.scrollTop = 0; }
+                  });
+                  try { window.parent.scrollTo(0, 0); } catch (e) {}
+                  d.documentElement.scrollTop = 0;
+                  d.body.scrollTop = 0;
+                } catch (e) {}
+              }
+              toTop();
+              [60, 200, 450, 800].forEach(function (t) { setTimeout(toTop, t); });
+            })();
+            </script>
+            """,
+            height=0,
+        )
+
     macro_data = get_macro_indicators()
     fg_data = get_fear_and_greed()
     
@@ -3437,6 +3473,13 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
     render_market_regime_banner()
+
+    # [추가] 간밤 미국 시황 배너 — 공포지수/탐욕지수 게이지 '위'에 배치
+    st.markdown("#### 🌙 간밤 미국 시황 (Risk-On / Off 체크)")
+    with st.spinner("간밤 지수·VIX·환율 수집 중..."):
+        render_overnight_banner()
+    st.caption("💡 VIX(공포지수)가 급등하거나 지수가 크게 빠진 날은, 미국 급등주가 있어도 국장이 위험회피로 갈 수 있으니 보수적으로 접근하세요.")
+    st.divider()
 
     m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
     def draw_gauge(val, prev, title, steps, is_error=False):
