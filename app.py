@@ -2195,6 +2195,38 @@ def get_intraday_estimate(code):
     except Exception:
         return None
 
+
+@st.cache_data(ttl=120)
+def get_intraday_estimate_debug(code):
+    """장중 잠정치가 왜 안 잡히는지 진단용 — 네이버 응답/표 구조를 그대로 보여준다."""
+    info = {"http": None, "tables": 0, "summaries": [], "cand_via": "없음", "rows": [], "err": ""}
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
+        info["http"] = res.status_code
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        all_t = soup.find_all('table')
+        info["tables"] = len(all_t)
+        info["summaries"] = [((t.get('summary', '') or '').strip())[:40] for t in all_t][:10]
+        cand = None
+        for t in all_t:
+            if '잠정' in (t.get('summary', '') or ''):
+                cand = t; info["cand_via"] = "summary:잠정"; break
+        if cand is None:
+            t2 = soup.select('table.type2')
+            if t2:
+                cand = t2[0]; info["cand_via"] = "type2[0] 폴백"
+        if cand is not None:
+            for tr in cand.find_all('tr')[:6]:
+                tds = tr.find_all('td')
+                if tds:
+                    info["rows"].append(" | ".join(td.get_text(strip=True) for td in tds)[:90])
+    except Exception as e:
+        info["err"] = f"{type(e).__name__}: {e}"
+    return info
+
+
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
@@ -3323,6 +3355,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
+                    intraday_missing = False   # 오늘 장중 잠정치 조회 실패 여부 (진단 표시용)
                     
                     if not daily_df.empty:
                         now_kst = datetime.utcnow() + timedelta(hours=9)
@@ -3356,6 +3389,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 est_i = "장중 집계중"
                                 est_r = "장중 집계중"
                                 time_label = "(실시간가)"
+                                intraday_missing = True
                                 
                             new_row = pd.DataFrame([{
                                 "날짜": f"✨ {today_date} {time_label}",
@@ -3368,6 +3402,22 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             }])
                             daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
+                        if intraday_missing:
+                            with st.expander("🔍 오늘 장중 수급이 '집계중'으로만 나오는 이유 진단  (실시간 보강판 rt-v2)", expanded=False):
+                                dbg = get_intraday_estimate_debug(tech_result['티커'])
+                                if dbg["err"]:
+                                    st.write(f"- 요청 오류: `{dbg['err']}`  → 서버에서 네이버 접근 자체가 막혔을 수 있습니다.")
+                                else:
+                                    st.write(f"- 네이버 응답 코드: `{dbg['http']}`  (200이면 접근은 정상)")
+                                    st.write(f"- 페이지 내 표 개수: `{dbg['tables']}`  /  잠정치 표 선택 경로: `{dbg['cand_via']}`")
+                                    st.write(f"- 표 summary 목록: `{dbg['summaries']}`")
+                                    st.write("- 선택된 표의 상위 행(원본 그대로):")
+                                    if dbg["rows"]:
+                                        for r in dbg["rows"]:
+                                            st.write(f"　· `{r}`")
+                                    else:
+                                        st.write("　· (행 없음)")
+                                st.caption("위에서 'HH:MM' 형태의 시각 행이 보이면 잠정치가 존재하는 것이고, 날짜(YYYY.MM.DD) 행만 보이면 지금은 네이버가 장중 잠정치를 올리지 않은 상태(장 시작 직후·마감 후·휴장 등)라 정상적으로 '집계중'이 표시됩니다. 이 진단 창이 보인다는 것 자체가 새 코드(rt-v2)가 배포됐다는 뜻입니다.")
                     else: 
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: 
