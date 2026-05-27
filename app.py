@@ -2267,6 +2267,72 @@ def get_foreign_broker_estimate(code):
         return None
 
 
+@st.cache_data(ttl=120)
+def get_kr_market_breadth():
+    """국내(코스피+코스닥) 등락 종목 수(상승/보합/하락) — 네이버 지수 페이지에서 합산.
+    ★속도 핵심: 개별 종목 2,600여 개를 받지 않고, 네이버가 '집계해 둔' 종목 수만
+      가볍게 2회 요청(각 timeout 3.5s) + 2분 캐시 → 대시보드 부하 거의 없음. 실패 시 None."""
+    def _one(mkt):
+        try:
+            url = f"https://finance.naver.com/sise/sise_index.naver?code={mkt}"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=3.5)
+            res.encoding = 'euc-kr'
+            text = BeautifulSoup(res.text, 'html.parser').get_text(" ", strip=True)
+            def f(kw):
+                # '상승 243' / '상승종목 243' / '상승 종목수 243' 모두 매칭, '상승률 1.2'·'상한 0'은 회피
+                m = re.search(kw + r'(?:\s*종목수?)?\s*([\d,]+)', text)
+                return int(m.group(1).replace(',', '')) if m else None
+            up, flat, down = f('상승'), f('보합'), f('하락')
+            if up is None or down is None:
+                return None
+            return (up, flat or 0, down)
+        except Exception:
+            return None
+    parts = [r for r in (_one('KOSPI'), _one('KOSDAQ')) if r]
+    if not parts:
+        return None
+    up = sum(p[0] for p in parts)
+    flat = sum(p[1] for p in parts)
+    down = sum(p[2] for p in parts)
+    total = up + flat + down
+    if not (50 <= total <= 6000):   # 비정상 파싱이면 실패 처리
+        return None
+    return {"up": up, "flat": flat, "down": down, "total": total, "markets": len(parts)}
+
+
+def render_kr_market_breadth():
+    """홈 대시보드용 '오늘의 국장 장세' 위젯 (상승/하락 종목 수 + 막대)."""
+    b = get_kr_market_breadth()
+    if not b:
+        st.caption("📊 오늘의 국장 장세(등락 종목 수)를 불러오지 못했습니다. (네이버 지수 페이지 일시 지연 또는 구조 변경)")
+        return
+    total, up, down, flat = b["total"], b["up"], b["down"], b["flat"]
+    up_pct = up / total * 100
+    down_pct = down / total * 100
+    flat_pct = max(0.0, 100 - up_pct - down_pct)
+    scope = "코스피+코스닥" if b["markets"] == 2 else "단일 시장"
+    st.markdown(
+        f"#### 📊 오늘의 국장 장세 "
+        f"<span style='color:#94a3b8;font-size:0.78em;'>({scope} 전체 {total:,} 종목)</span>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:#e5e7eb;margin:4px 0 6px;">
+          <div style="width:{up_pct:.1f}%;background:#ef4444;"></div>
+          <div style="width:{flat_pct:.1f}%;background:#cbd5e1;"></div>
+          <div style="width:{down_pct:.1f}%;background:#3b82f6;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:0.9em;">
+          <span style="color:#ef4444;font-weight:700;">🔴 상승 {up:,} ({up_pct:.0f}%)</span>
+          <span style="color:#64748b;">➖ 보합 {flat:,}</span>
+          <span style="color:#3b82f6;font-weight:700;">하락 {down:,} ({down_pct:.0f}%) 🔵</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
@@ -3683,6 +3749,11 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     with st.spinner("간밤 지수·VIX·환율 수집 중..."):
         render_overnight_banner()
     st.caption("💡 VIX(공포지수)가 급등하거나 지수가 크게 빠진 날은, 미국 급등주가 있어도 국장이 위험회피로 갈 수 있으니 보수적으로 접근하세요.")
+    st.divider()
+
+    # [추가] 오늘의 국장 장세 (상승/하락 종목 수) — 네이버 집계 수치만 가볍게 사용
+    with st.spinner("국장 등락 종목 수 집계 중..."):
+        render_kr_market_breadth()
     st.divider()
 
     m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
