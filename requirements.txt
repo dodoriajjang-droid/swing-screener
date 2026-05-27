@@ -1,6 +1,8 @@
 streamlit
-pandas
-requests
+numpy>=2.0,<3
+pandas>=2.2,<3
+matplotlib>=3.8
+requests>=2.32
 lxml
 yfinance
 finance-datareader
@@ -9,5 +11,5 @@ beautifulsoup4
 streamlit-autorefresh
 html5lib
 plotly
-pykrx
+pykrx==1.2.8
 yahooquery
