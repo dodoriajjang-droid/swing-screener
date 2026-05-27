@@ -2199,7 +2199,7 @@ def get_intraday_estimate(code):
 @st.cache_data(ttl=120)
 def get_intraday_estimate_debug(code):
     """장중 잠정치가 왜 안 잡히는지 진단용 — 네이버 응답/표 구조를 그대로 보여준다."""
-    info = {"http": None, "tables": 0, "summaries": [], "cand_via": "없음", "rows": [], "err": ""}
+    info = {"http": None, "tables": 0, "summaries": [], "cand_via": "없음", "rows": [], "foreign_rows": [], "err": ""}
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
@@ -2209,6 +2209,13 @@ def get_intraday_estimate_debug(code):
         all_t = soup.find_all('table')
         info["tables"] = len(all_t)
         info["summaries"] = [((t.get('summary', '') or '').strip())[:40] for t in all_t][:10]
+        # '외국계' 가 들어간 행(거래원 추정합) 원본도 수집 → 파서 정합성 확인용
+        for tr in soup.find_all('tr'):
+            txt = tr.get_text(" ", strip=True)
+            if '외국계' in txt:
+                info["foreign_rows"].append(txt[:120])
+            if len(info["foreign_rows"]) >= 4:
+                break
         cand = None
         for t in all_t:
             if '잠정' in (t.get('summary', '') or ''):
@@ -2225,6 +2232,39 @@ def get_intraday_estimate_debug(code):
     except Exception as e:
         info["err"] = f"{type(e).__name__}: {e}"
     return info
+
+
+@st.cache_data(ttl=120)
+def get_foreign_broker_estimate(code):
+    """장중 실시간 '외국계 거래원 순매수 추정'(KRX 거래원 기준).
+    네이버 frgn 페이지의 '거래원 동향' 표에서 '외국계 거래원 매수/매도량 추정합'을 뽑는다.
+    외국인 '확정 순매수'와는 다른 '외국계 창구 추정치'지만, 장중 외국인 매매를 가늠하는
+    실시간 프록시로 널리 쓰인다. 반환: {"sell":매도추정, "buy":매수추정, "net":순매수추정} | None"""
+    if not str(code).isdigit():
+        return None
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        sell = buy = None
+        for tr in soup.find_all('tr'):
+            txt = tr.get_text(" ", strip=True)
+            if '외국계' in txt and '추정' in txt:
+                nums = [int(n.replace(',', '')) for n in re.findall(r'-?[\d,]{2,}', txt)
+                        if n.replace(',', '').lstrip('-').isdigit()]
+                if '매도' in txt and '매수' in txt and len(nums) >= 2:
+                    sell, buy = nums[0], nums[1]
+                    break
+                elif '매도' in txt and nums and sell is None:
+                    sell = nums[0]
+                elif '매수' in txt and nums and buy is None:
+                    buy = nums[0]
+        if sell is not None and buy is not None:
+            return {"sell": sell, "buy": buy, "net": buy - sell}
+        return None
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=3600)
@@ -3356,6 +3396,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
                     intraday_missing = False   # 오늘 장중 잠정치 조회 실패 여부 (진단 표시용)
+                    foreign_proxy = None        # 외국계 거래원 순매수 추정(장중 실시간 프록시)
                     
                     if not daily_df.empty:
                         now_kst = datetime.utcnow() + timedelta(hours=9)
@@ -3385,11 +3426,21 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 est_r = fmt_v(-(est['forgn'] + est['inst']))
                                 time_label = f"({est['time']} 잠정)"
                             else:
-                                est_f = "장중 집계중"
-                                est_i = "장중 집계중"
-                                est_r = "장중 집계중"
-                                time_label = "(실시간가)"
-                                intraday_missing = True
+                                fb = get_foreign_broker_estimate(tech_result['티커'])
+                                if fb:
+                                    n = fb['net']
+                                    proxy_str = (f"🔴 +{n:,}" if n > 0 else f"🔵 {n:,}" if n < 0 else "0")
+                                    est_f = f"{proxy_str} (창구추정)"
+                                    est_i = "장 마감 후 확정"
+                                    est_r = "장 마감 후 확정"
+                                    time_label = "(장중·외국계 창구추정)"
+                                    foreign_proxy = fb
+                                else:
+                                    est_f = "장 마감 후 확정"
+                                    est_i = "장 마감 후 확정"
+                                    est_r = "장 마감 후 확정"
+                                    time_label = "(실시간가·수급 미확정)"
+                                    intraday_missing = True
                                 
                             new_row = pd.DataFrame([{
                                 "날짜": f"✨ {today_date} {time_label}",
@@ -3402,8 +3453,19 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             }])
                             daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
+                        if foreign_proxy:
+                            st.caption(
+                                f"🌍 **오늘 외국계 거래원 순매수(추정, 장중 실시간·KRX):** "
+                                f"매수 {foreign_proxy['buy']:,} − 매도 {foreign_proxy['sell']:,} = "
+                                f"**{'+' if foreign_proxy['net'] >= 0 else ''}{foreign_proxy['net']:,}주**.  "
+                                "이는 외국계 증권사 '창구' 거래량 추정치로, 장중 외국인 매매를 가늠하는 실시간 프록시입니다. "
+                                "투자자별 '확정' 외국인·기관 순매수는 장 마감 후 거래소가 공개합니다."
+                            )
                         if intraday_missing:
-                            with st.expander("🔍 오늘 장중 수급이 '집계중'으로만 나오는 이유 진단  (실시간 보강판 rt-v2)", expanded=False):
+                            st.caption("ℹ️ 오늘 **외국인·기관 순매수는 장 마감 후** 거래소가 확정 공개합니다. "
+                                       "네이버가 제공하던 장중 '잠정' 실시간 피드는 현재 이 페이지(frgn)에서 내려가 있어, "
+                                       "장중 실시간 수급은 표시되지 않습니다. (종가·등락률은 실시간 반영)")
+                            with st.expander("🔍 장중 수급 미표시 원인 진단  (실시간 보강판 rt-v2)", expanded=False):
                                 dbg = get_intraday_estimate_debug(tech_result['티커'])
                                 if dbg["err"]:
                                     st.write(f"- 요청 오류: `{dbg['err']}`  → 서버에서 네이버 접근 자체가 막혔을 수 있습니다.")
@@ -3417,7 +3479,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                             st.write(f"　· `{r}`")
                                     else:
                                         st.write("　· (행 없음)")
-                                st.caption("위에서 'HH:MM' 형태의 시각 행이 보이면 잠정치가 존재하는 것이고, 날짜(YYYY.MM.DD) 행만 보이면 지금은 네이버가 장중 잠정치를 올리지 않은 상태(장 시작 직후·마감 후·휴장 등)라 정상적으로 '집계중'이 표시됩니다. 이 진단 창이 보인다는 것 자체가 새 코드(rt-v2)가 배포됐다는 뜻입니다.")
+                                    st.write(f"- '외국계' 포함 행(거래원 추정합 후보): `{dbg.get('foreign_rows', [])}`")
+                                st.caption("summary 목록에 '잠정' 표가 없고 '…날짜별로 정보를 제공' 표만 있으면, 이 페이지에는 장중 잠정 피드가 없는 것입니다(확정·일별만 제공). "
+                                           "장중 실시간이 꼭 필요하면 네이버 신형 증권의 내부 API를 잡아야 하며, 방법은 채팅 안내를 참고하세요.")
                     else: 
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: 
