@@ -632,7 +632,7 @@ def get_dividend_portfolio(ex_rate):
         try:
             import yfinance as yf
         except Exception:
-            return ticker_code, 0.0, 0.0, ticker_code
+            return ticker_code, 0.0, 0.0, ticker_code, "—"
 
         t = None
         try:
@@ -643,11 +643,12 @@ def get_dividend_portfolio(ex_rate):
             try:
                 t = yf.Ticker(ticker_code)
             except Exception:
-                return ticker_code, 0.0, 0.0, ticker_code
+                return ticker_code, 0.0, 0.0, ticker_code, "—"
 
         price = 0.0
         annual_div = 0.0
         name = ticker_code
+        freq = "—"   # 배당 주기 (월/분기/반기/연배당) — 아래 배당내역에서 추정
 
         # 1) 현재가 (fast_info → info → 최근 종가 순)
         try:
@@ -687,6 +688,21 @@ def get_dividend_portfolio(ex_rate):
                 recent = divs[idx >= cutoff]
                 if len(recent) > 0:
                     annual_div = float(recent.sum())
+                    # 최근 12개월 '실제 지급 횟수 + 지급 월'로 배당 주기 추정
+                    try:
+                        n_pay = int(len(recent))
+                        months = sorted(set(int(m) for m in recent.index.month))
+                        mtxt = "·".join(str(m) for m in months) + "월"
+                        if n_pay >= 7:
+                            freq = "월배당 (매월)"
+                        elif n_pay >= 3:
+                            freq = f"분기배당 ({mtxt})"
+                        elif n_pay == 2:
+                            freq = f"반기배당 ({mtxt})"
+                        else:
+                            freq = f"연배당 ({mtxt})"
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -706,21 +722,21 @@ def get_dividend_portfolio(ex_rate):
             except Exception:
                 pass
 
-        return ticker_code, float(price or 0), float(annual_div or 0), name
+        return ticker_code, float(price or 0), float(annual_div or 0), name, freq
 
     def _yf_fetch_many(tickers, max_workers=8):
         out = {}
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
-                for tk, pr, dv, nm in ex.map(_yf_fetch_one, tickers):
-                    out[tk] = (pr, dv, nm)
+                for tk, pr, dv, nm, fq in ex.map(_yf_fetch_one, tickers):
+                    out[tk] = (pr, dv, nm, fq)
         except Exception:
             for tk in tickers:
                 try:
-                    _, pr, dv, nm = _yf_fetch_one(tk)
-                    out[tk] = (pr, dv, nm)
+                    _, pr, dv, nm, fq = _yf_fetch_one(tk)
+                    out[tk] = (pr, dv, nm, fq)
                 except Exception:
-                    out[tk] = (0.0, 0.0, tk)
+                    out[tk] = (0.0, 0.0, tk, "—")
         return out
 
     # ----- 조회 대상 종목 -----
@@ -792,6 +808,7 @@ def get_dividend_portfolio(ex_rate):
                 '종목명': name,
                 '현재가': f"{int(row['종가']):,}원",
                 '예상 배당금': float(row['DPS']),
+                '배당주기': '연 1회(추정)',
                 '비고': 'KRX 공식 데이터'
             })
     except Exception:
@@ -801,12 +818,13 @@ def get_dividend_portfolio(ex_rate):
     if not krx_list:
         kr_res = _yf_fetch_many(kr_tickers)
         for t_code in kr_tickers:
-            pr, dv, nm = kr_res.get(t_code, (0.0, 0.0, t_code))
+            pr, dv, nm, fq = kr_res.get(t_code, (0.0, 0.0, t_code, "—"))
             if pr > 0 and dv > 0:
                 krx_list.append({
                     '종목명': kr_names.get(t_code) or nm or t_code,
                     '현재가': f"{int(pr):,}원",
                     '예상 배당금': float(dv),
+                    '배당주기': fq,
                     '비고': 'Yahoo(yfinance) 우회'
                 })
 
@@ -832,6 +850,7 @@ def get_dividend_portfolio(ex_rate):
                             '종목명': kr_names.get(t_code) or p.get('shortName') or p.get('longName') or t_code,
                             '현재가': f"{int(price):,}원",
                             '예상 배당금': float(div_rate),
+                            '배당주기': '—',
                             '비고': 'yahooquery 우회'
                         })
                 except Exception:
@@ -849,7 +868,7 @@ def get_dividend_portfolio(ex_rate):
     # =========================================================
     us_list, etf_list = [], []
 
-    def _build_us_row(ticker, pr, dv, nm, src):
+    def _build_us_row(ticker, pr, dv, nm, src, freq="—"):
         if pr > 0 and dv > 0:
             name_ko = ticker
             if 'get_korean_name' in globals():
@@ -861,6 +880,7 @@ def get_dividend_portfolio(ex_rate):
                 '현재가': f"${pr:,.2f} ({int(pr * ex_rate):,}원)",
                 '예상 배당금': float(dv),
                 '표시 배당금': f"${dv:,.2f} ({int(dv * ex_rate):,}원)",
+                '배당주기': freq,
                 '비고': src
             }
         return None
@@ -868,12 +888,12 @@ def get_dividend_portfolio(ex_rate):
     # (2-A) yfinance 우선 (이 앱에서 검증된 경로)
     yf_res = _yf_fetch_many(us_tickers + etf_tickers)
     for tk in us_tickers:
-        pr, dv, nm = yf_res.get(tk, (0.0, 0.0, tk))
-        row = _build_us_row(tk, pr, dv, nm, 'yfinance')
+        pr, dv, nm, fq = yf_res.get(tk, (0.0, 0.0, tk, "—"))
+        row = _build_us_row(tk, pr, dv, nm, 'yfinance', freq=fq)
         if row: us_list.append(row)
     for tk in etf_tickers:
-        pr, dv, nm = yf_res.get(tk, (0.0, 0.0, tk))
-        row = _build_us_row(tk, pr, dv, nm, 'yfinance')
+        pr, dv, nm, fq = yf_res.get(tk, (0.0, 0.0, tk, "—"))
+        row = _build_us_row(tk, pr, dv, nm, 'yfinance', freq=fq)
         if row: etf_list.append(row)
 
     # (2-B) yahooquery 폴백 — yfinance 가 비었을 때만
@@ -5179,6 +5199,10 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
 
 elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
     st.subheader("💰 고배당주 파이프라인 (TOP 300)")
+    st.caption("🗓️ **배당주기**는 최근 12개월간 '실제 배당 지급 내역'으로 추정합니다 — 월·분기·반기·연배당. "
+               "괄호 안 숫자는 배당이 들어온 '월'입니다 (예: 분기배당(3·6·9·12월)). "
+               "한국거래소(pykrx) 공식데이터로 잡힌 종목은 지급일 정보가 없어 통상값인 '연 1회(추정)'로 표기되며, "
+               "야후(yfinance)로 조회된 종목은 실제 지급월 기준으로 표시됩니다.")
 
     hcol1, hcol2 = st.columns([5, 1])
     with hcol2:
