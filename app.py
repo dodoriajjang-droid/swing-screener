@@ -2380,6 +2380,35 @@ def _to_eok(val):
     return int(round(v))   # 이미 억 단위로 추정
 
 
+def _diag_index_endpoints():
+    """[추가] 진단 도구: 후보 API/페이지에 직접 요청해 status code와 응답 앞부분을 화면에 출력.
+    어떤 URL이 살아있고 어떤 키가 들어있는지 눈으로 확인해 파서를 맞추기 위함."""
+    HDRS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Referer": "https://stock.naver.com/",
+        "Accept": "application/json, text/plain, */*",
+    }
+    test_urls = [
+        "https://api.stock.naver.com/index/KOSPI/basic",
+        "https://api.stock.naver.com/index/KOSPI/integration",
+        "https://api.stock.naver.com/index/KOSPI/trend",
+        "https://api.stock.naver.com/chart/domestic/index/KOSPI",
+        "https://m.stock.naver.com/api/index/KOSPI/basic",
+        "https://m.stock.naver.com/api/index/KOSPI/integration",
+        "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
+    ]
+    for u in test_urls:
+        try:
+            r = requests.get(u, headers=HDRS, timeout=4)
+            ct = r.headers.get("Content-Type", "")
+            body = r.text[:400] if r.text else ""
+            st.markdown(f"**`{u}`** → status `{r.status_code}`, type `{ct}`")
+            st.code(body or "(빈 응답)", language="json")
+        except Exception as e:
+            st.markdown(f"**`{u}`** → ❌ 요청 실패: `{type(e).__name__}: {e}`")
+    st.caption("위 응답 중 외국인/기관/개인 숫자가 든 JSON을 찾아 그 키 이름을 알려주시면 파서를 정확히 맞추겠습니다.")
+
+
 @st.cache_data(ttl=120)
 def get_kr_index_panel():
     """[추가] 네이버 모바일 스타일 메인 지수 패널 데이터.
@@ -2468,6 +2497,53 @@ def get_kr_index_panel():
         forgn = _to_eok(forgn)
         inst = _to_eok(inst)
         indiv = _to_eok(indiv)
+
+        # [폴백] 신형 API가 가격을 못 줬으면 구형 finance.naver.com 페이지에서 시세만이라도 확보
+        if price is None:
+            try:
+                code = "KOSPI" if mkt == "KOSPI" else "KOSDAQ"
+                fres = requests.get(
+                    f"https://finance.naver.com/sise/sise_index.naver?code={code}",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                    timeout=4,
+                )
+                fres.encoding = 'euc-kr'
+                fsoup = BeautifulSoup(fres.text, 'html.parser')
+                now_el = fsoup.select_one('#now_value')
+                if now_el:
+                    try:
+                        price = float(now_el.get_text(strip=True).replace(',', ''))
+                    except Exception:
+                        price = None
+                chg_el = fsoup.select_one('#change_value_and_rate')
+                if chg_el:
+                    ctxt = chg_el.get_text(" ", strip=True)
+                    nums = re.findall(r'[\d,]+\.\d+', ctxt)
+                    if len(nums) >= 2:
+                        try:
+                            if diff is None:
+                                diff = float(nums[0].replace(',', ''))
+                            if pct is None:
+                                pct = float(nums[1].replace(',', ''))
+                        except Exception:
+                            pass
+                    cls = ' '.join(chg_el.get('class') or [])
+                    if sign == 0:
+                        if 'down' in cls:
+                            sign = -1
+                        elif 'up' in cls:
+                            sign = 1
+                # 종목수도 같은 페이지에서 보조 확보
+                if up is None or down is None:
+                    ftext = fsoup.get_text(" ", strip=True)
+                    def _f(kw):
+                        m = re.search(kw + r'(?:\s*종목수?)?\s*([\d,]+)', ftext)
+                        return int(m.group(1).replace(',', '')) if m else None
+                    up = up if up is not None else _f('상승')
+                    flat = flat if flat is not None else _f('보합')
+                    down = down if down is not None else _f('하락')
+            except Exception:
+                pass
 
         if price is None:
             return None
@@ -2566,6 +2642,8 @@ def render_main_index_panel():
     data = get_kr_index_panel()
     if not data:
         st.caption("📊 메인 지수 패널을 불러오지 못했습니다. (네이버 지수 페이지 일시 지연/구조 변경)")
+        with st.expander("🔧 진단: 어떤 응답이 오는지 확인 (펼치기)"):
+            _diag_index_endpoints()
         return
 
     # 시장 국면(신호등) → '오늘의 시장' 한 줄 요약 + 게이지 위치
