@@ -2850,8 +2850,8 @@ def render_marketcap_top(mkt="KOSPI", n=10):
     if not rows:
         st.caption("📊 시가총액 TOP 종목을 불러오지 못했습니다.")
         return
-    # 컬럼: [순위 24] [종목명 1fr] [가격 84] [등락률 76]
-    GRID = "grid-template-columns:24px minmax(0,1fr) 84px 76px;"
+    # 컬럼: [순위 18] [종목명 1fr] [가격 70] [등락률 62] — 절반 폭 컬럼에서 잘리지 않게 축소
+    GRID = "grid-template-columns:18px minmax(0,1fr) 70px 62px;"
     body = ""
     for i, r in enumerate(rows, 1):
         sign = r.get("sign", 0)
@@ -2862,17 +2862,18 @@ def render_marketcap_top(mkt="KOSPI", n=10):
         price = f'{r["price"]:,.0f}' if r.get("price") is not None else "-"
         border = "border-bottom:1px solid #f1f5f9;" if i < len(rows) else ""
         body += (
-            f'<div style="display:grid;{GRID}align-items:center;column-gap:8px;padding:9px 2px;{border}">'
-            f'<span style="color:#94a3b8;font-weight:700;font-size:13px;">{i}</span>'
-            f'<div style="min-width:0;">'
-            f'<div style="font-weight:700;color:#1e293b;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r.get("cap","")}</div></div>'
-            f'<span style="text-align:right;color:#1e293b;font-size:13px;white-space:nowrap;">{price}</span>'
-            f'<span style="text-align:right;color:{c};font-weight:700;font-size:13px;white-space:nowrap;">{pstr}</span>'
+            f'<div style="display:grid;{GRID}align-items:center;column-gap:6px;padding:8px 0;{border}box-sizing:border-box;">'
+            f'<span style="color:#94a3b8;font-weight:700;font-size:12px;">{i}</span>'
+            f'<div style="min-width:0;overflow:hidden;">'
+            f'<div style="font-weight:700;color:#1e293b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
+            f'<div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r.get("cap","")}</div></div>'
+            f'<span style="text-align:right;color:#1e293b;font-size:12px;white-space:nowrap;overflow:hidden;">{price}</span>'
+            f'<span style="text-align:right;color:{c};font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;">{pstr}</span>'
             f'</div>'
         )
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:2px 14px;">{body}</div>',
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'padding:2px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
 
@@ -2886,24 +2887,25 @@ def render_industry_changes(n=12):
     rows = [r for r in rows if r.get("rate") is not None]
     top = sorted(rows, key=lambda x: x["rate"], reverse=True)[:n]
     max_abs = max((abs(r["rate"]) for r in top), default=1) or 1
-    # 컬럼: [업종명 96] [막대 1fr] [% 64]
-    GRID = "grid-template-columns:96px minmax(0,1fr) 64px;"
+    # 컬럼: [업종명 88] [막대 1fr] [% 60]
+    GRID = "grid-template-columns:88px minmax(0,1fr) 60px;"
     def _row(r):
         rate = r["rate"]
         c = "#ef4444" if rate > 0 else ("#3b82f6" if rate < 0 else "#64748b")
         arrow = "▲" if rate > 0 else ("▼" if rate < 0 else "")
         w = abs(rate) / max_abs * 100
         return (
-            f'<div style="display:grid;{GRID}align-items:center;column-gap:10px;padding:7px 2px;">'
-            f'<span style="font-weight:600;color:#1e293b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
+            f'<div style="display:grid;{GRID}align-items:center;column-gap:8px;padding:7px 0;box-sizing:border-box;">'
+            f'<span style="font-weight:600;color:#1e293b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
             f'<span style="height:8px;background:#f1f5f9;border-radius:5px;position:relative;min-width:0;">'
             f'<span style="position:absolute;left:0;width:{w:.0f}%;height:100%;background:{c};border-radius:5px;"></span></span>'
-            f'<span style="text-align:right;color:{c};font-weight:700;font-size:13px;white-space:nowrap;">{arrow}{abs(rate):.2f}%</span>'
+            f'<span style="text-align:right;color:{c};font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;">{arrow}{abs(rate):.2f}%</span>'
             f'</div>'
         )
     body = "".join(_row(r) for r in top)
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:6px 14px;">{body}</div>',
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'padding:6px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
 
