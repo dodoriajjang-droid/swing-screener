@@ -2389,12 +2389,17 @@ def _diag_index_endpoints():
         "Accept": "application/json, text/plain, */*",
     }
     test_urls = [
+        # 지수 코드 형식 후보 (어떤 게 200을 주는지 확인용)
+        "https://api.stock.naver.com/index/.KS11/basic",
         "https://api.stock.naver.com/index/KOSPI/basic",
-        "https://api.stock.naver.com/index/KOSPI/integration",
-        "https://api.stock.naver.com/index/KOSPI/trend",
-        "https://api.stock.naver.com/chart/domestic/index/KOSPI",
+        "https://api.stock.naver.com/index/KS11/basic",
+        "https://api.stock.naver.com/index/0001/basic",
+        "https://api.stock.naver.com/index/.KS11/integration",
+        "https://api.stock.naver.com/index/.KS11/trend",
+        "https://m.stock.naver.com/api/index/.KS11/basic",
         "https://m.stock.naver.com/api/index/KOSPI/basic",
         "https://m.stock.naver.com/api/index/KOSPI/integration",
+        "https://m.stock.naver.com/api/index/KOSPI/trend",
         "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
     ]
     for u in test_urls:
@@ -2436,55 +2441,74 @@ def get_kr_index_panel():
         up = flat = down = None
         forgn = inst = indiv = None
 
-        # 1) 지수 시세 (현재가/등락/등락률) ───────────────────────────
-        basic = _get_json(f"https://api.stock.naver.com/index/{mkt}/basic")
-        if basic:
-            price = _deep_find_number(basic, ["closeprice", "nowval", "currentprice", "tradeprice"])
-            diff = _deep_find_number(basic, ["compareprice", "changeprice", "changevalue", "compare"])
-            pct = _deep_find_number(basic, ["fluctuationsratio", "changerate", "comparerate", "fluctuationrate"])
-            # 부호: 등락 텍스트/구분 코드에서 추정
-            sign_txt = json.dumps(basic, ensure_ascii=False).lower()
-            if diff is not None:
-                if diff < 0:
-                    sign = -1
-                elif diff > 0:
-                    sign = 1
-            if sign == 0:
-                if '"rising"' in sign_txt or 'up' in sign_txt:
-                    sign = 1
-                elif '"falling"' in sign_txt or 'down' in sign_txt:
-                    sign = -1
-            # diff/pct는 절대값으로 통일 (부호는 sign이 관리)
-            if diff is not None:
-                diff = abs(diff)
-            if pct is not None:
-                pct = abs(pct)
+        # 지수 코드 형식 후보 — m.stock.naver.com은 'KOSPI'/'KOSDAQ'를 직접 받는다 (1순위).
+        code_candidates = (
+            ["KOSPI", ".KS11", "KS11", "0001"] if mkt == "KOSPI"
+            else ["KOSDAQ", ".KQ11", "KQ11", "1001"]
+        )
+        # 베이스 URL — 확인된 m.stock.naver.com/api 를 1순위로.
+        bases = ("https://m.stock.naver.com/api/index", "https://api.stock.naver.com/index")
+
+        # 1) 지수 시세 (현재가/등락/등락률) — 살아있는 (base, code)를 찾아 고정 ─────
+        good_code = None
+        good_base = None
+        for base in bases:
+            for code in code_candidates:
+                basic = _get_json(f"{base}/{code}/basic")
+                if not basic or (isinstance(basic, dict) and basic.get("code") in ("StockConflict",)):
+                    continue
+                p = _deep_find_number(basic, ["closeprice", "nowval", "currentprice", "tradeprice"])
+                if p is None:
+                    continue
+                good_code, good_base = code, base
+                price = p
+                diff = _deep_find_number(basic, ["compareprice", "changeprice", "changevalue", "compare"])
+                pct = _deep_find_number(basic, ["fluctuationsratio", "changerate", "comparerate", "fluctuationrate"])
+                sign_txt = json.dumps(basic, ensure_ascii=False).lower()
+                if diff is not None:
+                    sign = -1 if diff < 0 else (1 if diff > 0 else 0)
+                if sign == 0:
+                    if '"rising"' in sign_txt or '"up"' in sign_txt:
+                        sign = 1
+                    elif '"falling"' in sign_txt or '"down"' in sign_txt:
+                        sign = -1
+                if diff is not None:
+                    diff = abs(diff)
+                if pct is not None:
+                    pct = abs(pct)
+                break
+            if good_code:
+                break
 
         # 2) 상승/보합/하락 종목수 + 투자자별 순매매 ──────────────────
-        # 여러 후보 엔드포인트를 순회하며 필요한 값을 채운다.
-        candidate_urls = [
-            f"https://api.stock.naver.com/index/{mkt}/integration",
-            f"https://api.stock.naver.com/index/{mkt}/trend",
-            f"https://api.stock.naver.com/index/{mkt}/marketSum",
-            f"https://api.stock.naver.com/index/{mkt}/investorTrend",
-        ]
-        for url in candidate_urls:
-            data = _get_json(url)
-            if not data:
-                continue
-            if up is None:
-                up = _deep_find_number(data, ["risingcount", "upcount", "advance", "rising"])
-            if down is None:
-                down = _deep_find_number(data, ["fallingcount", "downcount", "decline", "falling"])
-            if flat is None:
-                flat = _deep_find_number(data, ["unchangedcount", "flatcount", "steady", "unchanged"])
-            if forgn is None:
-                forgn = _deep_find_number(data, ["foreign", "frgn", "외국인"])
-            if inst is None:
-                inst = _deep_find_number(data, ["organ", "institution", "기관"])
-            if indiv is None:
-                indiv = _deep_find_number(data, ["individual", "person", "개인", "private"])
-            # 다 채워졌으면 중단
+        # 살아있는 (base, code) 기준으로 여러 하위 엔드포인트를 순회하며 채운다.
+        sub_bases = [good_base] if good_base else list(bases)
+        sub_codes = [good_code] if good_code else code_candidates
+        candidate_paths = ["integration", "trend", "marketSum", "investorTrend", "investor"]
+        for base in sub_bases:
+            for code in sub_codes:
+                if base is None or code is None:
+                    continue
+                for path in candidate_paths:
+                    data = _get_json(f"{base}/{code}/{path}")
+                    if not data:
+                        continue
+                    if up is None:
+                        up = _deep_find_number(data, ["risingcount", "upcount", "advance", "rising"])
+                    if down is None:
+                        down = _deep_find_number(data, ["fallingcount", "downcount", "decline", "falling"])
+                    if flat is None:
+                        flat = _deep_find_number(data, ["unchangedcount", "flatcount", "steady", "unchanged"])
+                    if forgn is None:
+                        forgn = _deep_find_number(data, ["foreign", "frgn"])
+                    if inst is None:
+                        inst = _deep_find_number(data, ["organ", "institution"])
+                    if indiv is None:
+                        indiv = _deep_find_number(data, ["individual", "person", "private"])
+                    if all(x is not None for x in (up, down, forgn, inst, indiv)):
+                        break
+                if all(x is not None for x in (up, down, forgn, inst, indiv)):
+                    break
             if all(x is not None for x in (up, down, forgn, inst, indiv)):
                 break
 
