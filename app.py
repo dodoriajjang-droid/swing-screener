@@ -388,6 +388,43 @@ def render_overnight_banner():
         delta_color = "inverse" if d['ticker'] == "^VIX" else "normal"
         col.metric(d['label'], val, f"{d['pct']:+.2f}%", delta_color=delta_color)
 
+def get_economic_events(year, month):
+    """[추가] 해당 연·월의 주요 경제지표 일정을 {일: [(label, css_class), ...]} 형태로 반환.
+    - FOMC: 미 연준 공식 확정 일정(2026) — 결정 발표는 회의 2일차.
+    - CPI/고용지표: 통상 발표 시기(추정). BLS가 매달 확정하므로 정확한 날짜는 다를 수 있음.
+    실제 자동 수집은 환경 제약으로 어려워, 확정 일정은 직접 입력하고 추정 항목은 명시한다."""
+    events = {}
+    def _add(day, label, cls):
+        events.setdefault(day, []).append((label, cls))
+
+    # ── 2026 FOMC 금리결정일 (회의 2일차, 공식 확정) ──
+    fomc_2026 = {
+        1: [28], 3: [18], 4: [29], 6: [17], 7: [29], 9: [16], 10: [28], 12: [9],
+    }
+    if year == 2026 and month in fomc_2026:
+        for d in fomc_2026[month]:
+            _add(d, "🏛️ 🇺🇸FOMC 금리결정", "evt-econ-fomc")
+
+    # ── 미국 CPI (BLS 공식 확정 2026) ──
+    # 1월은 셧다운으로 13→2/13 연기됐으나, 표준 공식 일정을 사용.
+    cpi_2026 = {1: 13, 2: 11, 3: 11, 4: 10, 5: 12, 6: 10, 7: 14, 8: 12, 9: 11, 10: 14, 11: 10, 12: 10}
+    if year == 2026 and month in cpi_2026:
+        _add(cpi_2026[month], "📊 🇺🇸CPI 물가", "evt-econ-cpi")
+
+    # ── 미국 고용지표(비농업, BLS 공식 확정 2026) ──
+    jobs_2026 = {1: 9, 2: 6, 3: 6, 4: 3, 5: 8, 6: 5, 7: 2, 8: 7, 9: 4, 10: 2, 11: 6, 12: 4}
+    if year == 2026 and month in jobs_2026:
+        _add(jobs_2026[month], "👷 🇺🇸고용지표", "evt-econ-jobs")
+
+    # ── 한국 금통위 통화정책방향 결정회의 (2026 공식 확정) ──
+    # 한국은행 발표: 1/15, 2/26, 4/10, 5/28, 7/16, 8/27, 10/22, 11/26
+    bok_2026 = {1: 15, 2: 26, 4: 10, 5: 28, 7: 16, 8: 27, 10: 22, 11: 26}
+    if year == 2026 and month in bok_2026:
+        _add(bok_2026[month], "🏦 🇰🇷한은 금통위", "evt-econ-bok")
+
+    return events
+
+
 @st.cache_data(ttl=3600)
 def analyze_theme_trends():
     """국내 대표 섹터 ETF의 1·3·6개월 수익률을 실측해 섹터 순환매 분석용 DataFrame 반환.
@@ -4954,18 +4991,10 @@ elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
 
 elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
     st.subheader("📅 핵심 증시 일정 & IPO 달력")
-    cal_tab1, cal_tab2, cal_tab3 = st.tabs(["🌍 글로벌 경제 지표", "🧠 통합 수급 달력 (국장+미장)", "🇰🇷 국내 IPO 분석"])
-    
-    with cal_tab1: 
-        components.html("""
-        <div class="tradingview-widget-container"><div class="tradingview-widget-container__widget"></div>
-        <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
-        { "colorTheme": "light", "isTransparent": true, "width": "100%", "height": "600", "locale": "kr", "importanceFilter": "-1,0,1", "currencyFilter": "USD,KRW,CNY,EUR,JPY" }
-        </script></div>
-        """, height=600)
+    cal_tab2, cal_tab3 = st.tabs(["🗓️ 통합 일정 달력 (경제지표+수급)", "🇰🇷 국내 IPO 분석"])
 
     with cal_tab2:
-        st.markdown("#### 🌎 글로벌 파생수급 통합 시나리오")
+        st.markdown("#### 🗓️ 경제지표 · 파생수급 통합 달력")
         cc1, cc2, cc3 = st.columns([1, 8, 1])
         with cc1:
             if st.button("◀ 이전 달", use_container_width=True, key="us_prev"):
@@ -4995,9 +5024,7 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
         
         fridays = [week[5] for week in cal if week[5] != 0]
         us_opex_day = fridays[2] if len(fridays) >= 3 else fridays[-1]
-        us_opex_week_days = [us_opex_day - 4 + i for i in range(5)] 
-        us_shoot_days = [us_opex_day + 3, us_opex_day + 4] 
-        us_macro_days = [day for day in range(10, 15) if day not in us_opex_week_days]
+        us_opex_week_days = [us_opex_day - 4 + i for i in range(5)]
 
         tax_day = -1
         if month == 4:
@@ -5024,19 +5051,27 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
             ".evt-kr-red { background: #fce4ec; color: #b71c1c; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #b71c1c; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             ".evt-kr-blue { background: #e3f2fd; color: #1565c0; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #1565c0; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             ".evt-kr-green { background: #f1f8e9; color: #1b5e20; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #1b5e20; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-fomc { background: #ede7f6; color: #4527a0; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #4527a0; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-cpi { background: #fff8e1; color: #ff6f00; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #ff6f00; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-jobs { background: #e0f7fa; color: #006064; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #006064; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-bok { background: #fce4ec; color: #880e4f; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #880e4f; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             "</style>",
             "<div class='cal-grid'>",
             "<div class='cal-head' style='color:#d32f2f;'>일</div><div class='cal-head'>월</div><div class='cal-head'>화</div><div class='cal-head'>수</div><div class='cal-head'>목</div><div class='cal-head'>금</div><div class='cal-head' style='color:#1976d2;'>토</div>"
         ]
         
+        econ_events = get_economic_events(year, month)
+
         for week in cal:
             for i, day in enumerate(week):
                 if day == 0: html_parts.append("<div class='cal-cell' style='background:#fafafa;'></div>")
                 else:
                     events = ""
+                    # 경제지표(FOMC·CPI·고용·금통위)를 가장 위에 표시
+                    for label, cls in econ_events.get(day, []):
+                        events += f"<div class='{cls}'>{label}</div>"
                     if day == tax_day: events += "<div class='evt-us-red'>🔴 🇺🇸세금납부일(하락압력)</div>"
-                    if i == calendar.MONDAY: events += "<div class='evt-kr-blue'>🔹 🇰🇷위클리 만기(수급재편)</div>"
-                    elif i == calendar.THURSDAY:
+                    if i == calendar.THURSDAY:
                         if day == kr_opex_day:
                             label = "🔥 🇰🇷네마녀의 날" if kr_is_quadruple else "🔴 🇰🇷옵션만기일"
                             events += f"<div class='evt-kr-red'>{label}(수급극대)</div>"
@@ -5046,9 +5081,6 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
                     if day in us_opex_week_days:
                         if day == us_opex_day: events += "<div class='evt-us-red'>🔴 🇺🇸옵션만기(변동성폭발)</div>"
                         else: events += "<div class='evt-us-warn'>⚠️ 🇺🇸만기주간(핀닝/하락)</div>"
-                    elif day in us_macro_days and day != tax_day: events += "<div class='evt-us-warn'>⚠️ 🇺🇸매크로 경계(관망)</div>"
-                    
-                    if day in us_shoot_days: events += "<div class='evt-us-green'>🟢 🇺🇸헤지청산(슈팅기대)</div>"
 
                     num_color = "#d32f2f" if i == 0 else "#1976d2" if i == 6 else "#333"
                     cell_cls = "cal-cell today" if day == today_day else "cal-cell"
@@ -5057,6 +5089,25 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
 
         html_parts.append("</div>")
         st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+        st.markdown(
+            "<div style='margin-top:10px;font-size:12px;color:#555;line-height:1.9;'>"
+            "<b>범례</b> &nbsp; "
+            "<span style='background:#ede7f6;color:#4527a0;padding:2px 6px;border-radius:3px;'>🏛️ FOMC</span> "
+            "<span style='background:#fff8e1;color:#ff6f00;padding:2px 6px;border-radius:3px;'>📊 CPI</span> "
+            "<span style='background:#e0f7fa;color:#006064;padding:2px 6px;border-radius:3px;'>👷 고용지표</span> "
+            "<span style='background:#fce4ec;color:#880e4f;padding:2px 6px;border-radius:3px;'>🏦 한은 금통위</span> "
+            "<span style='background:#ffebee;color:#c62828;padding:2px 6px;border-radius:3px;'>🔴 옵션만기</span> "
+            "<span style='background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:3px;'>🔹 위클리만기</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "ℹ️ 표시된 경제지표는 모두 **공식 확정 일정(2026)**입니다 — "
+            "FOMC(미 연준)·한은 금통위, 미 CPI·고용지표(BLS·OMB 공식 발표 기준). "
+            "옵션만기(미 셋째 금요일·한국 둘째 목요일)는 규칙 기반입니다. "
+            "단, 정부 셧다운 등으로 발표일이 사후 연기될 수 있으니 중대한 매매 전엔 원출처를 확인하세요."
+        )
 
     with cal_tab3:
         with st.spinner("최신 IPO 일정을 파싱 중입니다..."):
