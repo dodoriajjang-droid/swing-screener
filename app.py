@@ -2333,6 +2333,227 @@ def render_kr_market_breadth():
     )
 
 
+@st.cache_data(ttl=120)
+def get_kr_index_panel():
+    """[추가] 네이버 모바일 스타일 메인 지수 패널 데이터.
+    코스피·코스닥 각각: 지수값/등락률/등락폭/상승·보합·하락 종목수 + 전체 투자자별 순매매(외국인/기관/개인).
+    네이버 'sise_index.naver' 데스크톱 페이지 한 번으로 지수·등락·종목수·투자자별 매매까지 파싱."""
+    def _scrape(mkt):
+        try:
+            url = f"https://finance.naver.com/sise/sise_index.naver?code={mkt}"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
+            res.encoding = 'euc-kr'
+            soup = BeautifulSoup(res.text, 'html.parser')
+            text = soup.get_text(" ", strip=True)
+
+            # 지수 현재가 (#now_value), 등락폭(#change_value_and_rate)
+            now_el = soup.select_one('#now_value')
+            chg_el = soup.select_one('#change_value_and_rate')
+            price = None
+            if now_el:
+                try: price = float(now_el.get_text(strip=True).replace(',', ''))
+                except Exception: price = None
+            diff, pct, sign = None, None, 0
+            if chg_el:
+                ctxt = chg_el.get_text(" ", strip=True)
+                # 예: "186.86 +2.28%" / 상승/하락 클래스로 부호 판단
+                nums = re.findall(r'[\d,]+\.\d+', ctxt)
+                if len(nums) >= 2:
+                    try:
+                        diff = float(nums[0].replace(',', ''))
+                        pct = float(nums[1].replace(',', ''))
+                    except Exception: pass
+                cls = (chg_el.get('class') or [])
+                if 'down' in ' '.join(cls) or '하락' in ctxt or '-' in ctxt:
+                    sign = -1
+                elif 'up' in ' '.join(cls) or '상승' in ctxt or '+' in ctxt:
+                    sign = 1
+
+            # 상승/보합/하락 종목수
+            def f(kw):
+                m = re.search(kw + r'(?:\s*종목수?)?\s*([\d,]+)', text)
+                return int(m.group(1).replace(',', '')) if m else None
+            up, flat, down = f('상승'), f('보합'), f('하락')
+
+            # 투자자별 순매매 (개인/외국인/기관) — 페이지 내 '투자자별 매매동향' 표
+            forgn = inst = indiv = None
+            try:
+                for tbl in soup.select('table'):
+                    ttxt = tbl.get_text(" ", strip=True)
+                    if '개인' in ttxt and '외국인' in ttxt and '기관' in ttxt:
+                        def grab(label):
+                            m = re.search(label + r'\s*([+\-]?[\d,]+)', ttxt)
+                            if m:
+                                try: return int(m.group(1).replace(',', '').replace('+', ''))
+                                except Exception: return None
+                            return None
+                        indiv, forgn, inst = grab('개인'), grab('외국인'), grab('기관')
+                        break
+            except Exception:
+                pass
+
+            if price is None:
+                return None
+            return {
+                "name": "코스피" if mkt == "KOSPI" else "코스닥",
+                "price": price, "diff": diff, "pct": pct, "sign": sign,
+                "up": up, "flat": flat, "down": down,
+                "forgn": forgn, "inst": inst, "indiv": indiv,
+            }
+        except Exception:
+            return None
+
+    kospi = _scrape("KOSPI")
+    kosdaq = _scrape("KOSDAQ")
+    if not kospi and not kosdaq:
+        return None
+    return {"KOSPI": kospi, "KOSDAQ": kosdaq}
+
+
+def _index_card_html(d):
+    """이미지(네이버 모바일) 스타일 개별 지수 카드 HTML."""
+    if not d:
+        return ""
+    up_c, flat_c, down_c = "#ef4444", "#94a3b8", "#3b82f6"
+    sign = d.get("sign", 0)
+    val_color = up_c if sign > 0 else (down_c if sign < 0 else "#334155")
+    arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "■")
+    psign = "+" if sign > 0 else ("-" if sign < 0 else "")
+    pct = d.get("pct")
+    diff = d.get("diff")
+    pct_str = f"{psign}{pct:.2f}%" if pct is not None else ""
+    diff_str = f"{arrow} {diff:,.2f}" if diff is not None else ""
+    up, flat, down = d.get("up"), d.get("flat"), d.get("down")
+    # 등락 막대 (상승=빨강 / 보합=회색 / 하락=파랑)
+    bar = ""
+    if up is not None and down is not None:
+        tot = (up or 0) + (flat or 0) + (down or 0)
+        if tot > 0:
+            up_p = (up or 0) / tot * 100
+            flat_p = (flat or 0) / tot * 100
+            down_p = max(0.0, 100 - up_p - flat_p)
+            bar = (
+                f'<div style="display:flex;height:8px;border-radius:5px;overflow:hidden;'
+                f'background:#e5e7eb;margin-top:10px;">'
+                f'<div style="width:{up_p:.1f}%;background:{up_c};"></div>'
+                f'<div style="width:{flat_p:.1f}%;background:{flat_c};"></div>'
+                f'<div style="width:{down_p:.1f}%;background:{down_c};"></div></div>'
+            )
+    cnt = ""
+    if up is not None and down is not None:
+        cnt = (
+            f'<span style="color:{up_c};font-weight:700;">↗{up:,}</span>'
+            f'<span style="color:{flat_c};margin:0 6px;">{flat or 0:,}</span>'
+            f'<span style="color:{down_c};font-weight:700;">↘{down:,}</span>'
+        )
+    return (
+        f'<div style="padding:14px 4px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<span style="font-size:20px;font-weight:800;color:#1e293b;">{d["name"]}</span>'
+        f'<span style="font-size:13px;">{cnt}</span></div>'
+        f'<div style="margin-top:6px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+        f'<span style="font-size:28px;font-weight:800;color:#1e293b;">{d["price"]:,.2f}</span>'
+        f'<span style="font-size:16px;font-weight:700;color:{val_color};">{pct_str}</span>'
+        f'<span style="font-size:15px;color:{val_color};">{diff_str}</span></div>'
+        f'{bar}</div>'
+    )
+
+
+def _flow_bar_html(label, val):
+    """투자자별 순매매 한 줄 (외국인/기관/개인). val 단위: 억원(정수, +매수/-매도)."""
+    buy_c, sell_c = "#ef4444", "#3b82f6"
+    if val is None:
+        return (
+            f'<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0;">'
+            f'<span style="width:52px;color:#475569;font-weight:600;">{label}</span>'
+            f'<span style="flex:1;height:8px;background:#eef2f6;border-radius:5px;margin:0 14px;"></span>'
+            f'<span style="color:#94a3b8;font-weight:700;min-width:96px;text-align:right;">조회불가</span></div>'
+        )
+    color = buy_c if val >= 0 else sell_c
+    sign = "+" if val >= 0 else "-"
+    mag = min(abs(val) / 20000.0, 1.0)  # 2조원=풀바 기준 (시각용)
+    half = mag * 50.0
+    if val >= 0:
+        fill = f'<div style="position:absolute;left:50%;width:{half:.1f}%;height:100%;background:{color};border-radius:5px;"></div>'
+    else:
+        fill = f'<div style="position:absolute;right:50%;width:{half:.1f}%;height:100%;background:{color};border-radius:5px;"></div>'
+    return (
+        f'<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0;">'
+        f'<span style="width:52px;color:#475569;font-weight:600;">{label}</span>'
+        f'<span style="flex:1;position:relative;height:8px;background:#eef2f6;border-radius:5px;margin:0 14px;">{fill}'
+        f'<span style="position:absolute;left:50%;top:-2px;width:1px;height:12px;background:#cbd5e1;"></span></span>'
+        f'<span style="color:{color};font-weight:800;min-width:96px;text-align:right;">{sign}{abs(val):,}억</span></div>'
+    )
+
+
+def render_main_index_panel():
+    """[추가] 메인페이지 상단 — 네이버 모바일 스타일 코스피/코스닥 + 오늘의 시장 + 투자자별 순매매."""
+    data = get_kr_index_panel()
+    if not data:
+        st.caption("📊 메인 지수 패널을 불러오지 못했습니다. (네이버 지수 페이지 일시 지연/구조 변경)")
+        return
+
+    # 시장 국면(신호등) → '오늘의 시장' 한 줄 요약 + 게이지 위치
+    try:
+        reg = get_market_regime()
+        light, title, _ = reg.get('verdict', ("🟡", "중립", ""))
+    except Exception:
+        light, title = "🟡", "중립"
+    regime_map = {"🟢": ("좋아요", "#22c55e", 88), "🟡": ("중립", "#f59e0b", 50), "🔴": ("조심해요", "#ef4444", 14)}
+    reg_label, reg_color, reg_pos = regime_map.get(light, ("중립", "#f59e0b", 50))
+
+    kospi = data.get("KOSPI")
+    kosdaq = data.get("KOSDAQ")
+
+    cards = ""
+    if kospi:
+        cards += _index_card_html(kospi)
+    if kospi and kosdaq:
+        cards += '<div style="height:1px;background:#eef2f6;margin:2px 0;"></div>'
+    if kosdaq:
+        cards += _index_card_html(kosdaq)
+
+    # 투자자별 순매매: 코스피 기준(없으면 코스닥) — 전체시장 대표값
+    src = kospi if (kospi and kospi.get("forgn") is not None) else kosdaq
+    f_v = src.get("forgn") if src else None
+    i_v = src.get("inst") if src else None
+    p_v = src.get("indiv") if src else None
+
+    flows = (
+        _flow_bar_html("외국인", f_v)
+        + _flow_bar_html("기관", i_v)
+        + _flow_bar_html("개인", p_v)
+    )
+
+    gauge = (
+        f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
+        f'<span style="color:#ef4444;">●</span>'
+        f'<span style="font-weight:800;font-size:17px;color:#1e293b;">오늘의 시장</span>'
+        f'<span style="color:#94a3b8;">ⓘ</span>'
+        f'<span style="font-weight:800;font-size:17px;color:{reg_color};margin-left:2px;">{reg_label}</span>'
+        f'<span style="flex:1;position:relative;height:6px;border-radius:5px;margin-left:10px;'
+        f'background:linear-gradient(90deg,#3b82f6,#cbd5e1,#ef4444);">'
+        f'<span style="position:absolute;left:{reg_pos}%;top:-4px;width:14px;height:14px;border-radius:50%;'
+        f'background:#fff;border:2px solid {reg_color};transform:translateX(-50%);"></span></span></div>'
+    )
+
+    st.markdown(
+        f"""
+        <div style="background:#fff;border:1px solid #e9eef3;border-radius:16px;
+                    padding:6px 18px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+          {cards}
+        </div>
+        <div style="background:#fff5f5;border:1px solid #fcdcdc;border-radius:16px;
+                    padding:14px 18px;margin-top:10px;">
+          {gauge}
+          <div style="margin-top:12px;">{flows}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("💡 외국인·기관·개인 순매매(억원)는 코스피 전체 기준 · 빨강=순매수 / 파랑=순매도. 장중 잠정치이며 마감 후 거래소가 확정합니다.")
+
+
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
@@ -3740,6 +3961,11 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     fg_data = get_fear_and_greed()
     
     st.markdown("## 🎛️ 홈: 종합 대시보드")
+
+    # [추가] 네이버 모바일 스타일 메인 지수 패널 (코스피/코스닥 + 오늘의 시장 + 투자자별 순매매)
+    with st.spinner("코스피·코스닥 지수 / 투자자별 수급 수집 중..."):
+        render_main_index_panel()
+    st.divider()
 
     # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
     render_market_regime_banner()
