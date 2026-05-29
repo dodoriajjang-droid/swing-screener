@@ -2333,75 +2333,150 @@ def render_kr_market_breadth():
     )
 
 
+def _deep_find_number(obj, key_substrings, _depth=0):
+    """[추가] 중첩 dict/list(JSON)에서 key 이름에 주어진 부분문자열이 들어간 첫 숫자값을 찾아 반환.
+    네이버 API 응답의 정확한 필드명을 몰라도 '외국인/기관/개인' 같은 키를 자동 탐색하기 위함."""
+    if _depth > 6 or obj is None:
+        return None
+    if isinstance(obj, dict):
+        # 1) 이번 레벨에서 키 매칭 우선
+        for k, v in obj.items():
+            kl = str(k).lower()
+            if any(s in kl for s in key_substrings) and isinstance(v, (int, float, str)):
+                try:
+                    n = float(str(v).replace(',', '').replace('+', '').replace('%', ''))
+                    return n
+                except Exception:
+                    pass
+        # 2) 못 찾으면 하위로 재귀
+        for v in obj.values():
+            r = _deep_find_number(v, key_substrings, _depth + 1)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _deep_find_number(v, key_substrings, _depth + 1)
+            if r is not None:
+                return r
+    return None
+
+
+def _to_eok(val):
+    """순매매 값을 '억원' 정수로 정규화. 네이버 API가 원 단위(예: -1401600000000)면 억으로 환산.
+    이미 억 단위(예: -14016)면 그대로 사용. 백만/천 단위 등 애매한 경우 자릿수로 추정."""
+    if val is None:
+        return None
+    try:
+        v = float(val)
+    except Exception:
+        return None
+    a = abs(v)
+    if a >= 1e11:          # 원 단위(조 단위) → 억으로
+        return int(round(v / 1e8))
+    if a >= 1e8:           # 원 단위(억~조) → 억으로
+        return int(round(v / 1e8))
+    if a >= 1e6:           # 백만원 단위로 들어온 경우 → 억(=100백만)
+        return int(round(v / 1e2))
+    return int(round(v))   # 이미 억 단위로 추정
+
+
 @st.cache_data(ttl=120)
 def get_kr_index_panel():
     """[추가] 네이버 모바일 스타일 메인 지수 패널 데이터.
     코스피·코스닥 각각: 지수값/등락률/등락폭/상승·보합·하락 종목수 + 전체 투자자별 순매매(외국인/기관/개인).
-    네이버 'sise_index.naver' 데스크톱 페이지 한 번으로 지수·등락·종목수·투자자별 매매까지 파싱."""
-    def _scrape(mkt):
+    신형 네이버 증권 API(api.stock.naver.com)를 사용. 투자자별 순매매는 응답 JSON에서 키 이름 자동 탐색."""
+    HDRS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Referer": "https://stock.naver.com/",
+        "Accept": "application/json, text/plain, */*",
+    }
+
+    def _get_json(url):
         try:
-            url = f"https://finance.naver.com/sise/sise_index.naver?code={mkt}"
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
-            res.encoding = 'euc-kr'
-            soup = BeautifulSoup(res.text, 'html.parser')
-            text = soup.get_text(" ", strip=True)
-
-            # 지수 현재가 (#now_value), 등락폭(#change_value_and_rate)
-            now_el = soup.select_one('#now_value')
-            chg_el = soup.select_one('#change_value_and_rate')
-            price = None
-            if now_el:
-                try: price = float(now_el.get_text(strip=True).replace(',', ''))
-                except Exception: price = None
-            diff, pct, sign = None, None, 0
-            if chg_el:
-                ctxt = chg_el.get_text(" ", strip=True)
-                # 예: "186.86 +2.28%" / 상승/하락 클래스로 부호 판단
-                nums = re.findall(r'[\d,]+\.\d+', ctxt)
-                if len(nums) >= 2:
-                    try:
-                        diff = float(nums[0].replace(',', ''))
-                        pct = float(nums[1].replace(',', ''))
-                    except Exception: pass
-                cls = (chg_el.get('class') or [])
-                if 'down' in ' '.join(cls) or '하락' in ctxt or '-' in ctxt:
-                    sign = -1
-                elif 'up' in ' '.join(cls) or '상승' in ctxt or '+' in ctxt:
-                    sign = 1
-
-            # 상승/보합/하락 종목수
-            def f(kw):
-                m = re.search(kw + r'(?:\s*종목수?)?\s*([\d,]+)', text)
-                return int(m.group(1).replace(',', '')) if m else None
-            up, flat, down = f('상승'), f('보합'), f('하락')
-
-            # 투자자별 순매매 (개인/외국인/기관) — 페이지 내 '투자자별 매매동향' 표
-            forgn = inst = indiv = None
-            try:
-                for tbl in soup.select('table'):
-                    ttxt = tbl.get_text(" ", strip=True)
-                    if '개인' in ttxt and '외국인' in ttxt and '기관' in ttxt:
-                        def grab(label):
-                            m = re.search(label + r'\s*([+\-]?[\d,]+)', ttxt)
-                            if m:
-                                try: return int(m.group(1).replace(',', '').replace('+', ''))
-                                except Exception: return None
-                            return None
-                        indiv, forgn, inst = grab('개인'), grab('외국인'), grab('기관')
-                        break
-            except Exception:
-                pass
-
-            if price is None:
+            res = requests.get(url, headers=HDRS, timeout=4)
+            if res.status_code != 200:
                 return None
-            return {
-                "name": "코스피" if mkt == "KOSPI" else "코스닥",
-                "price": price, "diff": diff, "pct": pct, "sign": sign,
-                "up": up, "flat": flat, "down": down,
-                "forgn": forgn, "inst": inst, "indiv": indiv,
-            }
+            return res.json()
         except Exception:
             return None
+
+    def _scrape(mkt):
+        # mkt: "KOSPI" | "KOSDAQ"
+        price = diff = pct = None
+        sign = 0
+        up = flat = down = None
+        forgn = inst = indiv = None
+
+        # 1) 지수 시세 (현재가/등락/등락률) ───────────────────────────
+        basic = _get_json(f"https://api.stock.naver.com/index/{mkt}/basic")
+        if basic:
+            price = _deep_find_number(basic, ["closeprice", "nowval", "currentprice", "tradeprice"])
+            diff = _deep_find_number(basic, ["compareprice", "changeprice", "changevalue", "compare"])
+            pct = _deep_find_number(basic, ["fluctuationsratio", "changerate", "comparerate", "fluctuationrate"])
+            # 부호: 등락 텍스트/구분 코드에서 추정
+            sign_txt = json.dumps(basic, ensure_ascii=False).lower()
+            if diff is not None:
+                if diff < 0:
+                    sign = -1
+                elif diff > 0:
+                    sign = 1
+            if sign == 0:
+                if '"rising"' in sign_txt or 'up' in sign_txt:
+                    sign = 1
+                elif '"falling"' in sign_txt or 'down' in sign_txt:
+                    sign = -1
+            # diff/pct는 절대값으로 통일 (부호는 sign이 관리)
+            if diff is not None:
+                diff = abs(diff)
+            if pct is not None:
+                pct = abs(pct)
+
+        # 2) 상승/보합/하락 종목수 + 투자자별 순매매 ──────────────────
+        # 여러 후보 엔드포인트를 순회하며 필요한 값을 채운다.
+        candidate_urls = [
+            f"https://api.stock.naver.com/index/{mkt}/integration",
+            f"https://api.stock.naver.com/index/{mkt}/trend",
+            f"https://api.stock.naver.com/index/{mkt}/marketSum",
+            f"https://api.stock.naver.com/index/{mkt}/investorTrend",
+        ]
+        for url in candidate_urls:
+            data = _get_json(url)
+            if not data:
+                continue
+            if up is None:
+                up = _deep_find_number(data, ["risingcount", "upcount", "advance", "rising"])
+            if down is None:
+                down = _deep_find_number(data, ["fallingcount", "downcount", "decline", "falling"])
+            if flat is None:
+                flat = _deep_find_number(data, ["unchangedcount", "flatcount", "steady", "unchanged"])
+            if forgn is None:
+                forgn = _deep_find_number(data, ["foreign", "frgn", "외국인"])
+            if inst is None:
+                inst = _deep_find_number(data, ["organ", "institution", "기관"])
+            if indiv is None:
+                indiv = _deep_find_number(data, ["individual", "person", "개인", "private"])
+            # 다 채워졌으면 중단
+            if all(x is not None for x in (up, down, forgn, inst, indiv)):
+                break
+
+        # 종목수는 정수화
+        up = int(up) if up is not None else None
+        down = int(down) if down is not None else None
+        flat = int(flat) if flat is not None else (0 if (up is not None and down is not None) else None)
+
+        # 투자자별 순매매 → 억원 정규화
+        forgn = _to_eok(forgn)
+        inst = _to_eok(inst)
+        indiv = _to_eok(indiv)
+
+        if price is None:
+            return None
+        return {
+            "name": "코스피" if mkt == "KOSPI" else "코스닥",
+            "price": price, "diff": diff, "pct": pct, "sign": sign,
+            "up": up, "flat": flat, "down": down,
+            "forgn": forgn, "inst": inst, "indiv": indiv,
+        }
 
     kospi = _scrape("KOSPI")
     kosdaq = _scrape("KOSDAQ")
@@ -2504,6 +2579,19 @@ def render_main_index_panel():
 
     kospi = data.get("KOSPI")
     kosdaq = data.get("KOSDAQ")
+
+    # [폴백] API에서 종목수(상승/보합/하락)를 못 받았으면 기존 집계 함수로 보완 (코스피+코스닥 합산값)
+    try:
+        if (kospi and kospi.get("up") is None) or (kosdaq and kosdaq.get("up") is None):
+            b = get_kr_market_breadth()
+            if b:
+                # 단일 합산값뿐이라, 어느 한쪽 카드에만 합산 막대를 채우기보다
+                # 비율만 맞춰 양쪽 카드에 동일 비율 막대를 적용 (시각적 참고용)
+                for card in (kospi, kosdaq):
+                    if card and card.get("up") is None:
+                        card["up"], card["flat"], card["down"] = b["up"], b["flat"], b["down"]
+    except Exception:
+        pass
 
     cards = ""
     if kospi:
