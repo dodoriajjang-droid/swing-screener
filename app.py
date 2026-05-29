@@ -2845,52 +2845,61 @@ def render_major_indices_bar():
 
 
 def render_marketcap_top(mkt="KOSPI", n=10):
-    """[추가] 시가총액 TOP 종목 리스트."""
+    """[추가] 시가총액 TOP 종목 리스트. CSS Grid로 칸 폭 고정 → 숫자 정렬 흐트러짐 방지."""
     rows = get_marketcap_top(mkt, n)
     if not rows:
         st.caption("📊 시가총액 TOP 종목을 불러오지 못했습니다.")
         return
+    # 컬럼: [순위 24] [종목명 1fr] [가격 84] [등락률 76]
+    GRID = "grid-template-columns:24px minmax(0,1fr) 84px 76px;"
     body = ""
     for i, r in enumerate(rows, 1):
         sign = r.get("sign", 0)
         c = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
         arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "")
         pct = r.get("pct")
-        pstr = f'{arrow} {abs(pct):.2f}%' if pct is not None else ""
+        pstr = f'{arrow}{abs(pct):.2f}%' if pct is not None else ""
         price = f'{r["price"]:,.0f}' if r.get("price") is not None else "-"
+        border = "border-bottom:1px solid #f1f5f9;" if i < len(rows) else ""
         body += (
-            f'<div style="display:flex;align-items:center;padding:9px 4px;border-bottom:1px solid #f1f5f9;">'
-            f'<span style="width:22px;color:#94a3b8;font-weight:700;">{i}</span>'
-            f'<span style="flex:1;font-weight:700;color:#1e293b;">{r["name"]}'
-            f'<span style="font-size:11px;color:#94a3b8;font-weight:400;margin-left:6px;">{r.get("cap","")}</span></span>'
-            f'<span style="min-width:80px;text-align:right;color:#1e293b;">{price}</span>'
-            f'<span style="min-width:74px;text-align:right;color:{c};font-weight:700;">{pstr}</span></div>'
+            f'<div style="display:grid;{GRID}align-items:center;column-gap:8px;padding:9px 2px;{border}">'
+            f'<span style="color:#94a3b8;font-weight:700;font-size:13px;">{i}</span>'
+            f'<div style="min-width:0;">'
+            f'<div style="font-weight:700;color:#1e293b;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
+            f'<div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r.get("cap","")}</div></div>'
+            f'<span style="text-align:right;color:#1e293b;font-size:13px;white-space:nowrap;">{price}</span>'
+            f'<span style="text-align:right;color:{c};font-weight:700;font-size:13px;white-space:nowrap;">{pstr}</span>'
+            f'</div>'
         )
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:6px 14px;">{body}</div>',
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:2px 14px;">{body}</div>',
         unsafe_allow_html=True,
     )
 
 
 def render_industry_changes(n=12):
-    """[추가] 업종별 등락률 — 상위 강세/약세."""
+    """[추가] 업종별 등락률. CSS Grid로 [업종명][막대][%] 3칸 고정."""
     rows = get_industry_changes(30)
     if not rows:
         st.caption("📊 업종별 등락률을 불러오지 못했습니다.")
         return
     rows = [r for r in rows if r.get("rate") is not None]
     top = sorted(rows, key=lambda x: x["rate"], reverse=True)[:n]
+    max_abs = max((abs(r["rate"]) for r in top), default=1) or 1
+    # 컬럼: [업종명 96] [막대 1fr] [% 64]
+    GRID = "grid-template-columns:96px minmax(0,1fr) 64px;"
     def _row(r):
         rate = r["rate"]
         c = "#ef4444" if rate > 0 else ("#3b82f6" if rate < 0 else "#64748b")
         arrow = "▲" if rate > 0 else ("▼" if rate < 0 else "")
-        w = min(abs(rate) / 5.0 * 100, 100)  # 5%를 풀바로
+        w = abs(rate) / max_abs * 100
         return (
-            f'<div style="display:flex;align-items:center;padding:7px 4px;gap:10px;">'
-            f'<span style="width:120px;font-weight:600;color:#1e293b;font-size:13px;">{r["name"]}</span>'
-            f'<span style="flex:1;height:8px;background:#f1f5f9;border-radius:5px;position:relative;">'
+            f'<div style="display:grid;{GRID}align-items:center;column-gap:10px;padding:7px 2px;">'
+            f'<span style="font-weight:600;color:#1e293b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
+            f'<span style="height:8px;background:#f1f5f9;border-radius:5px;position:relative;min-width:0;">'
             f'<span style="position:absolute;left:0;width:{w:.0f}%;height:100%;background:{c};border-radius:5px;"></span></span>'
-            f'<span style="min-width:62px;text-align:right;color:{c};font-weight:700;font-size:13px;">{arrow}{abs(rate):.2f}%</span></div>'
+            f'<span style="text-align:right;color:{c};font-weight:700;font-size:13px;white-space:nowrap;">{arrow}{abs(rate):.2f}%</span>'
+            f'</div>'
         )
     body = "".join(_row(r) for r in top)
     st.markdown(
