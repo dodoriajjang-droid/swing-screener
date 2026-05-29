@@ -2381,37 +2381,56 @@ def _to_eok(val):
 
 
 def _diag_index_endpoints():
-    """[추가] 진단 도구: 후보 API/페이지에 직접 요청해 status code와 응답 앞부분을 화면에 출력.
-    어떤 URL이 살아있고 어떤 키가 들어있는지 눈으로 확인해 파서를 맞추기 위함."""
+    """[추가] 진단 도구: 후보 API에 직접 요청해 status code와 응답 앞부분을 화면에 출력.
+    4개 신규 기능(미니차트/주요지수/시총TOP/업종등락)에 쓸 엔드포인트를 한 번에 점검한다."""
     HDRS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "Referer": "https://stock.naver.com/",
+        "Referer": "https://m.stock.naver.com/",
         "Accept": "application/json, text/plain, */*",
     }
-    test_urls = [
-        # 지수 코드 형식 후보 (어떤 게 200을 주는지 확인용)
-        "https://api.stock.naver.com/index/.KS11/basic",
-        "https://api.stock.naver.com/index/KOSPI/basic",
-        "https://api.stock.naver.com/index/KS11/basic",
-        "https://api.stock.naver.com/index/0001/basic",
-        "https://api.stock.naver.com/index/.KS11/integration",
-        "https://api.stock.naver.com/index/.KS11/trend",
-        "https://m.stock.naver.com/api/index/.KS11/basic",
-        "https://m.stock.naver.com/api/index/KOSPI/basic",
-        "https://m.stock.naver.com/api/index/KOSPI/integration",
-        "https://m.stock.naver.com/api/index/KOSPI/trend",
-        "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
-    ]
-    for u in test_urls:
-        try:
-            r = requests.get(u, headers=HDRS, timeout=4)
-            ct = r.headers.get("Content-Type", "")
-            body = r.text[:400] if r.text else ""
-            st.markdown(f"**`{u}`** → status `{r.status_code}`, type `{ct}`")
-            st.code(body or "(빈 응답)", language="json")
-        except Exception as e:
-            st.markdown(f"**`{u}`** → ❌ 요청 실패: `{type(e).__name__}: {e}`")
-    st.caption("위 응답 중 외국인/기관/개인 숫자가 든 JSON을 찾아 그 키 이름을 알려주시면 파서를 정확히 맞추겠습니다.")
+    groups = {
+        "① 지수 시세/수급 (이미 작동)": [
+            "https://m.stock.naver.com/api/index/KOSPI/basic",
+            "https://m.stock.naver.com/api/index/KOSPI/integration",
+            "https://m.stock.naver.com/api/index/KOSPI/trend",
+        ],
+        "② 지수 미니차트(일봉 스파크라인)": [
+            "https://m.stock.naver.com/api/index/KOSPI/price?pageSize=30&page=1",
+            "https://api.stock.naver.com/chart/domestic/index/KOSPI?periodType=dayCandle&count=30",
+            "https://m.stock.naver.com/api/chart/domestic/index/KOSPI?periodType=dayCandle&count=30",
+        ],
+        "③ 주요지수/환율/유가 바": [
+            "https://m.stock.naver.com/api/home/majorIndex",
+            "https://m.stock.naver.com/api/index/KPI200/basic",
+            "https://m.stock.naver.com/api/marketindex/exchange/FX_USDKRW",
+            "https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
+            "https://api.stock.naver.com/marketindex/oil/OIL_CL",
+        ],
+        "④ 시가총액 TOP 종목": [
+            "https://m.stock.naver.com/api/stocks/marketValue/KOSPI?page=1&pageSize=10",
+            "https://api.stock.naver.com/stock/marketValue/KOSPI?page=1&pageSize=10",
+        ],
+        "⑤ 업종/테마 등락률": [
+            "https://m.stock.naver.com/api/stocks/industry?page=1&pageSize=20",
+            "https://api.stock.naver.com/industry",
+            "https://m.stock.naver.com/api/home/industry",
+        ],
+    }
+    for title, urls in groups.items():
+        st.markdown(f"### {title}")
+        for u in urls:
+            try:
+                r = requests.get(u, headers=HDRS, timeout=5)
+                ct = r.headers.get("Content-Type", "")
+                ok = r.status_code == 200 and "json" in ct.lower()
+                badge = "✅" if ok else "⚠️"
+                body = r.text[:700] if r.text else ""
+                st.markdown(f"{badge} **`{u}`** → `{r.status_code}` · `{ct}`")
+                if body:
+                    st.code(body, language="json")
+            except Exception as e:
+                st.markdown(f"❌ **`{u}`** → `{type(e).__name__}: {e}`")
+    st.caption("✅ 표시된 URL의 JSON 응답(특히 키 이름)을 복사해 주시면, 4개 기능을 정확한 키로 완성하겠습니다.")
 
 
 @st.cache_data(ttl=120)
@@ -4155,6 +4174,13 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     # [추가] 네이버 모바일 스타일 메인 지수 패널 (코스피/코스닥 + 오늘의 시장 + 투자자별 순매매)
     with st.spinner("코스피·코스닥 지수 / 투자자별 수급 수집 중..."):
         render_main_index_panel()
+
+    # [임시] 신규 기능(미니차트/주요지수/시총TOP/업종) 엔드포인트 탐색용 진단 패널.
+    #  → 응답 JSON 확인 후 기능 확정되면 이 expander는 제거 예정.
+    with st.expander("🔧 [개발용] 네이버 API 엔드포인트 진단 (펼치기)"):
+        if st.button("진단 실행", key="diag_run_btn"):
+            _diag_index_endpoints()
+
     st.divider()
 
     # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
