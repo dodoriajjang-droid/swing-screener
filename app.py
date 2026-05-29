@@ -2340,8 +2340,8 @@ NAVER_API_HDRS = {
 }
 
 
-def _naver_json(url, timeout=4):
-    """네이버 증권 API GET → JSON. 실패/비-JSON이면 None."""
+def _naver_json(url, timeout=7):
+    """네이버 증권 API GET → JSON. 실패/비-JSON이면 None. (일시적 지연 대비 타임아웃 7초)"""
     try:
         r = requests.get(url, headers=NAVER_API_HDRS, timeout=timeout)
         if r.status_code != 200 or "json" not in r.headers.get("Content-Type", "").lower():
@@ -2735,7 +2735,10 @@ def render_main_index_panel():
     """[추가] 메인페이지 상단 — 네이버 모바일 스타일 코스피/코스닥 + 오늘의 시장 + 투자자별 순매매."""
     data = get_kr_index_panel()
     if not data:
-        st.caption("📊 메인 지수 패널을 불러오지 못했습니다. (네이버 지수 페이지 일시 지연/구조 변경)")
+        st.warning("📊 지수 패널을 일시적으로 불러오지 못했습니다 (네이버 응답 지연). 잠시 후 다시 시도해 주세요.")
+        if st.button("🔄 다시 시도", key="retry_index_panel"):
+            get_kr_index_panel.clear()
+            st.rerun()
         with st.expander("🔧 진단: 어떤 응답이 오는지 확인 (펼치기)"):
             _diag_index_endpoints()
         return
@@ -4334,7 +4337,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     with ind_col:
         st.markdown("#### 🔥 업종별 등락률 (강세 순)")
         # 좌측 시총 컬럼의 KOSPI/KOSDAQ 라디오 높이만큼 여백을 줘서 두 표의 시작점을 맞춘다.
-        st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:46px;'></div>", unsafe_allow_html=True)
         with st.spinner("업종별 등락률 수집 중..."):
             render_industry_changes(12)
     st.divider()
