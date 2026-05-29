@@ -100,6 +100,93 @@ if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shar
 # ==========================================
 # 2. 통합 데이터 수집 & AI 함수 모음
 # ==========================================
+# ==========================================
+# [v7.0] 폴리마켓(Polymarket) 예측시장 데이터
+#   - Gamma API (공개, 키 불필요): https://gamma-api.polymarket.com
+#   - 시장 참여자들이 '실제 돈'을 걸고 만든 확률 → 금리/경제/정치 선행지표
+# ==========================================
+POLY_GAMMA = "https://gamma-api.polymarket.com"
+
+def _poly_parse_list(val):
+    """outcomes/outcomePrices 가 JSON 문자열로 오는 경우를 안전하게 리스트로 변환."""
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except Exception:
+            return []
+    return []
+
+def _poly_num(x):
+    try:
+        return float(x)
+    except Exception:
+        return 0.0
+
+@st.cache_data(ttl=300)
+def fetch_polymarket_markets(search=None, limit=80):
+    """
+    활성/미마감 마켓을 24시간 거래량 순으로 가져온다.
+    search 가 주어지면 질문 텍스트로 한 번 더 필터링.
+    반환: list[dict] (질문, 확률, 거래량 등 정규화된 형태)
+    """
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    params = {
+        "active": "true",
+        "closed": "false",
+        "archived": "false",
+        "order": "volume24hr",
+        "ascending": "false",
+        "limit": int(limit),
+    }
+    try:
+        res = requests.get(f"{POLY_GAMMA}/markets", params=params,
+                           headers=headers, timeout=12)
+        res.raise_for_status()
+        raw = res.json()
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}", "data": []}
+
+    rows = []
+    for m in raw:
+        try:
+            outcomes = _poly_parse_list(m.get("outcomes"))
+            prices = _poly_parse_list(m.get("outcomePrices"))
+            # 가장 대표적인 'Yes' 또는 첫 번째 결과의 확률
+            yes_prob = None
+            if outcomes and prices and len(outcomes) == len(prices):
+                pair = dict(zip(outcomes, prices))
+                if "Yes" in pair:
+                    yes_prob = _poly_num(pair["Yes"]) * 100
+                else:
+                    yes_prob = _poly_num(prices[0]) * 100
+            elif prices:
+                yes_prob = _poly_num(prices[0]) * 100
+
+            row = {
+                "question": m.get("question") or m.get("title") or "(제목 없음)",
+                "yes_prob": round(yes_prob, 1) if yes_prob is not None else None,
+                "outcomes": outcomes,
+                "prices": [round(_poly_num(p) * 100, 1) for p in prices],
+                "volume24hr": _poly_num(m.get("volume24hr")),
+                "volume": _poly_num(m.get("volume") or m.get("volumeNum")),
+                "liquidity": _poly_num(m.get("liquidity") or m.get("liquidityNum")),
+                "end_date": (m.get("endDate") or "")[:10],
+                "slug": m.get("slug", ""),
+                "category": m.get("category", ""),
+            }
+            rows.append(row)
+        except Exception:
+            continue
+
+    if search:
+        kw = [s.strip().lower() for s in search.split() if s.strip()]
+        if kw:
+            rows = [r for r in rows
+                    if any(k in r["question"].lower() for k in kw)]
+    return {"error": None, "data": rows}
+
 @st.cache_data(ttl=86400)
 def get_krx_etf_list():
     try:
@@ -4252,7 +4339,8 @@ with st.sidebar:
         " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
         " ┣ 🗺️ 시장 주도주 자금 히트맵",
         " ┣ 🕸️ 실시간 섹터 순환매 추적",
-        " ┗ 📅 핵심 증시 일정 & IPO 달력",
+        " ┣ 📅 핵심 증시 일정 & IPO 달력",
+        " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
         "  ", 
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
         " ┣ 🚀 단기 스윙 퀀트 스캐너",
@@ -6989,3 +7077,126 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             st.table(pd.DataFrame([{'테마': i['theme'], '종목': i['name'], '코드': i['code']} for i in errs]))
         else: 
             st.success("🎉 현재 시스템상 가격이 0원으로 조회되는 오류 종목이 단 하나도 없습니다! (무결점 상태)")
+
+# ==========================================
+# [v7.0] 🔮 폴리마켓 예측시장 (금리·경제·정치)
+# ==========================================
+elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
+    st.title("🔮 폴리마켓 예측시장 트래커")
+    st.caption("참여자들이 실제 돈을 걸고 형성한 확률입니다. 뉴스보다 빠른 '선행 심리지표'로 활용하세요. (출처: Polymarket Gamma API · 무료/실시간)")
+
+    st.info("💡 **확률(%) = 시장이 매긴 발생 가능성**입니다. 예: '연내 금리 인하' 78% → 시장은 인하를 78% 확신. 주식·환율·채권에 직접적 영향을 주는 매크로 이벤트 위주로 보세요.", icon="🧭")
+
+    # --- 카테고리 프리셋(키워드 필터) ---
+    PRESETS = {
+        "🔥 전체 인기 (거래량순)": None,
+        "🏦 연준/금리 (Fed·Rate)": "fed rate interest hike cut fomc powell",
+        "📉 경기침체/인플레 (Recession·CPI)": "recession inflation cpi gdp economy",
+        "🗳️ 미국 정치/선거 (Election)": "election president senate house trump congress",
+        "🌐 무역/관세 (Tariff)": "tariff trade china taiwan import export",
+        "₿ 암호화폐 (Crypto)": "bitcoin ethereum crypto btc eth",
+        "🛢️ 지정학/원자재 (War·Oil)": "war ceasefire russia ukraine israel iran oil",
+    }
+
+    c_top1, c_top2 = st.columns([2, 1])
+    with c_top1:
+        preset_name = st.radio("📂 카테고리", list(PRESETS.keys()),
+                               horizontal=True, key="poly_preset")
+    with c_top2:
+        custom_kw = st.text_input("🔍 직접 검색 (영문 키워드)", key="poly_kw",
+                                  placeholder="예: nvidia, tesla, gold")
+
+    search_term = custom_kw.strip() if custom_kw.strip() else PRESETS[preset_name]
+
+    cc1, cc2, cc3 = st.columns([1, 1, 2])
+    fetch_limit = cc1.selectbox("가져올 마켓 수", [40, 80, 120], index=1, key="poly_limit")
+    sort_opt = cc2.radio("정렬", ["24h 거래량", "확률 높은순", "마감 임박순"],
+                         horizontal=False, key="poly_sort")
+    if cc3.button("🔄 새로고침 (캐시 비우기)", key="poly_refresh"):
+        st.cache_data.clear()
+        st.rerun()
+
+    with st.spinner("폴리마켓에서 실시간 예측 데이터를 가져오는 중..."):
+        result = fetch_polymarket_markets(search=search_term, limit=fetch_limit)
+
+    if result["error"]:
+        st.error(f"🚨 데이터를 가져오지 못했습니다: {result['error']}")
+        st.caption("Polymarket API가 일시적으로 차단되었거나 네트워크 환경에서 외부 호출이 막혀 있을 수 있습니다. 잠시 후 다시 시도하거나, 앱을 외부 인터넷이 열린 환경에서 실행해 주세요.")
+    else:
+        markets = result["data"]
+        if not markets:
+            st.warning("조건에 맞는 마켓이 없습니다. 다른 카테고리나 키워드를 시도해 보세요.")
+        else:
+            # 정렬
+            if sort_opt == "확률 높은순":
+                markets = sorted(markets, key=lambda x: (x["yes_prob"] is None, -(x["yes_prob"] or 0)))
+            elif sort_opt == "마감 임박순":
+                markets = sorted(markets, key=lambda x: (x["end_date"] == "", x["end_date"]))
+            else:
+                markets = sorted(markets, key=lambda x: -x["volume24hr"])
+
+            st.success(f"✅ 총 {len(markets)}개 마켓 로드 완료 · 카테고리: {preset_name if not custom_kw.strip() else '직접검색'}")
+
+            # 요약 테이블
+            df_view = pd.DataFrame([{
+                "질문": m["question"][:70] + ("…" if len(m["question"]) > 70 else ""),
+                "확률(Yes)": f"{m['yes_prob']:.1f}%" if m["yes_prob"] is not None else "다중선택지",
+                "24h 거래량($)": f"{int(m['volume24hr']):,}",
+                "누적 거래량($)": f"{int(m['volume']):,}",
+                "마감일": m["end_date"] or "-",
+            } for m in markets])
+            st.dataframe(df_view, use_container_width=True, hide_index=True, height=380)
+
+            st.divider()
+            st.markdown("### 📊 상위 마켓 상세 + 확률 게이지")
+            for i, m in enumerate(markets[:12]):
+                with st.container():
+                    cL, cR = st.columns([3, 1])
+                    with cL:
+                        st.markdown(f"**{i+1}. {m['question']}**")
+                        # 다중 선택지 확률 표시
+                        if m["outcomes"] and m["prices"] and len(m["outcomes"]) == len(m["prices"]):
+                            badge = " ｜ ".join(
+                                [f"{o}: **{p:.1f}%**" for o, p in zip(m["outcomes"], m["prices"])][:6]
+                            )
+                            st.caption(badge)
+                        if m["yes_prob"] is not None:
+                            st.progress(min(max(m["yes_prob"] / 100, 0), 1.0))
+                        meta = f"💰 24h ${int(m['volume24hr']):,} · 누적 ${int(m['volume']):,}"
+                        if m["end_date"]:
+                            meta += f" · 🗓️ 마감 {m['end_date']}"
+                        st.caption(meta)
+                        if m["slug"]:
+                            st.caption(f"🔗 https://polymarket.com/event/{m['slug']}")
+                    with cR:
+                        if m["yes_prob"] is not None:
+                            st.metric("Yes 확률", f"{m['yes_prob']:.1f}%")
+                    st.divider()
+
+            # --- AI 종합 해석 ---
+            st.markdown("### 🤖 AI 매크로 해석: 이 확률들이 한국/미국 증시에 주는 시그널")
+            if st.button("🧠 AI에게 예측시장 → 투자 시그널 분석 요청", type="primary", use_container_width=True, key="poly_ai"):
+                if not api_key_input:
+                    st.error("좌측 사이드바에 Gemini API 키를 먼저 입력해주세요.")
+                else:
+                    with st.spinner("AI가 예측시장 데이터를 매크로 관점에서 해석 중입니다..."):
+                        top_for_ai = markets[:15]
+                        lines = []
+                        for m in top_for_ai:
+                            prob_str = f"{m['yes_prob']:.0f}%" if m["yes_prob"] is not None else "다중"
+                            lines.append(f"- {m['question']} → {prob_str} (24h거래량 ${int(m['volume24hr']):,})")
+                        data_block = "\n".join(lines)
+                        ai_prompt = (
+                            "너는 매크로 전략가다. 아래는 Polymarket 예측시장의 실시간 확률 데이터다.\n"
+                            "이 베팅 확률(시장 참여자들의 집단 예측)을 근거로 분석하라.\n\n"
+                            f"[데이터]\n{data_block}\n\n"
+                            "다음 순서로 한국어로 간결하게 작성하라:\n"
+                            "1. 핵심 시그널 3가지 (금리/경제/정치 중 주가에 영향 큰 순)\n"
+                            "2. 이 확률대로면 수혜 받을 섹터/자산과 타격 받을 섹터 (한국·미국 모두)\n"
+                            "3. 환율(원/달러)·채권·코스피에 미칠 단기 영향\n"
+                            "4. ⚠️ 투자 유의사항 (예측시장은 참고지표일 뿐 보장 아님)\n"
+                            "과도한 단정 대신 확률 기반 시나리오로 서술하라."
+                        )
+                        st.markdown(ask_gemini(ai_prompt, api_key_input))
+
+            st.caption("※ 예측시장 확률은 실시간 베팅으로 계속 변동하며, 미래를 보장하지 않습니다. 투자 판단의 참고용 선행지표로만 활용하세요.")
