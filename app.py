@@ -2333,6 +2333,34 @@ def render_kr_market_breadth():
     )
 
 
+NAVER_API_HDRS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Referer": "https://m.stock.naver.com/",
+    "Accept": "application/json, text/plain, */*",
+}
+
+
+def _naver_json(url, timeout=4):
+    """네이버 증권 API GET → JSON. 실패/비-JSON이면 None."""
+    try:
+        r = requests.get(url, headers=NAVER_API_HDRS, timeout=timeout)
+        if r.status_code != 200 or "json" not in r.headers.get("Content-Type", "").lower():
+            return None
+        return r.json()
+    except Exception:
+        return None
+
+
+def _num(s):
+    """'8,367.43' / '+20,409' / '-0.53' / '2.23' → float. 실패 시 None."""
+    if s is None:
+        return None
+    try:
+        return float(str(s).replace(',', '').replace('+', '').replace('%', '').strip())
+    except Exception:
+        return None
+
+
 def _deep_find_number(obj, key_substrings, _depth=0):
     """[추가] 중첩 dict/list(JSON)에서 key 이름에 주어진 부분문자열이 들어간 첫 숫자값을 찾아 반환.
     네이버 API 응답의 정확한 필드명을 몰라도 '외국인/기관/개인' 같은 키를 자동 탐색하기 위함."""
@@ -2437,116 +2465,46 @@ def _diag_index_endpoints():
 def get_kr_index_panel():
     """[추가] 네이버 모바일 스타일 메인 지수 패널 데이터.
     코스피·코스닥 각각: 지수값/등락률/등락폭/상승·보합·하락 종목수 + 전체 투자자별 순매매(외국인/기관/개인).
-    신형 네이버 증권 API(api.stock.naver.com)를 사용. 투자자별 순매매는 응답 JSON에서 키 이름 자동 탐색."""
-    HDRS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "Referer": "https://stock.naver.com/",
-        "Accept": "application/json, text/plain, */*",
-    }
-
-    def _get_json(url):
-        try:
-            res = requests.get(url, headers=HDRS, timeout=4)
-            if res.status_code != 200:
-                return None
-            return res.json()
-        except Exception:
-            return None
-
+    확인된 네이버 API 키 사용:
+      - /index/{KOSPI|KOSDAQ}/basic   → closePrice, compareToPreviousClosePrice, fluctuationsRatio, compareToPreviousPrice.name(RISING/FALLING)
+      - /index/{KOSPI|KOSDAQ}/trend   → personalValue(개인), foreignValue(외국인), institutionalValue(기관)  (단위: 억원, 부호 포함 문자열)
+    상승/보합/하락 종목수는 지수 basic/integration에 없어 기존 get_kr_market_breadth() 폴백 사용."""
     def _scrape(mkt):
-        # mkt: "KOSPI" | "KOSDAQ"
         price = diff = pct = None
         sign = 0
-        up = flat = down = None
         forgn = inst = indiv = None
 
-        # 지수 코드 형식 후보 — m.stock.naver.com은 'KOSPI'/'KOSDAQ'를 직접 받는다 (1순위).
-        code_candidates = (
-            ["KOSPI", ".KS11", "KS11", "0001"] if mkt == "KOSPI"
-            else ["KOSDAQ", ".KQ11", "KQ11", "1001"]
-        )
-        # 베이스 URL — 확인된 m.stock.naver.com/api 를 1순위로.
-        bases = ("https://m.stock.naver.com/api/index", "https://api.stock.naver.com/index")
+        # 1) 시세
+        basic = _naver_json(f"https://m.stock.naver.com/api/index/{mkt}/basic")
+        if basic:
+            price = _num(basic.get("closePrice"))
+            diff = _num(basic.get("compareToPreviousClosePrice"))
+            pct = _num(basic.get("fluctuationsRatio"))
+            nm = (basic.get("compareToPreviousPrice") or {}).get("name", "")
+            sign = 1 if nm == "RISING" else (-1 if nm == "FALLING" else 0)
+            if sign == 0 and diff is not None:
+                sign = 1 if diff > 0 else (-1 if diff < 0 else 0)
+            if diff is not None:
+                diff = abs(diff)
+            if pct is not None:
+                pct = abs(pct)
 
-        # 1) 지수 시세 (현재가/등락/등락률) — 살아있는 (base, code)를 찾아 고정 ─────
-        good_code = None
-        good_base = None
-        for base in bases:
-            for code in code_candidates:
-                basic = _get_json(f"{base}/{code}/basic")
-                if not basic or (isinstance(basic, dict) and basic.get("code") in ("StockConflict",)):
-                    continue
-                p = _deep_find_number(basic, ["closeprice", "nowval", "currentprice", "tradeprice"])
-                if p is None:
-                    continue
-                good_code, good_base = code, base
-                price = p
-                diff = _deep_find_number(basic, ["compareprice", "changeprice", "changevalue", "compare"])
-                pct = _deep_find_number(basic, ["fluctuationsratio", "changerate", "comparerate", "fluctuationrate"])
-                sign_txt = json.dumps(basic, ensure_ascii=False).lower()
-                if diff is not None:
-                    sign = -1 if diff < 0 else (1 if diff > 0 else 0)
-                if sign == 0:
-                    if '"rising"' in sign_txt or '"up"' in sign_txt:
-                        sign = 1
-                    elif '"falling"' in sign_txt or '"down"' in sign_txt:
-                        sign = -1
-                if diff is not None:
-                    diff = abs(diff)
-                if pct is not None:
-                    pct = abs(pct)
-                break
-            if good_code:
-                break
+        # 2) 투자자별 순매매 (억원)
+        trend = _naver_json(f"https://m.stock.naver.com/api/index/{mkt}/trend")
+        if trend:
+            indiv = _num(trend.get("personalValue"))
+            forgn = _num(trend.get("foreignValue"))
+            inst = _num(trend.get("institutionalValue"))
 
-        # 2) 상승/보합/하락 종목수 + 투자자별 순매매 ──────────────────
-        # 살아있는 (base, code) 기준으로 여러 하위 엔드포인트를 순회하며 채운다.
-        sub_bases = [good_base] if good_base else list(bases)
-        sub_codes = [good_code] if good_code else code_candidates
-        candidate_paths = ["integration", "trend", "marketSum", "investorTrend", "investor"]
-        for base in sub_bases:
-            for code in sub_codes:
-                if base is None or code is None:
-                    continue
-                for path in candidate_paths:
-                    data = _get_json(f"{base}/{code}/{path}")
-                    if not data:
-                        continue
-                    if up is None:
-                        up = _deep_find_number(data, ["risingcount", "upcount", "advance", "rising"])
-                    if down is None:
-                        down = _deep_find_number(data, ["fallingcount", "downcount", "decline", "falling"])
-                    if flat is None:
-                        flat = _deep_find_number(data, ["unchangedcount", "flatcount", "steady", "unchanged"])
-                    if forgn is None:
-                        forgn = _deep_find_number(data, ["foreign", "frgn"])
-                    if inst is None:
-                        inst = _deep_find_number(data, ["organ", "institution"])
-                    if indiv is None:
-                        indiv = _deep_find_number(data, ["individual", "person", "private"])
-                    if all(x is not None for x in (up, down, forgn, inst, indiv)):
-                        break
-                if all(x is not None for x in (up, down, forgn, inst, indiv)):
-                    break
-            if all(x is not None for x in (up, down, forgn, inst, indiv)):
-                break
+        forgn = int(round(forgn)) if forgn is not None else None
+        inst = int(round(inst)) if inst is not None else None
+        indiv = int(round(indiv)) if indiv is not None else None
 
-        # 종목수는 정수화
-        up = int(up) if up is not None else None
-        down = int(down) if down is not None else None
-        flat = int(flat) if flat is not None else (0 if (up is not None and down is not None) else None)
-
-        # 투자자별 순매매 → 억원 정규화
-        forgn = _to_eok(forgn)
-        inst = _to_eok(inst)
-        indiv = _to_eok(indiv)
-
-        # [폴백] 신형 API가 가격을 못 줬으면 구형 finance.naver.com 페이지에서 시세만이라도 확보
+        # [폴백] 시세 실패 시 구형 finance.naver.com
         if price is None:
             try:
-                code = "KOSPI" if mkt == "KOSPI" else "KOSDAQ"
                 fres = requests.get(
-                    f"https://finance.naver.com/sise/sise_index.naver?code={code}",
+                    f"https://finance.naver.com/sise/sise_index.naver?code={mkt}",
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                     timeout=4,
                 )
@@ -2554,37 +2512,18 @@ def get_kr_index_panel():
                 fsoup = BeautifulSoup(fres.text, 'html.parser')
                 now_el = fsoup.select_one('#now_value')
                 if now_el:
-                    try:
-                        price = float(now_el.get_text(strip=True).replace(',', ''))
-                    except Exception:
-                        price = None
+                    price = _num(now_el.get_text(strip=True))
                 chg_el = fsoup.select_one('#change_value_and_rate')
                 if chg_el:
-                    ctxt = chg_el.get_text(" ", strip=True)
-                    nums = re.findall(r'[\d,]+\.\d+', ctxt)
+                    nums = re.findall(r'[\d,]+\.\d+', chg_el.get_text(" ", strip=True))
                     if len(nums) >= 2:
-                        try:
-                            if diff is None:
-                                diff = float(nums[0].replace(',', ''))
-                            if pct is None:
-                                pct = float(nums[1].replace(',', ''))
-                        except Exception:
-                            pass
+                        if diff is None:
+                            diff = _num(nums[0])
+                        if pct is None:
+                            pct = _num(nums[1])
                     cls = ' '.join(chg_el.get('class') or [])
                     if sign == 0:
-                        if 'down' in cls:
-                            sign = -1
-                        elif 'up' in cls:
-                            sign = 1
-                # 종목수도 같은 페이지에서 보조 확보
-                if up is None or down is None:
-                    ftext = fsoup.get_text(" ", strip=True)
-                    def _f(kw):
-                        m = re.search(kw + r'(?:\s*종목수?)?\s*([\d,]+)', ftext)
-                        return int(m.group(1).replace(',', '')) if m else None
-                    up = up if up is not None else _f('상승')
-                    flat = flat if flat is not None else _f('보합')
-                    down = down if down is not None else _f('하락')
+                        sign = -1 if 'down' in cls else (1 if 'up' in cls else 0)
             except Exception:
                 pass
 
@@ -2593,7 +2532,7 @@ def get_kr_index_panel():
         return {
             "name": "코스피" if mkt == "KOSPI" else "코스닥",
             "price": price, "diff": diff, "pct": pct, "sign": sign,
-            "up": up, "flat": flat, "down": down,
+            "up": None, "flat": None, "down": None,   # 종목수는 렌더에서 breadth 폴백으로 채움
             "forgn": forgn, "inst": inst, "indiv": indiv,
         }
 
@@ -2604,7 +2543,116 @@ def get_kr_index_panel():
     return {"KOSPI": kospi, "KOSDAQ": kosdaq}
 
 
-def _index_card_html(d):
+@st.cache_data(ttl=300)
+def get_index_spark(mkt, n=30):
+    """[추가] 지수 일봉 종가 배열(최신 n개) — 미니차트(스파크라인)용.
+    /api/index/{mkt}/price 는 최신순 배열. 오래된→최신 순으로 정렬해 종가 리스트 반환."""
+    data = _naver_json(f"https://m.stock.naver.com/api/index/{mkt}/price?pageSize={n}&page=1")
+    if not isinstance(data, list) or not data:
+        return None
+    rows = []
+    for it in data:
+        c = _num(it.get("closePrice"))
+        d = it.get("localTradedAt")
+        if c is not None:
+            rows.append((d, c))
+    if len(rows) < 2:
+        return None
+    rows.reverse()  # 과거 → 현재
+    return [c for _, c in rows]
+
+
+@st.cache_data(ttl=120)
+def get_major_indices():
+    """[추가] 주요 지표 바: 코스피200 + 원/달러 환율. (유가 엔드포인트는 없어 제외)"""
+    out = []
+    kpi = _naver_json("https://m.stock.naver.com/api/index/KPI200/basic")
+    if kpi:
+        nm = (kpi.get("compareToPreviousPrice") or {}).get("name", "")
+        out.append({
+            "label": "코스피200",
+            "value": _num(kpi.get("closePrice")),
+            "pct": _num(kpi.get("fluctuationsRatio")),
+            "sign": 1 if nm == "RISING" else (-1 if nm == "FALLING" else 0),
+            "fmt": "{:,.2f}",
+        })
+    fx = _naver_json("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW")
+    if fx:
+        info = fx.get("exchangeInfo", fx)
+        nm = (info.get("fluctuationsType") or {}).get("name", "")
+        out.append({
+            "label": "원/달러",
+            "value": _num(info.get("closePrice")),
+            "pct": _num(info.get("fluctuationsRatio")),
+            "sign": 1 if nm == "RISING" else (-1 if nm == "FALLING" else 0),
+            "fmt": "{:,.2f}원",
+        })
+    return out or None
+
+
+@st.cache_data(ttl=120)
+def get_marketcap_top(mkt="KOSPI", n=10):
+    """[추가] 시가총액 TOP 종목 — /api/stocks/marketValue/{mkt}."""
+    data = _naver_json(f"https://m.stock.naver.com/api/stocks/marketValue/{mkt}?page=1&pageSize={n}")
+    if not data or "stocks" not in data:
+        return None
+    rows = []
+    for s in data["stocks"][:n]:
+        nm = (s.get("compareToPreviousPrice") or {}).get("name", "")
+        rows.append({
+            "code": s.get("itemCode"),
+            "name": s.get("stockName"),
+            "price": _num(s.get("closePrice")),
+            "pct": _num(s.get("fluctuationsRatio")),
+            "sign": 1 if nm == "RISING" else (-1 if nm == "FALLING" else 0),
+            "cap": s.get("marketValueHangeul"),
+        })
+    return rows or None
+
+
+@st.cache_data(ttl=180)
+def get_industry_changes(n=20):
+    """[추가] 업종별 등락률 — /api/stocks/industry. changeRate 기준 정렬돼 옴."""
+    data = _naver_json(f"https://m.stock.naver.com/api/stocks/industry?page=1&pageSize={n}")
+    if not data or "groups" not in data:
+        return None
+    rows = []
+    for g in data["groups"]:
+        rows.append({
+            "name": g.get("name"),
+            "rate": _num(g.get("changeRate")),
+            "rise": g.get("riseCount"),
+            "fall": g.get("fallCount"),
+            "total": g.get("totalCount"),
+        })
+    return rows or None
+
+
+def _sparkline_svg(vals, sign, w=120, h=36):
+    """[추가] 종가 리스트 → 미니 라인차트(SVG). 상승=빨강/하락=파랑."""
+    if not vals or len(vals) < 2:
+        return ""
+    color = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1
+    n = len(vals)
+    pts = []
+    for i, v in enumerate(vals):
+        x = i / (n - 1) * (w - 4) + 2
+        y = h - 2 - (v - lo) / rng * (h - 4)
+        pts.append(f"{x:.1f},{y:.1f}")
+    pts_str = " ".join(pts)
+    # 면적 채우기 좌표
+    area = f"2,{h} " + pts_str + f" {w-2},{h}"
+    return (
+        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" style="display:block;">'
+        f'<polygon points="{area}" fill="{color}" opacity="0.10"/>'
+        f'<polyline points="{pts_str}" fill="none" stroke="{color}" stroke-width="1.6" '
+        f'stroke-linejoin="round" stroke-linecap="round"/></svg>'
+    )
+
+
+def _index_card_html(d, spark=None):
     """이미지(네이버 모바일) 스타일 개별 지수 카드 HTML."""
     if not d:
         return ""
@@ -2618,6 +2666,7 @@ def _index_card_html(d):
     pct_str = f"{psign}{pct:.2f}%" if pct is not None else ""
     diff_str = f"{arrow} {diff:,.2f}" if diff is not None else ""
     up, flat, down = d.get("up"), d.get("flat"), d.get("down")
+    spark_svg = _sparkline_svg(spark, sign) if spark else ""
     # 등락 막대 (상승=빨강 / 보합=회색 / 하락=파랑)
     bar = ""
     if up is not None and down is not None:
@@ -2645,10 +2694,12 @@ def _index_card_html(d):
         f'<div style="display:flex;justify-content:space-between;align-items:center;">'
         f'<span style="font-size:20px;font-weight:800;color:#1e293b;">{d["name"]}</span>'
         f'<span style="font-size:13px;">{cnt}</span></div>'
-        f'<div style="margin-top:6px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+        f'<div style="margin-top:6px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;">'
+        f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
         f'<span style="font-size:28px;font-weight:800;color:#1e293b;">{d["price"]:,.2f}</span>'
         f'<span style="font-size:16px;font-weight:700;color:{val_color};">{pct_str}</span>'
         f'<span style="font-size:15px;color:{val_color};">{diff_str}</span></div>'
+        f'<div style="flex-shrink:0;">{spark_svg}</div></div>'
         f'{bar}</div>'
     )
 
@@ -2716,13 +2767,13 @@ def render_main_index_panel():
 
     cards = ""
     if kospi:
-        cards += _index_card_html(kospi)
+        cards += _index_card_html(kospi, spark=get_index_spark("KOSPI"))
     if kospi and kosdaq:
         cards += '<div style="height:1px;background:#eef2f6;margin:2px 0;"></div>'
     if kosdaq:
-        cards += _index_card_html(kosdaq)
+        cards += _index_card_html(kosdaq, spark=get_index_spark("KOSDAQ"))
 
-    # 투자자별 순매매: 코스피 기준(없으면 코스닥) — 전체시장 대표값
+    # 투자자별 순매매: 코스피 기준 (코스피 trend 값)
     src = kospi if (kospi and kospi.get("forgn") is not None) else kosdaq
     f_v = src.get("forgn") if src else None
     i_v = src.get("inst") if src else None
@@ -2761,6 +2812,91 @@ def render_main_index_panel():
         unsafe_allow_html=True,
     )
     st.caption("💡 외국인·기관·개인 순매매(억원)는 코스피 전체 기준 · 빨강=순매수 / 파랑=순매도. 장중 잠정치이며 마감 후 거래소가 확정합니다.")
+
+    # 주요 지표 바 (코스피200 / 원·달러)
+    render_major_indices_bar()
+
+
+def render_major_indices_bar():
+    """[추가] 코스피200 + 원/달러 환율 한 줄 바."""
+    items = get_major_indices()
+    if not items:
+        return
+    cells = ""
+    for it in items:
+        sign = it.get("sign", 0)
+        c = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
+        arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "")
+        v = it.get("value")
+        pct = it.get("pct")
+        vstr = it["fmt"].format(v) if v is not None else "-"
+        pstr = f'{arrow} {abs(pct):.2f}%' if pct is not None else ""
+        cells += (
+            f'<div style="flex:1;text-align:center;padding:6px 4px;">'
+            f'<div style="font-size:12px;color:#64748b;">{it["label"]}</div>'
+            f'<div style="font-size:15px;font-weight:800;color:#1e293b;">{vstr}</div>'
+            f'<div style="font-size:12px;font-weight:700;color:{c};">{pstr}</div></div>'
+        )
+    st.markdown(
+        f'<div style="display:flex;background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'padding:6px;margin-top:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">{cells}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_marketcap_top(mkt="KOSPI", n=10):
+    """[추가] 시가총액 TOP 종목 리스트."""
+    rows = get_marketcap_top(mkt, n)
+    if not rows:
+        st.caption("📊 시가총액 TOP 종목을 불러오지 못했습니다.")
+        return
+    body = ""
+    for i, r in enumerate(rows, 1):
+        sign = r.get("sign", 0)
+        c = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
+        arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "")
+        pct = r.get("pct")
+        pstr = f'{arrow} {abs(pct):.2f}%' if pct is not None else ""
+        price = f'{r["price"]:,.0f}' if r.get("price") is not None else "-"
+        body += (
+            f'<div style="display:flex;align-items:center;padding:9px 4px;border-bottom:1px solid #f1f5f9;">'
+            f'<span style="width:22px;color:#94a3b8;font-weight:700;">{i}</span>'
+            f'<span style="flex:1;font-weight:700;color:#1e293b;">{r["name"]}'
+            f'<span style="font-size:11px;color:#94a3b8;font-weight:400;margin-left:6px;">{r.get("cap","")}</span></span>'
+            f'<span style="min-width:80px;text-align:right;color:#1e293b;">{price}</span>'
+            f'<span style="min-width:74px;text-align:right;color:{c};font-weight:700;">{pstr}</span></div>'
+        )
+    st.markdown(
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:6px 14px;">{body}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_industry_changes(n=12):
+    """[추가] 업종별 등락률 — 상위 강세/약세."""
+    rows = get_industry_changes(30)
+    if not rows:
+        st.caption("📊 업종별 등락률을 불러오지 못했습니다.")
+        return
+    rows = [r for r in rows if r.get("rate") is not None]
+    top = sorted(rows, key=lambda x: x["rate"], reverse=True)[:n]
+    def _row(r):
+        rate = r["rate"]
+        c = "#ef4444" if rate > 0 else ("#3b82f6" if rate < 0 else "#64748b")
+        arrow = "▲" if rate > 0 else ("▼" if rate < 0 else "")
+        w = min(abs(rate) / 5.0 * 100, 100)  # 5%를 풀바로
+        return (
+            f'<div style="display:flex;align-items:center;padding:7px 4px;gap:10px;">'
+            f'<span style="width:120px;font-weight:600;color:#1e293b;font-size:13px;">{r["name"]}</span>'
+            f'<span style="flex:1;height:8px;background:#f1f5f9;border-radius:5px;position:relative;">'
+            f'<span style="position:absolute;left:0;width:{w:.0f}%;height:100%;background:{c};border-radius:5px;"></span></span>'
+            f'<span style="min-width:62px;text-align:right;color:{c};font-weight:700;font-size:13px;">{arrow}{abs(rate):.2f}%</span></div>'
+        )
+    body = "".join(_row(r) for r in top)
+    st.markdown(
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:6px 14px;">{body}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 @st.cache_data(ttl=3600)
@@ -4171,16 +4307,23 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     
     st.markdown("## 🎛️ 홈: 종합 대시보드")
 
-    # [추가] 네이버 모바일 스타일 메인 지수 패널 (코스피/코스닥 + 오늘의 시장 + 투자자별 순매매)
+    # [추가] 네이버 모바일 스타일 메인 지수 패널 (코스피/코스닥 + 오늘의 시장 + 투자자별 순매매 + 미니차트 + 주요지표)
     with st.spinner("코스피·코스닥 지수 / 투자자별 수급 수집 중..."):
         render_main_index_panel()
+    st.divider()
 
-    # [임시] 신규 기능(미니차트/주요지수/시총TOP/업종) 엔드포인트 탐색용 진단 패널.
-    #  → 응답 JSON 확인 후 기능 확정되면 이 expander는 제거 예정.
-    with st.expander("🔧 [개발용] 네이버 API 엔드포인트 진단 (펼치기)"):
-        if st.button("진단 실행", key="diag_run_btn"):
-            _diag_index_endpoints()
-
+    # [추가] 시가총액 TOP & 업종별 등락률
+    mc_col, ind_col = st.columns(2)
+    with mc_col:
+        st.markdown("#### 🏆 시가총액 TOP 10")
+        mc_market = st.radio("시장", ["KOSPI", "KOSDAQ"], horizontal=True,
+                             label_visibility="collapsed", key="mcap_market_radio")
+        with st.spinner("시가총액 상위 종목 수집 중..."):
+            render_marketcap_top(mc_market, 10)
+    with ind_col:
+        st.markdown("#### 🔥 업종별 등락률 (강세 순)")
+        with st.spinner("업종별 등락률 수집 중..."):
+            render_industry_changes(12)
     st.divider()
 
     # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
