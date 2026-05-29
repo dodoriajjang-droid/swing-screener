@@ -4333,6 +4333,8 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
             render_marketcap_top(mc_market, 10)
     with ind_col:
         st.markdown("#### 🔥 업종별 등락률 (강세 순)")
+        # 좌측 시총 컬럼의 KOSPI/KOSDAQ 라디오 높이만큼 여백을 줘서 두 표의 시작점을 맞춘다.
+        st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
         with st.spinner("업종별 등락률 수집 중..."):
             render_industry_changes(12)
     st.divider()
