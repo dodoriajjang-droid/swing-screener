@@ -187,6 +187,45 @@ def fetch_polymarket_markets(search=None, limit=80):
                     if any(k in r["question"].lower() for k in kw)]
     return {"error": None, "data": rows}
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def translate_poly_questions(questions, _api_key):
+    """
+    여러 영문 질문/선택지를 한 번의 Gemini 호출로 일괄 번역.
+    반환: {원문: 한글번역} 딕셔너리. 실패 시 원문 그대로 매핑.
+    (API 키가 없으면 번역 없이 원문 반환)
+    """
+    uniq = [q for q in dict.fromkeys(questions) if q and q.strip()]
+    if not uniq:
+        return {}
+    if not _api_key:
+        return {q: q for q in uniq}
+    try:
+        numbered = "\n".join([f"{i+1}. {q}" for i, q in enumerate(uniq)])
+        prompt = (
+            "다음은 예측시장(Polymarket)의 영문 질문/선택지 목록이다. "
+            "각 항목을 자연스러운 한국어로 번역하라.\n"
+            "규칙:\n"
+            "- 번호와 순서를 그대로 유지하고, '번호. 번역문' 형식으로만 출력\n"
+            "- 고유명사(인물·기관·티커·코인명)는 통용되는 한국어 표기 사용(없으면 원문 유지)\n"
+            "- 군더더기 설명 없이 번역 결과만 출력\n\n"
+            f"{numbered}"
+        )
+        resp = ask_gemini(prompt, _api_key)
+        mapping = {}
+        for line in resp.splitlines():
+            line = line.strip()
+            mt = re.match(r'^\s*(\d+)\s*[.)]\s*(.+)$', line)
+            if mt:
+                idx = int(mt.group(1)) - 1
+                if 0 <= idx < len(uniq):
+                    mapping[uniq[idx]] = mt.group(2).strip()
+        # 누락분은 원문으로 보강
+        for q in uniq:
+            mapping.setdefault(q, q)
+        return mapping
+    except Exception:
+        return {q: q for q in uniq}
+
 @st.cache_data(ttl=86400)
 def get_krx_etf_list():
     try:
@@ -4588,11 +4627,22 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     chat_container = st.container(height=400)
     for msg in st.session_state.v4_chat_history:
         chat_container.chat_message(msg["role"]).write(msg["content"])
-        
-    if prompt := st.chat_input("예: 펄어비스 붉은사막 최신 출시 일정 검색해서 알려줘", key="main_chat"):
+
+    # [수정] st.chat_input 은 페이지 최하단에 '고정'되는 위젯이라,
+    #  홈 화면 진입 시 브라우저가 입력창으로 스크롤을 튕겨 내리는 현상이 있었음.
+    #  → 일반 text_input + 전송 버튼으로 교체하여 화면이 튀지 않도록 고정.
+    in_col, btn_col = st.columns([5, 1])
+    prompt = in_col.text_input(
+        "퀀트 비서에게 질문", key="main_chat_text",
+        placeholder="예: 펄어비스 붉은사막 최신 출시 일정 검색해서 알려줘",
+        label_visibility="collapsed",
+    )
+    send = btn_col.button("📨 전송", key="main_chat_send", use_container_width=True)
+
+    if send and prompt and prompt.strip():
         st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
         chat_container.chat_message("user").write(prompt)
-        
+
         if not api_key_input:
             st.error("좌측 사이드바에 API 키를 입력해주세요.")
         else:
@@ -4623,7 +4673,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                         reply = ask_gemini(prompt, api_key_input)
                     st.write(reply)
             
-        st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
+            st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단")
@@ -7137,9 +7187,44 @@ elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
 
             st.success(f"✅ 총 {len(markets)}개 마켓 로드 완료 · 카테고리: {preset_name if not custom_kw.strip() else '직접검색'}")
 
+            # --- 한글 번역 처리 ---
+            tr_col1, tr_col2 = st.columns([1, 3])
+            show_ko = tr_col1.toggle("🇰🇷 한글 번역", value=True, key="poly_translate",
+                                     help="폴리마켓 질문/선택지를 Gemini로 번역해 보여줍니다. (끄면 영어 원문)")
+            # 번역 대상: 표/상세에 쓰이는 상위 마켓 위주 (API 호출 최소화)
+            TR_N = min(len(markets), 30)
+            trans_map = {}
+            if show_ko:
+                if not api_key_input:
+                    tr_col2.warning("⚠️ 번역하려면 좌측 사이드바에 Gemini API 키가 필요합니다. (지금은 영어 원문 표시)")
+                else:
+                    to_translate = []
+                    for m in markets[:TR_N]:
+                        to_translate.append(m["question"])
+                        for o in (m["outcomes"] or []):
+                            # Yes/No 는 굳이 번역 호출에 넣지 않음 (아래서 자체 처리)
+                            if o not in ("Yes", "No"):
+                                to_translate.append(o)
+                    with st.spinner("질문을 한글로 번역하는 중... (최초 1회만, 이후 캐시)"):
+                        trans_map = translate_poly_questions(tuple(to_translate), api_key_input)
+
+            _YESNO_KO = {"Yes": "예", "No": "아니오"}
+
+            def _q_ko(m):
+                if show_ko and trans_map.get(m["question"]):
+                    return trans_map[m["question"]]
+                return m["question"]
+
+            def _out_ko(o):
+                if not show_ko:
+                    return o
+                if o in _YESNO_KO:
+                    return _YESNO_KO[o]
+                return trans_map.get(o, o)
+
             # 요약 테이블
             df_view = pd.DataFrame([{
-                "질문": m["question"][:70] + ("…" if len(m["question"]) > 70 else ""),
+                "질문": (_q_ko(m))[:70] + ("…" if len(_q_ko(m)) > 70 else ""),
                 "확률(Yes)": f"{m['yes_prob']:.1f}%" if m["yes_prob"] is not None else "다중선택지",
                 "24h 거래량($)": f"{int(m['volume24hr']):,}",
                 "누적 거래량($)": f"{int(m['volume']):,}",
@@ -7153,11 +7238,14 @@ elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
                 with st.container():
                     cL, cR = st.columns([3, 1])
                     with cL:
-                        st.markdown(f"**{i+1}. {m['question']}**")
+                        st.markdown(f"**{i+1}. {_q_ko(m)}**")
+                        # 영어 원문 병기 (번역이 켜져 있고 실제 번역된 경우)
+                        if show_ko and _q_ko(m) != m["question"]:
+                            st.caption(f"🇺🇸 {m['question']}")
                         # 다중 선택지 확률 표시
                         if m["outcomes"] and m["prices"] and len(m["outcomes"]) == len(m["prices"]):
                             badge = " ｜ ".join(
-                                [f"{o}: **{p:.1f}%**" for o, p in zip(m["outcomes"], m["prices"])][:6]
+                                [f"{_out_ko(o)}: **{p:.1f}%**" for o, p in zip(m["outcomes"], m["prices"])][:6]
                             )
                             st.caption(badge)
                         if m["yes_prob"] is not None:
@@ -7184,7 +7272,7 @@ elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
                         lines = []
                         for m in top_for_ai:
                             prob_str = f"{m['yes_prob']:.0f}%" if m["yes_prob"] is not None else "다중"
-                            lines.append(f"- {m['question']} → {prob_str} (24h거래량 ${int(m['volume24hr']):,})")
+                            lines.append(f"- {_q_ko(m)} → {prob_str} (24h거래량 ${int(m['volume24hr']):,})")
                         data_block = "\n".join(lines)
                         ai_prompt = (
                             "너는 매크로 전략가다. 아래는 Polymarket 예측시장의 실시간 확률 데이터다.\n"
