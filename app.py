@@ -2224,6 +2224,9 @@ def extract_beneficiary_stocks(report_text, krx_df, max_n=8):
                 if len(found) >= max_n:
                     break
     return found[:max_n]
+
+@st.cache_data(ttl=60)
+def get_latest_naver_news():
     articles = []
     now_kst = datetime.utcnow() + timedelta(hours=9)
     three_hours_ago = now_kst - timedelta(hours=3)
