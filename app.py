@@ -4330,7 +4330,52 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
                     fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
-                
+
+                # ── 선택한 차트 주기(tf) 기반 AI 분석 ───────────────────────────
+                tf_ai_key = f"tf_ai_{tech_result['티커']}_{tf}_{key_suffix}"
+                st.caption(f"💡 아래 버튼은 위에서 선택한 **‘{tf}’ 주기** 차트를 기준으로 AI가 분석합니다. "
+                           "(상단 ‘AI 기술적 정밀 분석’은 일봉 기준 — 주기를 바꿔 비교해 보세요.)")
+                if api_key_str and st.button(f"🤖 ‘{tf}’ 주기 AI 차트 분석", key=f"btn_{tf_ai_key}", use_container_width=True):
+                    st.session_state[tf_ai_key] = "loading"
+                if st.session_state.get(tf_ai_key):
+                    if st.session_state[tf_ai_key] == "loading":
+                        with st.spinner(f"AI가 ‘{tf}’ 주기 차트를 분석 중입니다..."):
+                            # long_df에 RSI 계산(주기별)
+                            _d = long_df['Close'].diff()
+                            _rs = (_d.where(_d > 0, 0.0).rolling(14).mean()) / (-_d.where(_d < 0, 0.0).rolling(14).mean())
+                            _rsi_series = 100 - (100 / (1 + _rs))
+                            last = long_df.iloc[-1]
+                            rsi_tf = float(_rsi_series.iloc[-1]) if pd.notna(_rsi_series.iloc[-1]) else None
+                            close_tf = float(last['Close'])
+                            ma20_tf = float(last['MA20']) if pd.notna(last['MA20']) else None
+                            bb_tf = float(last['Bollinger_Upper']) if pd.notna(last['Bollinger_Upper']) else None
+                            obv_trend = "상승" if long_df['OBV'].iloc[-1] > long_df['OBV'].iloc[-min(5, len(long_df))] else "하락/횡보"
+                            # 최근 캔들 종가 흐름(최대 12개)
+                            recent_closes = long_df['Close'].tail(12).round(2).tolist()
+                            ma20_str = f"{ma20_tf:,.2f}" if ma20_tf else "계산불가"
+                            bb_str = f"{bb_tf:,.2f}" if bb_tf else "계산불가"
+                            rsi_str = f"{rsi_tf:.1f}" if rsi_tf is not None else "계산불가"
+                            tf_prompt = f"""당신은 단기 트레이딩에 정통한 차트 분석 전문가입니다.
+'{tech_result['종목명']}'의 '{tf}' 주기 차트를 분석하세요.
+
+[{tf} 차트 데이터]
+- 현재가(최근 봉 종가): {close_tf:,.2f}
+- 20봉 이동평균: {ma20_str}
+- 볼린저밴드 상단: {bb_str}
+- RSI(14): {rsi_str}
+- OBV(거래량 누적) 추세: {obv_trend}
+- 피보나치 되돌림: 고점 {max_p:,.2f} / 0.382 {f_382:,.2f} / 0.500 {f_500:,.2f} / 0.618 {f_618:,.2f} / 저점 {min_p:,.2f}
+- 최근 종가 흐름: {recent_closes}
+
+다음을 마크다운으로 간결하게 작성하세요(이 '{tf}' 주기에 한정해서 판단):
+1. 📈 **현재 추세**: 이 주기에서의 추세 방향과 위치(이평선·볼밴·피보 대비).
+2. ⚡ **단기 매매 포인트**: 이 주기 트레이더 기준 진입/관망/청산 의견과 근거.
+3. ⚠️ **주의할 신호**: RSI 과열·침체, 거래량 다이버전스 등 경고 신호.
+3줄 이내의 핵심 위주로, 이 시간 프레임에 맞는 호흡(예: 30분봉은 단타, 주봉은 중장기)으로 해석하세요."""
+                            st.session_state[tf_ai_key] = ask_gemini(tf_prompt, api_key_str)
+                    st.success(f"✅ ‘{tf}’ 주기 AI 분석 완료")
+                    st.markdown(st.session_state[tf_ai_key])
+
                 if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
                     daily_df = get_daily_sise_and_investor(tech_result['티커'])
