@@ -3132,25 +3132,57 @@ def get_investor_trend(code):
     except Exception: return "조회불가", "조회불가", "조회불가", 0, 0
 
 @st.cache_data(ttl=3600)
-def get_pension_fund_trend(code):
+@st.cache_data(ttl=600)
+def get_institution_buy_trend(code):
+    """기관(전체) 최근 5거래일 순매수 합계 & 연속 순매수 일수 — 네이버 모바일 trend API.
+    (기존 frgn HTML 스크래핑은 캐시도 없고 종목마다 순차 호출돼 느렸음 → JSON API + 캐시로 교체)
+    ※ '연기금'이 아니라 '기관 전체(organ)' 기준이다. 반환: (기관5일합:주, 연속순매수일수)"""
+    if not str(code).isdigit():
+        return 0, 0
     try:
-        res = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        rows = soup.select('table.type2')[1].select('tr')
-        pension_like_sum, pension_like_streak, pension_break, count = 0, 0, False, 0
+        url = f"https://m.stock.naver.com/api/stock/{code}/trend"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": f"https://m.stock.naver.com/domestic/stock/{code}/total",
+            "Accept": "application/json",
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code != 200:
+            return 0, 0
+        rows = res.json()
+        if isinstance(rows, dict):
+            for k in ("trends", "result", "list", "data"):
+                if isinstance(rows.get(k), list):
+                    rows = rows[k]; break
+        if not isinstance(rows, list):
+            return 0, 0
+
+        def _num(v):
+            if v is None: return None
+            s = str(v).replace(',', '').replace('+', '').strip()
+            return int(s) if s.lstrip('-').isdigit() else None
+
+        inst_sum, streak, broke, count = 0, 0, False, 0
         for row in rows:
-            tds = row.select('td')
-            if len(tds) < 9 or not tds[0].text.strip(): continue 
-            try:
-                i_val = int(tds[5].text.strip().replace(',', '').replace('+', '')) 
-                pension_like_sum += i_val
-                if i_val > 0 and not pension_break: pension_like_streak += 1
-                elif i_val <= 0: pension_break = True
-                count += 1
-            except Exception: pass
-            if count >= 5: break
-        return pension_like_sum, pension_like_streak
-    except Exception: return 0, 0
+            i_val = _num(row.get("organPureBuyQuant"))
+            if i_val is None:
+                continue
+            inst_sum += i_val
+            if i_val > 0 and not broke:
+                streak += 1
+            elif i_val <= 0:
+                broke = True
+            count += 1
+            if count >= 5:
+                break
+        return inst_sum, streak
+    except Exception:
+        return 0, 0
+
+
+# 하위 호환 별칭 — 기존 호출부(get_pension_fund_trend)를 그대로 유지하기 위함.
+# 실제로는 '연기금'이 아니라 '기관 전체' 추세이며, 명칭은 점진적으로 정리한다.
+get_pension_fund_trend = get_institution_buy_trend
 
 @st.cache_data(ttl=3600)
 def get_daily_sise_and_investor(code):
@@ -5057,38 +5089,79 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
 
 elif selected_menu == "🗺️ 시장 주도주 자금 히트맵":
     st.subheader("🗺️ 시장 주도주 자금 히트맵")
-    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 상승 / 붉은색: 하락)")
+    st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. "
+             "(한국식 색상 — 🔴 빨강: 상승 / 🔵 파랑: 하락)")
     heatmap_limit = st.radio("🔥 히트맵 표시 종목 수 선택 (개)", [30, 50, 100], index=1, horizontal=True)
-    
-    with st.spinner(f"거래대금 상위 {heatmap_limit}종목 데이터 및 수급 스크래핑 중..."):
+
+    with st.spinner(f"거래대금 상위 {heatmap_limit}종목 데이터 및 수급 조회 중..."):
         t_kings = get_trading_value_kings(limit=heatmap_limit)
-        if not t_kings.empty:
-            pension_streaks = []
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            total_k = len(t_kings)
-            for i, (idx, row) in enumerate(t_kings.iterrows()):
-                _, streak = get_pension_fund_trend(row['Code'])
-                pension_streaks.append(streak)
-                progress_bar.progress((i + 1) / total_k)
-                status_text.text(f"📊 종목 수급 파싱 중... ({i + 1}/{total_k})")
-            status_text.empty()
-            progress_bar.empty()
-            
-            t_kings['연속매수'] = pension_streaks
-            t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
-            t_kings['display_text'] = "<span style='font-size:16px; font-weight:bold;'>" + t_kings['Name'] + "</span><br>" + t_kings['ChagesRatio'].map("{:+.2f}%".format) + "<br>" + t_kings['수급상태']
-            
-            fig = px.treemap(t_kings, path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'], values='Amount_Ouk', color='ChagesRatio', color_continuous_scale=[(0.0, '#f63538'), (0.5, '#414554'), (1.0, '#30cc5a')], color_continuous_midpoint=0, custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수'])
-            fig.update_traces(textinfo="text", texttemplate="%{customdata[2]}", hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억<br>연속매수: %{customdata[3]}일")
-            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=600 if heatmap_limit <= 50 else 800)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.markdown("### 📊 수급 동반 거래대금 상위 종목 타점 확인")
-            sel_king = st.selectbox("타점 확인:", ["선택"] + t_kings[t_kings['연속매수'] >= 1]['Name'].tolist())
+
+    if not t_kings.empty:
+        # fallback(서버 차단 시 더미) 감지 — 거래대금이 전부 동일하면 실데이터가 아님
+        is_fallback = (t_kings['Amount_Ouk'].nunique() <= 1) or (t_kings['ChagesRatio'].abs().sum() == 0)
+        if is_fallback:
+            st.warning("⚠️ 거래소·네이버 데이터를 일시적으로 불러오지 못해 임시 목록을 표시합니다. "
+                       "등락률·거래대금·수급은 실제 값이 아닐 수 있으니 잠시 후 새로고침해 주세요.")
+
+        # 수급(기관 연속순매수) 병렬 조회 — 종목당 trend API 1회, 캐시(10분)로 재호출 최소화
+        codes = t_kings['Code'].tolist()
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        total_k = len(codes)
+        streak_map = {}
+        done = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_code = {executor.submit(get_institution_buy_trend, c): c for c in codes}
+            for fut in concurrent.futures.as_completed(future_to_code):
+                c = future_to_code[fut]
+                try:
+                    _, streak = fut.result()
+                except Exception:
+                    streak = 0
+                streak_map[c] = streak
+                done += 1
+                progress_bar.progress(done / total_k)
+                status_text.text(f"📊 종목 수급 조회 중... ({done}/{total_k})")
+        status_text.empty()
+        progress_bar.empty()
+
+        t_kings['연속매수'] = t_kings['Code'].map(streak_map).fillna(0).astype(int)
+        t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
+        # plotly treemap이 환경에 따라 HTML 태그를 그대로 노출하므로, 라벨은 순수 텍스트로 구성
+        t_kings['display_text'] = (
+            t_kings['Name'] + "<br>"
+            + t_kings['ChagesRatio'].map("{:+.2f}%".format) + "<br>"
+            + t_kings['수급상태']
+        )
+
+        # 한국식 색상: 하락(-)=파랑, 0=회색, 상승(+)=빨강
+        fig = px.treemap(
+            t_kings,
+            path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'],
+            values='Amount_Ouk', color='ChagesRatio',
+            color_continuous_scale=[(0.0, '#3b82f6'), (0.5, '#414554'), (1.0, '#ef4444')],
+            color_continuous_midpoint=0,
+            custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수'],
+        )
+        fig.update_traces(textinfo="text", texttemplate="%{customdata[2]}",
+                          hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억<br>기관 연속순매수: %{customdata[3]}일")
+        fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=600 if heatmap_limit <= 50 else 800)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("### 📊 수급 동반 거래대금 상위 종목 타점 확인")
+        st.caption("기관이 2일 이상 연속 순매수한 '매집중' 종목만 추립니다.")
+        candidates = t_kings[t_kings['연속매수'] >= 2]['Name'].tolist()
+        if candidates:
+            sel_king = st.selectbox("타점 확인:", ["선택"] + candidates)
             if sel_king != "선택":
                 k_code = t_kings[t_kings['Name'] == sel_king]['Code'].iloc[0]
-                if res := analyze_technical_pattern(sel_king, k_code): draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
+                if res := analyze_technical_pattern(sel_king, k_code):
+                    draw_stock_card(res, api_key_str=api_key_input, is_expanded=True)
+        else:
+            st.info("현재 거래대금 상위 종목 중 기관 2일 연속 순매수(매집중) 종목이 없습니다.")
+    else:
+        st.error("거래대금 상위 종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+
 
 elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
     st.markdown("## 🕸️ 실시간 섹터 순환매 추적")
