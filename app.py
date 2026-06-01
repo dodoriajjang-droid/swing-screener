@@ -4406,7 +4406,24 @@ with st.sidebar:
         " ┣ 🎯 증권사 목표가 컨센서스",
         " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
+import streamlit as st, requests, json
 
+if st.sidebar.button("🔍 trend JSON 확인"):
+    code = "005930"
+    H = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": f"https://m.stock.naver.com/domestic/stock/{code}/total",
+        "Accept": "application/json",
+    }
+    r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/trend",
+                     headers=H, timeout=6)
+    d = r.json()
+    # 전체 구조 타입 확인
+    st.write("최상위 타입:", type(d).__name__)
+    if isinstance(d, dict):
+        st.write("최상위 keys:", list(d.keys()))
+    # 첫 데이터 한 덩어리만 예쁘게
+    st.code(json.dumps(d, ensure_ascii=False, indent=2)[:2000])
     if "main_menu_radio" not in st.session_state:
         st.session_state.main_menu_radio = " ┣ 🎛️ 홈: 종합 대시보드"
 
