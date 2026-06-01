@@ -270,41 +270,24 @@ def get_today_research_details():
         df = pd.DataFrame(rows[:30]) # 상위 30개만 파싱 (속도 및 차단 방지)
         if df.empty: return df
 
-        def fetch_detail(link):
+        def fetch_detail(row_tuple):
+            link, title = row_tuple
             try:
                 time.sleep(0.1)
                 detail_res = requests.get(link, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
                 detail_soup = BeautifulSoup(detail_res.content.decode('euc-kr', 'replace'), 'html.parser')
                 detail_text = detail_soup.get_text(separator=' ', strip=True)
-                price_match = re.search(r'목표가\s*([0-9,]+)', detail_text)
-                real_price = int(price_match.group(1).replace(',', '')) if price_match else 0
-                opinion_match = re.search(r'투자의견\s*([A-Za-z가-힣]+)', detail_text)
-                real_opinion = opinion_match.group(1).strip() if opinion_match else "N/A"
-                
-                change_status = "유지/신규"
-                change_pct = 0.0
-                
-                if "상향" in real_title or "상향" in detail_text[:300]: change_status = "상향"
-                elif "하향" in real_title or "하향" in detail_text[:300]: change_status = "하향"
-                
-                prev_price_match = re.search(r'(종전|기존)\s*([0-9,]+)', detail_text[:500])
-                if prev_price_match and real_price > 0:
-                    prev_price = int(prev_price_match.group(2).replace(',', ''))
-                    if prev_price > 0:
-                        change_pct = ((real_price - prev_price) / prev_price) * 100
-                        if change_pct > 0: change_status = "상향"
-                        elif change_pct < 0: change_status = "하향"
-                        
-                if change_status == "유지/신규" and change_pct != 0.0:
-                    change_status = "상향" if change_pct > 0 else "하향"
-                    
+                real_price = parse_target_price(detail_text)
+                real_opinion = standardize_opinion(detail_text)
+                change_status, change_pct = classify_tp_change(title, detail_text, real_price)
                 return real_price, real_opinion, change_status, change_pct
-            except:
+            except Exception:
                 return 0, "N/A", "유지/신규", 0.0
 
         results = []
+        link_title_pairs = list(zip(df['원문링크'], df['제목']))
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            for r in executor.map(fetch_detail, df['원문링크']):
+            for r in executor.map(fetch_detail, link_title_pairs):
                 results.append(r)
         
         df['목표가'] = [r[0] for r in results]
@@ -1111,6 +1094,57 @@ def get_dividend_portfolio(ex_rate):
 
     return {"KRX": krx_df, "US": us_df, "ETF": etf_df}
 
+# ── 증권사 리포트 공통 파싱 헬퍼 (의견 표준화·목표가·종전가) ─────────────
+def standardize_opinion(text):
+    """리포트 원문에서 투자의견을 5단계로 표준화. 국문/영문/하우스별 표현 모두 흡수.
+    반환: '강력매수' | '매수' | '중립' | '매도' | 'N/A'"""
+    if not text:
+        return "N/A"
+    t = str(text).upper()
+    if 'STRONG BUY' in t or '강력매수' in t:
+        return '강력매수'
+    if any(k in t for k in ('BUY', '매수', 'OVERWEIGHT', 'OUTPERFORM', '비중확대')):
+        return '매수'
+    if any(k in t for k in ('SELL', '매도', 'UNDERWEIGHT', 'UNDERPERFORM', '비중축소', '축소')):
+        return '매도'
+    if any(k in t for k in ('HOLD', '중립', 'NEUTRAL', 'MARKETPERFORM', 'MARKET PERFORM', '시장수익률')):
+        return '중립'
+    return 'N/A'
+
+
+def parse_target_price(text):
+    """목표가/목표주가/적정주가/적정가격/TP 뒤의 금액(원)을 추출. 없으면 0."""
+    if not text:
+        return 0
+    m = re.search(r'(?:목표\s*주?가|적정\s*주?가격?|TP)\s*[:\s]*([0-9][0-9,]{2,})', str(text))
+    return int(m.group(1).replace(',', '')) if m else 0
+
+
+def parse_prev_target_price(text):
+    """종전/기존 목표가 금액을 추출. 없으면 0."""
+    if not text:
+        return 0
+    m = re.search(r'(?:종전|기존)\s*(?:목표\s*주?가)?\s*[:\s]*([0-9][0-9,]{2,})', str(text))
+    return int(m.group(1).replace(',', '')) if m else 0
+
+
+def classify_tp_change(title, detail_text, real_price):
+    """목표가 변동(상향/하향/유지·신규) 및 변동률 산출.
+    1순위: 종전가 대비 실제 % 계산  2순위: 제목/본문의 '상향'·'하향' 키워드."""
+    change_status, change_pct = "유지/신규", 0.0
+    prev_price = parse_prev_target_price((detail_text or "")[:600])
+    if prev_price > 0 and real_price > 0:
+        change_pct = (real_price - prev_price) / prev_price * 100
+        change_status = "상향" if change_pct > 0 else ("하향" if change_pct < 0 else "유지/신규")
+    else:
+        head = (title or "") + " " + (detail_text or "")[:300]
+        if '상향' in head:
+            change_status = "상향"
+        elif '하향' in head:
+            change_status = "하향"
+    return change_status, change_pct
+
+
 @st.cache_data(ttl=3600)
 def get_stock_research_history(code, stock_name=""):
     try:
@@ -1143,14 +1177,8 @@ def get_stock_research_history(code, stock_name=""):
                         detail_soup = BeautifulSoup(detail_res.content.decode('euc-kr', 'replace'), 'html.parser')
                         
                         detail_text = detail_soup.get_text(separator=' ', strip=True)
-                        
-                        price_match = re.search(r'목표가\s*([0-9,]+)', detail_text)
-                        if price_match:
-                            real_price = int(price_match.group(1).replace(',', ''))
-                            
-                        opinion_match = re.search(r'투자의견\s*([A-Za-z가-힣]+)', detail_text)
-                        if opinion_match:
-                            real_opinion = opinion_match.group(1).strip()
+                        real_price = parse_target_price(detail_text)
+                        real_opinion = standardize_opinion(detail_text)
                             
                     except Exception:
                         pass 
@@ -6046,16 +6074,19 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                 st.divider()
 
         st.markdown("#### 🆕 오늘의 전체 신규 리포트")
-        res_df = get_naver_research()
+        with st.spinner("당일 리포트의 투자의견·목표가를 분석 중입니다..."):
+            res_df = get_today_research_details()
         if not res_df.empty:
             if api_key_input and st.button("🤖 AI 당일 리포트 종합 의견 및 섹터 요약", use_container_width=True, type="primary"):
                 with st.spinner("당일 발간된 리포트들을 분석하여 시장 분위기와 유망 섹터를 요약 중입니다..."):
-                    report_text = "\n".join([f"- [{r['증권사']}] {r['종목명']}: {r['제목']}" for _, r in res_df.head(30).iterrows()])
+                    report_text = "\n".join([f"- [{r['증권사']}] {r['종목명']} (의견:{r['투자의견']}): {r['제목']}" for _, r in res_df.head(30).iterrows()])
                     prompt = f"당신은 증권사 리서치 센터장입니다. 오늘 발간된 다음 증권사 리포트 제목들을 분석하여, 1) 오늘 증권가가 가장 주목하는 핵심 섹터/테마 2개와 그 이유, 2) 시장의 전반적인 투자의견 요약을 마크다운으로 작성해주세요.\n\n[오늘의 리포트]\n{report_text}"
                     st.info(ask_gemini(prompt, api_key_input), icon="💡")
-            
+
+            show_df = res_df[['종목명', '증권사', '제목', '투자의견', '목표가', '변동', '작성일', '원문링크']].copy()
+            show_df['목표가'] = show_df['목표가'].apply(lambda x: f"{int(x):,}원" if x and x > 0 else "-")
             st.dataframe(
-                res_df, 
+                show_df,
                 column_config={"원문링크": st.column_config.LinkColumn("원문 보기")},
                 use_container_width=True, hide_index=True
             )
@@ -6070,20 +6101,32 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
                 with st.spinner("오늘 발간된 30개의 증권사 리포트 원문을 AI가 해독 및 분석 중입니다..."):
                     today_reports = get_today_research_details()
                     if not today_reports.empty:
-                        buys = len(today_reports[today_reports['투자의견'].str.contains('매수|Buy', na=False, case=False)])
-                        sells = len(today_reports[today_reports['투자의견'].str.contains('매도|Sell|축소', na=False, case=False)])
+                        # 투자의견은 standardize_opinion으로 '강력매수/매수/중립/매도/N/A' 정규화됨
+                        op = today_reports['투자의견'].astype(str)
+                        buy_mask = op.isin(['강력매수', '매수'])
+                        sell_mask = op.eq('매도')
+                        buys = int(buy_mask.sum())
+                        sells = int(sell_mask.sum())
                         holds = len(today_reports) - buys - sells
-                        
+
                         st.markdown("#### 📊 오늘의 증권가 투자의견 요약 (Verdict)")
                         c1, c2, c3, c4 = st.columns(4)
                         c1.metric("총 발간 리포트", f"{len(today_reports)}건")
-                        c2.metric("BUY (비중확대)", f"{buys}건")
-                        c3.metric("HOLD (관망)", f"{holds}건")
-                        c4.metric("SELL (비중축소)", f"{sells}건")
-                        
+                        c2.metric("BUY (매수·강력매수)", f"{buys}건")
+                        c3.metric("HOLD/기타", f"{holds}건")
+                        c4.metric("SELL (매도)", f"{sells}건")
+
+                        # 매수의견 종목 목록 — 'BUY n건'이 어떤 종목인지 바로 확인
+                        if buys > 0:
+                            with st.expander(f"🔴 매수의견 종목 {buys}건 보기", expanded=False):
+                                buy_tbl = today_reports[buy_mask][['종목명', '증권사', '투자의견', '목표가', '제목']].copy()
+                                buy_tbl['목표가'] = buy_tbl['목표가'].apply(lambda x: f"{int(x):,}원" if x and x > 0 else "-")
+                                st.dataframe(buy_tbl, use_container_width=True, hide_index=True)
+
                         st.markdown("#### 📈 당일 목표가(TP) 상/하향 랭킹")
                         st.caption("💡 증권사가 직전 리포트 대비 목표가를 올렸으면 🔴상향, 내렸으면 🔵하향. "
-                                   "원문에 '종전 목표가'가 없으면 변동률은 `신규/유지`로 표시됩니다.")
+                                   "원문에 '종전 목표가'가 없으면 `유지/신규`로 분류되어 이 랭킹에는 나오지 않습니다. "
+                                   "따라서 위 BUY 건수와 아래 상향 건수는 서로 다른 지표입니다.")
                         upgrades = today_reports[today_reports['변동'] == '상향'].sort_values('변동률', ascending=False)
                         downgrades = today_reports[today_reports['변동'] == '하향'].sort_values('변동률', ascending=True)
 
@@ -6398,21 +6441,17 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                     with col_chart2:
                         st.markdown("#### 📊 투자의견 분포")
                         
-                        # 💡 추가됨: '투자의견' 표준화 병합 로직 (Buy = 매수, Hold = 중립, Sell = 매도)
-                        def standardize_opinion(op):
-                            op_str = str(op).strip().upper()
-                            if 'STRONG BUY' in op_str or '강력매수' in op_str:
-                                return '강력매수 (Strong Buy)'
-                            elif 'BUY' in op_str or '매수' in op_str:
-                                return '매수 (Buy)'
-                            elif 'HOLD' in op_str or '중립' in op_str or 'MARKETPERFORM' in op_str:
-                                return '중립 (Hold)'
-                            elif 'SELL' in op_str or '매도' in op_str or 'UNDERPERFORM' in op_str or '축소' in op_str:
-                                return '매도 (Sell)'
-                            else:
-                                return op_str
+                        # 투자의견 표준화 → 파이차트용 라벨(영문 병기). 분류는 전역 헬퍼로 통일.
+                        def opinion_pie_label(op):
+                            std = standardize_opinion(op)  # '강력매수/매수/중립/매도/N/A'
+                            return {
+                                '강력매수': '강력매수 (Strong Buy)',
+                                '매수': '매수 (Buy)',
+                                '중립': '중립 (Hold)',
+                                '매도': '매도 (Sell)',
+                            }.get(std, str(op).strip().upper())
 
-                        history_df['투자의견_표준화'] = history_df['투자의견'].apply(standardize_opinion)
+                        history_df['투자의견_표준화'] = history_df['투자의견'].apply(opinion_pie_label)
                         opinion_counts = history_df['투자의견_표준화'].value_counts().reset_index()
                         opinion_counts.columns = ['투자의견', '건수']
                         
