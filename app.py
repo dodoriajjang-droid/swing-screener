@@ -1687,6 +1687,52 @@ def get_market_label(ticker_code):
     return get_market_map().get(str(ticker_code).zfill(6), "")
 
 
+@st.cache_data(ttl=600)
+def get_stock_list_by_market():
+    """코스피/코스닥 전체 종목 리스트(시세·시총·업종 포함) — 종목 리스트 페이지용.
+    반환: 정규화된 DataFrame[시장, 종목코드, 종목명, 현재가, 등락률, 거래대금(억), 시가총액(억), 업종]"""
+    try:
+        df = fdr.StockListing('KRX')
+        if df.empty or 'Market' not in df.columns:
+            return pd.DataFrame()
+        df = df.copy()
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+
+        def _num(col):
+            if col not in df.columns:
+                return 0
+            return pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
+
+        out = pd.DataFrame()
+        label = {'KOSPI': '코스피', 'KOSDAQ': '코스닥', 'KONEX': '코넥스',
+                 'KOSDAQ GLOBAL': '코스닥', 'KOSDAQ_GLOBAL': '코스닥'}
+        out['시장'] = df['Market'].astype(str).str.upper().str.strip().map(lambda m: label.get(m, m))
+        out['종목코드'] = df['Code']
+        out['종목명'] = df['Name'] if 'Name' in df.columns else ''
+        out['현재가'] = _num('Close').astype(int)
+        out['등락률'] = _num('ChagesRatio').round(2)
+        out['거래대금(억)'] = (_num('Amount') / 100000000).astype(int)
+        out['시가총액(억)'] = (_num('Marcap') / 100000000).astype(int)
+
+        # 업종 병합 (get_krx_stocks의 정제된 Sector)
+        try:
+            krx = get_krx_stocks()
+            if not krx.empty:
+                out = pd.merge(out, krx[['Code', 'Sector']].rename(columns={'Code': '종목코드', 'Sector': '업종'}),
+                               on='종목코드', how='left')
+            else:
+                out['업종'] = '-'
+        except Exception:
+            out['업종'] = '-'
+        out['업종'] = out['업종'].fillna('-')
+
+        # 코스피/코스닥만 (코넥스 제외 옵션은 페이지에서 처리)
+        out = out[out['시장'].isin(['코스피', '코스닥', '코넥스'])]
+        return out.reset_index(drop=True)
+    except Exception:
+        return pd.DataFrame()
+
+
 def get_krx_stocks():
     try:
         # 1. 한국 주식 기본 데이터 가져오기
@@ -4584,6 +4630,7 @@ with st.sidebar:
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
         "  ", 
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
+        " ┣ 📋 코스피·코스닥 종목 리스트",
         " ┣ 🚀 단기 스윙 퀀트 스캐너",
         " ┣ 🏛️ 국민연금 5% 대량보유 픽",
         " ┣ 💎 장기 우량주 & 가치주 발굴",
@@ -5474,6 +5521,61 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
                 st.info("💡 사이드바에 API 키를 입력하면 'AI 공모주 옥석 가리기'로 따상 후보를 분석할 수 있어요.")
         else:
             st.error("❌ 현재 예정된 신규 상장(IPO) 일정이 없거나, 거래소 데이터를 불러올 수 없습니다. (주말·연휴엔 비어 있을 수 있어요)")
+
+elif selected_menu == "📋 코스피·코스닥 종목 리스트":
+    st.markdown("## 📋 코스피·코스닥 종목 리스트")
+    st.write("국내 전체 상장 종목을 시장별로 검색·정렬해서 볼 수 있습니다.")
+
+    with st.spinner("거래소 종목 데이터를 불러오는 중..."):
+        all_stocks = get_stock_list_by_market()
+
+    if all_stocks.empty:
+        st.error("❌ 종목 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+    else:
+        c1, c2, c3 = st.columns([1.2, 1, 1])
+        with c1:
+            market_pick = st.radio("시장 구분", ["전체", "코스피", "코스닥", "코넥스"], horizontal=True)
+        with c2:
+            sort_by = st.selectbox("정렬 기준", ["시가총액(억)", "거래대금(억)", "등락률", "현재가", "종목명"])
+        with c3:
+            sort_desc = st.radio("정렬 순서", ["내림차순", "오름차순"], horizontal=True)
+
+        keyword = st.text_input("🔍 종목명 또는 종목코드 검색", placeholder="예: 삼성전자 / 005930")
+
+        view = all_stocks.copy()
+        if market_pick != "전체":
+            view = view[view['시장'] == market_pick]
+        if keyword.strip():
+            kw = keyword.strip()
+            view = view[view['종목명'].str.contains(kw, case=False, na=False) | view['종목코드'].str.contains(kw, na=False)]
+
+        ascending = (sort_desc == "오름차순")
+        if sort_by == "종목명":
+            view = view.sort_values("종목명", ascending=ascending, kind="stable")
+        else:
+            view = view.sort_values(sort_by, ascending=ascending, kind="stable")
+
+        # 요약 메트릭
+        m1, m2, m3 = st.columns(3)
+        m1.metric("검색 결과", f"{len(view):,}개")
+        m2.metric("코스피", f"{int((view['시장'] == '코스피').sum()):,}개")
+        m3.metric("코스닥", f"{int((view['시장'] == '코스닥').sum()):,}개")
+
+        show = view.copy()
+        show['현재가'] = show['현재가'].map(lambda x: f"{x:,}원")
+        show['등락률'] = show['등락률'].map(lambda x: f"{x:+.2f}%")
+        show['거래대금(억)'] = show['거래대금(억)'].map(lambda x: f"{x:,}")
+        show['시가총액(억)'] = show['시가총액(억)'].map(lambda x: f"{x:,}")
+
+        st.dataframe(
+            show[['시장', '종목코드', '종목명', '현재가', '등락률', '거래대금(억)', '시가총액(억)', '업종']],
+            use_container_width=True, hide_index=True, height=620,
+        )
+
+        csv = view.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("⬇️ 현재 목록 CSV 다운로드", data=csv,
+                           file_name=f"종목리스트_{market_pick}.csv", mime="text/csv")
+        st.caption("💡 시세·시가총액은 거래소 마감 기준 데이터이며, 약 10분 캐시됩니다.")
 
 elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
     st.markdown("## 🚀 단기 스윙 퀀트 스캐너")
