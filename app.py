@@ -1659,6 +1659,34 @@ def get_us_top_gainers():
     except Exception: return empty_df, 1350.0, fetch_time
 
 @st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400)
+def get_market_map():
+    """종목코드 → 시장구분(코스피/코스닥/코넥스) 매핑. FDR StockListing의 Market 컬럼 활용."""
+    try:
+        df = fdr.StockListing('KRX')
+        if df.empty or 'Code' not in df.columns or 'Market' not in df.columns:
+            return {}
+        df = df.copy()
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        label = {
+            'KOSPI': '코스피', 'KOSDAQ': '코스닥', 'KONEX': '코넥스',
+            'KOSDAQ GLOBAL': '코스닥', 'KOSDAQ_GLOBAL': '코스닥',
+        }
+        return {
+            row['Code']: label.get(str(row['Market']).upper().strip(), str(row['Market']))
+            for _, row in df.iterrows() if pd.notna(row['Market'])
+        }
+    except Exception:
+        return {}
+
+
+def get_market_label(ticker_code):
+    """종목코드의 시장 구분 라벨을 반환. 미국/실패 시 빈 문자열."""
+    if not str(ticker_code).isdigit():
+        return ""
+    return get_market_map().get(str(ticker_code).zfill(6), "")
+
+
 def get_krx_stocks():
     try:
         # 1. 한국 주식 기본 데이터 가져오기
@@ -3820,6 +3848,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         
         return {
             "종목명": stock_name, "티커": ticker_code, "섹터": sector_val, "현재가": current_price, "상태": status,
+            "시장": get_market_label(ticker_code),
             "진입가_가이드": ma20_val, "목표가1": target_1, "목표가2": target_2, "목표가3": target_3, "손절가": ma20_val * 0.97,
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, "주봉추세": weekly_trend,
@@ -4100,7 +4129,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
 
     # 진단(상태) / 상세진단(배열상태 앞부분) / 외인 / 기관 / RSI 를 괄호로 묶어 표시
     detail_str = f"(진단: {status} ｜ 상세 진단: {align_status} ｜ 주봉: {weekly_short} ｜ 외인: {forgn_disp} ｜ 기관: {inst_disp} ｜ RSI: {rsi_display})"
-    card_title = f"{stock_name} / {core_theme} / {sector} / {fmt_price(curr)} / {detail_str}"
+    market_label = tech_result.get('시장', '')
+    price_with_market = f"{fmt_price(curr)} ({market_label})" if market_label else fmt_price(curr)
+    card_title = f"{stock_name} / {core_theme} / {sector} / {price_with_market} / {detail_str}"
 
     # 5. 펼침막 생성 (하단 지표 삭제)
     with st.expander(card_title, expanded=is_expanded):
