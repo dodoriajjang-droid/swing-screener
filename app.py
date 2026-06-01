@@ -4225,7 +4225,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             biz_res_key = f"biz_res_{biz_btn_key}"
             
             with col_ai1:
-                if st.button(f"🤖 차트·수급·재무 정밀 진단", key=ai_btn_key, use_container_width=True):
+                if st.button(f"🤖 차트·수급·재무 정밀 진단 (일봉 6개월)", key=ai_btn_key, use_container_width=True):
                     st.session_state[ai_res_key] = "loading"
                     st.session_state[biz_res_key] = None
                     
@@ -4532,7 +4532,44 @@ with st.sidebar:
     st.title("📈 Jaemini PRO v7.0")
     st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
     st.caption("🆕 v7.0: 주봉 멀티타임프레임 · 시장 국면 신호등 · 공매도/빚투 리스크")
-    
+
+    # 실시간 현재 날짜·시간 (KST) — 브라우저에서 초 단위로 갱신, 모든 페이지에서 표시
+    components.html(
+        """
+        <div id="kst-clock" style="
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1e293b, #334155);
+            color: #e2e8f0; border: 1px solid #475569; border-radius: 10px;
+            padding: 10px 12px; text-align: center; margin: 2px 0 8px 0;">
+            <div style="font-size: 12px; color:#94a3b8; letter-spacing:0.5px;">🇰🇷 한국 시간 (KST)</div>
+            <div id="kst-date" style="font-size: 15px; font-weight:600; margin-top:3px;">--</div>
+            <div id="kst-time" style="font-size: 22px; font-weight:700; font-variant-numeric: tabular-nums; color:#f8fafc;">--:--:--</div>
+        </div>
+        <script>
+        function updateKST() {
+            const now = new Date();
+            // 사용자 로컬과 무관하게 KST(UTC+9) 고정 계산
+            const kst = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (9 * 3600000));
+            const days = ['일','월','화','수','목','금','토'];
+            const y = kst.getFullYear();
+            const mo = String(kst.getMonth()+1).padStart(2,'0');
+            const d = String(kst.getDate()).padStart(2,'0');
+            const dow = days[kst.getDay()];
+            const h = String(kst.getHours()).padStart(2,'0');
+            const mi = String(kst.getMinutes()).padStart(2,'0');
+            const s = String(kst.getSeconds()).padStart(2,'0');
+            const de = document.getElementById('kst-date');
+            const te = document.getElementById('kst-time');
+            if (de) de.textContent = `${y}.${mo}.${d} (${dow})`;
+            if (te) te.textContent = `${h}:${mi}:${s}`;
+        }
+        updateKST();
+        setInterval(updateKST, 1000);
+        </script>
+        """,
+        height=92,
+    )
+
     menu_options = [
         "📂 [ 홈 & 자산 관리 ]",
         " ┣ 🎛️ 홈: 종합 대시보드",
