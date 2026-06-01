@@ -76,7 +76,6 @@ if 'watchlist' not in st.session_state: st.session_state.watchlist = load_watchl
 if 'quick_analyze_news' not in st.session_state: st.session_state.quick_analyze_news = None
 if 'scan_results' not in st.session_state: st.session_state.scan_results = None
 if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
-if 'pension_scan_results' not in st.session_state: st.session_state.pension_scan_results = None
 if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요!\n여의도 퀀트 비서입니다. 오늘 시장 매크로 상황이나 투자 전략에 대해 무엇이든 물어보세요."}]
 
 if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
@@ -4445,7 +4444,6 @@ with st.sidebar:
         "  ", 
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
         " ┣ 🚀 단기 스윙 퀀트 스캐너",
-        " ┣ 👨‍🦳 기관/외인 수급 스캐너",
         " ┣ 🏛️ 국민연금 5% 대량보유 픽",
         " ┣ 💎 장기 우량주 & 가치주 발굴",
         " ┣ ⚡ 메가트렌드 & 테마 대장주",
@@ -5488,46 +5486,6 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     with c3: st.markdown(metric_card("총 매매 횟수", f"{total_trades}회", "신규 진입 기준"), unsafe_allow_html=True)
                     with c4: st.markdown(metric_card("승률 (Win Rate)", f"{win_rate:.1f}%", "수익 마감 거래일 기준", is_red=(win_rate>50)), unsafe_allow_html=True)
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
-
-elif selected_menu == "👨‍🦳 기관/외인 수급 스캐너":
-    st.markdown("## 👨‍🦳 기관/외인 수급 스캐너")
-    show_trading_guidelines()
-    
-    col_c1, col_c2 = st.columns(2)
-    with col_c1: pension_streak_cond = st.slider("최소 기관 연속 순매수 일수", min_value=1, max_value=5, value=3)
-    with col_c2: pension_pullback_cond = st.checkbox("✅ 20일선 눌림목 근접 종목만 보기", value=True)
-        
-    scan_limit = st.selectbox("스캔할 거래대금 상위 종목 수", [50, 100, 200], index=1)
-    
-    if st.button("🚀 기관 수급 종목 스캔 시작", type="primary", use_container_width=True):
-        with st.spinner(f"⚡ 상위 {scan_limit}개 종목의 수급 동향 파싱 중..."):
-            targets = get_scan_targets(scan_limit)
-            if not targets: st.error("종목 데이터를 불러오지 못했습니다.")
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                found_results = []
-                completed, total = 0, len(targets)
-                def process_pension_stock(target):
-                    name, code = target
-                    time.sleep(0.1) 
-                    res = analyze_technical_pattern(name, code)
-                    if res:
-                        if res.get('연기금연속순매수', 0) < pension_streak_cond: return None
-                        if pension_pullback_cond and "✅ 타점 근접" not in res['상태']: return None
-                        return res
-                    return None
-                 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    for future in concurrent.futures.as_completed({executor.submit(process_pension_stock, t): t for t in targets}):
-                        res = future.result()
-                        completed += 1
-                        if res: found_results.append(res)
-                        progress_bar.progress(completed / total)
-                        status_text.text(f"⚡ 수급 분석 중... ({completed}/{total}) - {len(found_results)}개 포착")
-                st.session_state.pension_scan_results = found_results
-                st.rerun()
-    if st.session_state.pension_scan_results is not None: display_sorted_results(st.session_state.pension_scan_results, tab_key="pension", api_key=api_key_input)
 
 elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
     st.markdown("## 🏛️ 국민연금 5% 대량보유 픽")
