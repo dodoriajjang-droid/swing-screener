@@ -3154,37 +3154,64 @@ def get_pension_fund_trend(code):
 
 @st.cache_data(ttl=3600)
 def get_daily_sise_and_investor(code):
-    if not code.isdigit(): return pd.DataFrame()
+    """일별 시세 + 투자자별 순매매(외국인·기관·개인) — 네이버 모바일 trend API.
+    종가·전일비·등락률·수급을 '같은 소스의 같은 날짜 확정치'로 받아 표 정합성을 보장한다.
+    (기존 frgn HTML은 개인을 -(외인+기관) 추정으로 채워 첫 행과 어긋나는 문제가 있었음)
+    수급 단위는 '주식 수'."""
+    if not str(code).isdigit():
+        return pd.DataFrame()
     try:
-        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        table = soup.select('table.type2')[1]
-        rows = table.select('tr')
+        url = f"https://m.stock.naver.com/api/stock/{code}/trend"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": f"https://m.stock.naver.com/domestic/stock/{code}/total",
+            "Accept": "application/json",
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code != 200:
+            return pd.DataFrame()
+        rows = res.json()
+        if isinstance(rows, dict):
+            for k in ("trends", "result", "list", "data"):
+                if isinstance(rows.get(k), list):
+                    rows = rows[k]; break
+        if not isinstance(rows, list) or not rows:
+            return pd.DataFrame()
+
+        def _num(v):
+            if v is None: return None
+            s = str(v).replace(',', '').replace('+', '').strip()
+            return int(s) if s.lstrip('-').isdigit() else None
+
+        def fmt_vol(v):
+            if v is None: return "-"
+            if v > 0: return f"🔴 +{v:,}"
+            if v < 0: return f"🔵 {v:,}"
+            return "0"
+
         data = []
-        for row in rows:
-            tds = row.select('td')
-            if len(tds) < 9 or not tds[0].text.strip(): continue
-            try:
-                date = tds[0].text.strip()
-                close = tds[1].text.strip()
-                diff = tds[2].text.strip()
-                rate = tds[3].text.strip()
-                inst = int(tds[5].text.strip().replace(',', '').replace('+', ''))
-                forgn = int(tds[6].text.strip().replace(',', '').replace('+', ''))
-                retail = -(inst + forgn)
-                def fmt_vol(v):
-                    if v > 0: return f"🔴 +{v:,}"
-                    elif v < 0: return f"🔵 {v:,}"
-                    return "0"
-                data.append({
-                    "날짜": date, "종가": close, "전일비": diff, "등락률": rate,
-                    "외국인": fmt_vol(forgn), "기관": fmt_vol(inst), "개인": fmt_vol(retail)
-                })
-            except Exception: pass
-            if len(data) >= 10: break
+        for row in rows[:10]:
+            bd = str(row.get("bizdate", ""))
+            date = f"{bd[0:4]}.{bd[4:6]}.{bd[6:8]}" if len(bd) == 8 and bd.isdigit() else bd
+            close = str(row.get("closePrice", "")).strip()
+            chg = _num(row.get("compareToPreviousClosePrice"))
+            sign_txt = (row.get("compareToPreviousPrice") or {}).get("text", "")
+            diff = f"{sign_txt} {abs(chg):,}" if chg is not None else "-"
+            close_n = _num(close)
+            if close_n is not None and chg is not None and (close_n - chg) != 0:
+                rate = f"{'+' if chg > 0 else ''}{chg / (close_n - chg) * 100:.2f}%"
+            else:
+                rate = "-"
+            f_v = _num(row.get("foreignerPureBuyQuant"))
+            i_v = _num(row.get("organPureBuyQuant"))
+            d_v = _num(row.get("individualPureBuyQuant"))
+            data.append({
+                "날짜": date, "종가": close, "전일비": diff, "등락률": rate,
+                "외국인": fmt_vol(f_v), "기관": fmt_vol(i_v), "개인": fmt_vol(d_v),
+            })
         return pd.DataFrame(data)
-    except Exception: return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
 def get_fundamentals(ticker_code):
     if str(ticker_code).isdigit():
@@ -4225,9 +4252,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                         today_date = now_kst.strftime('%Y.%m.%d')
                         
                         if today_date not in str(daily_df.iloc[0]['날짜']):
-                            # 장중 잠정 수급은 1시간 캐시되는 분석결과가 아니라, 매 렌더마다 신선하게 조회
-                            #  (get_intraday_estimate 자체는 2분 캐시 → 실시간성 + 과도호출 방지)
-                            est = get_intraday_estimate(tech_result['티커'])
+                            # 첫 행 = '오늘 실시간 시세' 행. 종가·전일비·등락률만 실시간가로 채우고,
+                            # 수급은 장중 분단위 확정 소스가 없으므로 '장 마감 후 확정'으로 표기한다.
+                            # (외국계 거래원 추정치가 잡히면 외국인 칸에 프록시로 보강)
                             try:
                                 prev_close = int(str(daily_df.iloc[0]['종가']).replace(',', ''))
                                 curr_price = int(tech_result['현재가'])
@@ -4237,34 +4264,23 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             except Exception:
                                 diff_str = "-"
                                 pct_str = "-"
-                                
-                            if est:
-                                def fmt_v(v):
-                                    if v > 0: return f"🔴 +{v:,}"
-                                    elif v < 0: return f"🔵 {v:,}"
-                                    return "0"
-                                est_f = fmt_v(est['forgn'])
-                                est_i = fmt_v(est['inst'])
-                                # 새 API는 개인 순매수 실측치(indiv)를 제공 → 추정 대신 실값 사용
-                                est_r = fmt_v(est.get('indiv', -(est['forgn'] + est['inst'])))
-                                time_label = f"({est['time']} 확정)"
+
+                            fb = get_foreign_broker_estimate(tech_result['티커'])
+                            if fb:
+                                n = fb['net']
+                                proxy_str = (f"🔴 +{n:,}" if n > 0 else f"🔵 {n:,}" if n < 0 else "0")
+                                est_f = f"{proxy_str} (창구추정)"
+                                est_i = "장 마감 후 확정"
+                                est_r = "장 마감 후 확정"
+                                time_label = "(장중·외국계 창구추정)"
+                                foreign_proxy = fb
                             else:
-                                fb = get_foreign_broker_estimate(tech_result['티커'])
-                                if fb:
-                                    n = fb['net']
-                                    proxy_str = (f"🔴 +{n:,}" if n > 0 else f"🔵 {n:,}" if n < 0 else "0")
-                                    est_f = f"{proxy_str} (창구추정)"
-                                    est_i = "장 마감 후 확정"
-                                    est_r = "장 마감 후 확정"
-                                    time_label = "(장중·외국계 창구추정)"
-                                    foreign_proxy = fb
-                                else:
-                                    est_f = "장 마감 후 확정"
-                                    est_i = "장 마감 후 확정"
-                                    est_r = "장 마감 후 확정"
-                                    time_label = "(실시간가·수급 미확정)"
-                                    intraday_missing = True
-                                
+                                est_f = "장 마감 후 확정"
+                                est_i = "장 마감 후 확정"
+                                est_r = "장 마감 후 확정"
+                                time_label = "(실시간가·수급 미확정)"
+                                intraday_missing = True
+
                             new_row = pd.DataFrame([{
                                 "날짜": f"✨ {today_date} {time_label}",
                                 "종가": f"{int(tech_result['현재가']):,}",
