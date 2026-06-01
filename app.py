@@ -5127,26 +5127,38 @@ elif selected_menu == "🗺️ 시장 주도주 자금 히트맵":
 
         t_kings['연속매수'] = t_kings['Code'].map(streak_map).fillna(0).astype(int)
         t_kings['수급상태'] = t_kings['연속매수'].apply(lambda x: "🔥기관 매집중" if x >= 2 else "일반거래")
-        # plotly treemap이 환경에 따라 HTML 태그를 그대로 노출하므로, 라벨은 순수 텍스트로 구성
+        # 라벨: 이름 + 등락률. '매집중'일 때만 수급 표기('일반거래'는 정보가 없어 작은 박스 가독성만 해침)
         t_kings['display_text'] = (
             t_kings['Name'] + "<br>"
-            + t_kings['ChagesRatio'].map("{:+.2f}%".format) + "<br>"
-            + t_kings['수급상태']
+            + t_kings['ChagesRatio'].map("{:+.2f}%".format)
+            + t_kings['연속매수'].apply(lambda x: "<br>🔥기관 매집중" if x >= 2 else "")
         )
 
-        # 한국식 색상: 하락(-)=파랑, 0=회색, 상승(+)=빨강
+        # 한국식 색상: 하락(-)=파랑, 0=회색, 상승(+)=빨강. 중간톤을 밝게 해 글씨 대비 확보
         fig = px.treemap(
             t_kings,
             path=[px.Constant("🔥 주도 섹터 (수급 동반)"), 'Sector', 'Name'],
             values='Amount_Ouk', color='ChagesRatio',
-            color_continuous_scale=[(0.0, '#3b82f6'), (0.5, '#414554'), (1.0, '#ef4444')],
+            color_continuous_scale=[(0.0, '#60a5fa'), (0.5, '#9ca3af'), (1.0, '#f87171')],
             color_continuous_midpoint=0,
             custom_data=['ChagesRatio', 'Amount_Ouk', 'display_text', '연속매수'],
         )
-        fig.update_traces(textinfo="text", texttemplate="%{customdata[2]}",
-                          hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억<br>기관 연속순매수: %{customdata[3]}일")
-        fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=600 if heatmap_limit <= 50 else 800)
+        fig.update_traces(
+            textinfo="text", texttemplate="%{customdata[2]}",
+            textfont=dict(color="white", size=15, family="Arial Black, Arial, sans-serif"),
+            insidetextfont=dict(color="white", size=15),
+            textposition="middle center",
+            marker=dict(line=dict(color="rgba(15,23,42,0.85)", width=1.5)),
+            hovertemplate="<b>%{label}</b><br>등락률: %{customdata[0]:+.2f}%<br>거래대금: %{customdata[1]:,}억<br>기관 연속순매수: %{customdata[3]}일<extra></extra>",
+        )
+        fig.update_layout(
+            margin=dict(t=30, l=10, r=10, b=10),
+            height=650 if heatmap_limit <= 50 else 900,
+            uniformtext=dict(minsize=11, mode="hide"),  # 너무 작아 안 보이면 글씨 숨김(겹침·뭉개짐 방지)
+        )
         st.plotly_chart(fig, use_container_width=True)
+        st.caption("💡 칸이 작아 글씨가 안 보이는 종목은 칸 위에 마우스를 올리면 상세 정보가 표시됩니다. "
+                   "표시 종목 수를 30개로 줄이면 칸이 커져 더 잘 보입니다.")
 
         st.markdown("### 📊 수급 동반 거래대금 상위 종목 타점 확인")
         st.caption("기관이 2일 이상 연속 순매수한 '매집중' 종목만 추립니다.")
