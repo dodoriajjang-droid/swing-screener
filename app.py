@@ -2316,48 +2316,58 @@ def get_financial_deep_data(code):
 
 @st.cache_data(ttl=120)
 def get_intraday_estimate(code):
-    """장중 '잠정' 외국인·기관 순매매 — 네이버 frgn 페이지의 실시간 잠정치.
-    확정 수급은 장 마감 후에만 공개되므로, 장중에는 이 잠정치가 사실상 유일한 실시간 소스다.
-    실패 시 None → 표에는 '장중 집계중' 으로 표기된다."""
+    """투자자별(외국인·기관·개인) 순매매 수량 — 네이버 모바일 증권 trend API.
+    레거시 frgn HTML 페이지가 Streamlit Cloud IP에서 403/구조변경으로 불안정하여
+    안정적인 m.stock.naver.com JSON API로 교체했다.
+    ※ 분단위 장중 잠정치가 아니라 '가장 최근 거래일(확정)' 수치이며, 단위는 '주식 수'.
+    반환: {"time": "MM/DD", "forgn": 외인순매수주, "inst": 기관순매수주,
+           "indiv": 개인순매수주, "is_daily": True} | None (실패 시)"""
     if not str(code).isdigit():
         return None
     try:
-        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
-        res.encoding = 'euc-kr'   # 네이버 금융 레거시 페이지는 EUC-KR
-        soup = BeautifulSoup(res.text, 'html.parser')
-
-        # 장중 잠정치 표 찾기:
-        #  ① summary 에 '잠정' 이 들어간 표  → ② 없으면 type2 첫 번째 표(=장중 잠정)
-        cand = None
-        for table in soup.find_all('table'):
-            if '잠정' in (table.get('summary', '') or ''):
-                cand = table
-                break
-        if cand is None:
-            t2 = soup.select('table.type2')
-            if t2:
-                cand = t2[0]
-        if cand is None:
+        url = f"https://m.stock.naver.com/api/stock/{code}/trend"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": f"https://m.stock.naver.com/domestic/stock/{code}/total",
+            "Accept": "application/json",
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code != 200:
             return None
+        data = res.json()
+        # 응답은 최신 거래일이 [0]인 리스트 (혹은 dict로 감싸진 경우 대비)
+        if isinstance(data, dict):
+            for k in ("trends", "result", "list", "data"):
+                if isinstance(data.get(k), list):
+                    data = data[k]; break
+        if not isinstance(data, list) or not data:
+            return None
+        row = data[0]
 
-        def _num(td):
-            s = td.get_text(strip=True).replace(',', '').replace('+', '')
+        def _num(v):
+            """'+5,314,304' / '-1,061,741' → int. 파싱 실패 시 None."""
+            if v is None:
+                return None
+            s = str(v).replace(',', '').replace('+', '').strip()
             return int(s) if s.lstrip('-').isdigit() else None
 
-        for tr in cand.find_all('tr'):
-            tds = tr.find_all('td')
-            if len(tds) < 3:
-                continue
-            time_str = tds[0].get_text(strip=True)
-            # 'HH:MM'(장중 시각) 행만 잠정치로 인정 — 날짜(YYYY.MM.DD) 행은 일별표라 제외
-            if not re.match(r'^\d{1,2}:\d{2}$', time_str):
-                continue
-            f_val, i_val = _num(tds[1]), _num(tds[2])
-            if f_val is None and i_val is None:
-                continue
-            return {"time": time_str, "forgn": f_val or 0, "inst": i_val or 0}
-        return None
+        f_val = _num(row.get("foreignerPureBuyQuant"))
+        i_val = _num(row.get("organPureBuyQuant"))
+        d_val = _num(row.get("individualPureBuyQuant"))
+        if f_val is None and i_val is None:
+            return None
+
+        # 날짜 YYYYMMDD → MM/DD (기존 UI의 'time' 자리에 표기)
+        bd = str(row.get("bizdate", ""))
+        time_label = f"{bd[4:6]}/{bd[6:8]}" if len(bd) == 8 and bd.isdigit() else "최근"
+
+        return {
+            "time": time_label,
+            "forgn": f_val or 0,
+            "inst": i_val or 0,
+            "indiv": d_val or 0,
+            "is_daily": True,
+        }
     except Exception:
         return None
 
@@ -4080,7 +4090,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 if id_data:
                     f_val_str = f"🔥+{id_data['forgn']:,}" if id_data['forgn'] > 0 else f"💧{id_data['forgn']:,}"
                     i_val_str = f"🔥+{id_data['inst']:,}" if id_data['inst'] > 0 else f"💧{id_data['inst']:,}"
-                    st.markdown(f"⚡ **오늘 장중 실시간 수급 (잠정)**<br>외인 `{f_val_str}` ｜ 기관 `{i_val_str}` `({id_data['time']} 기준)`", unsafe_allow_html=True)
+                    st.markdown(f"⚡ **최근 거래일 투자자별 순매수 (주)**<br>외인 `{f_val_str}` ｜ 기관 `{i_val_str}` `({id_data['time']} 기준)`", unsafe_allow_html=True)
                 if tech_result.get('연기금연속순매수', 0) >= 3:
                     st.markdown(f"👴 **스마트머니 시그널:** <span style='color:orange; font-weight:bold;'>🔥 기관(전체) {tech_result['연기금연속순매수']}일 연속 순매수 포착</span>", unsafe_allow_html=True)
         else:
@@ -4235,8 +4245,9 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                     return "0"
                                 est_f = fmt_v(est['forgn'])
                                 est_i = fmt_v(est['inst'])
-                                est_r = fmt_v(-(est['forgn'] + est['inst']))
-                                time_label = f"({est['time']} 잠정)"
+                                # 새 API는 개인 순매수 실측치(indiv)를 제공 → 추정 대신 실값 사용
+                                est_r = fmt_v(est.get('indiv', -(est['forgn'] + est['inst'])))
+                                time_label = f"({est['time']} 확정)"
                             else:
                                 fb = get_foreign_broker_estimate(tech_result['티커'])
                                 if fb:
@@ -4261,7 +4272,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 "등락률": pct_str,
                                 "외국인": est_f,
                                 "기관": est_i,
-                                "개인(추정)": est_r
+                                "개인": est_r
                             }])
                             daily_df = pd.concat([new_row, daily_df], ignore_index=True)
                         st.dataframe(daily_df, use_container_width=True, hide_index=True)
