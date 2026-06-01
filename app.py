@@ -123,26 +123,7 @@ def _poly_num(x):
         return float(x)
     except Exception:
         return 0.0
-import streamlit as st, requests
 
-if st.sidebar.button("🔍 네이버 접근 진단"):
-    code = "005930"
-    H = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Referer": f"https://m.stock.naver.com/domestic/stock/{code}/total",
-        "Accept": "application/json",
-    }
-    targets = {
-        "레거시 frgn":  f"https://finance.naver.com/item/frgn.naver?code={code}",
-        "모바일 trend": f"https://m.stock.naver.com/api/stock/{code}/trend",
-        "모바일 basic": f"https://m.stock.naver.com/api/stock/{code}/integration",
-    }
-    for name, u in targets.items():
-        try:
-            r = requests.get(u, headers=H, timeout=6)
-            st.sidebar.write(f"{name}: **{r.status_code}**")
-        except Exception as e:
-            st.sidebar.write(f"{name}: ERR {type(e).__name__}")
 @st.cache_data(ttl=300)
 def fetch_polymarket_markets(search=None, limit=80):
     """
@@ -4425,7 +4406,26 @@ with st.sidebar:
         " ┣ 🎯 증권사 목표가 컨센서스",
         " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
     ]
+import streamlit as st, requests
 
+if st.sidebar.button("🔍 네이버 접근 진단"):
+    code = "005930"
+    H = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": f"https://m.stock.naver.com/domestic/stock/{code}/total",
+        "Accept": "application/json",
+    }
+    targets = {
+        "레거시 frgn":  f"https://finance.naver.com/item/frgn.naver?code={code}",
+        "모바일 trend": f"https://m.stock.naver.com/api/stock/{code}/trend",
+        "모바일 basic": f"https://m.stock.naver.com/api/stock/{code}/integration",
+    }
+    for name, u in targets.items():
+        try:
+            r = requests.get(u, headers=H, timeout=6)
+            st.sidebar.write(f"{name}: **{r.status_code}**")
+        except Exception as e:
+            st.sidebar.write(f"{name}: ERR {type(e).__name__}")
     if "main_menu_radio" not in st.session_state:
         st.session_state.main_menu_radio = " ┣ 🎛️ 홈: 종합 대시보드"
 
