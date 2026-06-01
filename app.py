@@ -5929,20 +5929,7 @@ elif selected_menu == "🚨 당일 상/하한가 분석":
 
 elif selected_menu == "🚦 거래량 급증 & 시장 경보":
     st.markdown("## 🚦 거래량 급증 & 시장 경보")
-    tab_regime, tab_vol, tab_warn = st.tabs(["🚦 오늘 매매해도 될까? (시장 국면)", "📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
-
-    with tab_regime:
-        st.markdown("### 🚦 시장 국면 신호등")
-        st.caption("개별 종목 신호가 아무리 좋아도 시장 전체가 약하면 승률이 떨어집니다. 먼저 '장'부터 확인하세요.")
-        with st.spinner("KOSPI/KOSDAQ 지수 추세와 시장 폭을 분석 중입니다..."):
-            render_market_regime_banner()
-        with st.expander("📖 신호등 읽는 법", expanded=False):
-            st.markdown("""
-- **🟢 매수 우호:** 지수가 20일선 위 + 우상향(정배열). 추세·타점 신호가 나오면 적극 대응 OK.
-- **🟡 중립/혼조:** 방향 불분명. 강한 신호(정배열+거래량+수급)만 선별 진입.
-- **🔴 위험/관망:** 지수 역배열 또는 20일선 이탈. 신규 진입 자제, 현금 비중↑, 손절 타이트하게.
-- **📊 시장 폭(Breadth):** 오른 종목 비율. **60%↑면 강세장**, 40%↓면 약세장으로 봅니다.
-            """)
+    tab_vol, tab_warn = st.tabs(["📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
 
     with tab_vol:
         with st.spinner("데이터 스크래핑 중..."): surge_df, drop_df = get_volume_surge_drop()
