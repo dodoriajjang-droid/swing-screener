@@ -3179,7 +3179,7 @@ def get_daily_sise_and_investor(code):
                     return "0"
                 data.append({
                     "날짜": date, "종가": close, "전일비": diff, "등락률": rate,
-                    "외국인": fmt_vol(forgn), "기관": fmt_vol(inst), "개인(추정)": fmt_vol(retail)
+                    "외국인": fmt_vol(forgn), "기관": fmt_vol(inst), "개인": fmt_vol(retail)
                 })
             except Exception: pass
             if len(data) >= 10: break
