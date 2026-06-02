@@ -1747,6 +1747,41 @@ def get_stock_list_by_market():
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _krx_list_from_naver(max_pages=22):
+    """FDR 실패 시 폴백: 네이버 시가총액 페이지에서 종목명+코드 목록 구성(코스피+코스닥)."""
+    rows, seen = [], set()
+    for sosok in (0, 1):   # 0=코스피, 1=코스닥
+        for page in range(1, max_pages + 1):
+            try:
+                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+                res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+                soup = BeautifulSoup(res.content.decode("euc-kr", "replace"), "html.parser")
+                table = soup.select_one("table.type_2")
+                if not table:
+                    break
+                added = 0
+                for a in table.select("a.tltle"):   # 종목명 링크 (네이버 클래스명 'tltle')
+                    href = a.get("href", "")
+                    m = re.search(r"code=(\d{6})", href)
+                    if not m:
+                        continue
+                    code = m.group(1)
+                    name = a.get_text(strip=True)
+                    if not name or code in seen:
+                        continue
+                    seen.add(code)
+                    rows.append({"Name": name, "Code": code, "Sector": "기타/분류불가"})
+                    added += 1
+                if added == 0:
+                    break   # 빈 페이지면 해당 시장 종료
+            except Exception:
+                break
+    if rows:
+        return pd.DataFrame(rows)
+    return pd.DataFrame(columns=["Name", "Code", "Sector"])
+
+
 def get_krx_stocks():
     try:
         # 1. 한국 주식 기본 데이터 가져오기
@@ -1800,6 +1835,10 @@ def get_krx_stocks():
     except Exception: 
         pass
         
+    # FDR 실패/빈 결과 → 네이버 시가총액 폴백으로 목록 구성
+    nv = _krx_list_from_naver()
+    if not nv.empty:
+        return nv
     return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
 
 def fetch_naver_volume(sosok, pages=1):
