@@ -5194,6 +5194,8 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
             return
         if scope == "kr" and not code.isdigit():   # 국내 전용 모드면 미국 티커 제외
             return
+        if scope == "us" and code.isdigit():        # 미국 전용 모드면 국내 티커 제외
+            return
         if code not in pool:
             pool[code] = {"name": name, "theme": theme, "src": {src}}
         else:
@@ -5202,12 +5204,13 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
                 pool[code]["theme"] = theme
 
     # ① 기술 유니버스 (시가총액/거래대금 상위)
-    try:
-        for nm, cd in (get_scan_targets(kr_n) or []):
-            add(nm, cd, src="tech")
-    except Exception:
-        pass
-    if scope == "kr_us":
+    if scope in ("kr", "kr_us"):
+        try:
+            for nm, cd in (get_scan_targets(kr_n) or []):
+                add(nm, cd, src="tech")
+        except Exception:
+            pass
+    if scope in ("kr_us", "us"):
         try:
             for nm, cd in (get_us_scan_targets(us_n) or []):
                 add(nm, cd, src="tech")
@@ -5233,8 +5236,8 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
         except Exception:
             pass
 
-    # ③ 가치 후보 (장기/자동 포함 시, 국내)
-    if want_long:
+    # ③ 가치 후보 (장기/자동 포함 시, 국내 전용 데이터 → 국내 포함 모드에서만)
+    if want_long and scope in ("kr", "kr_us"):
         try:
             for nm, cd in (get_longterm_value_stocks_with_ai(
                     "저평가 우량 가치주(저PER·저PBR·고ROE·재무안정 + 주주환원)",
@@ -6480,8 +6483,10 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
             help="‘전체’를 고르면 모든 후보를 단기/중기/장기로 자동 분류해 한 번에 보여줍니다.",
         )
     with fc2:
-        scope_label = st.radio("🌍 시장 범위", ["🇰🇷 국내만", "🇰🇷+🇺🇸 국내·미국"], horizontal=True)
-    scope = "kr" if scope_label.startswith("🇰🇷 국내만") else "kr_us"
+        scope_label = st.radio("🌍 시장 범위", ["🇰🇷 국내만", "🇰🇷+🇺🇸 국내·미국", "🇺🇸 미국만"], horizontal=True)
+    scope = ("kr" if scope_label.startswith("🇰🇷 국내만")
+             else "us" if scope_label.startswith("🇺🇸 미국만")
+             else "kr_us")
 
     fc3, fc4 = st.columns([2, 1])
     with fc3:
