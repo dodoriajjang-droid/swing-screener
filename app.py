@@ -1835,16 +1835,18 @@ def get_korean_name(eng_name):
         "Apple": "애플", "Microsoft": "마이크로소프트", "NVIDIA": "엔비디아", "Tesla": "테슬라"
     }
     
-    name_str = str(eng_name)
+    name_str = str(eng_name).strip()
     # 1. 티커 완전 일치 검사
     if name_str.upper() in ko_dict:
         return ko_dict[name_str.upper()]
-    
-    # 2. 회사 이름 부분 일치 검사
+
+    # 2. 회사 '이름' 키만 부분 일치 (티커 키 'V','MA','KO' 등이 'adVanced' 같은 단어에
+    #    부분 매칭되어 AMD→비자 가 되던 버그 방지: 소문자가 포함된 이름형 키만, 단어 경계로 매칭)
+    low = name_str.lower()
     for key, val in ko_dict.items():
-        if key.lower() in name_str.lower():
+        if any(ch.islower() for ch in key) and re.search(r"\b" + re.escape(key.lower()) + r"\b", low):
             return val
-            
+
     # 사전에 없으면 원래 영문 이름 그대로 반환
     return name_str
 
@@ -3821,8 +3823,11 @@ def search_us_ticker(query):
         for quote in data.get('quotes', []):
             if quote.get('quoteType') in ['EQUITY', 'ETF']:
                 sym = quote.get('symbol')
-                name = quote.get('shortname', 'Unknown')
-                ko_name = get_korean_name(name)
+                name = quote.get('shortname') or quote.get('longname') or 'Unknown'
+                # 티커로 먼저 매핑(정확) → 실패 시 영문 회사명으로
+                ko_name = get_korean_name(sym)
+                if not ko_name or ko_name == sym:
+                    ko_name = get_korean_name(name)
                 exch = quote.get('exchDisp', 'US')
                 results.append(f"{sym} ({ko_name} / {exch})")
         return results
@@ -4698,33 +4703,65 @@ def get_stock_news(code, name="", limit=5):
         except Exception:
             pass
         return items[:limit]
-    # 국내: 네이버 종목뉴스
+    # 국내: ① 네이버 모바일 뉴스 JSON API(안정적) → ② 데스크톱 HTML 폴백
+    seen = set()
+    # ① 모바일 JSON API
     try:
-        url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
-        seen = set()
-        for tr in soup.select("tr"):
-            a = tr.select_one("td.title a")
-            if not a:
-                continue
-            title = a.get_text(strip=True)
-            href = a.get("href", "")
-            if not title or title in seen or "news_read" not in href:
-                continue
-            link = ("https://finance.naver.com" + href) if href.startswith("/") else href
-            info = tr.select_one("td.info")
-            date_el = tr.select_one("td.date")
-            seen.add(title)
-            items.append({
-                "title": title, "link": link,
-                "date": date_el.get_text(strip=True) if date_el else "",
-                "source": info.get_text(strip=True) if info else "",
-            })
-            if len(items) >= limit:
-                break
+        data = _naver_json(f"https://m.stock.naver.com/api/news/stock/{code}?pageSize=20&page=1")
+        groups = data if isinstance(data, list) else (
+            data.get("newsList") if isinstance(data, dict) else None)
+        if groups:
+            for g in groups:
+                cand = g.get("items") if (isinstance(g, dict) and isinstance(g.get("items"), list)) else ([g] if isinstance(g, dict) else [])
+                for it in cand:
+                    if not isinstance(it, dict):
+                        continue
+                    title = re.sub("<.*?>", "", str(it.get("title") or it.get("articleTitle") or "")).strip()
+                    if not title or title in seen:
+                        continue
+                    office_id = it.get("officeId") or it.get("officeid")
+                    article_id = it.get("articleId") or it.get("articleid")
+                    link = it.get("linkUrl") or it.get("bodyUrl") or it.get("officeUrl") or ""
+                    if not link and office_id and article_id:
+                        link = f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}"
+                    dt = str(it.get("datetime") or it.get("dt") or "")
+                    date = (f"{dt[0:4]}-{dt[4:6]}-{dt[6:8]}" if len(dt) >= 8 and dt[:8].isdigit() else dt[:10])
+                    src = it.get("officeName") or it.get("office") or ""
+                    body = re.sub(r"\s+", " ", re.sub("<.*?>", "", str(it.get("body") or it.get("bodyText") or ""))).strip()
+                    seen.add(title)
+                    items.append({"title": title, "link": link, "date": date,
+                                  "source": src, "excerpt": body[:320]})
+                    if len(items) >= limit:
+                        break
+                if len(items) >= limit:
+                    break
     except Exception:
         pass
+    # ② HTML 폴백 (셀렉터 완화 — 제목 셀의 모든 링크 허용)
+    if not items:
+        try:
+            url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+            for a in soup.select("td.title a, .title a, a.tit"):
+                title = a.get_text(strip=True)
+                href = a.get("href", "")
+                if not title or title in seen or not href:
+                    continue
+                link = ("https://finance.naver.com" + href) if href.startswith("/") else href
+                tr = a.find_parent("tr")
+                info = tr.select_one("td.info") if tr else None
+                date_el = tr.select_one("td.date") if tr else None
+                seen.add(title)
+                items.append({
+                    "title": title, "link": link,
+                    "date": date_el.get_text(strip=True) if date_el else "",
+                    "source": info.get_text(strip=True) if info else "",
+                })
+                if len(items) >= limit:
+                    break
+        except Exception:
+            pass
     return items[:limit]
 
 
@@ -5425,22 +5462,23 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
         except Exception:
             pass
 
-    # ② 테마 리더 (사용자 키워드 + AI 레이더 상위 2개 테마)
-    theme_queries = []
+    # ② 테마 리더 (사용자 키워드 + AI 레이더 상위 2개 테마) — 검색쿼리/표시명 분리
+    theme_jobs = []  # (검색쿼리, 표시명)
     if theme_focus and theme_focus.strip():
-        theme_queries.append(theme_focus.strip())
+        theme_jobs.append((theme_focus.strip(), theme_focus.strip()))
     for t in (radar_themes or [])[:2]:
-        kw = t.get("keywords") or t.get("theme")
+        disp = (t.get("theme") or t.get("keywords") or "").strip()
+        kw = (t.get("keywords") or t.get("theme") or "").strip()
         if kw:
-            theme_queries.append(kw)
+            theme_jobs.append((kw, disp or kw))
     seen_q = set()
-    for q in theme_queries:
+    for q, disp in theme_jobs:
         if q in seen_q:
             continue
         seen_q.add(q)
         try:
             for nm, cd in (get_theme_stocks_with_ai(q, api_key) or []):
-                add(nm, cd, theme=q, src="theme")
+                add(nm, cd, theme=disp, src="theme")
         except Exception:
             pass
 
@@ -6912,18 +6950,19 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                 progressE.progress(min(1.0, doneE / totalE))
                                 statusE.text(f"📄 기사 본문 분석 중... ({doneE}/{totalE})")
                         progressE.empty(); statusE.empty()
-                        # 발췌를 뉴스 항목에 부착 (확장 표시용)
+                        # 발췌를 뉴스 항목에 부착 (모바일 API가 준 발췌가 있으면 보존, 본문 추출 성공 시 갱신)
                         for c in newsmap:
                             for n in (newsmap.get(c) or []):
-                                if n.get("link") in excerpt_map:
-                                    n["excerpt"] = excerpt_map[n["link"]]
+                                fetched = excerpt_map.get(n.get("link"))
+                                if fetched:
+                                    n["excerpt"] = fetched
 
                     # 6-2) AI 뉴스 호재/악재 판정 (제목 + 본문 발췌, 개별 기사 단위) → 점수 재반영
                     sent_items = []
                     for c in news_targets:
                         nz = newsmap.get(c) or []
                         arts = tuple(
-                            ((n.get("title") or "").strip(), excerpt_map.get(n.get("link"), ""))
+                            ((n.get("title") or "").strip(), (excerpt_map.get(n.get("link")) or n.get("excerpt") or ""))
                             for n in nz if n.get("title")
                         )
                         if arts:
@@ -7073,10 +7112,14 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         _cons_cell = "—"
                     if r.get("_dilution"):
                         _cons_cell += " 🔻증자"
+                    _theme_cell = (r.get("_theme") or r.get("섹터") or "-")
+                    _theme_cell = str(_theme_cell)
+                    if len(_theme_cell) > 14:
+                        _theme_cell = _theme_cell[:14] + "…"
                     rows.append({
                         "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
                         "종목명": r.get("종목명"), "시장": r.get("시장", ""),
-                        "테마": r.get("_theme") or "-",
+                        "테마/섹터": _theme_cell,
                         "현재가": (f"${r['현재가']:,.2f}" if not str(r.get('티커','')).isdigit() else f"{int(r.get('현재가',0)):,}원"),
                         "RSI": (f"{r['RSI']:.0f}" if _f_num(r.get('RSI')) is not None else "-"),
                         "컨센서스": _cons_cell,
