@@ -4655,9 +4655,54 @@ def _finder_risk(code):
     return out or None
 
 
+def _google_news_rss(query, limit=5):
+    """구글 뉴스 RSS로 키워드 관련 최신 기사 수집(키 불필요, 차단 적음).
+    반환: list[{title, link, date, source}]"""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+    q = (query or "").strip()
+    if not q:
+        return []
+    try:
+        url = ("https://news.google.com/rss/search?q=" + urllib.parse.quote(q)
+               + "&hl=ko&gl=KR&ceid=KR:ko")
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if res.status_code != 200:
+            return []
+        root = ET.fromstring(res.content)
+        out = []
+        for it in root.iter("item"):
+            title = (it.findtext("title") or "").strip()
+            link = (it.findtext("link") or "").strip()
+            if not title:
+                continue
+            src = ""
+            src_el = it.find("source")
+            if src_el is not None and src_el.text:
+                src = src_el.text.strip()
+            # 구글뉴스 제목은 거의 항상 "제목 - 언론사" 형태 → 끝의 언론사 제거
+            if " - " in title:
+                base, tail = title.rsplit(" - ", 1)
+                title = base.strip()
+                if not src:
+                    src = tail.strip()
+            date = ""
+            pub = it.findtext("pubDate") or ""
+            try:
+                date = parsedate_to_datetime(pub).strftime("%Y-%m-%d")
+            except Exception:
+                date = pub[:16]
+            out.append({"title": title.strip(), "link": link, "date": date, "source": src})
+            if len(out) >= limit:
+                break
+        return out
+    except Exception:
+        return []
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def get_stock_news(code, name="", limit=5):
-    """종목별 최신 뉴스 N건. 국내=네이버 종목뉴스, 미국=yfinance.
+    """종목별 최신 뉴스 N건. 미국=yfinance(+구글RSS 폴백), 국내=네이버 모바일 API→구글 뉴스 RSS→HTML.
     반환: list[{title, link, date, source}]"""
     code = str(code).strip()
     is_us = not code.isdigit()
@@ -4702,8 +4747,13 @@ def get_stock_news(code, name="", limit=5):
                     break
         except Exception:
             pass
+        if not items:   # yfinance 비면 구글 뉴스 RSS 폴백
+            try:
+                items = _google_news_rss(f"{name or code} stock", limit) or _google_news_rss(code, limit)
+            except Exception:
+                items = []
         return items[:limit]
-    # 국내: ① 네이버 모바일 뉴스 JSON API(안정적) → ② 데스크톱 HTML 폴백
+    # 국내: ① 네이버 모바일 뉴스 JSON API → ② 구글 뉴스 RSS → ③ 데스크톱 HTML
     seen = set()
     # ① 모바일 JSON API
     try:
@@ -4737,7 +4787,18 @@ def get_stock_news(code, name="", limit=5):
                     break
     except Exception:
         pass
-    # ② HTML 폴백 (셀렉터 완화 — 제목 셀의 모든 링크 허용)
+    # ② 구글 뉴스 RSS 폴백 (회사명 기반, 키 불필요)
+    if not items:
+        for q in ([f"{name} 주가", name] if name else [code]):
+            g = _google_news_rss(q, limit)
+            if g:
+                for n in g:
+                    if n["title"] in seen:
+                        continue
+                    seen.add(n["title"])
+                    items.append(n)
+                break
+    # ③ HTML 폴백 (셀렉터 완화 — 제목 셀의 모든 링크 허용)
     if not items:
         try:
             url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
@@ -6699,7 +6760,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     # 세션 상태 초기화
     for _k, _v in [("finder_results", None), ("finder_mood", None),
                    ("finder_radar", None), ("finder_brief", None), ("finder_meta", None),
-                   ("finder_excluded", None), ("finder_macro", None)]:
+                   ("finder_excluded", None), ("finder_macro", None), ("finder_news_diag", None)]:
         if _k not in st.session_state:
             st.session_state[_k] = _v
 
@@ -7012,6 +7073,12 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 st.session_state.finder_mood = mood
                 st.session_state.finder_radar = radar
                 st.session_state.finder_meta = (scope, depth, theme_focus, len(enriched))
+                # 뉴스 수집/판정 진단 (왜 비는지 확인용)
+                _n_targets = len(news_targets)
+                _n_with_news = sum(1 for r in enriched if r.get("_news"))
+                _n_articles = sum(len(r.get("_news") or []) for r in enriched)
+                _n_labeled = sum(1 for r in enriched if r.get("_news_label"))
+                st.session_state["finder_news_diag"] = (_n_targets, _n_with_news, _n_articles, _n_labeled)
 
                 # 7) AI 통합 브리핑
                 buckets_tmp = {"단기": [], "중기": [], "장기": []}
@@ -7072,6 +7139,17 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 st.caption("아래 종목은 상장폐지·거래정지 등 고위험으로 분류돼 후보에서 제외됐습니다.")
                 st.dataframe(pd.DataFrame([{"종목명": n, "사유": rs} for n, rs in _excl]),
                              use_container_width=True, hide_index=True)
+
+        # 뉴스 수집/판정 진단 (뉴스가 비는 원인 확인)
+        _diag = st.session_state.get("finder_news_diag")
+        if _diag:
+            _t, _wn, _na, _lb = _diag
+            if _na == 0:
+                st.warning(f"📰 뉴스 진단: 대상 {_t}종목에서 **기사 0건 수집** — 뉴스 소스가 현재 환경에서 차단된 상태입니다. (테마/점수는 정상)")
+            elif _lb == 0:
+                st.warning(f"📰 뉴스 진단: 기사 {_na}건 수집됐으나 **AI 판정 0건** — Gemini API 키/호출을 확인하세요.")
+            else:
+                st.caption(f"📰 뉴스 진단: 대상 {_t}종목 · 기사 {_na}건 수집 · {_wn}종목에 부착 · AI 판정 {_lb}종목")
 
         # 기간 포커스에 따라 기본 탭 순서 조정
         order = ["단기", "중기", "장기"]
@@ -8808,7 +8886,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                    f"{'매달 ' + format(monthly_add, ',') + '원씩 ' + str(yrs) + '년 적립' if is_install and monthly_add > 0 else '목돈 거치 ' + str(yrs) + '년'}")
 
         # 자산 성장 차트 (투입 원금 vs 평가액)
-        rows = []
+        years, inv_list, val_list = [], [], []
         for y in range(yrs + 1):
             lump_y = total_p * ((1 + r) ** y)
             if is_install and monthly_add > 0:
@@ -8819,8 +8897,29 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
             else:
                 val_y = lump_y
                 inv_y = total_p
-            rows.append({"년수": f"{y}년", "투입 원금": float(inv_y), "평가액": float(val_y)})
-        st.area_chart(pd.DataFrame(rows).set_index("년수"))
+            years.append(y); inv_list.append(float(inv_y)); val_list.append(float(val_y))
+        # 연차를 숫자 x축으로 두어 정렬을 보장하고(문자열 정렬 시 0,10,11,…,1,20,2 로 꼬임)
+        # 눈금 라벨만 'N년'으로 표시
+        fig_growth = go.Figure()
+        fig_growth.add_trace(go.Scatter(
+            x=years, y=val_list, name="평가액", mode="lines",
+            line=dict(color="#93c5fd", width=1.5), fill="tozeroy",
+            fillcolor="rgba(147,197,253,0.45)",
+            hovertemplate="%{x}년<br>평가액 %{y:,.0f}원<extra></extra>"))
+        fig_growth.add_trace(go.Scatter(
+            x=years, y=inv_list, name="투입 원금", mode="lines",
+            line=dict(color="#3b82f6", width=1.5), fill="tozeroy",
+            fillcolor="rgba(59,130,246,0.55)",
+            hovertemplate="%{x}년<br>투입 원금 %{y:,.0f}원<extra></extra>"))
+        fig_growth.update_layout(
+            height=380, margin=dict(l=10, r=10, t=10, b=10),
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+            xaxis=dict(tickmode="array", tickvals=years,
+                       ticktext=[f"{y}년" for y in years], title=None),
+            yaxis=dict(title=None, tickformat=","),
+        )
+        st.plotly_chart(fig_growth, use_container_width=True)
 
         # 포트폴리오 비중 (막대) + 명세서
         pf_col1, pf_col2 = st.columns([1, 1])
