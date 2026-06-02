@@ -3008,6 +3008,22 @@ def _flow_bar_html(label, val):
     )
 
 
+def _market_flows_html(card, title):
+    """한 시장(코스피/코스닥)의 투자자별 순매매 3줄 블록(외국인/기관/개인)."""
+    f_v = card.get("forgn") if card else None
+    i_v = card.get("inst") if card else None
+    p_v = card.get("indiv") if card else None
+    bars = (
+        _flow_bar_html("외국인", f_v)
+        + _flow_bar_html("기관", i_v)
+        + _flow_bar_html("개인", p_v)
+    )
+    return (
+        f'<div style="font-weight:800;font-size:14px;color:#334155;margin:4px 0 2px;">{title}</div>'
+        f'{bars}'
+    )
+
+
 def render_main_index_panel():
     """[추가] 메인페이지 상단 — 네이버 모바일 스타일 코스피/코스닥 + 오늘의 시장 + 투자자별 순매매."""
     data = get_kr_index_panel()
@@ -3053,17 +3069,25 @@ def render_main_index_panel():
     if kosdaq:
         cards += _index_card_html(kosdaq, spark=get_index_spark("KOSDAQ"))
 
-    # 투자자별 순매매: 코스피 기준 (코스피 trend 값)
-    src = kospi if (kospi and kospi.get("forgn") is not None) else kosdaq
-    f_v = src.get("forgn") if src else None
-    i_v = src.get("inst") if src else None
-    p_v = src.get("indiv") if src else None
+    # 투자자별 순매매: 코스피 + 코스닥 각각 표시
+    def _has_flow(c):
+        return bool(c) and any(
+            c.get(k) is not None for k in ("forgn", "inst", "indiv")
+        )
 
-    flows = (
-        _flow_bar_html("외국인", f_v)
-        + _flow_bar_html("기관", i_v)
-        + _flow_bar_html("개인", p_v)
-    )
+    flows = ""
+    if _has_flow(kospi):
+        flows += _market_flows_html(kospi, "📈 코스피")
+    if _has_flow(kosdaq):
+        if flows:
+            flows += '<div style="height:1px;background:#fcdcdc;margin:12px 0;"></div>'
+        flows += _market_flows_html(kosdaq, "📊 코스닥")
+
+    # [폴백] 둘 다 수급값이 없으면 가용한 쪽이라도 한 블록 표시
+    if not flows:
+        src = kospi if kospi else kosdaq
+        title = "📈 코스피" if kospi else "📊 코스닥"
+        flows = _market_flows_html(src, title)
 
     gauge = (
         f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
@@ -3091,7 +3115,7 @@ def render_main_index_panel():
         """,
         unsafe_allow_html=True,
     )
-    st.caption("💡 외국인·기관·개인 순매매(억원)는 코스피 전체 기준 · 빨강=순매수 / 파랑=순매도. 장중 잠정치이며 마감 후 거래소가 확정합니다.")
+    st.caption("💡 외국인·기관·개인 순매매(억원)는 코스피·코스닥 각 시장 전체 기준 · 빨강=순매수 / 파랑=순매도. 장중 잠정치이며 마감 후 거래소가 확정합니다.")
 
     # 주요 지표 바 (코스피200 / 원·달러)
     render_major_indices_bar()
