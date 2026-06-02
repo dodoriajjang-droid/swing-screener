@@ -1970,7 +1970,7 @@ def get_scan_targets(limit=50):
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def get_drawdown_info(code, lookback="52주"):
+def get_drawdown_info(code, lookback="52주", rebound_days=120):
     """현재가·기간내 최고가·낙폭(%)·RSI 계산(가벼움). 실패 시 None.
     fdr.DataReader는 국내(6자리)·미국(티커) 모두 지원. lookback: '52주' 또는 '전체'."""
     try:
@@ -2009,8 +2009,10 @@ def get_drawdown_info(code, lookback="52주"):
         except Exception:
             pass
         # 최근 저점 대비 반등률(바닥 확인용)
+        # 최근 저점 대비 반등률 (바닥 확인용, 기간 조절 가능)
         try:
-            lo = float(close.tail(120).min())
+            rb = max(5, int(rebound_days))
+            lo = float(close.tail(rb).min())
             rebound = round((cur / lo - 1) * 100, 1) if lo > 0 else None
         except Exception:
             rebound = None
@@ -6954,11 +6956,33 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
         min_fall = st.slider("📉 최소 낙폭 (고점 대비)", 20, 70, 30, step=5, format="%d%%")
     with c3:
         lookback = st.radio("📅 고점 기준", ["52주", "전체기간"], horizontal=True)
-    dd_depth = st.select_slider("🔬 스캔 범위 (거래대금/시총 상위)",
-                                options=["상위 100", "상위 200", "상위 400"], value="상위 200")
+    c4, c5 = st.columns(2)
+    with c4:
+        dd_depth = st.select_slider("🔬 스캔 범위 (거래대금/시총 상위)",
+                                    options=["상위 100", "상위 200", "상위 400"], value="상위 200")
+    with c5:
+        rb_label = st.select_slider("📈 ‘저점대비 반등’ 측정 기간",
+                                    options=["1개월", "3개월", "6개월", "1년"], value="6개월")
     depth_n = {"상위 100": 100, "상위 200": 200, "상위 400": 400}[dd_depth]
+    rebound_days = {"1개월": 21, "3개월": 63, "6개월": 126, "1년": 252}[rb_label]
     lb = "52주" if lookback == "52주" else "전체"
     st.caption("⏳ 범위가 넓을수록 1~3분 걸릴 수 있어요(종목별 시세 조회). 결과는 캐시되어 재실행이 빠릅니다.")
+
+    with st.expander("📖 지표 설명 (꼭 읽어보세요)", expanded=False):
+        st.markdown(
+            f"""
+- **낙폭 (고점 대비)** — 선택한 기간({lookback})의 **최고가에서 현재가가 얼마나 떨어졌는지**. 예: -40%면 천장 대비 40% 하락. 값이 클수록(−쪽으로) 많이 빠진 것.
+- **저점대비 반등** — 최근 **{rb_label}** 동안의 **가장 낮은 가격(바닥)에서 현재가가 얼마나 올라왔는지**. 바닥을 찍고 회복이 시작됐는지 보는 지표입니다.
+    - **+0% 근처** → 아직 신저가 부근, 바닥 확인 안 됨 (떨어지는 칼날 주의 🔪)
+    - **+10~30%** → 바닥 다지고 반등 초입일 가능성 (역추세 매매 관심 구간 ⭐)
+    - **+100% 이상** → 이미 반등이 많이 진행됨 (늦었을 수 있음)
+- **RSI** — 0~100 사이 과매수/과매도 지표. **30 이하면 🧊과매도**(단기 반등 기대 구간이나 추세 하락 지속 위험도 큼).
+- **고점일** — 위 ‘최고가’가 기록된 날짜.
+
+💡 **활용 팁**: ‘많이 빠졌으면서(낙폭 큼) + 바닥 다지고 살짝 고개 든(반등 +10~30%)’ 종목이 반등 매매에선 매력적입니다.
+표의 **각 컬럼 머리글을 클릭하면 오름차순/내림차순 정렬**됩니다 (숫자 정렬).
+"""
+        )
 
     if st.button("🔎 낙폭 스캔 시작", type="primary", use_container_width=True):
         scope = ("kr" if dd_scope_label.startswith("🇰🇷 국내")
@@ -7006,7 +7030,7 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
 
             def _dd_work(item):
                 n, c, mk, sec = item
-                return n, c, mk, sec, get_drawdown_info(c, lb)
+                return n, c, mk, sec, get_drawdown_info(c, lb, rebound_days)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
                 for fut in concurrent.futures.as_completed({ex.submit(_dd_work, it): it for it in uni}):
@@ -7040,7 +7064,7 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                 ss.empty()
 
             st.session_state.dd_results = rows
-            st.session_state.dd_meta = (dd_scope_label, min_fall, lookback, len(uni))
+            st.session_state.dd_meta = (dd_scope_label, min_fall, lookback, len(uni), rb_label)
 
     # ===== 결과 렌더 =====
     rows = st.session_state.dd_results
@@ -7049,29 +7073,57 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
         if not rows:
             st.warning(f"조건(고점 대비 -{meta[1]}% 이하)을 만족하는 종목이 없습니다. 낙폭 기준을 낮춰보세요.")
         else:
-            st.success(f"✅ {meta[3]}개 스캔 중 **{len(rows)}개** 포착 — 고점({meta[2]}) 대비 **-{meta[1]}% 이하**")
+            st.success(f"✅ {meta[3]}개 스캔 중 **{len(rows)}개** 포착 — 고점({meta[2]}) 대비 **-{meta[1]}% 이하** · 반등기준 {meta[4] if len(meta) > 4 else '6개월'}")
+            # 시장 구성으로 가격 단위 판별(정렬 가능하도록 숫자 컬럼 유지)
+            codes = [str(r["code"]) for r in rows]
+            all_kr = all(c.isdigit() for c in codes)
+            all_us = all(not c.isdigit() for c in codes)
+            price_label = "현재가(원)" if all_kr else ("현재가($)" if all_us else "현재가")
+            high_label = "최고가(원)" if all_kr else ("최고가($)" if all_us else "최고가")
+
             df_rows = []
             for i, r in enumerate(rows, 1):
-                is_kr = str(r["code"]).isdigit()
-                px = f"{int(r['current']):,}원" if is_kr else f"${r['current']:,.2f}"
-                hp = f"{int(r['high']):,}원" if is_kr else f"${r['high']:,.2f}"
                 rsi = r.get("rsi")
-                rsi_txt = ((f"{rsi:.0f}" + (" 🧊과매도" if rsi <= 30 else "")) if rsi is not None else "-")
                 _sec = str(r.get("sector") or "-")
-                if len(_sec) > 14:
-                    _sec = _sec[:14] + "…"
+                if len(_sec) > 16:
+                    _sec = _sec[:16] + "…"
                 df_rows.append({
-                    "순위": i, "종목명": r["name"], "시장": r["market"],
+                    "순위": i,
+                    "종목명": r["name"],
+                    "시장": r["market"],
                     "테마/섹터": _sec,
-                    "현재가": px, "최고가": hp, "고점일": (r.get("high_date") or "-"),
-                    "낙폭": f"{r['drawdown']:.1f}%",
-                    "저점대비 반등": (f"+{r['rebound']:.1f}%" if r.get("rebound") is not None else "-"),
-                    "RSI": rsi_txt,
+                    price_label: round(float(r["current"]), 2),
+                    high_label: round(float(r["high"]), 2),
+                    "고점일": (r.get("high_date") or "-"),
+                    "낙폭(%)": round(float(r["drawdown"]), 1),
+                    "저점대비반등(%)": (round(float(r["rebound"]), 1) if r.get("rebound") is not None else None),
+                    "RSI": (int(rsi) if rsi is not None else None),
+                    "신호": ("🧊 과매도" if (rsi is not None and rsi <= 30) else ""),
                 })
             dd_df = pd.DataFrame(df_rows)
-            st.dataframe(dd_df, use_container_width=True, hide_index=True,
-                         height=min(640, 80 + len(df_rows) * 35))
-            st.caption("💡 낙폭% = 현재가 ÷ 기간 내 최고가 − 1. 🧊과매도(RSI≤30)는 단기 반등 기대 구간이나 하락 추세가 더 이어질 위험도 큽니다. "
+            price_fmt = "%.0f" if all_kr else ("$%.2f" if all_us else "%.2f")
+            if hasattr(st, "column_config"):
+                st.dataframe(
+                    dd_df, use_container_width=True, hide_index=True,
+                    height=min(640, 80 + len(df_rows) * 35),
+                    column_config={
+                        "순위": st.column_config.NumberColumn("순위", format="%d", width="small"),
+                        price_label: st.column_config.NumberColumn(price_label, format=price_fmt),
+                        high_label: st.column_config.NumberColumn(high_label, format=price_fmt),
+                        "낙폭(%)": st.column_config.NumberColumn("낙폭(%)", format="%.1f%%",
+                            help="고점 대비 하락률 (현재가÷최고가−1). 음수일수록 많이 빠진 것."),
+                        "저점대비반등(%)": st.column_config.NumberColumn("저점대비반등(%)", format="%+.1f%%",
+                            help="선택 기간 내 최저가(바닥) 대비 현재가 상승률. 바닥 회복 정도."),
+                        "RSI": st.column_config.NumberColumn("RSI", format="%d",
+                            help="0~100 과매수/과매도 지표. 30 이하면 과매도."),
+                    },
+                )
+            else:
+                # 구버전 Streamlit: 숫자 컬럼이면 머리글 클릭 정렬이 숫자로 동작(서식만 미적용)
+                st.dataframe(dd_df, use_container_width=True, hide_index=True,
+                             height=min(640, 80 + len(df_rows) * 35))
+            st.caption("💡 컬럼 머리글을 클릭하면 **숫자 기준 오름차순/내림차순 정렬**됩니다. "
+                       "낙폭(%)=고점 대비 하락률 · 저점대비반등(%)=바닥 대비 회복률 · 🧊과매도(RSI≤30). "
                        "상세 차트·수급·재무는 '🔬 개별 기업 정밀 진단' 탭에서 확인하세요.")
             st.download_button("⬇️ 결과 CSV 저장", dd_df.to_csv(index=False).encode("utf-8-sig"),
                                "낙폭과대_스캔.csv", "text/csv")
