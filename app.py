@@ -7954,6 +7954,8 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
         market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
         if market_choice == "🇰🇷 국내 주식":
             krx_df = get_krx_stocks()
+            searched_name = searched_code = None
+            do_analyze = False
             if not krx_df.empty:
                 opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
                 col_s1, col_s2 = st.columns([8, 2])
@@ -7962,14 +7964,30 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
                 if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
                     searched_name = kr_query.rsplit(" (", 1)[0]
                     searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                    with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                        res = analyze_technical_pattern(searched_name, searched_code)
-                        if res: 
-                            # 🌟 다중 테마 뷰어 출력 (국내 주식) 🌟
-                            render_single_stock_themes(searched_name, api_key_input)
-                            
-                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                        else: st.error("❌ 데이터 로드 실패")
+                    do_analyze = True
+            else:
+                # 폴백: 종목 목록 로드 실패 시 종목코드 직접 입력
+                st.warning("⚠️ 국내 종목 목록을 일시적으로 불러오지 못했습니다. 아래에 **종목코드 6자리**를 직접 입력해 분석하세요. (예: 005930)")
+                col_s1, col_s2 = st.columns([8, 2])
+                with col_s1: kr_manual = st.text_input("종목코드/이름 입력:", placeholder="예: 005930  또는  005930 삼성전자", label_visibility="collapsed", key="kr_manual_in")
+                with col_s2: kr_manual_btn = st.button("📊 분석 시작", use_container_width=True, key="kr_manual_btn")
+                if kr_manual:
+                    m = re.search(r"\d{6}", kr_manual)
+                    if m:
+                        searched_code = m.group()
+                        searched_name = kr_manual.replace(searched_code, "").strip() or searched_code
+                        do_analyze = True
+                    elif kr_manual_btn:
+                        st.error("6자리 종목코드를 포함해 입력해 주세요. 예: 005930")
+            if do_analyze and searched_code:
+                with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                    res = analyze_technical_pattern(searched_name, searched_code)
+                    if res:
+                        # 🌟 다중 테마 뷰어 출력 (국내 주식) 🌟
+                        render_single_stock_themes(searched_name, api_key_input)
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                    else:
+                        st.error("❌ 데이터 로드 실패 — 종목코드를 확인해 주세요.")
         else:
             col_us1, col_us2 = st.columns([8, 2])
             with col_us1: us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
