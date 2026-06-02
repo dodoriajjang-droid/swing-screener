@@ -4603,6 +4603,359 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     for i, res in enumerate(sorted_res):
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
 
+# ============================================================
+# 🧭 AI 통합 투자 발굴기 (Unified Finder) — 엔진
+#   시장분위기 + 테마/정치 + 차트 + 펀더멘털 → 단기/중기/장기 자동 분류
+#   * 무거운 분석(analyze_technical_pattern / get_value_metrics)은
+#     파인더 전용 캐시 래퍼로 감싸 재실행/재렌더 시 재호출을 막는다.
+# ============================================================
+
+# NOTE: 스레드 내부에서 호출되므로 @st.cache_data 를 직접 달지 않는다.
+#  (내부의 get_historical_data·get_investor_trend 등이 이미 캐시되어 재실행 시 빠르고,
+#   파이프라인 결과는 session_state 에 보관해 재렌더 시 재계산하지 않는다.)
+def _finder_tech(name, code):
+    """파인더 전용: 기술적 분석 래퍼."""
+    return analyze_technical_pattern(name, code)
+
+
+def _finder_value(code):
+    """파인더 전용: 가치/펀더멘털 지표 래퍼."""
+    return get_value_metrics(code)
+
+
+def get_market_mood():
+    """시장 분위기 종합 → dict(light, title, desc, risk_on[-1~1], vix, fng, breadth...).
+    risk_on: 위험선호도. +1에 가까울수록 공격적(단기 모멘텀 우호), -1에 가까울수록 방어적(장기/가치 우호)."""
+    mood = {
+        "light": "🟡", "title": "중립", "desc": "",
+        "risk_on": 0.0, "vix": None, "fng": None, "fng_rating": None,
+        "kospi": None, "kosdaq": None, "breadth_up": None,
+    }
+    try:
+        reg = get_market_regime()
+        l, t, d = reg.get("verdict", ("🟡", "중립", ""))
+        mood["light"], mood["title"], mood["desc"] = l, t, d
+        for k in ("KOSPI", "KOSDAQ"):
+            v = reg.get(k)
+            if isinstance(v, dict):
+                mood[k.lower()] = {"price": v.get("price"), "pct": v.get("pct"),
+                                   "align": v.get("align"), "light": v.get("light")}
+        b = reg.get("breadth")
+        if isinstance(b, dict):
+            mood["breadth_up"] = b.get("up_ratio")
+    except Exception:
+        pass
+    try:
+        macro = get_macro_indicators()
+        if macro and macro.get("VIX"):
+            mood["vix"] = round(float(macro["VIX"]["value"]), 1)
+    except Exception:
+        pass
+    try:
+        fg = get_fear_and_greed()
+        if fg:
+            mood["fng"] = fg.get("score")
+            mood["fng_rating"] = fg.get("rating")
+    except Exception:
+        pass
+    # 위험선호(risk-on) 점수 [-1, 1] 합성
+    s = 0.0
+    s += {"🟢": 0.6, "🔴": -0.6}.get(mood["light"], 0.0)
+    if mood["vix"] is not None:
+        if mood["vix"] < 16: s += 0.2
+        elif mood["vix"] > 25: s -= 0.3
+    if mood["breadth_up"] is not None:
+        if mood["breadth_up"] >= 60: s += 0.2
+        elif mood["breadth_up"] <= 40: s -= 0.2
+    if mood["fng"] is not None:
+        if mood["fng"] >= 65: s += 0.1
+        elif mood["fng"] <= 30: s -= 0.1
+    mood["risk_on"] = max(-1.0, min(1.0, round(s, 2)))
+    return mood
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_theme_politics_radar(_api_key, news_titles=None, poly_lines=None):
+    """뉴스 헤드라인 + 폴리마켓(정치/매크로)을 AI로 종합 →
+    핵심 테마/이벤트(+권장 투자기간, 종목검색 키워드) + 한 줄 분위기 코멘트(JSON)."""
+    fallback = {"mood_comment": "", "themes": []}
+    if not _api_key:
+        return fallback
+    news_block = "\n".join(f"- {t}" for t in (news_titles or [])[:18]) or "(뉴스 없음)"
+    poly_block = "\n".join(f"- {p}" for p in (poly_lines or [])[:10]) or "(예측시장 없음)"
+    prompt = (
+        "너는 한국 주식시장 전략가다. 아래 '실시간 국내 증시 뉴스 헤드라인'과 "
+        "'글로벌 예측시장(정치·매크로) 확률'을 종합해, 지금 시장을 움직이는 핵심 테마/이벤트를 도출하라.\n\n"
+        f"[증시 뉴스]\n{news_block}\n\n[예측시장]\n{poly_block}\n\n"
+        "아래 JSON만 출력하라(설명·마크다운·코드펜스 금지):\n"
+        '{"mood_comment":"오늘 시장 분위기 한 줄 요약",'
+        '"themes":[{"theme":"테마명","horizon":"단기|중기|장기",'
+        '"reason":"왜 지금 부각되는지 한 문장","keywords":"종목 검색용 핵심 키워드"}]}\n'
+        "규칙: themes 는 3~5개. horizon 은 그 테마 성격상 가장 적합한 투자기간 하나로 정하라. "
+        "정치/정책/단발 이벤트성→단기, 산업 사이클·실적 모멘텀→중기, 구조적 성장·저평가 재평가→장기."
+    )
+    try:
+        raw = ask_gemini(prompt, _api_key)
+        txt = (raw or "").strip().replace("```json", "").replace("```", "").strip()
+        m = re.search(r"\{.*\}", txt, re.DOTALL)
+        if m:
+            txt = m.group(0)
+        data = json.loads(txt)
+        if isinstance(data, dict) and isinstance(data.get("themes"), list):
+            clean = []
+            for it in data["themes"][:5]:
+                if not isinstance(it, dict):
+                    continue
+                hz = str(it.get("horizon", "")).strip()
+                hz = hz if hz in ("단기", "중기", "장기") else "중기"
+                clean.append({
+                    "theme": str(it.get("theme", "")).strip()[:40],
+                    "horizon": hz,
+                    "reason": str(it.get("reason", "")).strip()[:140],
+                    "keywords": str(it.get("keywords", it.get("theme", ""))).strip()[:60],
+                })
+            return {"mood_comment": str(data.get("mood_comment", "")).strip()[:180],
+                    "themes": clean}
+    except Exception:
+        pass
+    return fallback
+
+
+# ---------- 점수화 보조 ----------
+def _f_num(x):
+    try:
+        return float(str(x).replace(",", "").replace("%", "").strip())
+    except Exception:
+        return None
+
+
+def _align_flags(tech):
+    a = str(tech.get("배열상태", ""))
+    return {"정배열": "정배열" in a, "골든": "골든크로스" in a, "역배열": "역배열" in a}
+
+
+def _is_pos_flow(x):
+    return "+" in str(x)
+
+
+def _clip(v, lo=0.0, hi=100.0):
+    return max(lo, min(hi, v))
+
+
+def score_one(tech, vm, mood, theme_hit=False):
+    """한 종목의 단기/중기/장기 적합도(0~100) 산출 + 자동 분류 + 사유.
+    반환: (scores dict, horizon, top_score, grade, reasons list)"""
+    al = _align_flags(tech)
+    rsi = _f_num(tech.get("RSI"))
+    vol_spike = "터짐" in str(tech.get("거래량 급증", ""))
+    status = str(tech.get("상태", ""))
+    near_entry = "타점 근접" in status
+    over_ext = "이격 과다" in status
+    broke = "이탈" in status
+    weekly_up = "상승추세" in str(tech.get("주봉추세", ""))
+    f_pos = _is_pos_flow(tech.get("외인수급"))
+    i_pos = _is_pos_flow(tech.get("기관수급"))
+    pension = int(tech.get("연기금연속순매수", 0) or 0)
+
+    per = (vm or {}).get("per")
+    if per is None:
+        per = _f_num(tech.get("PER"))
+    pbr = (vm or {}).get("pbr")
+    if pbr is None:
+        pbr = _f_num(tech.get("PBR"))
+    roe = (vm or {}).get("roe")
+    div = (vm or {}).get("div")
+    debt = (vm or {}).get("debt")
+    mom3 = (vm or {}).get("mom3")
+    mom6 = (vm or {}).get("mom6")
+    off_high = (vm or {}).get("off_high")
+
+    r_s, r_m, r_l = [], [], []
+
+    # ===== 단기(스윙/모멘텀) =====
+    s = 0.0
+    if al["정배열"]: s += 25; r_s.append("정배열")
+    elif al["골든"]: s += 20; r_s.append("골든크로스")
+    elif al["역배열"]: s -= 18
+    if vol_spike: s += 16; r_s.append("거래량 급증")
+    if near_entry: s += 14; r_s.append("매수타점 근접")
+    elif over_ext: s += 2
+    elif broke: s -= 10
+    if f_pos and i_pos: s += 18; r_s.append("외인·기관 쌍끌이")
+    elif f_pos or i_pos: s += 8; r_s.append("수급 유입")
+    if pension >= 3: s += 7; r_s.append(f"기관 {pension}일 연속매수")
+    if rsi is not None:
+        if 50 <= rsi <= 68: s += 10
+        elif 40 <= rsi < 50 or 68 < rsi <= 78: s += 5
+        elif rsi > 82: s -= 8
+        elif rsi < 28: s -= 3
+    if mom3 is not None:
+        s += min(8.0, mom3 / 5.0) if mom3 > 0 else -5.0
+    s += 8.0 * max(0.0, mood["risk_on"])      # 위험선호일 때 단기 가산
+    if theme_hit: s += 8; r_s.append("주도 테마")
+    short = _clip(s)
+
+    # ===== 중기(추세+테마+합리적 밸류) =====
+    m = 0.0
+    if weekly_up: m += 25; r_m.append("주봉 상승추세")
+    if al["정배열"]: m += 12; r_m.append("정배열 유지")
+    elif al["골든"]: m += 8
+    if mom6 is not None and mom3 is not None:
+        if mom6 > 0 and mom3 > 0:
+            m += 18; r_m.append("3·6개월 동반 상승")
+            if mom3 > 60: m -= 8                 # 단기 과열 감점
+        elif mom6 < -15:
+            m -= 8
+    if theme_hit: m += 20; r_m.append("주도 테마 편입")
+    if per is not None:
+        if 0 < per <= 25: m += 8
+        elif per > 40: m -= 3
+    if pbr is not None and pbr <= 4: m += 5
+    if f_pos or i_pos: m += 8; r_m.append("수급 우호")
+    if roe is not None and roe >= 8: m += 6
+    m += 4.0 * mood["risk_on"]
+    mid = _clip(m)
+
+    # ===== 장기(가치+퀄리티+인컴) =====
+    l = 0.0
+    if per is not None:
+        if 0 < per <= 10: l += 25; r_l.append(f"저PER {per:.0f}")
+        elif per <= 15: l += 18; r_l.append(f"PER {per:.0f}")
+        elif per <= 25: l += 8
+        elif per > 40: l -= 5
+    if pbr is not None:
+        if pbr <= 1.0: l += 20; r_l.append(f"저PBR {pbr:.2f}")
+        elif pbr <= 1.5: l += 12; r_l.append(f"PBR {pbr:.2f}")
+        elif pbr <= 3: l += 5
+    if roe is not None:
+        if roe >= 15: l += 18; r_l.append(f"고ROE {roe:.0f}%")
+        elif roe >= 10: l += 10; r_l.append(f"ROE {roe:.0f}%")
+    if div is not None:
+        if div >= 4: l += 12; r_l.append(f"고배당 {div:.1f}%")
+        elif div >= 2: l += 7; r_l.append(f"배당 {div:.1f}%")
+    if debt is not None:
+        if debt <= 100: l += 8
+        elif debt > 180: l -= 5
+    if off_high is not None and off_high <= -30 and not al["역배열"]:
+        l += 10; r_l.append("고점대비 낙폭(저평가)")
+    if weekly_up or al["정배열"]: l += 8
+    elif al["역배열"]: l -= 10
+    if theme_hit: l += 5
+    l -= 6.0 * max(0.0, mood["risk_on"])      # 위험선호↑ → 장기 가치 매력 상대적↓
+    l += 6.0 * max(0.0, -mood["risk_on"])     # 위험회피 구간 → 장기 가산
+    longs = _clip(l)
+
+    scores = {"단기": round(short, 1), "중기": round(mid, 1), "장기": round(longs, 1)}
+    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+    horizon = ranked[0][0]
+    # 근소차(≤6점)는 시장 분위기로 타이브레이크
+    if len(ranked) >= 2 and (ranked[0][1] - ranked[1][1]) <= 6:
+        if mood["risk_on"] >= 0.3: pref = ["단기", "중기", "장기"]
+        elif mood["risk_on"] <= -0.3: pref = ["장기", "중기", "단기"]
+        else: pref = ["중기", "단기", "장기"]
+        cand = [k for k, _ in ranked[:2]]
+        horizon = min(cand, key=lambda k: pref.index(k))
+    top = scores[horizon]
+    reasons = {"단기": r_s, "중기": r_m, "장기": r_l}[horizon][:4]
+    if top >= 70: grade = "🟢 강력"
+    elif top >= 50: grade = "🟡 양호"
+    else: grade = "⚪ 약함"
+    return scores, horizon, round(top, 1), grade, reasons
+
+
+def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_n, want_long):
+    """후보 풀 구성: ① 시총 상위 기술 유니버스 ② 테마 리더(사용자키워드+AI레이더) ③ 가치 후보.
+    반환: dict  code -> {"name":str, "theme":str|None, "src":set}"""
+    pool = {}
+
+    def add(name, code, theme=None, src="tech"):
+        code = str(code).strip()
+        name = str(name).strip()
+        if not code or not name:
+            return
+        if scope == "kr" and not code.isdigit():   # 국내 전용 모드면 미국 티커 제외
+            return
+        if code not in pool:
+            pool[code] = {"name": name, "theme": theme, "src": {src}}
+        else:
+            pool[code]["src"].add(src)
+            if theme and not pool[code]["theme"]:
+                pool[code]["theme"] = theme
+
+    # ① 기술 유니버스 (시가총액/거래대금 상위)
+    try:
+        for nm, cd in (get_scan_targets(kr_n) or []):
+            add(nm, cd, src="tech")
+    except Exception:
+        pass
+    if scope == "kr_us":
+        try:
+            for nm, cd in (get_us_scan_targets(us_n) or []):
+                add(nm, cd, src="tech")
+        except Exception:
+            pass
+
+    # ② 테마 리더 (사용자 키워드 + AI 레이더 상위 2개 테마)
+    theme_queries = []
+    if theme_focus and theme_focus.strip():
+        theme_queries.append(theme_focus.strip())
+    for t in (radar_themes or [])[:2]:
+        kw = t.get("keywords") or t.get("theme")
+        if kw:
+            theme_queries.append(kw)
+    seen_q = set()
+    for q in theme_queries:
+        if q in seen_q:
+            continue
+        seen_q.add(q)
+        try:
+            for nm, cd in (get_theme_stocks_with_ai(q, api_key) or []):
+                add(nm, cd, theme=q, src="theme")
+        except Exception:
+            pass
+
+    # ③ 가치 후보 (장기/자동 포함 시, 국내)
+    if want_long:
+        try:
+            for nm, cd in (get_longterm_value_stocks_with_ai(
+                    "저평가 우량 가치주(저PER·저PBR·고ROE·재무안정 + 주주환원)",
+                    "대/중/소형 상관없음", api_key) or []):
+                add(nm, cd, src="value")
+        except Exception:
+            pass
+
+    return pool
+
+
+def get_finder_briefing(_api_key, mood, radar, bucket_tops):
+    """시장분위기 + 테마 + 기간별 상위픽을 묶어 '오늘의 통합 전략 브리핑' 생성."""
+    if not _api_key:
+        return ""
+    lines = []
+    for hz in ("단기", "중기", "장기"):
+        picks = bucket_tops.get(hz) or []
+        if picks:
+            lines.append(f"[{hz}] " + ", ".join(f"{n}({s:.0f}점)" for n, s in picks[:3]))
+    picks_block = "\n".join(lines) or "(선별된 종목 없음)"
+    themes_block = ", ".join(t["theme"] for t in (radar.get("themes") or [])[:5]) or "-"
+    prompt = (
+        "너는 여의도 시니어 전략가다. 아래 데이터로 개인투자자용 '오늘의 통합 투자 전략'을 한국어로 작성하라.\n"
+        f"- 시장국면: {mood['light']} {mood['title']} (위험선호 {mood['risk_on']:+.2f}, "
+        f"VIX {mood.get('vix')}, 공포탐욕 {mood.get('fng')})\n"
+        f"- 핵심 테마: {themes_block}\n"
+        f"- 기간별 상위 후보:\n{picks_block}\n\n"
+        "형식:\n"
+        "1) 한 줄 총평(지금 시장 성격과 대응 톤)\n"
+        "2) 단기/중기/장기 각각 1~2문장 대응 전략(왜 이 분위기에서 그 기간이 유효/불리한지 포함)\n"
+        "3) 리스크 관리 한 줄\n"
+        "과장 금지, 투자 권유가 아닌 참고 정보임을 전제. 불릿/번호로 간결하게."
+    )
+    try:
+        return ask_gemini(prompt, _api_key)
+    except Exception:
+        return ""
+
+
 if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state.gainers_df.columns:
     df, ex_rate, fetch_time = get_us_top_gainers()
     st.session_state.gainers_df = df
@@ -4668,6 +5021,7 @@ with st.sidebar:
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
         "  ", 
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
+        " ┣ 🧭 AI 통합 투자 발굴기 (테스트)",
         " ┣ 📋 코스피·코스닥 종목 리스트",
         " ┣ 🚀 단기 스윙 퀀트 스캐너",
         " ┣ 🏛️ 국민연금 5% 대량보유 픽",
@@ -5767,6 +6121,255 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     with c3: st.markdown(metric_card("총 매매 횟수", f"{total_trades}회", "신규 진입 기준"), unsafe_allow_html=True)
                     with c4: st.markdown(metric_card("승률 (Win Rate)", f"{win_rate:.1f}%", "수익 마감 거래일 기준", is_red=(win_rate>50)), unsafe_allow_html=True)
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
+
+elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
+    st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
+    st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치(뉴스·폴리마켓) + 차트 + 펀더멘털을 한 번에 융합해 "
+               "**단기·중기·장기 투자 후보를 자동 분류**합니다. 종목 성격과 시장 분위기에 따라 어느 기간에 적합한지 스스로 판정합니다.")
+
+    # 세션 상태 초기화
+    for _k, _v in [("finder_results", None), ("finder_mood", None),
+                   ("finder_radar", None), ("finder_brief", None), ("finder_meta", None)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
+    # ── 0) 오늘의 시장 분위기 한 줄 ──
+    with st.spinner("시장 분위기 진단 중..."):
+        mood = get_market_mood()
+    _mc = {"🟢": "#16a34a", "🟡": "#f59e0b", "🔴": "#dc2626"}.get(mood["light"], "#888")
+    _risk_txt = ("공격적(위험선호)" if mood["risk_on"] >= 0.3
+                 else "방어적(위험회피)" if mood["risk_on"] <= -0.3 else "중립")
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric(f"{mood['light']} 시장 국면", mood["title"], _risk_txt, delta_color="off")
+    if isinstance(mood.get("kospi"), dict):
+        mc2.metric(f"{mood['kospi']['light']} 코스피", f"{mood['kospi']['price']:,.1f}", f"{mood['kospi']['pct']:+.2f}%")
+    if isinstance(mood.get("kosdaq"), dict):
+        mc3.metric(f"{mood['kosdaq']['light']} 코스닥", f"{mood['kosdaq']['price']:,.1f}", f"{mood['kosdaq']['pct']:+.2f}%")
+    _fng = mood.get("fng")
+    mc4.metric("😨 공포탐욕 / VIX", f"{_fng if _fng is not None else '-'} · VIX {mood.get('vix') if mood.get('vix') is not None else '-'}",
+               mood.get("fng_rating") or "-", delta_color="off")
+
+    st.divider()
+
+    # ── 1) 검색 조건 ──
+    fc1, fc2 = st.columns([1, 1])
+    with fc1:
+        horizon_focus = st.radio(
+            "⏱️ 투자 기간",
+            ["🧠 전체 (자동 분류)", "🔥 단기 (스윙)", "⚖️ 중기 (추세·테마)", "💎 장기 (가치·우량)"],
+            help="‘전체’를 고르면 모든 후보를 단기/중기/장기로 자동 분류해 한 번에 보여줍니다.",
+        )
+    with fc2:
+        scope_label = st.radio("🌍 시장 범위", ["🇰🇷 국내만", "🇰🇷+🇺🇸 국내·미국"], horizontal=True)
+    scope = "kr" if scope_label.startswith("🇰🇷 국내만") else "kr_us"
+
+    fc3, fc4 = st.columns([2, 1])
+    with fc3:
+        theme_focus = st.text_input("🎯 관심 테마·키워드 (선택)", placeholder="예: AI 반도체 / 방산 / 원자력 / 로봇 / 바이오")
+    with fc4:
+        depth = st.selectbox("🔬 탐색 깊이", ["빠르게 (≈40종목)", "표준 (≈70종목)", "정밀 (≈110종목)"], index=1)
+    depth_cfg = {
+        "빠르게 (≈40종목)": (40, 12, 40),
+        "표준 (≈70종목)": (60, 20, 60),
+        "정밀 (≈110종목)": (90, 30, 90),
+    }[depth]
+    kr_n, us_n, phaseb_cap = depth_cfg
+
+    want_long = ("전체" in horizon_focus) or ("장기" in horizon_focus)
+
+    st.caption("⏳ 정밀 모드는 데이터 수집에 1~2분 걸릴 수 있어요. 결과는 15분간 캐시되어 재실행이 빠릅니다.")
+
+    if st.button("🧭 통합 검색 시작", type="primary", use_container_width=True):
+        if not api_key_input:
+            st.warning("⚠️ AI 테마 분석·후보 발굴을 위해 좌측 사이드바에 Gemini API 키가 필요합니다.")
+        else:
+            # 1) 뉴스 + 폴리마켓(정치/매크로) 수집
+            with st.spinner("실시간 뉴스·예측시장(정치/매크로) 수집 중..."):
+                try:
+                    news_titles = [a["title"] for a in (get_latest_naver_news() or [])][:18]
+                except Exception:
+                    news_titles = []
+                poly_lines = []
+                try:
+                    pm = fetch_polymarket_markets(
+                        search="election president fed rate cut tariff war ceasefire recession", limit=20)
+                    for m in (pm.get("data") or [])[:12]:
+                        q = m.get("question", "")
+                        yp = m.get("yes_prob")
+                        ko = _gtx_translate_en_ko(q) if q else q
+                        poly_lines.append(f"{ko} (확률 {yp:.0f}%)" if yp is not None else ko)
+                except Exception:
+                    poly_lines = []
+
+            # 2) AI 테마/정치 레이더
+            with st.spinner("AI가 오늘의 핵심 테마·정치 이벤트를 종합하는 중..."):
+                radar = get_theme_politics_radar(api_key_input, tuple(news_titles), tuple(poly_lines))
+
+            # 3) 후보 풀 구성
+            with st.spinner("후보 종목 풀 구성 중 (시총 상위 + 테마 리더 + 가치주)..."):
+                pool = build_finder_candidates(
+                    api_key_input, scope, theme_focus, radar.get("themes"),
+                    kr_n, us_n, want_long)
+            if not pool:
+                st.error("❌ 후보 종목을 구성하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+            else:
+                items = list(pool.items())  # [(code, info)]
+                # 4) Phase A — 기술적 분석 (병렬)
+                progressA = st.progress(0.0)
+                statusA = st.empty()
+                techs = {}
+                doneA, totalA = 0, len(items)
+
+                def _runA(it):
+                    code, info = it
+                    return code, _finder_tech(info["name"], code)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                    for fut in concurrent.futures.as_completed({ex.submit(_runA, it): it for it in items}):
+                        code, res = fut.result()
+                        doneA += 1
+                        if res:
+                            techs[code] = res
+                        progressA.progress(min(1.0, doneA / totalA))
+                        statusA.text(f"📈 1/2 차트·수급 분석 중... ({doneA}/{totalA})")
+                progressA.empty(); statusA.empty()
+
+                # 사전 점수(밸류 미반영) → Phase B(가치 보강) 우선순위 선정
+                prelim = {}
+                for code, tech in techs.items():
+                    th = pool[code].get("theme") is not None
+                    sc, _, top, _, _ = score_one(tech, None, mood, theme_hit=th)
+                    prelim[code] = top
+                kr_codes = [c for c in techs if str(c).isdigit()]
+                must = [c for c in kr_codes if {"theme", "value"} & pool[c]["src"]]   # 테마/가치 후보는 반드시 보강
+                rest = sorted([c for c in kr_codes if c not in must],
+                              key=lambda c: prelim.get(c, 0), reverse=True)
+                phaseb = (must + rest)[:phaseb_cap]
+
+                # 5) Phase B — 가치/펀더멘털 보강 (국내, 병렬)
+                vmap = {}
+                if phaseb:
+                    progressB = st.progress(0.0)
+                    statusB = st.empty()
+                    doneB, totalB = 0, len(phaseb)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                        futmap = {ex.submit(_finder_value, c): c for c in phaseb}
+                        for fut in concurrent.futures.as_completed(futmap):
+                            c = futmap[fut]
+                            try:
+                                vmap[c] = fut.result()
+                            except Exception:
+                                vmap[c] = None
+                            doneB += 1
+                            progressB.progress(min(1.0, doneB / totalB))
+                            statusB.text(f"💎 2/2 펀더멘털(ROE·배당·성장) 보강 중... ({doneB}/{totalB})")
+                    progressB.empty(); statusB.empty()
+
+                # 6) 최종 점수 + 자동 분류
+                enriched = []
+                for code, tech in techs.items():
+                    th_name = pool[code].get("theme")
+                    th = th_name is not None
+                    scores, horizon, top, grade, reasons = score_one(tech, vmap.get(code), mood, theme_hit=th)
+                    r = dict(tech)
+                    r["_scores"] = scores
+                    r["_horizon"] = horizon
+                    r["_top"] = top
+                    r["_grade"] = grade
+                    r["_reasons"] = reasons
+                    r["_theme"] = th_name
+                    enriched.append(r)
+
+                st.session_state.finder_results = enriched
+                st.session_state.finder_mood = mood
+                st.session_state.finder_radar = radar
+                st.session_state.finder_meta = (scope, depth, theme_focus, len(enriched))
+
+                # 7) AI 통합 브리핑
+                buckets_tmp = {"단기": [], "중기": [], "장기": []}
+                for r in enriched:
+                    buckets_tmp[r["_horizon"]].append((r.get("종목명"), r["_top"]))
+                for hz in buckets_tmp:
+                    buckets_tmp[hz].sort(key=lambda x: x[1], reverse=True)
+                with st.spinner("AI 통합 전략 브리핑 작성 중..."):
+                    st.session_state.finder_brief = get_finder_briefing(
+                        api_key_input, mood, radar, buckets_tmp)
+
+    # ── 결과 렌더 ──
+    radar = st.session_state.get("finder_radar")
+    if radar and radar.get("themes"):
+        st.markdown("### 🛰️ 오늘의 테마·정치 레이더")
+        if radar.get("mood_comment"):
+            st.info(f"🗣️ {radar['mood_comment']}")
+        _hz_color = {"단기": "#dc2626", "중기": "#2563eb", "장기": "#16a34a"}
+        rcols = st.columns(min(len(radar["themes"]), 5) or 1)
+        for i, t in enumerate(radar["themes"][:5]):
+            with rcols[i % len(rcols)]:
+                c = _hz_color.get(t["horizon"], "#888")
+                st.markdown(
+                    f"<div style='border:1px solid #e5e7eb;border-left:4px solid {c};border-radius:10px;"
+                    f"padding:10px 12px;margin-bottom:8px;background:#fff;'>"
+                    f"<div style='font-weight:800;font-size:14px;color:#1e293b;'>{t['theme']}</div>"
+                    f"<div style='display:inline-block;font-size:11px;font-weight:700;color:#fff;background:{c};"
+                    f"border-radius:6px;padding:1px 7px;margin:4px 0;'>{t['horizon']}</div>"
+                    f"<div style='font-size:12px;color:#475569;line-height:1.4;'>{t['reason']}</div></div>",
+                    unsafe_allow_html=True)
+
+    if st.session_state.get("finder_brief"):
+        with st.expander("🧠 AI 통합 투자 전략 브리핑", expanded=True):
+            st.markdown(st.session_state.finder_brief)
+            st.caption("※ 본 내용은 투자 권유가 아닌 참고 정보이며, 최종 판단과 책임은 투자자 본인에게 있습니다.")
+
+    results = st.session_state.get("finder_results")
+    if results:
+        buckets = {"단기": [], "중기": [], "장기": []}
+        for r in results:
+            buckets[r["_horizon"]].append(r)
+        for hz in buckets:
+            buckets[hz].sort(key=lambda x: x["_top"], reverse=True)
+
+        meta = st.session_state.get("finder_meta")
+        if meta:
+            st.success(f"✅ 총 {meta[3]}개 종목 분석 완료 — 단기 {len(buckets['단기'])} · 중기 {len(buckets['중기'])} · 장기 {len(buckets['장기'])}개로 자동 분류")
+
+        # 기간 포커스에 따라 기본 탭 순서 조정
+        order = ["단기", "중기", "장기"]
+        if "단기" in horizon_focus: order = ["단기", "중기", "장기"]
+        elif "중기" in horizon_focus: order = ["중기", "단기", "장기"]
+        elif "장기" in horizon_focus: order = ["장기", "중기", "단기"]
+        tab_labels = {"단기": "🔥 단기 (스윙)", "중기": "⚖️ 중기 (추세·테마)", "장기": "💎 장기 (가치·우량)"}
+        tabs = st.tabs([f"{tab_labels[h]}  ·  {len(buckets[h])}" for h in order])
+
+        for tab, hz in zip(tabs, order):
+            with tab:
+                picks = buckets[hz]
+                if not picks:
+                    st.info(f"현재 분위기에서 '{hz}' 적합 종목이 충분히 포착되지 않았습니다. 탐색 깊이를 높이거나 테마 키워드를 바꿔보세요.")
+                    continue
+                # 요약 표
+                rows = []
+                for rk, r in enumerate(picks, 1):
+                    rows.append({
+                        "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
+                        "종목명": r.get("종목명"), "시장": r.get("시장", ""),
+                        "테마": r.get("_theme") or "-",
+                        "현재가": (f"${r['현재가']:,.2f}" if not str(r.get('티커','')).isdigit() else f"{int(r.get('현재가',0)):,}원"),
+                        "RSI": (f"{r['RSI']:.0f}" if _f_num(r.get('RSI')) is not None else "-"),
+                        "핵심근거": " · ".join(r.get("_reasons", [])) or "-",
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.markdown("##### 📈 상세 카드 (상위 8종목)")
+                for idx, r in enumerate(picks[:8]):
+                    st.markdown(
+                        f"**{idx+1}. {r.get('종목명')}** · {r['_grade']} · {hz} 적합도 **{r['_top']:.0f}점**  "
+                        + (f"· 🏷️ {r['_theme']}" if r.get("_theme") else "")
+                    )
+                    if r.get("_reasons"):
+                        st.caption("근거: " + " · ".join(r["_reasons"]))
+                    draw_stock_card(r, api_key_str=api_key_input, is_expanded=False, key_suffix=f"finder_{hz}_{idx}")
+    else:
+        st.info("위에서 조건을 고르고 **‘통합 검색 시작’**을 누르면, 시장 분위기·테마·차트·펀더멘털을 종합해 기간별 투자 후보를 찾아드립니다.")
+
 
 elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
     st.markdown("## 🏛️ 국민연금 5% 대량보유 픽")
