@@ -3719,11 +3719,14 @@ def get_short_selling_risk(code):
                     latest = float(ratio.iloc[-1])
                     avg5 = float(ratio.tail(5).mean())
                     # 0~1 스케일이면 %로 변환
-                    if latest <= 1.5:
-                        latest *= 100; avg5 *= 100
+                    scale = 100.0 if latest <= 1.5 else 1.0
+                    latest *= scale; avg5 *= scale
                     out['short_vol_ratio'] = round(latest, 2)
                     out['short_vol_avg5'] = round(avg5, 2)
                     out['short_vol_trend'] = "📈 증가" if latest > avg5 * 1.1 else ("📉 감소" if latest < avg5 * 0.9 else "➖ 유지")
+                    # 미니차트용 일별 시계열 (최근 30일)
+                    out['short_vol_series'] = [(str(i)[:10], round(float(v) * scale, 2))
+                                               for i, v in ratio.tail(30).items()]
         except Exception:
             pass
 
@@ -3736,6 +3739,8 @@ def get_short_selling_risk(code):
                     out['short_bal_ratio'] = round(float(br.iloc[-1]), 2)
                     if len(br) >= 5:
                         out['short_bal_trend'] = "📈 증가" if br.iloc[-1] > br.tail(5).mean() else "📉 감소"
+                    out['short_bal_series'] = [(str(i)[:10], round(float(v), 2))
+                                               for i, v in br.tail(30).items()]
         except Exception:
             pass
 
@@ -4723,6 +4728,87 @@ def get_stock_news(code, name="", limit=5):
     return items[:limit]
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def classify_news_sentiment(_api_key, items):
+    """종목별 뉴스 제목 묶음을 AI가 호재/중립/악재로 판정.
+    items: tuple of (code, name, titles_joined). 반환: {code: {"label","score"(-2~2),"reason"}}"""
+    if not _api_key or not items:
+        return {}
+    lines, idx2code = [], {}
+    for i, (code, name, titles) in enumerate(items, 1):
+        idx2code[i] = code
+        lines.append(f"{i}. {name} — {titles}")
+    block = "\n".join(lines)
+    prompt = (
+        "너는 한국 주식 뉴스 애널리스트다. 아래 각 종목의 '최근 뉴스 제목 묶음'을 읽고, "
+        "그 뉴스가 해당 종목 주가에 미칠 단기 영향을 호재/중립/악재로 판정하라.\n"
+        "아래 JSON 배열만 출력(설명·마크다운·코드펜스 금지). 각 원소는 "
+        '{"i":번호,"label":"호재|중립|악재","score":정수,"reason":"한 문장 근거"}.\n'
+        "score 기준: 강한 호재 2, 호재 1, 중립 0, 악재 -1, 강한 악재 -2. "
+        "단순 시황·전망 기사나 모호하면 중립(0)으로 판정.\n\n"
+        f"{block}"
+    )
+    try:
+        raw = ask_gemini(prompt, _api_key)
+        txt = (raw or "").strip().replace("```json", "").replace("```", "").strip()
+        m = re.search(r"\[.*\]", txt, re.DOTALL)
+        if m:
+            txt = m.group(0)
+        arr = json.loads(txt)
+        out = {}
+        for it in arr:
+            if not isinstance(it, dict):
+                continue
+            i = it.get("i")
+            code = idx2code.get(int(i)) if i is not None else None
+            if not code:
+                continue
+            label = str(it.get("label", "중립")).strip()
+            if label not in ("호재", "중립", "악재"):
+                label = "중립"
+            try:
+                sc = int(round(float(it.get("score", 0))))
+            except Exception:
+                sc = {"호재": 1, "악재": -1}.get(label, 0)
+            sc = max(-2, min(2, sc))
+            out[code] = {"label": label, "score": sc, "reason": str(it.get("reason", "")).strip()[:120]}
+        return out
+    except Exception:
+        return {}
+
+
+def _short_trend_figure(risk):
+    """공매도 추세 미니차트(거래비중 막대 + 잔고비중 선). 데이터 없으면 None."""
+    if not isinstance(risk, dict):
+        return None
+    vser = risk.get("short_vol_series") or []
+    bser = risk.get("short_bal_series") or []
+    if not vser and not bser:
+        return None
+    fig = go.Figure()
+    if vser:
+        fig.add_trace(go.Bar(
+            x=[d for d, _ in vser], y=[v for _, v in vser],
+            name="공매도 거래비중(%)", marker_color="rgba(239,68,68,0.40)",
+            hovertemplate="%{x}<br>거래비중 %{y:.1f}%<extra></extra>"))
+    if bser:
+        fig.add_trace(go.Scatter(
+            x=[d for d, _ in bser], y=[v for _, v in bser],
+            name="공매도 잔고비중(%)", yaxis="y2", mode="lines",
+            line=dict(color="#b91c1c", width=2),
+            hovertemplate="%{x}<br>잔고비중 %{y:.2f}%<extra></extra>"))
+    fig.update_layout(
+        height=180, margin=dict(l=8, r=8, t=8, b=8),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(size=10)),
+        yaxis=dict(tickfont=dict(size=9), title=None),
+        yaxis2=dict(overlaying="y", side="right", showgrid=False, tickfont=dict(size=9)),
+        xaxis=dict(tickfont=dict(size=9), nticks=6),
+        bargap=0.25, hovermode="x unified",
+    )
+    return fig
+
+
 def get_market_mood():
     """시장 분위기 종합 → dict(light, title, desc, risk_on[-1~1], vix, fng, breadth...).
     risk_on: 위험선호도. +1에 가까울수록 공격적(단기 모멘텀 우호), -1에 가까울수록 방어적(장기/가치 우호)."""
@@ -4842,10 +4928,10 @@ def _clip(v, lo=0.0, hi=100.0):
     return max(lo, min(hi, v))
 
 
-def score_one(tech, vm, mood, theme_hit=False, risk=None):
+def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None):
     """한 종목의 단기/중기/장기 적합도(0~100) 산출 + 자동 분류 + 사유.
-    공매도/신용(빚투) 리스크가 있으면 감점(단기>중기>장기 순으로 크게).
-    반환: (scores dict, horizon, top_score, grade, reasons list, risk_flags list)"""
+    공매도/신용(빚투) 리스크가 있으면 감점(단기>중기>장기 순). AI 뉴스 판정(news_sent:-2~2)도
+    점수에 반영(단기에 가장 크게). 반환: (scores, horizon, top, grade, reasons, risk_flags)"""
     al = _align_flags(tech)
     rsi = _f_num(tech.get("RSI"))
     vol_spike = "터짐" in str(tech.get("거래량 급증", ""))
@@ -4971,6 +5057,17 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None):
         short = _clip(short - ps)
         mid = _clip(mid - pm)
         longs = _clip(longs - pl)
+
+    # ===== AI 뉴스 호재/악재 반영 (단기 영향 가장 큼) =====
+    if news_sent is not None:
+        try:
+            ns = max(-2, min(2, int(news_sent)))
+        except Exception:
+            ns = 0
+        if ns != 0:
+            short = _clip(short + ns * 6)
+            mid = _clip(mid + ns * 3)
+            longs = _clip(longs + ns * 1)
 
     scores = {"단기": round(short, 1), "중기": round(mid, 1), "장기": round(longs, 1)}
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
@@ -6396,8 +6493,9 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             statusB.text(f"💎 2/2 펀더멘털·공매도·신용 리스크 보강 중... ({doneB}/{totalB})")
                     progressB.empty(); statusB.empty()
 
-                # 6) 최종 점수 + 자동 분류 (리스크 반영)
+                # 6) 1차 점수 + 자동 분류 (리스크 반영, 뉴스 전)
                 enriched = []
+                by_code = {}
                 for code, tech in techs.items():
                     th_name = pool[code].get("theme")
                     th = th_name is not None
@@ -6413,16 +6511,21 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     r["_risk"] = rmap.get(code)
                     r["_risk_flags"] = risk_flags
                     enriched.append(r)
+                    by_code[code] = r
 
-                # 6-1) 표시 대상(기간별 상위) 종목에 최신 뉴스 자동 첨부
-                buckets_full = {"단기": [], "중기": [], "장기": []}
-                for r in enriched:
-                    buckets_full[r["_horizon"]].append(r)
-                for hz in buckets_full:
-                    buckets_full[hz].sort(key=lambda x: x["_top"], reverse=True)
+                # 6-1) 표시 대상(기간별 상위 10, 재정렬 여유분 포함)에 최신 뉴스 자동 첨부
+                def _rebucket(lst):
+                    b = {"단기": [], "중기": [], "장기": []}
+                    for x in lst:
+                        b[x["_horizon"]].append(x)
+                    for hz in b:
+                        b[hz].sort(key=lambda x: x["_top"], reverse=True)
+                    return b
+
+                buckets_full = _rebucket(enriched)
                 news_targets = []
                 for hz in ("단기", "중기", "장기"):
-                    for r in buckets_full[hz][:8]:
+                    for r in buckets_full[hz][:10]:
                         news_targets.append(r.get("티커"))
                 news_targets = list(dict.fromkeys([t for t in news_targets if t]))
                 if news_targets:
@@ -6443,9 +6546,37 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             progressN.progress(min(1.0, doneN / totalN))
                             statusN.text(f"📰 종목별 최신 뉴스 수집 중... ({doneN}/{totalN})")
                     progressN.empty(); statusN.empty()
-                    for r in enriched:
-                        if r.get("티커") in newsmap:
-                            r["_news"] = newsmap[r["티커"]]
+                    for c in newsmap:
+                        if c in by_code:
+                            by_code[c]["_news"] = newsmap[c]
+
+                    # 6-2) AI 뉴스 호재/악재 판정 → 점수 재반영
+                    sent_items = []
+                    for c in news_targets:
+                        nz = newsmap.get(c) or []
+                        titles = " | ".join(n.get("title", "") for n in nz if n.get("title"))[:400]
+                        if titles:
+                            sent_items.append((c, code2name.get(c, ""), titles))
+                    if sent_items:
+                        with st.spinner("AI가 종목별 뉴스를 호재/악재로 판정하는 중..."):
+                            sentmap = classify_news_sentiment(api_key_input, tuple(sent_items))
+                        for c, info in (sentmap or {}).items():
+                            r = by_code.get(c)
+                            if not r:
+                                continue
+                            r["_news_label"] = info.get("label")
+                            r["_news_score"] = info.get("score")
+                            r["_news_reason"] = info.get("reason")
+                            # 뉴스 점수를 반영해 재채점 (리스크·테마 동일 적용)
+                            th_name = pool[c].get("theme")
+                            scores, horizon, top, grade, reasons, risk_flags = score_one(
+                                techs[c], vmap.get(c), mood, theme_hit=(th_name is not None),
+                                risk=rmap.get(c), news_sent=info.get("score"))
+                            r["_scores"] = scores
+                            r["_horizon"] = horizon
+                            r["_top"] = top
+                            r["_grade"] = grade
+                            r["_reasons"] = reasons
 
                 st.session_state.finder_results = enriched
                 st.session_state.finder_mood = mood
@@ -6523,6 +6654,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         risk_cell = (risk_cell + " " + " ".join(r["_risk_flags"])).strip()
                     if not risk_cell:
                         risk_cell = ("🟢" if str(r.get("티커", "")).isdigit() else "—")
+                    _nl = r.get("_news_label")
+                    news_cell = {"호재": "🟢 호재", "악재": "🔴 악재", "중립": "⚪ 중립"}.get(_nl, "—")
                     rows.append({
                         "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
                         "종목명": r.get("종목명"), "시장": r.get("시장", ""),
@@ -6530,10 +6663,11 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         "현재가": (f"${r['현재가']:,.2f}" if not str(r.get('티커','')).isdigit() else f"{int(r.get('현재가',0)):,}원"),
                         "RSI": (f"{r['RSI']:.0f}" if _f_num(r.get('RSI')) is not None else "-"),
                         "공매도/신용": risk_cell,
+                        "뉴스(AI)": news_cell,
                         "핵심근거": " · ".join(r.get("_reasons", [])) or "-",
                     })
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-                st.caption("🩸 공매도잔고/당일공매도/공매도↑ · ⚠️신용잔고 = 하방·변동성 리스크 신호 (분류 점수에 이미 감점 반영). 국내 종목만 제공.")
+                st.caption("🩸 공매도잔고/당일공매도/공매도↑ · ⚠️신용잔고 = 하방·변동성 리스크 (점수 감점 반영) · 뉴스(AI) 호재/악재도 점수 반영. 공매도·신용은 국내 종목만 제공.")
                 st.markdown("##### 📈 상세 카드 (상위 8종목)")
                 for idx, r in enumerate(picks[:8]):
                     st.markdown(
@@ -6557,6 +6691,17 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             parts.append(f"신용잔고율 {_rk['credit_ratio']:.2f}%")
                         if parts:
                             st.caption("🩸 리스크: " + " ｜ ".join(parts))
+                    # AI 뉴스 호재/악재 판정
+                    if r.get("_news_label"):
+                        _emo = {"호재": "🟢", "악재": "🔴", "중립": "⚪"}.get(r["_news_label"], "⚪")
+                        _ns = r.get("_news_score")
+                        _sgn = f" ({_ns:+d})" if isinstance(_ns, int) and _ns != 0 else ""
+                        _rsn = f" — {r['_news_reason']}" if r.get("_news_reason") else ""
+                        st.caption(f"📰 AI 뉴스 판정: {_emo} **{r['_news_label']}**{_sgn}{_rsn}")
+                    # 공매도 추세 미니차트
+                    _fig = _short_trend_figure(r.get("_risk"))
+                    if _fig is not None:
+                        st.plotly_chart(_fig, use_container_width=True)
                     draw_stock_card(r, api_key_str=api_key_input, is_expanded=False, key_suffix=f"finder_{hz}_{idx}")
                     # 종목별 최신 뉴스
                     _news = r.get("_news")
