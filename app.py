@@ -1919,6 +1919,58 @@ def get_scan_targets(limit=50):
         return fallback_targets[:limit] # 준비된 예비 데이터만큼만 중복 없이 반환
     return []
 
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_drawdown_info(code, lookback="52주"):
+    """현재가·기간내 최고가·낙폭(%)·RSI 계산(가벼움). 실패 시 None.
+    fdr.DataReader는 국내(6자리)·미국(티커) 모두 지원. lookback: '52주' 또는 '전체'."""
+    try:
+        if lookback == "52주":
+            start = (datetime.now() - timedelta(days=370)).strftime("%Y-%m-%d")
+            df = fdr.DataReader(str(code), start)
+        else:
+            df = fdr.DataReader(str(code))
+        if df is None or df.empty or "Close" not in df.columns:
+            return None
+        close = df["Close"].dropna()
+        if len(close) < 20:
+            return None
+        cur = float(close.iloc[-1])
+        if cur <= 0:
+            return None
+        high_series = df["High"].dropna() if ("High" in df.columns and df["High"].notna().any()) else close
+        hi = float(high_series.max())
+        if hi <= 0:
+            return None
+        dd = round((cur / hi - 1) * 100, 1)
+        try:
+            hd = high_series.idxmax()
+            high_date = hd.strftime("%y.%m.%d") if hasattr(hd, "strftime") else str(hd)[:10]
+        except Exception:
+            high_date = ""
+        rsi = None
+        try:
+            d = close.diff()
+            up = d.clip(lower=0).rolling(14).mean()
+            dn = (-d.clip(upper=0)).rolling(14).mean()
+            rs = up / dn
+            val = rs.iloc[-1]
+            if pd.notna(val):
+                rsi = round(float(100 - 100 / (1 + val)), 0)
+        except Exception:
+            pass
+        # 최근 저점 대비 반등률(바닥 확인용)
+        try:
+            lo = float(close.tail(120).min())
+            rebound = round((cur / lo - 1) * 100, 1) if lo > 0 else None
+        except Exception:
+            rebound = None
+        return {"current": cur, "high": hi, "high_date": high_date,
+                "drawdown": dd, "rsi": rsi, "rebound": rebound}
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=86400)
 def get_us_scan_targets(limit=300):
     try:
@@ -5651,6 +5703,7 @@ with st.sidebar:
         "  ", 
         "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
         " ┣ 🧭 AI 통합 투자 발굴기 (테스트)",
+        " ┣ 📉 낙폭과대 스캐너 (고점대비 -30%↓)",
         " ┣ 📋 코스피·코스닥 종목 리스트",
         " ┣ 🚀 단기 스윙 퀀트 스캐너",
         " ┣ 🏛️ 국민연금 5% 대량보유 픽",
@@ -6750,6 +6803,103 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     with c3: st.markdown(metric_card("총 매매 횟수", f"{total_trades}회", "신규 진입 기준"), unsafe_allow_html=True)
                     with c4: st.markdown(metric_card("승률 (Win Rate)", f"{win_rate:.1f}%", "수익 마감 거래일 기준", is_red=(win_rate>50)), unsafe_allow_html=True)
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
+
+elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
+    st.markdown("## 📉 낙폭과대 스캐너")
+    st.caption("고점 대비 크게 하락한 종목만 추려냅니다. 낙폭과대 반등(역추세) 후보 발굴용 — "
+               "**'떨어진 데는 이유가 있을 수 있으니'** 펀더멘털·뉴스를 반드시 함께 확인하세요.")
+
+    if "dd_results" not in st.session_state:
+        st.session_state.dd_results = None
+        st.session_state.dd_meta = None
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        dd_scope_label = st.radio("🌍 시장", ["🇰🇷 국내", "🇺🇸 미국", "🇰🇷+🇺🇸 모두"], horizontal=True)
+    with c2:
+        min_fall = st.slider("📉 최소 낙폭 (고점 대비)", 20, 70, 30, step=5, format="%d%%")
+    with c3:
+        lookback = st.radio("📅 고점 기준", ["52주", "전체기간"], horizontal=True)
+    dd_depth = st.select_slider("🔬 스캔 범위 (거래대금/시총 상위)",
+                                options=["상위 100", "상위 200", "상위 400"], value="상위 200")
+    depth_n = {"상위 100": 100, "상위 200": 200, "상위 400": 400}[dd_depth]
+    lb = "52주" if lookback == "52주" else "전체"
+    st.caption("⏳ 범위가 넓을수록 1~3분 걸릴 수 있어요(종목별 시세 조회). 결과는 캐시되어 재실행이 빠릅니다.")
+
+    if st.button("🔎 낙폭 스캔 시작", type="primary", use_container_width=True):
+        scope = ("kr" if dd_scope_label.startswith("🇰🇷 국내")
+                 else "us" if dd_scope_label.startswith("🇺🇸 미국") else "both")
+        universe = []
+        if scope in ("kr", "both"):
+            try:
+                universe += [(n, str(c), "🇰🇷 국내") for n, c in (get_scan_targets(depth_n) or [])]
+            except Exception:
+                pass
+        if scope in ("us", "both"):
+            try:
+                universe += [(n, str(c), "🇺🇸 미국") for n, c in (get_us_scan_targets(min(depth_n, 500)) or [])]
+            except Exception:
+                pass
+        seen, uni = set(), []
+        for n, c, mk in universe:
+            if c in seen:
+                continue
+            seen.add(c); uni.append((n, c, mk))
+        if not uni:
+            st.error("❌ 종목 유니버스를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        else:
+            prog = st.progress(0.0); status = st.empty()
+            done, total, rows = 0, len(uni), []
+
+            def _dd_work(item):
+                n, c, mk = item
+                return n, c, mk, get_drawdown_info(c, lb)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                for fut in concurrent.futures.as_completed({ex.submit(_dd_work, it): it for it in uni}):
+                    try:
+                        n, c, mk, info = fut.result()
+                        if info and info["drawdown"] is not None and info["drawdown"] <= -min_fall:
+                            rows.append({"name": n, "code": c, "market": mk, **info})
+                    except Exception:
+                        pass
+                    done += 1
+                    prog.progress(min(1.0, done / total))
+                    status.text(f"📉 낙폭 스캔 중... ({done}/{total})")
+            prog.empty(); status.empty()
+            rows.sort(key=lambda r: r["drawdown"])   # 가장 많이 빠진 순
+            st.session_state.dd_results = rows
+            st.session_state.dd_meta = (dd_scope_label, min_fall, lookback, len(uni))
+
+    # ===== 결과 렌더 =====
+    rows = st.session_state.dd_results
+    if rows is not None:
+        meta = st.session_state.dd_meta
+        if not rows:
+            st.warning(f"조건(고점 대비 -{meta[1]}% 이하)을 만족하는 종목이 없습니다. 낙폭 기준을 낮춰보세요.")
+        else:
+            st.success(f"✅ {meta[3]}개 스캔 중 **{len(rows)}개** 포착 — 고점({meta[2]}) 대비 **-{meta[1]}% 이하**")
+            df_rows = []
+            for i, r in enumerate(rows, 1):
+                is_kr = str(r["code"]).isdigit()
+                px = f"{int(r['current']):,}원" if is_kr else f"${r['current']:,.2f}"
+                hp = f"{int(r['high']):,}원" if is_kr else f"${r['high']:,.2f}"
+                rsi = r.get("rsi")
+                rsi_txt = ((f"{rsi:.0f}" + (" 🧊과매도" if rsi <= 30 else "")) if rsi is not None else "-")
+                df_rows.append({
+                    "순위": i, "종목명": r["name"], "시장": r["market"],
+                    "현재가": px, "최고가": hp, "고점일": (r.get("high_date") or "-"),
+                    "낙폭": f"{r['drawdown']:.1f}%",
+                    "저점대비 반등": (f"+{r['rebound']:.1f}%" if r.get("rebound") is not None else "-"),
+                    "RSI": rsi_txt,
+                })
+            dd_df = pd.DataFrame(df_rows)
+            st.dataframe(dd_df, use_container_width=True, hide_index=True,
+                         height=min(640, 80 + len(df_rows) * 35))
+            st.caption("💡 낙폭% = 현재가 ÷ 기간 내 최고가 − 1. 🧊과매도(RSI≤30)는 단기 반등 기대 구간이나 하락 추세가 더 이어질 위험도 큽니다. "
+                       "상세 차트·수급·재무는 '🔬 개별 기업 정밀 진단' 탭에서 확인하세요.")
+            st.download_button("⬇️ 결과 CSV 저장", dd_df.to_csv(index=False).encode("utf-8-sig"),
+                               "낙폭과대_스캔.csv", "text/csv")
 
 elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
