@@ -4623,6 +4623,106 @@ def _finder_value(code):
     return get_value_metrics(code)
 
 
+def _finder_risk(code):
+    """파인더 전용: 공매도 + 신용(빚투) 리스크 통합 (국내 전용).
+    반환 dict 예: {short_vol_ratio, short_bal_ratio, short_vol_trend, short_bal_trend,
+                   level(emoji,text), credit_ratio} | None"""
+    if not str(code).isdigit():
+        return None
+    out = {}
+    try:
+        s = get_short_selling_risk(code)
+        if isinstance(s, dict):
+            out.update(s)
+    except Exception:
+        pass
+    try:
+        c = get_credit_balance_naver(code)
+        if isinstance(c, dict) and c.get("credit_ratio") is not None:
+            out["credit_ratio"] = c["credit_ratio"]
+    except Exception:
+        pass
+    return out or None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_stock_news(code, name="", limit=5):
+    """종목별 최신 뉴스 N건. 국내=네이버 종목뉴스, 미국=yfinance.
+    반환: list[{title, link, date, source}]"""
+    code = str(code).strip()
+    is_us = not code.isdigit()
+    items = []
+    if is_us:
+        try:
+            raw = yf.Ticker(code).news or []
+            for n in raw[:limit + 3]:
+                content = n.get("content") if isinstance(n.get("content"), dict) else n
+                title = content.get("title") or n.get("title")
+                # 링크
+                link = ""
+                cu = content.get("canonicalUrl")
+                if isinstance(cu, dict):
+                    link = cu.get("url", "")
+                if not link:
+                    cl = content.get("clickThroughUrl")
+                    if isinstance(cl, dict):
+                        link = cl.get("url", "")
+                link = link or n.get("link", "")
+                # 출처
+                src = ""
+                prov = content.get("provider")
+                if isinstance(prov, dict):
+                    src = prov.get("displayName", "")
+                src = src or n.get("publisher", "")
+                # 날짜
+                date = ""
+                pub = content.get("pubDate") or content.get("displayTime")
+                ts = n.get("providerPublishTime")
+                if pub:
+                    date = str(pub)[:10]
+                elif ts:
+                    try:
+                        date = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+                    except Exception:
+                        date = ""
+                if title:
+                    items.append({"title": str(title).strip(), "link": link,
+                                  "date": date, "source": src})
+                if len(items) >= limit:
+                    break
+        except Exception:
+            pass
+        return items[:limit]
+    # 국내: 네이버 종목뉴스
+    try:
+        url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
+        seen = set()
+        for tr in soup.select("tr"):
+            a = tr.select_one("td.title a")
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            if not title or title in seen or "news_read" not in href:
+                continue
+            link = ("https://finance.naver.com" + href) if href.startswith("/") else href
+            info = tr.select_one("td.info")
+            date_el = tr.select_one("td.date")
+            seen.add(title)
+            items.append({
+                "title": title, "link": link,
+                "date": date_el.get_text(strip=True) if date_el else "",
+                "source": info.get_text(strip=True) if info else "",
+            })
+            if len(items) >= limit:
+                break
+    except Exception:
+        pass
+    return items[:limit]
+
+
 def get_market_mood():
     """시장 분위기 종합 → dict(light, title, desc, risk_on[-1~1], vix, fng, breadth...).
     risk_on: 위험선호도. +1에 가까울수록 공격적(단기 모멘텀 우호), -1에 가까울수록 방어적(장기/가치 우호)."""
@@ -4742,9 +4842,10 @@ def _clip(v, lo=0.0, hi=100.0):
     return max(lo, min(hi, v))
 
 
-def score_one(tech, vm, mood, theme_hit=False):
+def score_one(tech, vm, mood, theme_hit=False, risk=None):
     """한 종목의 단기/중기/장기 적합도(0~100) 산출 + 자동 분류 + 사유.
-    반환: (scores dict, horizon, top_score, grade, reasons list)"""
+    공매도/신용(빚투) 리스크가 있으면 감점(단기>중기>장기 순으로 크게).
+    반환: (scores dict, horizon, top_score, grade, reasons list, risk_flags list)"""
     al = _align_flags(tech)
     rsi = _f_num(tech.get("RSI"))
     vol_spike = "터짐" in str(tech.get("거래량 급증", ""))
@@ -4845,6 +4946,32 @@ def score_one(tech, vm, mood, theme_hit=False):
     l += 6.0 * max(0.0, -mood["risk_on"])     # 위험회피 구간 → 장기 가산
     longs = _clip(l)
 
+    # ===== 공매도 / 신용(빚투) 리스크 감점 =====
+    # 단기에 가장 큰 하방 압력, 중기 중간, 장기는 상대적으로 영향 작게 반영.
+    risk_flags = []
+    if isinstance(risk, dict) and risk:
+        ps = pm = pl = 0.0
+        sbr = risk.get("short_bal_ratio")      # 공매도 잔고 비중(%)
+        svr = risk.get("short_vol_ratio")      # 당일 공매도 거래 비중(%)
+        cr = risk.get("credit_ratio")          # 신용잔고율(%)
+        if sbr is not None:
+            if sbr >= 3.0: ps += 12; pm += 8; pl += 4; risk_flags.append(f"🩸공매도잔고 {sbr:.1f}%")
+            elif sbr >= 1.5: ps += 6; pm += 4; pl += 2
+        if svr is not None:
+            if svr >= 20: ps += 10; pm += 5; risk_flags.append(f"🩸당일공매도 {svr:.0f}%")
+            elif svr >= 10: ps += 5; pm += 2
+        # 공매도 추세 증가 = 추가 하방
+        if str(risk.get("short_vol_trend", "")).startswith("📈") or str(risk.get("short_bal_trend", "")).startswith("📈"):
+            ps += 4; pm += 2
+            if "🩸공매도↑" not in risk_flags:
+                risk_flags.append("🩸공매도↑")
+        if cr is not None:
+            if cr >= 10: ps += 8; pm += 5; pl += 2; risk_flags.append(f"⚠️신용잔고 {cr:.1f}%")
+            elif cr >= 5: ps += 4; pm += 2
+        short = _clip(short - ps)
+        mid = _clip(mid - pm)
+        longs = _clip(longs - pl)
+
     scores = {"단기": round(short, 1), "중기": round(mid, 1), "장기": round(longs, 1)}
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     horizon = ranked[0][0]
@@ -4860,7 +4987,7 @@ def score_one(tech, vm, mood, theme_hit=False):
     if top >= 70: grade = "🟢 강력"
     elif top >= 50: grade = "🟡 양호"
     else: grade = "⚪ 약함"
-    return scores, horizon, round(top, 1), grade, reasons
+    return scores, horizon, round(top, 1), grade, reasons, risk_flags
 
 
 def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_n, want_long):
@@ -6238,7 +6365,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 prelim = {}
                 for code, tech in techs.items():
                     th = pool[code].get("theme") is not None
-                    sc, _, top, _, _ = score_one(tech, None, mood, theme_hit=th)
+                    _sc, _, top, _, _, _ = score_one(tech, None, mood, theme_hit=th)
                     prelim[code] = top
                 kr_codes = [c for c in techs if str(c).isdigit()]
                 must = [c for c in kr_codes if {"theme", "value"} & pool[c]["src"]]   # 테마/가치 후보는 반드시 보강
@@ -6246,31 +6373,36 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                               key=lambda c: prelim.get(c, 0), reverse=True)
                 phaseb = (must + rest)[:phaseb_cap]
 
-                # 5) Phase B — 가치/펀더멘털 보강 (국내, 병렬)
-                vmap = {}
+                # 5) Phase B — 가치/펀더멘털 + 공매도·신용 리스크 보강 (국내, 병렬)
+                vmap, rmap = {}, {}
                 if phaseb:
                     progressB = st.progress(0.0)
                     statusB = st.empty()
                     doneB, totalB = 0, len(phaseb)
+
+                    def _runB(c):
+                        return c, _finder_value(c), _finder_risk(c)
+
                     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-                        futmap = {ex.submit(_finder_value, c): c for c in phaseb}
-                        for fut in concurrent.futures.as_completed(futmap):
-                            c = futmap[fut]
+                        for fut in concurrent.futures.as_completed({ex.submit(_runB, c): c for c in phaseb}):
                             try:
-                                vmap[c] = fut.result()
+                                c, vm, rk = fut.result()
+                                vmap[c] = vm
+                                rmap[c] = rk
                             except Exception:
-                                vmap[c] = None
+                                pass
                             doneB += 1
                             progressB.progress(min(1.0, doneB / totalB))
-                            statusB.text(f"💎 2/2 펀더멘털(ROE·배당·성장) 보강 중... ({doneB}/{totalB})")
+                            statusB.text(f"💎 2/2 펀더멘털·공매도·신용 리스크 보강 중... ({doneB}/{totalB})")
                     progressB.empty(); statusB.empty()
 
-                # 6) 최종 점수 + 자동 분류
+                # 6) 최종 점수 + 자동 분류 (리스크 반영)
                 enriched = []
                 for code, tech in techs.items():
                     th_name = pool[code].get("theme")
                     th = th_name is not None
-                    scores, horizon, top, grade, reasons = score_one(tech, vmap.get(code), mood, theme_hit=th)
+                    scores, horizon, top, grade, reasons, risk_flags = score_one(
+                        tech, vmap.get(code), mood, theme_hit=th, risk=rmap.get(code))
                     r = dict(tech)
                     r["_scores"] = scores
                     r["_horizon"] = horizon
@@ -6278,7 +6410,42 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     r["_grade"] = grade
                     r["_reasons"] = reasons
                     r["_theme"] = th_name
+                    r["_risk"] = rmap.get(code)
+                    r["_risk_flags"] = risk_flags
                     enriched.append(r)
+
+                # 6-1) 표시 대상(기간별 상위) 종목에 최신 뉴스 자동 첨부
+                buckets_full = {"단기": [], "중기": [], "장기": []}
+                for r in enriched:
+                    buckets_full[r["_horizon"]].append(r)
+                for hz in buckets_full:
+                    buckets_full[hz].sort(key=lambda x: x["_top"], reverse=True)
+                news_targets = []
+                for hz in ("단기", "중기", "장기"):
+                    for r in buckets_full[hz][:8]:
+                        news_targets.append(r.get("티커"))
+                news_targets = list(dict.fromkeys([t for t in news_targets if t]))
+                if news_targets:
+                    code2name = {r.get("티커"): r.get("종목명") for r in enriched}
+                    newsmap = {}
+                    progressN = st.progress(0.0)
+                    statusN = st.empty()
+                    doneN, totalN = 0, len(news_targets)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                        fmap = {ex.submit(get_stock_news, c, code2name.get(c, ""), 4): c for c in news_targets}
+                        for fut in concurrent.futures.as_completed(fmap):
+                            c = fmap[fut]
+                            try:
+                                newsmap[c] = fut.result()
+                            except Exception:
+                                newsmap[c] = []
+                            doneN += 1
+                            progressN.progress(min(1.0, doneN / totalN))
+                            statusN.text(f"📰 종목별 최신 뉴스 수집 중... ({doneN}/{totalN})")
+                    progressN.empty(); statusN.empty()
+                    for r in enriched:
+                        if r.get("티커") in newsmap:
+                            r["_news"] = newsmap[r["티커"]]
 
                 st.session_state.finder_results = enriched
                 st.session_state.finder_mood = mood
@@ -6349,15 +6516,24 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 # 요약 표
                 rows = []
                 for rk, r in enumerate(picks, 1):
+                    _rk = r.get("_risk") or {}
+                    _lvl = _rk.get("level")
+                    risk_cell = (_lvl[0] if isinstance(_lvl, (list, tuple)) and _lvl else "")
+                    if r.get("_risk_flags"):
+                        risk_cell = (risk_cell + " " + " ".join(r["_risk_flags"])).strip()
+                    if not risk_cell:
+                        risk_cell = ("🟢" if str(r.get("티커", "")).isdigit() else "—")
                     rows.append({
                         "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
                         "종목명": r.get("종목명"), "시장": r.get("시장", ""),
                         "테마": r.get("_theme") or "-",
                         "현재가": (f"${r['현재가']:,.2f}" if not str(r.get('티커','')).isdigit() else f"{int(r.get('현재가',0)):,}원"),
                         "RSI": (f"{r['RSI']:.0f}" if _f_num(r.get('RSI')) is not None else "-"),
+                        "공매도/신용": risk_cell,
                         "핵심근거": " · ".join(r.get("_reasons", [])) or "-",
                     })
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.caption("🩸 공매도잔고/당일공매도/공매도↑ · ⚠️신용잔고 = 하방·변동성 리스크 신호 (분류 점수에 이미 감점 반영). 국내 종목만 제공.")
                 st.markdown("##### 📈 상세 카드 (상위 8종목)")
                 for idx, r in enumerate(picks[:8]):
                     st.markdown(
@@ -6366,7 +6542,37 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     )
                     if r.get("_reasons"):
                         st.caption("근거: " + " · ".join(r["_reasons"]))
+                    # 공매도/신용 리스크 한 줄
+                    _rk = r.get("_risk") or {}
+                    if _rk:
+                        parts = []
+                        _lvl = _rk.get("level")
+                        if isinstance(_lvl, (list, tuple)) and len(_lvl) == 2:
+                            parts.append(f"{_lvl[0]} {_lvl[1]}")
+                        if _rk.get("short_bal_ratio") is not None:
+                            parts.append(f"공매도잔고 {_rk['short_bal_ratio']:.2f}%{(' '+_rk['short_bal_trend']) if _rk.get('short_bal_trend') else ''}")
+                        if _rk.get("short_vol_ratio") is not None:
+                            parts.append(f"당일공매도 {_rk['short_vol_ratio']:.1f}%{(' '+_rk['short_vol_trend']) if _rk.get('short_vol_trend') else ''}")
+                        if _rk.get("credit_ratio") is not None:
+                            parts.append(f"신용잔고율 {_rk['credit_ratio']:.2f}%")
+                        if parts:
+                            st.caption("🩸 리스크: " + " ｜ ".join(parts))
                     draw_stock_card(r, api_key_str=api_key_input, is_expanded=False, key_suffix=f"finder_{hz}_{idx}")
+                    # 종목별 최신 뉴스
+                    _news = r.get("_news")
+                    if _news:
+                        with st.expander(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건", expanded=False):
+                            for nws in _news:
+                                meta = " · ".join([x for x in [nws.get("source"), nws.get("date")] if x])
+                                title = nws.get("title", "")
+                                link = nws.get("link", "")
+                                if link:
+                                    st.markdown(f"- [{title}]({link})" + (f"  \n  <span style='color:#94a3b8;font-size:12px;'>{meta}</span>" if meta else ""), unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f"- {title}" + (f" · {meta}" if meta else ""))
+                    elif "_news" in r:
+                        st.caption("📰 최근 뉴스를 찾지 못했습니다.")
+                    st.markdown("")
     else:
         st.info("위에서 조건을 고르고 **‘통합 검색 시작’**을 누르면, 시장 분위기·테마·차트·펀더멘털을 종합해 기간별 투자 후보를 찾아드립니다.")
 
