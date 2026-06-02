@@ -4763,6 +4763,81 @@ def fetch_article_excerpt(url, max_chars=320):
         return ""
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_consensus_signal(code):
+    """증권사 리포트 '목록'만으로 컨센서스 리비전을 근사(상세 미조회 → 빠름·국내 전용).
+    제목의 상향/하향 키워드와 최근 35일 커버리지 빈도를 집계.
+    반환: {revision_dir(상향/중립/하향), up, dn, report_count_30d, report_total} | None"""
+    if not str(code).isdigit():
+        return None
+    try:
+        url = f"https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        soup = BeautifulSoup(res.content.decode("euc-kr", "replace"), "html.parser")
+        table = soup.find("table", {"class": "type_1"})
+        if not table:
+            return None
+        now = datetime.now()
+        up = dn = recent = total = 0
+        for tr in table.find_all("tr"):
+            tds = tr.find_all("td")
+            if len(tds) < 5:
+                continue
+            a = tds[1].find("a")
+            if not a:
+                continue
+            title = a.text.strip()
+            date_s = tds[4].text.strip()
+            total += 1
+            try:
+                d = datetime.strptime(date_s, "%y.%m.%d")
+                if (now - d).days <= 35:
+                    recent += 1
+            except Exception:
+                pass
+            if any(k in title for k in ["상향", "상향조정", "눈높이 상향", "목표가 상향", "목표주가 상향"]):
+                up += 1
+            if any(k in title for k in ["하향", "하향조정", "눈높이 하향", "목표가 하향", "목표주가 하향"]):
+                dn += 1
+        if total == 0:
+            return None
+        rev = "상향" if up > dn else ("하향" if dn > up else "중립")
+        return {"revision_dir": rev, "up": up, "dn": dn,
+                "report_count_30d": recent, "report_total": total}
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_finder_exclusion_set():
+    """관리종목 + 투자경보(투자경고/위험/주의)·거래정지·정리매매 종목명 집합을 한 번에 수집.
+    반환: (names_set, reason_map[name]=사유). 하드필터(후보 제외)용."""
+    names, reason = set(), {}
+    try:
+        mgmt_df, alert_df = get_market_warnings()
+    except Exception:
+        return names, reason
+
+    def _ingest(df, default_reason):
+        if df is None or getattr(df, "empty", True):
+            return
+        name_col = next((c for c in df.columns if "종목" in str(c)), None)
+        reason_col = next((c for c in df.columns if ("사유" in str(c)) or ("구분" in str(c)) or ("지정" in str(c))), None)
+        if not name_col:
+            return
+        for _, row in df.iterrows():
+            nm = re.sub(r"\s+", "", str(row[name_col])).strip()
+            if not nm or nm == "종목명":
+                continue
+            rs = str(row[reason_col]).strip() if reason_col else default_reason
+            names.add(nm)
+            reason.setdefault(nm, rs or default_reason)
+
+    _ingest(mgmt_df, "관리종목")
+    _ingest(alert_df, "투자경보")
+    return names, reason
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def classify_news_sentiment(_api_key, items):
     """종목별 '개별 기사 제목'을 AI가 호재/중립/악재로 판정하고 종목 단위로 집계.
@@ -5023,7 +5098,102 @@ def _clip(v, lo=0.0, hi=100.0):
     return max(lo, min(hi, v))
 
 
-def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None):
+def macro_tilt_for(sector, macro):
+    """매크로 지표(환율·금리·SOX·유가·VIX)의 방향을 종목 '섹터'에 대입해 틸트 점수 산출.
+    반환: (points(-12~12), notes[]). macro = get_macro_indicators() 결과."""
+    if not macro:
+        return 0.0, []
+    S = str(sector or "")
+    has = lambda *kw: any(k in S for k in kw)
+    pts, notes = 0.0, []
+
+    def d(name):
+        m = macro.get(name)
+        return (m.get("delta") if isinstance(m, dict) else None)
+
+    fx, ust, sox, wti = d("원/달러 환율"), d("美 10년물 국채"), d("필라델피아 반도체"), d("WTI 원유")
+    vix_m = macro.get("VIX") if isinstance(macro.get("VIX"), dict) else None
+
+    # 환율: 원화 약세(상승) → 수출주 우호 / 내수·항공 부담
+    if fx is not None:
+        if fx > 0:
+            if has("반도체", "전자", "IT", "기술", "디스플레이", "자동차", "조선", "기계", "소재"):
+                pts += 6; notes.append("원화약세 수혜(수출)")
+            if has("항공", "여행", "유통", "소매", "음식료", "호텔", "레저", "필수"):
+                pts -= 4; notes.append("원화약세 부담(내수/항공)")
+        elif fx < 0:
+            if has("항공", "여행", "유통", "소매"):
+                pts += 3
+            if has("반도체", "자동차", "조선"):
+                pts -= 2
+    # 금리: 상승 → 금융 우호 / 성장·리츠 부담
+    if ust is not None:
+        if ust > 0:
+            if has("은행", "금융", "보험", "증권", "지주"):
+                pts += 6; notes.append("금리상승 수혜(금융)")
+            if has("바이오", "제약", "의약", "리츠", "부동산", "소프트", "인터넷", "게임", "이차", "2차", "배터리", "유틸"):
+                pts -= 4; notes.append("금리상승 부담(성장/리츠)")
+        elif ust < 0:
+            if has("바이오", "소프트", "인터넷", "게임", "이차", "2차", "배터리"):
+                pts += 3; notes.append("금리하락 수혜(성장)")
+            if has("은행", "보험"):
+                pts -= 2
+    # 반도체 업황(SOX)
+    if sox is not None:
+        if sox > 0 and has("반도체", "전자", "IT", "기술", "장비", "디스플레이"):
+            pts += 5; notes.append("반도체 업황 강세")
+        elif sox < 0 and has("반도체", "전자"):
+            pts -= 3
+    # 유가
+    if wti is not None:
+        if wti > 0:
+            if has("정유", "에너지", "화학", "석유", "가스", "조선"):
+                pts += 5; notes.append("유가상승 수혜")
+            if has("항공", "운송", "해운"):
+                pts -= 4; notes.append("유가상승 부담(항공/운송)")
+        elif wti < 0:
+            if has("항공", "운송", "해운"):
+                pts += 3
+            if has("정유", "에너지"):
+                pts -= 2
+    # 변동성(VIX): 공포 국면 → 방어주 선호
+    if vix_m:
+        lvl, up = vix_m.get("value"), (vix_m.get("delta") or 0) > 0
+        if lvl is not None and (lvl > 25 or up):
+            if has("음식료", "필수", "유틸", "전력", "통신", "담배"):
+                pts += 4; notes.append("위험회피 방어주 선호")
+            if has("게임", "인터넷", "소프트", "이차", "2차", "배터리", "바이오"):
+                pts -= 3
+    return max(-12.0, min(12.0, pts)), notes[:3]
+
+
+def macro_regime_notes(macro):
+    """매크로 방향을 시장 배너용 한 줄 메모 리스트로 요약."""
+    if not macro:
+        return []
+    out = []
+
+    def d(name):
+        m = macro.get(name)
+        return (m.get("delta") if isinstance(m, dict) else None)
+
+    fx, ust, sox, wti = d("원/달러 환율"), d("美 10년물 국채"), d("필라델피아 반도체"), d("WTI 원유")
+    vix_m = macro.get("VIX") if isinstance(macro.get("VIX"), dict) else None
+    if fx is not None:
+        out.append("📈 원화 약세 → 수출주(반도체·자동차) 우호" if fx > 0 else "📉 원화 강세 → 내수주 우호")
+    if ust is not None:
+        out.append("📈 금리 상승 → 금융 우호·성장/리츠 부담" if ust > 0 else "📉 금리 하락 → 성장주 우호")
+    if sox is not None and sox > 0:
+        out.append("🔥 반도체 업황 강세")
+    if wti is not None:
+        out.append("🛢️ 유가 상승 → 정유·조선 우호/항공 부담" if wti > 0 else "🛢️ 유가 하락 → 항공·운송 우호")
+    if vix_m and (vix_m.get("value", 0) or 0) > 25:
+        out.append("⚠️ 변동성 확대 → 방어주 선호")
+    return out
+
+
+def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
+              sector_tilt=0.0, consensus=None, dilution=False):
     """한 종목의 단기/중기/장기 적합도(0~100) 산출 + 자동 분류 + 사유.
     공매도/신용(빚투) 리스크가 있으면 감점(단기>중기>장기 순). AI 뉴스 판정(news_sent:-2~2)도
     점수에 반영(단기에 가장 크게). 반환: (scores, horizon, top, grade, reasons, risk_flags)"""
@@ -5163,6 +5333,44 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None):
             short = _clip(short + ns * 6)
             mid = _clip(mid + ns * 3)
             longs = _clip(longs + ns * 1)
+
+    # ===== 컨센서스 리비전 (목표가 괴리 + 상/하향) =====
+    target = _f_num(tech.get("목표가_컨센서스"))
+    cur = _f_num(tech.get("현재가"))
+    upside = ((target / cur) - 1) * 100 if (target and cur and cur > 0) else None
+    cs = ms = ls = 0.0
+    if upside is not None:
+        if upside >= 30:
+            ms += 10; ls += 8; cs += 6; r_m.append(f"기대수익 +{upside:.0f}%"); r_l.append(f"목표가 괴리 +{upside:.0f}%")
+        elif upside >= 15:
+            ms += 6; ls += 5; cs += 3; r_m.append(f"기대수익 +{upside:.0f}%")
+        elif upside < 0:
+            ms -= 4; ls -= 4; cs -= 3   # 주가가 컨센 목표가 위 → 과열
+    if isinstance(consensus, dict):
+        rev = consensus.get("revision_dir")
+        if rev == "상향":
+            cs += 6; ms += 5; r_s.append("목표가 상향"); r_m.append("목표가 상향")
+        elif rev == "하향":
+            cs -= 6; ms -= 4
+        if (consensus.get("report_count_30d") or 0) >= 2:
+            ms += 2
+    short = _clip(short + cs); mid = _clip(mid + ms); longs = _clip(longs + ls)
+
+    # ===== 매크로 → 섹터 틸트 (단기·중기 위주) =====
+    if sector_tilt:
+        short = _clip(short + sector_tilt)
+        mid = _clip(mid + sector_tilt * 0.7)
+        longs = _clip(longs + sector_tilt * 0.2)
+        if sector_tilt >= 4:
+            r_s.append("매크로 순풍(섹터)")
+        elif sector_tilt <= -4:
+            r_s.append("매크로 역풍(섹터)")
+
+    # ===== 증자/CB 희석 리스크 (뉴스 감지 시) =====
+    if dilution:
+        short = _clip(short - 14)
+        mid = _clip(mid - 8)
+        longs = _clip(longs - 6)
 
     scores = {"단기": round(short, 1), "중기": round(mid, 1), "장기": round(longs, 1)}
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
@@ -6446,13 +6654,14 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
 
 elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
-    st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치(뉴스·폴리마켓) + 차트 + 펀더멘털 + 공매도/신용 + "
-               "**뉴스 제목·본문 AI 판정**을 한 번에 융합해 **단기·중기·장기 투자 후보를 자동 분류**합니다. "
-               "종목 성격과 시장 분위기에 따라 어느 기간에 적합한지 스스로 판정합니다.")
+    st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치 + 차트 + 펀더멘털 + 공매도/신용 + 뉴스 본문 AI 판정 + "
+               "**실적·목표가 컨센서스 + 매크로→섹터 틸트**를 한 번에 융합하고, **관리종목·거래정지·투자경보는 자동 제외**한 뒤 "
+               "**단기·중기·장기 투자 후보를 자동 분류**합니다.")
 
     # 세션 상태 초기화
     for _k, _v in [("finder_results", None), ("finder_mood", None),
-                   ("finder_radar", None), ("finder_brief", None), ("finder_meta", None)]:
+                   ("finder_radar", None), ("finder_brief", None), ("finder_meta", None),
+                   ("finder_excluded", None), ("finder_macro", None)]:
         if _k not in st.session_state:
             st.session_state[_k] = _v
 
@@ -6538,6 +6747,24 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
             if not pool:
                 st.error("❌ 후보 종목을 구성하지 못했습니다. 잠시 후 다시 시도해 주세요.")
             else:
+                # 3-1) 리스크 하드필터 — 관리종목·투자경보·거래정지 종목은 후보에서 제외
+                excluded = []
+                try:
+                    excl_names, excl_reason = get_finder_exclusion_set()
+                except Exception:
+                    excl_names, excl_reason = set(), {}
+                if excl_names:
+                    for cd in list(pool.keys()):
+                        nm = re.sub(r"\s+", "", str(pool[cd]["name"]))
+                        if nm in excl_names:
+                            excluded.append((pool[cd]["name"], excl_reason.get(nm, "관리/경보")))
+                            pool.pop(cd, None)
+                st.session_state["finder_excluded"] = excluded
+
+                # 매크로 지표(섹터 틸트용) — 1회 수집
+                macro_ind = get_macro_indicators() or {}
+                st.session_state["finder_macro"] = macro_ind
+
                 items = list(pool.items())  # [(code, info)]
                 # 4) Phase A — 기술적 분석 (병렬)
                 progressA = st.progress(0.0)
@@ -6571,37 +6798,41 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                               key=lambda c: prelim.get(c, 0), reverse=True)
                 phaseb = (must + rest)[:phaseb_cap]
 
-                # 5) Phase B — 가치/펀더멘털 + 공매도·신용 리스크 보강 (국내, 병렬)
-                vmap, rmap = {}, {}
+                # 5) Phase B — 가치/펀더멘털 + 공매도·신용 + 컨센서스 리비전 보강 (국내, 병렬)
+                vmap, rmap, cmap = {}, {}, {}
                 if phaseb:
                     progressB = st.progress(0.0)
                     statusB = st.empty()
                     doneB, totalB = 0, len(phaseb)
 
                     def _runB(c):
-                        return c, _finder_value(c), _finder_risk(c)
+                        return c, _finder_value(c), _finder_risk(c), get_consensus_signal(c)
 
                     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
                         for fut in concurrent.futures.as_completed({ex.submit(_runB, c): c for c in phaseb}):
                             try:
-                                c, vm, rk = fut.result()
+                                c, vm, rk, cs = fut.result()
                                 vmap[c] = vm
                                 rmap[c] = rk
+                                cmap[c] = cs
                             except Exception:
                                 pass
                             doneB += 1
                             progressB.progress(min(1.0, doneB / totalB))
-                            statusB.text(f"💎 2/2 펀더멘털·공매도·신용 리스크 보강 중... ({doneB}/{totalB})")
+                            statusB.text(f"💎 2/2 펀더멘털·공매도·신용·컨센서스 보강 중... ({doneB}/{totalB})")
                     progressB.empty(); statusB.empty()
 
-                # 6) 1차 점수 + 자동 분류 (리스크 반영, 뉴스 전)
+                # 6) 1차 점수 + 자동 분류 (리스크·컨센서스·매크로틸트 반영, 뉴스 전)
                 enriched = []
                 by_code = {}
                 for code, tech in techs.items():
                     th_name = pool[code].get("theme")
                     th = th_name is not None
+                    tilt_pts, tilt_notes = macro_tilt_for(tech.get("섹터", ""), macro_ind)
+                    cons = cmap.get(code)
                     scores, horizon, top, grade, reasons, risk_flags = score_one(
-                        tech, vmap.get(code), mood, theme_hit=th, risk=rmap.get(code))
+                        tech, vmap.get(code), mood, theme_hit=th, risk=rmap.get(code),
+                        sector_tilt=tilt_pts, consensus=cons)
                     r = dict(tech)
                     r["_scores"] = scores
                     r["_horizon"] = horizon
@@ -6611,6 +6842,11 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     r["_theme"] = th_name
                     r["_risk"] = rmap.get(code)
                     r["_risk_flags"] = risk_flags
+                    r["_tilt"] = tilt_pts
+                    r["_tilt_notes"] = tilt_notes
+                    r["_consensus"] = cons
+                    r["_upside"] = (((_f_num(tech.get("목표가_컨센서스")) / _f_num(tech.get("현재가"))) - 1) * 100
+                                    if (_f_num(tech.get("목표가_컨센서스")) and _f_num(tech.get("현재가")) and _f_num(tech.get("현재가")) > 0) else None)
                     enriched.append(r)
                     by_code[code] = r
 
@@ -6712,11 +6948,21 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                 if k < len(titled):
                                     titled[k]["label"] = art[0]
                                     titled[k]["score"] = art[1]
-                            # 뉴스 점수를 반영해 재채점 (리스크·테마 동일 적용; 자동중립이면 score 0)
+                            # 증자/CB 희석 리스크 — 최근 기사 제목/본문에서 감지
+                            _dil = False
+                            for n in (r.get("_news") or []):
+                                blob = (str(n.get("title", "")) + " " + str(n.get("excerpt", "")))
+                                if any(k in blob for k in ["유상증자", "전환사채", "신주인수권", "BW 발행", "CB 발행", "주주배정 증자", "제3자배정"]):
+                                    _dil = True
+                                    n["dilution"] = True
+                            r["_dilution"] = _dil
+                            # 뉴스 점수·매크로틸트·컨센서스·증자리스크 반영해 재채점 (자동중립이면 score 0)
                             th_name = pool[c].get("theme")
+                            _tilt_pts, _ = macro_tilt_for(techs[c].get("섹터", ""), macro_ind)
                             scores, horizon, top, grade, reasons, risk_flags = score_one(
                                 techs[c], vmap.get(c), mood, theme_hit=(th_name is not None),
-                                risk=rmap.get(c), news_sent=info.get("score"))
+                                risk=rmap.get(c), news_sent=info.get("score"),
+                                sector_tilt=_tilt_pts, consensus=cmap.get(c), dilution=_dil)
                             r["_scores"] = scores
                             r["_horizon"] = horizon
                             r["_top"] = top
@@ -6775,6 +7021,19 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
         if meta:
             st.success(f"✅ 총 {meta[3]}개 종목 분석 완료 — 단기 {len(buckets['단기'])} · 중기 {len(buckets['중기'])} · 장기 {len(buckets['장기'])}개로 자동 분류")
 
+        # 매크로 → 섹터 틸트 배너 (오늘 매크로가 어느 섹터에 유·불리한지)
+        _mnotes = macro_regime_notes(st.session_state.get("finder_macro") or get_macro_indicators())
+        if _mnotes:
+            st.info("🧭 **오늘의 매크로 → 섹터 틸트** (점수에 반영): " + " ｜ ".join(_mnotes))
+
+        # 하드필터로 제외된 위험 종목 안내
+        _excl = st.session_state.get("finder_excluded") or []
+        if _excl:
+            with st.expander(f"🛑 리스크 하드필터로 제외된 종목 {len(_excl)}개 (관리·투자경보·거래정지)", expanded=False):
+                st.caption("아래 종목은 상장폐지·거래정지 등 고위험으로 분류돼 후보에서 제외됐습니다.")
+                st.dataframe(pd.DataFrame([{"종목명": n, "사유": rs} for n, rs in _excl]),
+                             use_container_width=True, hide_index=True)
+
         # 기간 포커스에 따라 기본 탭 순서 조정
         order = ["단기", "중기", "장기"]
         if "단기" in horizon_focus: order = ["단기", "중기", "장기"]
@@ -6803,18 +7062,30 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     news_cell = {"호재": "🟢 호재", "악재": "🔴 악재", "중립": "⚪ 중립"}.get(_nl, "—")
                     if _nl and r.get("_news_auto_neutral"):
                         news_cell = "⚪ 중립(저신뢰)"
+                    # 컨센서스 셀: 목표가 상/하향 + 기대수익(괴리율)
+                    _cons = r.get("_consensus") or {}
+                    _up = r.get("_upside")
+                    _rev = _cons.get("revision_dir")
+                    _cons_cell = {"상향": "🔼상향", "하향": "🔽하향", "중립": "≈중립"}.get(_rev, "")
+                    if _up is not None:
+                        _cons_cell = (_cons_cell + f" {_up:+.0f}%").strip()
+                    if not _cons_cell:
+                        _cons_cell = "—"
+                    if r.get("_dilution"):
+                        _cons_cell += " 🔻증자"
                     rows.append({
                         "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
                         "종목명": r.get("종목명"), "시장": r.get("시장", ""),
                         "테마": r.get("_theme") or "-",
                         "현재가": (f"${r['현재가']:,.2f}" if not str(r.get('티커','')).isdigit() else f"{int(r.get('현재가',0)):,}원"),
                         "RSI": (f"{r['RSI']:.0f}" if _f_num(r.get('RSI')) is not None else "-"),
+                        "컨센서스": _cons_cell,
                         "공매도/신용": risk_cell,
                         "뉴스(AI)": news_cell,
                         "핵심근거": " · ".join(r.get("_reasons", [])) or "-",
                     })
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-                st.caption("🩸 공매도잔고/당일공매도/공매도↑ · ⚠️신용잔고 = 하방·변동성 리스크 (점수 감점 반영) · 뉴스(AI) 호재/악재도 점수 반영. 공매도·신용은 국내 종목만 제공.")
+                st.caption("🔼/🔽 목표가 상·하향 · +%는 컨센서스 목표가 기대수익(괴리율) · 🔻증자=유상증자/CB 감지 · 🩸공매도/⚠️신용 = 하방 리스크 (모두 점수 반영). 컨센서스·공매도·신용은 국내 종목만 제공.")
                 st.markdown("##### 📈 상세 카드 (상위 8종목)")
                 for idx, r in enumerate(picks[:8]):
                     st.markdown(
@@ -6823,6 +7094,23 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     )
                     if r.get("_reasons"):
                         st.caption("근거: " + " · ".join(r["_reasons"]))
+                    # 컨센서스 + 매크로 틸트 + 증자리스크 한 줄
+                    _cparts = []
+                    _cons = r.get("_consensus") or {}
+                    _up = r.get("_upside")
+                    if _up is not None:
+                        _cparts.append(f"🎯 기대수익 {_up:+.0f}% (컨센 목표가)")
+                    if _cons.get("revision_dir") in ("상향", "하향"):
+                        _arrow = "🔼" if _cons["revision_dir"] == "상향" else "🔽"
+                        _cparts.append(f"{_arrow} 목표가 {_cons['revision_dir']}(최근 {_cons.get('report_total', 0)}건)")
+                    if r.get("_tilt_notes"):
+                        _t = r.get("_tilt") or 0
+                        _tmark = "🟢" if _t > 0 else ("🔴" if _t < 0 else "⚪")
+                        _cparts.append(f"{_tmark} 매크로: " + ", ".join(r["_tilt_notes"]))
+                    if r.get("_dilution"):
+                        _cparts.append("🔻 증자/CB 희석 리스크")
+                    if _cparts:
+                        st.caption(" ｜ ".join(_cparts))
                     # 공매도/신용 리스크 한 줄
                     _rk = r.get("_risk") or {}
                     if _rk:
