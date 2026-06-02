@@ -4728,53 +4728,148 @@ def get_stock_news(code, name="", limit=5):
     return items[:limit]
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_article_excerpt(url, max_chars=320):
+    """기사 본문 일부를 추출(베스트에포트). 실패 시 ''. 네이버 금융/뉴스·일반 언론사 모두 대응.
+    여러 본문 컨테이너 선택자를 순차 시도하고, 없으면 페이지 전체 텍스트에서 발췌."""
+    if not url or not str(url).startswith("http"):
+        return ""
+    try:
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=4)
+        if res.status_code != 200:
+            return ""
+        enc = (res.encoding or "").lower()
+        if not enc or enc == "iso-8859-1":
+            enc = res.apparent_encoding or "utf-8"
+        html = res.content.decode(enc, "replace")
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "iframe", "header", "footer", "nav", "aside", "form"]):
+            tag.decompose()
+        body = None
+        for sel in ["#dic_area", "#newsct_article", ".newsct_article", "#news_read",
+                    ".articleCont", "#articleBody", ".article_body", "#articeBody",
+                    "#article-view-content-div", "#content"]:
+            el = soup.select_one(sel)
+            if el and len(el.get_text(strip=True)) > 80:
+                body = el
+                break
+        text = (body.get_text(separator=" ", strip=True) if body
+                else soup.get_text(separator=" ", strip=True))
+        text = re.sub(r"\s+", " ", text).strip()
+        # 흔한 잡음 컷
+        text = re.sub(r"(무단\s*전재.*$|저작권자.*$|ⓒ.*$)", "", text).strip()
+        return text[:max_chars]
+    except Exception:
+        return ""
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def classify_news_sentiment(_api_key, items):
-    """종목별 뉴스 제목 묶음을 AI가 호재/중립/악재로 판정.
-    items: tuple of (code, name, titles_joined). 반환: {code: {"label","score"(-2~2),"reason"}}"""
+    """종목별 '개별 기사 제목'을 AI가 호재/중립/악재로 판정하고 종목 단위로 집계.
+    items: tuple of (code, name, articles_tuple) — articles_tuple은 (title, excerpt) 튜플들.
+    반환: {code: {label, score(-2~2), confidence(0~1), auto_neutral(bool),
+                  reason, article_labels: [(label, score), ...]}}  # 입력 기사 순서
+    집계: 기사 score×신뢰가중(상1.0/중0.6/하0.3) 합산. 방향 일치도×신호강도로 종목 신뢰도를 내고,
+    신뢰도가 낮거나 호·악재가 엇갈리면 종목 판정을 자동 중립(score 0)으로 만든다.
+    제목뿐 아니라 본문 발췌까지 함께 보고 판정하므로 단순 제목 판정보다 정확하다."""
     if not _api_key or not items:
         return {}
-    lines, idx2code = [], {}
-    for i, (code, name, titles) in enumerate(items, 1):
-        idx2code[i] = code
-        lines.append(f"{i}. {name} — {titles}")
+    flat, lines, gid = [], [], 1   # flat: (gid, code, art_idx, title)
+    for code, name, articles in items:
+        for ai_idx, art in enumerate(articles):
+            if isinstance(art, (list, tuple)):
+                title = (art[0] or "").strip() if len(art) > 0 else ""
+                excerpt = (art[1] or "").strip() if len(art) > 1 else ""
+            else:
+                title, excerpt = (art or "").strip(), ""
+            if not title:
+                continue
+            flat.append((gid, code, ai_idx, title))
+            body = f" — 본문: {excerpt}" if excerpt else ""
+            lines.append(f"{gid}. [{name}] 제목: {title}{body}")
+            gid += 1
+    if not flat:
+        return {}
     block = "\n".join(lines)
     prompt = (
-        "너는 한국 주식 뉴스 애널리스트다. 아래 각 종목의 '최근 뉴스 제목 묶음'을 읽고, "
-        "그 뉴스가 해당 종목 주가에 미칠 단기 영향을 호재/중립/악재로 판정하라.\n"
-        "아래 JSON 배열만 출력(설명·마크다운·코드펜스 금지). 각 원소는 "
-        '{"i":번호,"label":"호재|중립|악재","score":정수,"reason":"한 문장 근거"}.\n'
-        "score 기준: 강한 호재 2, 호재 1, 중립 0, 악재 -1, 강한 악재 -2. "
-        "단순 시황·전망 기사나 모호하면 중립(0)으로 판정.\n\n"
+        "너는 한국 주식 뉴스 애널리스트다. 아래 '개별 기사'(제목 + 본문 발췌)마다 그 종목 주가에 미칠 "
+        "영향을 호재/중립/악재로 판정하라. 제목이 애매해도 본문 발췌의 사실(수주·실적·소송·증설·계약·"
+        "규제·인수 등)을 근거로 판단하라.\n"
+        "JSON 배열만 출력(설명·마크다운·코드펜스 금지). 각 원소는 "
+        '{"i":번호,"label":"호재|중립|악재","score":정수,"conf":"상|중|하"}.\n'
+        "score: 강한호재 2, 호재 1, 중립 0, 악재 -1, 강한악재 -2. "
+        "conf(판정 확신도): 본문 근거가 분명하면 상, 보통이면 중, 모호·단순시황·전망성이면 하.\n\n"
         f"{block}"
     )
+    art = {}   # gid -> (label, score, conf)
     try:
         raw = ask_gemini(prompt, _api_key)
         txt = (raw or "").strip().replace("```json", "").replace("```", "").strip()
         m = re.search(r"\[.*\]", txt, re.DOTALL)
         if m:
             txt = m.group(0)
-        arr = json.loads(txt)
-        out = {}
-        for it in arr:
+        for it in json.loads(txt):
             if not isinstance(it, dict):
                 continue
             i = it.get("i")
-            code = idx2code.get(int(i)) if i is not None else None
-            if not code:
+            if i is None:
                 continue
             label = str(it.get("label", "중립")).strip()
             if label not in ("호재", "중립", "악재"):
                 label = "중립"
             try:
-                sc = int(round(float(it.get("score", 0))))
+                sc = max(-2, min(2, int(round(float(it.get("score", 0))))))
             except Exception:
                 sc = {"호재": 1, "악재": -1}.get(label, 0)
-            sc = max(-2, min(2, sc))
-            out[code] = {"label": label, "score": sc, "reason": str(it.get("reason", "")).strip()[:120]}
-        return out
+            conf = str(it.get("conf", "중")).strip()
+            if conf not in ("상", "중", "하"):
+                conf = "중"
+            art[int(i)] = (label, sc, conf)
     except Exception:
-        return {}
+        art = {}
+
+    W = {"상": 1.0, "중": 0.6, "하": 0.3}
+    grouped = {}   # code -> [(gid, title), ...]
+    for gid_, code, ai_idx, title in flat:
+        grouped.setdefault(code, []).append((gid_, title))
+
+    out = {}
+    for code, lst in grouped.items():
+        article_labels, contrib = [], []
+        pos_w = neg_w = 0.0
+        dom = (0.0, "")   # (영향 크기, 제목)
+        for gid_, title in lst:
+            label, sc, conf = art.get(gid_, ("중립", 0, "중"))
+            article_labels.append((label, sc))
+            w = W.get(conf, 0.6)
+            contrib.append(sc * w)
+            if sc > 0:
+                pos_w += w
+            elif sc < 0:
+                neg_w += w
+            mag = abs(sc) * w
+            if mag > dom[0]:
+                dom = (mag, title)
+        n = len(lst)
+        total = sum(contrib)
+        avg = total / n if n else 0.0
+        denom = pos_w + neg_w
+        agreement = abs(pos_w - neg_w) / denom if denom > 0 else 0.0   # 1=한 방향, 0=엇갈림
+        strength = min(1.0, abs(avg))
+        confidence = round(agreement * strength, 2)
+        if denom == 0 or confidence < 0.35:
+            label, score, auto = "중립", 0, True
+            reason = "기사 신호가 약하거나 호·악재가 엇갈려 중립 처리"
+        else:
+            score = max(-2, min(2, int(round(avg))))
+            if score == 0:
+                score = 1 if total > 0 else -1
+            label = "호재" if score > 0 else "악재"
+            auto = False
+            reason = (f"‘{dom[1][:28]}…’ 등 기사 근거" if dom[1] else "")
+        out[code] = {"label": label, "score": score, "confidence": confidence,
+                     "auto_neutral": auto, "reason": reason, "article_labels": article_labels}
+    return out
 
 
 def _short_trend_figure(risk):
@@ -6348,8 +6443,9 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
 
 elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
-    st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치(뉴스·폴리마켓) + 차트 + 펀더멘털을 한 번에 융합해 "
-               "**단기·중기·장기 투자 후보를 자동 분류**합니다. 종목 성격과 시장 분위기에 따라 어느 기간에 적합한지 스스로 판정합니다.")
+    st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치(뉴스·폴리마켓) + 차트 + 펀더멘털 + 공매도/신용 + "
+               "**뉴스 제목·본문 AI 판정**을 한 번에 융합해 **단기·중기·장기 투자 후보를 자동 분류**합니다. "
+               "종목 성격과 시장 분위기에 따라 어느 기간에 적합한지 스스로 판정합니다.")
 
     # 세션 상태 초기화
     for _k, _v in [("finder_results", None), ("finder_mood", None),
@@ -6401,7 +6497,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
 
     want_long = ("전체" in horizon_focus) or ("장기" in horizon_focus)
 
-    st.caption("⏳ 정밀 모드는 데이터 수집에 1~2분 걸릴 수 있어요. 결과는 15분간 캐시되어 재실행이 빠릅니다.")
+    st.caption("⏳ 정밀 모드는 차트·펀더멘털·공매도·뉴스 본문까지 한 번에 수집하므로 1~3분 걸릴 수 있어요. 결과·기사 본문은 캐시되어 재실행이 빠릅니다.")
 
     if st.button("🧭 통합 검색 시작", type="primary", use_container_width=True):
         if not api_key_input:
@@ -6550,15 +6646,49 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         if c in by_code:
                             by_code[c]["_news"] = newsmap[c]
 
-                    # 6-2) AI 뉴스 호재/악재 판정 → 점수 재반영
+                    # 6-1b) 기사 본문 발췌 병렬 수집 → 판정 정확도 향상
+                    link_set = []
+                    for c in news_targets:
+                        for n in (newsmap.get(c) or []):
+                            lk = n.get("link")
+                            if lk:
+                                link_set.append(lk)
+                    link_set = list(dict.fromkeys(link_set))
+                    excerpt_map = {}
+                    if link_set:
+                        progressE = st.progress(0.0)
+                        statusE = st.empty()
+                        doneE, totalE = 0, len(link_set)
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                            emap = {ex.submit(fetch_article_excerpt, lk): lk for lk in link_set}
+                            for fut in concurrent.futures.as_completed(emap):
+                                lk = emap[fut]
+                                try:
+                                    excerpt_map[lk] = fut.result()
+                                except Exception:
+                                    excerpt_map[lk] = ""
+                                doneE += 1
+                                progressE.progress(min(1.0, doneE / totalE))
+                                statusE.text(f"📄 기사 본문 분석 중... ({doneE}/{totalE})")
+                        progressE.empty(); statusE.empty()
+                        # 발췌를 뉴스 항목에 부착 (확장 표시용)
+                        for c in newsmap:
+                            for n in (newsmap.get(c) or []):
+                                if n.get("link") in excerpt_map:
+                                    n["excerpt"] = excerpt_map[n["link"]]
+
+                    # 6-2) AI 뉴스 호재/악재 판정 (제목 + 본문 발췌, 개별 기사 단위) → 점수 재반영
                     sent_items = []
                     for c in news_targets:
                         nz = newsmap.get(c) or []
-                        titles = " | ".join(n.get("title", "") for n in nz if n.get("title"))[:400]
-                        if titles:
-                            sent_items.append((c, code2name.get(c, ""), titles))
+                        arts = tuple(
+                            ((n.get("title") or "").strip(), excerpt_map.get(n.get("link"), ""))
+                            for n in nz if n.get("title")
+                        )
+                        if arts:
+                            sent_items.append((c, code2name.get(c, ""), arts))
                     if sent_items:
-                        with st.spinner("AI가 종목별 뉴스를 호재/악재로 판정하는 중..."):
+                        with st.spinner("AI가 제목·본문을 함께 읽고 호재/악재를 판정하는 중..."):
                             sentmap = classify_news_sentiment(api_key_input, tuple(sent_items))
                         for c, info in (sentmap or {}).items():
                             r = by_code.get(c)
@@ -6567,7 +6697,17 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             r["_news_label"] = info.get("label")
                             r["_news_score"] = info.get("score")
                             r["_news_reason"] = info.get("reason")
-                            # 뉴스 점수를 반영해 재채점 (리스크·테마 동일 적용)
+                            r["_news_conf"] = info.get("confidence")
+                            r["_news_auto_neutral"] = info.get("auto_neutral", False)
+                            # 개별 기사 라벨을 해당 뉴스 항목에 부착 (입력 순서 일치)
+                            al = info.get("article_labels") or []
+                            nz = r.get("_news") or []
+                            titled = [n for n in nz if n.get("title")]
+                            for k, art in enumerate(al):
+                                if k < len(titled):
+                                    titled[k]["label"] = art[0]
+                                    titled[k]["score"] = art[1]
+                            # 뉴스 점수를 반영해 재채점 (리스크·테마 동일 적용; 자동중립이면 score 0)
                             th_name = pool[c].get("theme")
                             scores, horizon, top, grade, reasons, risk_flags = score_one(
                                 techs[c], vmap.get(c), mood, theme_hit=(th_name is not None),
@@ -6656,6 +6796,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         risk_cell = ("🟢" if str(r.get("티커", "")).isdigit() else "—")
                     _nl = r.get("_news_label")
                     news_cell = {"호재": "🟢 호재", "악재": "🔴 악재", "중립": "⚪ 중립"}.get(_nl, "—")
+                    if _nl and r.get("_news_auto_neutral"):
+                        news_cell = "⚪ 중립(저신뢰)"
                     rows.append({
                         "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
                         "종목명": r.get("종목명"), "시장": r.get("시장", ""),
@@ -6691,30 +6833,42 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             parts.append(f"신용잔고율 {_rk['credit_ratio']:.2f}%")
                         if parts:
                             st.caption("🩸 리스크: " + " ｜ ".join(parts))
-                    # AI 뉴스 호재/악재 판정
+                    # AI 뉴스 호재/악재 판정 (종목 단위 + 신뢰도)
                     if r.get("_news_label"):
                         _emo = {"호재": "🟢", "악재": "🔴", "중립": "⚪"}.get(r["_news_label"], "⚪")
                         _ns = r.get("_news_score")
                         _sgn = f" ({_ns:+d})" if isinstance(_ns, int) and _ns != 0 else ""
+                        _cf = r.get("_news_conf")
+                        _cf_txt = f" · 신뢰도 {_cf:.2f}" if isinstance(_cf, (int, float)) else ""
+                        _auto = " · 🔸자동 중립(저신뢰)" if r.get("_news_auto_neutral") else ""
                         _rsn = f" — {r['_news_reason']}" if r.get("_news_reason") else ""
-                        st.caption(f"📰 AI 뉴스 판정: {_emo} **{r['_news_label']}**{_sgn}{_rsn}")
+                        st.caption(f"📰 AI 뉴스 판정: {_emo} **{r['_news_label']}**{_sgn}{_cf_txt}{_auto}{_rsn}")
                     # 공매도 추세 미니차트
                     _fig = _short_trend_figure(r.get("_risk"))
                     if _fig is not None:
                         st.plotly_chart(_fig, use_container_width=True)
                     draw_stock_card(r, api_key_str=api_key_input, is_expanded=False, key_suffix=f"finder_{hz}_{idx}")
-                    # 종목별 최신 뉴스
+                    # 종목별 최신 뉴스 (기사별 호재/악재 라벨 포함)
                     _news = r.get("_news")
                     if _news:
-                        with st.expander(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건", expanded=False):
+                        with st.expander(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건 (기사별 호재/악재)", expanded=False):
                             for nws in _news:
                                 meta = " · ".join([x for x in [nws.get("source"), nws.get("date")] if x])
                                 title = nws.get("title", "")
                                 link = nws.get("link", "")
+                                _alabel = nws.get("label")
+                                _atag = {"호재": "🟢호재", "악재": "🔴악재", "중립": "⚪중립"}.get(_alabel, "")
+                                _badge = f"`{_atag}` " if _atag else ""
+                                _exc = (nws.get("excerpt") or "").strip()
+                                _exc_html = ""
+                                if _exc:
+                                    _snip = _exc[:120] + ("…" if len(_exc) > 120 else "")
+                                    _exc_html = f"  \n  <span style='color:#64748b;font-size:12px;'>📄 {_snip}</span>"
+                                _meta_html = f"  \n  <span style='color:#94a3b8;font-size:12px;'>{meta}</span>" if meta else ""
                                 if link:
-                                    st.markdown(f"- [{title}]({link})" + (f"  \n  <span style='color:#94a3b8;font-size:12px;'>{meta}</span>" if meta else ""), unsafe_allow_html=True)
+                                    st.markdown(f"- {_badge}[{title}]({link})" + _meta_html + _exc_html, unsafe_allow_html=True)
                                 else:
-                                    st.markdown(f"- {title}" + (f" · {meta}" if meta else ""))
+                                    st.markdown(f"- {_badge}{title}" + _meta_html + _exc_html, unsafe_allow_html=True)
                     elif "_news" in r:
                         st.caption("📰 최근 뉴스를 찾지 못했습니다.")
                     st.markdown("")
