@@ -187,43 +187,57 @@ def fetch_polymarket_markets(search=None, limit=80):
     return {"error": None, "data": rows}
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def translate_poly_questions(questions, _api_key):
+def _gtx_translate_en_ko(text):
+    """단일 문장 영→한 번역 (구글 무료 gtx 엔드포인트). 실패 시 원문 반환.
+    스레드에서 호출되므로 st.cache_data를 직접 달지 않는다(상위 함수에서 캐시)."""
+    t = (text or "").strip()
+    if not t:
+        return text
+    # 이미 한글이 섞여 있으면 번역 불필요
+    if re.search(r'[가-힣]', t):
+        return text
+    try:
+        res = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "en", "tl": "ko", "dt": "t", "q": t},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=4,
+        )
+        if res.status_code == 200:
+            data = res.json()
+            # data[0] = [[번역문, 원문, ...], ...]  → 분할된 조각을 이어붙임
+            parts = [seg[0] for seg in (data[0] or []) if seg and seg[0]]
+            ko = "".join(parts).strip()
+            return ko or text
+    except Exception:
+        pass
+    return text
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def translate_poly_questions(questions, _api_key=None):
     """
-    여러 영문 질문/선택지를 한 번의 Gemini 호출로 일괄 번역.
-    반환: {원문: 한글번역} 딕셔너리. 실패 시 원문 그대로 매핑.
-    (API 키가 없으면 번역 없이 원문 반환)
+    영문 질문/선택지 목록을 한국어로 일괄 번역.
+    [변경] 항목별로 구글 무료 번역 엔드포인트를 병렬 호출한다.
+      - 일부만 번역되고 나머지가 누락되던 문제(LLM 일괄 번역의 줄 누락/병합)를 근본 해결.
+      - API 키 불필요. 결과는 하루(ttl) 캐시되어 이후 재호출 없음.
+    반환: {원문: 한글번역} 딕셔너리. (실패 항목만 원문 유지)
     """
     uniq = [q for q in dict.fromkeys(questions) if q and q.strip()]
     if not uniq:
         return {}
-    if not _api_key:
-        return {q: q for q in uniq}
+    mapping = {}
     try:
-        numbered = "\n".join([f"{i+1}. {q}" for i, q in enumerate(uniq)])
-        prompt = (
-            "다음은 예측시장(Polymarket)의 영문 질문/선택지 목록이다. "
-            "각 항목을 자연스러운 한국어로 번역하라.\n"
-            "규칙:\n"
-            "- 번호와 순서를 그대로 유지하고, '번호. 번역문' 형식으로만 출력\n"
-            "- 고유명사(인물·기관·티커·코인명)는 통용되는 한국어 표기 사용(없으면 원문 유지)\n"
-            "- 군더더기 설명 없이 번역 결과만 출력\n\n"
-            f"{numbered}"
-        )
-        resp = ask_gemini(prompt, _api_key)
-        mapping = {}
-        for line in resp.splitlines():
-            line = line.strip()
-            mt = re.match(r'^\s*(\d+)\s*[.)]\s*(.+)$', line)
-            if mt:
-                idx = int(mt.group(1)) - 1
-                if 0 <= idx < len(uniq):
-                    mapping[uniq[idx]] = mt.group(2).strip()
-        # 누락분은 원문으로 보강
-        for q in uniq:
-            mapping.setdefault(q, q)
-        return mapping
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            for q, ko in zip(uniq, ex.map(_gtx_translate_en_ko, uniq)):
+                mapping[q] = ko or q
     except Exception:
-        return {q: q for q in uniq}
+        for q in uniq:
+            mapping[q] = _gtx_translate_en_ko(q)
+    # 누락분은 원문으로 보강
+    for q in uniq:
+        mapping.setdefault(q, q)
+    return mapping
 
 @st.cache_data(ttl=86400)
 def get_krx_etf_list():
@@ -7476,23 +7490,17 @@ elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
             # --- 한글 번역 처리 ---
             tr_col1, tr_col2 = st.columns([1, 3])
             show_ko = tr_col1.toggle("🇰🇷 한글 번역", value=True, key="poly_translate",
-                                     help="폴리마켓 질문/선택지를 Gemini로 번역해 보여줍니다. (끄면 영어 원문)")
-            # 번역 대상: 표/상세에 쓰이는 상위 마켓 위주 (API 호출 최소화)
-            TR_N = min(len(markets), 30)
+                                     help="폴리마켓 질문/선택지를 한국어로 번역해 보여줍니다. (끄면 영어 원문 · 별도 키 불필요)")
             trans_map = {}
             if show_ko:
-                if not api_key_input:
-                    tr_col2.warning("⚠️ 번역하려면 좌측 사이드바에 Gemini API 키가 필요합니다. (지금은 영어 원문 표시)")
-                else:
-                    to_translate = []
-                    for m in markets[:TR_N]:
-                        to_translate.append(m["question"])
-                        for o in (m["outcomes"] or []):
-                            # Yes/No 는 굳이 번역 호출에 넣지 않음 (아래서 자체 처리)
-                            if o not in ("Yes", "No"):
-                                to_translate.append(o)
-                    with st.spinner("질문을 한글로 번역하는 중... (최초 1회만, 이후 캐시)"):
-                        trans_map = translate_poly_questions(tuple(to_translate), api_key_input)
+                # 번역 대상: 표에 보이는 모든 질문 + 상세(상위)에 쓰이는 선택지
+                to_translate = [m["question"] for m in markets]
+                for m in markets[:12]:
+                    for o in (m["outcomes"] or []):
+                        if o not in ("Yes", "No"):   # Yes/No 는 아래서 자체 처리
+                            to_translate.append(o)
+                with st.spinner("질문을 한글로 번역하는 중... (최초 1회만, 이후 캐시)"):
+                    trans_map = translate_poly_questions(tuple(to_translate))
 
             _YESNO_KO = {"Yes": "예", "No": "아니오"}
 
