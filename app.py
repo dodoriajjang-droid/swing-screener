@@ -2022,39 +2022,60 @@ def get_drawdown_info(code, lookback="52주"):
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_sector_kr(code):
-    """종목 하나의 업종명을 네이버에서 조회(모바일 통합 API → 메인 HTML). 실패 시 None.
-    낙폭 스캐너에서 FDR 업종이 비었을 때 '결과 종목만' 보강용."""
+    """종목 하나의 업종명을 네이버에서 조회. 인코딩 자동 판별 + 깨진(한자/모지바케) 결과는 거부.
+    낙폭 스캐너에서 FDR 업종이 비었을 때 '결과 종목만' 보강용. 실패 시 None."""
     code = str(code).strip()
     if not code.isdigit():
         return None
-    # ① 모바일 통합 API (JSON)
+
+    def _ok(s):
+        """정상 한글 업종명만 통과: CJK 한자(깨짐 신호) 있으면 거부, 한글 비중 과반 요구."""
+        if not s:
+            return None
+        s = str(s).strip()
+        if not s or len(s) > 30:
+            return None
+        if any('\u3400' <= ch <= '\u9fff' for ch in s):   # CJK 한자 → 인코딩 깨짐
+            return None
+        han = sum(1 for ch in s if '가' <= ch <= '힣')
+        return s if han >= max(1, int(len(s) * 0.5)) else None
+
+    # ① 모바일 통합 API (JSON — UTF-8)
     try:
         data = _naver_json(f"https://m.stock.naver.com/api/stock/{code}/integration")
         if isinstance(data, dict):
+            cands = []
             for k in ("industryCodeName", "industryGroupKor", "industryName", "upjongName", "sectorName"):
-                v = data.get(k)
-                if v and str(v).strip():
-                    return str(v).strip()
-            for sub_key in ("stockInfo", "industryInfo", "summary"):
-                si = data.get(sub_key)
+                if data.get(k):
+                    cands.append(data[k])
+            for sub in ("stockInfo", "industryInfo", "summary"):
+                si = data.get(sub)
                 if isinstance(si, dict):
                     for k in ("industryName", "industryGroupKor", "industry", "sectorName"):
-                        v = si.get(k)
-                        if v and str(v).strip():
-                            return str(v).strip()
+                        if si.get(k):
+                            cands.append(si[k])
+            for c in cands:
+                v = _ok(c)
+                if v:
+                    return v
     except Exception:
         pass
-    # ② 메인 페이지 업종 링크 (sise_group_detail)
+
+    # ② 메인 페이지 업종 링크 (EUC-KR/UTF-8 자동 판별)
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
-        soup = BeautifulSoup(res.content.decode("euc-kr", "replace"), "html.parser")
-        for a in soup.select("a"):
-            href = a.get("href", "")
-            if "sise_group_detail" in href and "upjong" in href:
-                t = a.get_text(strip=True)
-                if t:
-                    return t
+        res = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
+                           headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        for enc in ("euc-kr", "utf-8"):
+            try:
+                soup = BeautifulSoup(res.content.decode(enc, "replace"), "html.parser")
+            except Exception:
+                continue
+            for a in soup.select("a"):
+                href = a.get("href", "")
+                if "sise_group_detail" in href and "upjong" in href:
+                    v = _ok(a.get_text(strip=True))
+                    if v:
+                        return v
     except Exception:
         pass
     return None
