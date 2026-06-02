@@ -2020,6 +2020,46 @@ def get_drawdown_info(code, lookback="52주"):
         return None
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_stock_sector_kr(code):
+    """종목 하나의 업종명을 네이버에서 조회(모바일 통합 API → 메인 HTML). 실패 시 None.
+    낙폭 스캐너에서 FDR 업종이 비었을 때 '결과 종목만' 보강용."""
+    code = str(code).strip()
+    if not code.isdigit():
+        return None
+    # ① 모바일 통합 API (JSON)
+    try:
+        data = _naver_json(f"https://m.stock.naver.com/api/stock/{code}/integration")
+        if isinstance(data, dict):
+            for k in ("industryCodeName", "industryGroupKor", "industryName", "upjongName", "sectorName"):
+                v = data.get(k)
+                if v and str(v).strip():
+                    return str(v).strip()
+            for sub_key in ("stockInfo", "industryInfo", "summary"):
+                si = data.get(sub_key)
+                if isinstance(si, dict):
+                    for k in ("industryName", "industryGroupKor", "industry", "sectorName"):
+                        v = si.get(k)
+                        if v and str(v).strip():
+                            return str(v).strip()
+    except Exception:
+        pass
+    # ② 메인 페이지 업종 링크 (sise_group_detail)
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        soup = BeautifulSoup(res.content.decode("euc-kr", "replace"), "html.parser")
+        for a in soup.select("a"):
+            href = a.get("href", "")
+            if "sise_group_detail" in href and "upjong" in href:
+                t = a.get_text(strip=True)
+                if t:
+                    return t
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=86400)
 def get_us_sector_map():
     """S&P500 위키 표에서 {티커: 한글 섹터} 매핑 구성(낙폭 스캐너 표시용)."""
@@ -6960,6 +7000,24 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                     status.text(f"📉 낙폭 스캔 중... ({done}/{total})")
             prog.empty(); status.empty()
             rows.sort(key=lambda r: r["drawdown"])   # 가장 많이 빠진 순
+
+            # 업종 보강 — FDR 업종이 비어 '기타/분류불가'인 결과 종목만 네이버에서 개별 조회(가벼움)
+            need_sec = [r for r in rows if str(r["code"]).isdigit()
+                        and (not r.get("sector") or r["sector"] in ("-", "기타/분류불가"))]
+            if need_sec:
+                ss = st.empty(); ss.text(f"🏷️ 업종 분류 중... ({len(need_sec)}종목)")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                    fsec = {ex.submit(get_stock_sector_kr, r["code"]): r for r in need_sec}
+                    for f in concurrent.futures.as_completed(fsec):
+                        r = fsec[f]
+                        try:
+                            s = f.result()
+                            if s:
+                                r["sector"] = s
+                        except Exception:
+                            pass
+                ss.empty()
+
             st.session_state.dd_results = rows
             st.session_state.dd_meta = (dd_scope_label, min_fall, lookback, len(uni))
 
