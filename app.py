@@ -6802,11 +6802,11 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     with fc4:
         depth = st.selectbox("🔬 탐색 깊이", ["빠르게 (≈40종목)", "표준 (≈70종목)", "정밀 (≈110종목)"], index=1)
     depth_cfg = {
-        "빠르게 (≈40종목)": (40, 12, 40),
-        "표준 (≈70종목)": (60, 20, 60),
-        "정밀 (≈110종목)": (90, 30, 90),
+        "빠르게 (≈40종목)": (40, 12, 40, 12),
+        "표준 (≈70종목)": (60, 20, 60, 20),
+        "정밀 (≈110종목)": (90, 30, 90, 28),
     }[depth]
-    kr_n, us_n, phaseb_cap = depth_cfg
+    kr_n, us_n, phaseb_cap, news_n = depth_cfg
 
     want_long = ("전체" in horizon_focus) or ("장기" in horizon_focus)
 
@@ -6959,10 +6959,13 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     return b
 
                 buckets_full = _rebucket(enriched)
-                news_targets = []
+                news_targets, excerpt_codes = [], set()
                 for hz in ("단기", "중기", "장기"):
-                    for r in buckets_full[hz][:10]:
-                        news_targets.append(r.get("티커"))
+                    for i, r in enumerate(buckets_full[hz][:news_n]):
+                        tk = r.get("티커")
+                        news_targets.append(tk)
+                        if i < 10:               # 본문 발췌는 상위 10개만(속도)
+                            excerpt_codes.add(tk)
                 news_targets = list(dict.fromkeys([t for t in news_targets if t]))
                 if news_targets:
                     code2name = {r.get("티커"): r.get("종목명") for r in enriched}
@@ -6986,9 +6989,11 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         if c in by_code:
                             by_code[c]["_news"] = newsmap[c]
 
-                    # 6-1b) 기사 본문 발췌 병렬 수집 → 판정 정확도 향상
+                    # 6-1b) 기사 본문 발췌 병렬 수집 → 판정 정확도 향상 (상위 종목만)
                     link_set = []
                     for c in news_targets:
+                        if c not in excerpt_codes:
+                            continue
                         for n in (newsmap.get(c) or []):
                             lk = n.get("link")
                             if lk:
@@ -7072,7 +7077,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 st.session_state.finder_results = enriched
                 st.session_state.finder_mood = mood
                 st.session_state.finder_radar = radar
-                st.session_state.finder_meta = (scope, depth, theme_focus, len(enriched))
+                st.session_state.finder_meta = (scope, depth, theme_focus, len(enriched), news_n)
                 # 뉴스 수집/판정 진단 (왜 비는지 확인용)
                 _n_targets = len(news_targets)
                 _n_with_news = sum(1 for r in enriched if r.get("_news"))
@@ -7157,11 +7162,13 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
         elif "중기" in horizon_focus: order = ["중기", "단기", "장기"]
         elif "장기" in horizon_focus: order = ["장기", "중기", "단기"]
         tab_labels = {"단기": "🔥 단기 (스윙)", "중기": "⚖️ 중기 (추세·테마)", "장기": "💎 장기 (가치·우량)"}
-        tabs = st.tabs([f"{tab_labels[h]}  ·  {len(buckets[h])}" for h in order])
+        # 뉴스가 붙는 상위 종목만 표시 (표 전체에 뉴스 판정이 일관되게 나오도록)
+        _disp_n = meta[4] if (meta and len(meta) > 4) else 20
+        tabs = st.tabs([f"{tab_labels[h]}  ·  {min(len(buckets[h]), _disp_n)}" for h in order])
 
         for tab, hz in zip(tabs, order):
             with tab:
-                picks = buckets[hz]
+                picks = buckets[hz][:_disp_n]
                 if not picks:
                     st.info(f"현재 분위기에서 '{hz}' 적합 종목이 충분히 포착되지 않았습니다. 탐색 깊이를 높이거나 테마 키워드를 바꿔보세요.")
                     continue
