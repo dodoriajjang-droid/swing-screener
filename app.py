@@ -1752,6 +1752,7 @@ def _krx_list_from_naver(max_pages=22):
     """FDR 실패 시 폴백: 네이버 시가총액 페이지에서 종목명+코드 목록 구성(코스피+코스닥)."""
     rows, seen = [], set()
     for sosok in (0, 1):   # 0=코스피, 1=코스닥
+        mkt_name = "코스피" if sosok == 0 else "코스닥"
         for page in range(1, max_pages + 1):
             try:
                 url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
@@ -1771,7 +1772,7 @@ def _krx_list_from_naver(max_pages=22):
                     if not name or code in seen:
                         continue
                     seen.add(code)
-                    rows.append({"Name": name, "Code": code, "Sector": "기타/분류불가"})
+                    rows.append({"Name": name, "Code": code, "Sector": "기타/분류불가", "Market": mkt_name})
                     added += 1
                 if added == 0:
                     break   # 빈 페이지면 해당 시장 종료
@@ -1779,7 +1780,7 @@ def _krx_list_from_naver(max_pages=22):
                 break
     if rows:
         return pd.DataFrame(rows)
-    return pd.DataFrame(columns=["Name", "Code", "Sector"])
+    return pd.DataFrame(columns=["Name", "Code", "Sector", "Market"])
 
 
 def get_krx_stocks():
@@ -1827,8 +1828,17 @@ def get_krx_stocks():
                 return row['Sector']
                 
             df['Sector'] = df.apply(safe_sector, axis=1)
-            
-            df = df[['Name', 'Code', 'Sector']].copy()
+
+            # 시장 구분(코스피/코스닥/코넥스) 컬럼 추가
+            mkt_col = next((c for c in ['Market', 'market', 'MarketId', 'Marketid'] if c in df.columns), None)
+            if mkt_col:
+                _mmap = {"KOSPI": "코스피", "KOSDAQ": "코스닥", "KOSDAQ GLOBAL": "코스닥",
+                         "KONEX": "코넥스", "KOSPI200": "코스피"}
+                df['Market'] = df[mkt_col].astype(str).str.upper().str.strip().map(_mmap).fillna(df[mkt_col].astype(str))
+            else:
+                df['Market'] = ""
+
+            df = df[['Name', 'Code', 'Sector', 'Market']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
             
@@ -1839,7 +1849,7 @@ def get_krx_stocks():
     nv = _krx_list_from_naver()
     if not nv.empty:
         return nv
-    return pd.DataFrame(columns=['Name', 'Code', 'Sector'])
+    return pd.DataFrame(columns=['Name', 'Code', 'Sector', 'Market'])
 
 def fetch_naver_volume(sosok, pages=1):
     df_list = []
@@ -2008,6 +2018,30 @@ def get_drawdown_info(code, lookback="52주"):
                 "drawdown": dd, "rsi": rsi, "rebound": rebound}
     except Exception:
         return None
+
+
+@st.cache_data(ttl=86400)
+def get_us_sector_map():
+    """S&P500 위키 표에서 {티커: 한글 섹터} 매핑 구성(낙폭 스캐너 표시용)."""
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        df = pd.read_html(StringIO(res.text))[0]
+        sec_col = next((c for c in df.columns if 'Sector' in str(c)), None)
+        if not sec_col or 'Symbol' not in df.columns:
+            return {}
+        kmap = {"Information Technology": "IT/기술", "Financials": "금융", "Health Care": "헬스케어",
+                "Consumer Discretionary": "임의소비재", "Consumer Staples": "필수소비재",
+                "Industrials": "산업재", "Energy": "에너지", "Materials": "소재",
+                "Real Estate": "부동산", "Utilities": "유틸리티", "Communication Services": "커뮤니케이션"}
+        out = {}
+        for _, row in df.iterrows():
+            sym = str(row['Symbol']).replace('.', '-')
+            sec = str(row[sec_col]).strip()
+            out[sym] = kmap.get(sec, sec)
+        return out
+    except Exception:
+        return {}
 
 
 @st.cache_data(ttl=86400)
@@ -6868,22 +6902,41 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
     if st.button("🔎 낙폭 스캔 시작", type="primary", use_container_width=True):
         scope = ("kr" if dd_scope_label.startswith("🇰🇷 국내")
                  else "us" if dd_scope_label.startswith("🇺🇸 미국") else "both")
+        # 시장(코스피/코스닥)·섹터 룩업 준비
+        kr_meta = {}
+        if scope in ("kr", "both"):
+            try:
+                kdf = get_krx_stocks()
+                if not kdf.empty:
+                    for _, rr in kdf.iterrows():
+                        kr_meta[str(rr["Code"]).zfill(6)] = (
+                            (rr.get("Market") if "Market" in kdf.columns else "") or "국내",
+                            (rr.get("Sector") if "Sector" in kdf.columns else "") or "-")
+            except Exception:
+                pass
+        us_sec = get_us_sector_map() if scope in ("us", "both") else {}
+
         universe = []
         if scope in ("kr", "both"):
             try:
-                universe += [(n, str(c), "🇰🇷 국내") for n, c in (get_scan_targets(depth_n) or [])]
+                for n, c in (get_scan_targets(depth_n) or []):
+                    c = str(c).zfill(6)
+                    mk, sec = kr_meta.get(c, ("국내", "-"))
+                    universe.append((n, c, mk or "국내", sec or "-"))
             except Exception:
                 pass
         if scope in ("us", "both"):
             try:
-                universe += [(n, str(c), "🇺🇸 미국") for n, c in (get_us_scan_targets(min(depth_n, 500)) or [])]
+                for n, c in (get_us_scan_targets(min(depth_n, 500)) or []):
+                    c = str(c)
+                    universe.append((n, c, "미국", us_sec.get(c, "-")))
             except Exception:
                 pass
         seen, uni = set(), []
-        for n, c, mk in universe:
+        for n, c, mk, sec in universe:
             if c in seen:
                 continue
-            seen.add(c); uni.append((n, c, mk))
+            seen.add(c); uni.append((n, c, mk, sec))
         if not uni:
             st.error("❌ 종목 유니버스를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
         else:
@@ -6891,15 +6944,15 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
             done, total, rows = 0, len(uni), []
 
             def _dd_work(item):
-                n, c, mk = item
-                return n, c, mk, get_drawdown_info(c, lb)
+                n, c, mk, sec = item
+                return n, c, mk, sec, get_drawdown_info(c, lb)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
                 for fut in concurrent.futures.as_completed({ex.submit(_dd_work, it): it for it in uni}):
                     try:
-                        n, c, mk, info = fut.result()
+                        n, c, mk, sec, info = fut.result()
                         if info and info["drawdown"] is not None and info["drawdown"] <= -min_fall:
-                            rows.append({"name": n, "code": c, "market": mk, **info})
+                            rows.append({"name": n, "code": c, "market": mk, "sector": sec, **info})
                     except Exception:
                         pass
                     done += 1
@@ -6925,8 +6978,12 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                 hp = f"{int(r['high']):,}원" if is_kr else f"${r['high']:,.2f}"
                 rsi = r.get("rsi")
                 rsi_txt = ((f"{rsi:.0f}" + (" 🧊과매도" if rsi <= 30 else "")) if rsi is not None else "-")
+                _sec = str(r.get("sector") or "-")
+                if len(_sec) > 14:
+                    _sec = _sec[:14] + "…"
                 df_rows.append({
                     "순위": i, "종목명": r["name"], "시장": r["market"],
+                    "테마/섹터": _sec,
                     "현재가": px, "최고가": hp, "고점일": (r.get("high_date") or "-"),
                     "낙폭": f"{r['drawdown']:.1f}%",
                     "저점대비 반등": (f"+{r['rebound']:.1f}%" if r.get("rebound") is not None else "-"),
