@@ -247,18 +247,6 @@ def get_krx_etf_list():
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
-def get_us_etf_summary(us_etfs):
-    us_data = []
-    for ticker in us_etfs:
-        try:
-            df = yf.Ticker(ticker).history(period="5d")
-            if len(df) >= 2:
-                close = df['Close'].iloc[-1]
-                pct = ((close - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
-                us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{int(df['Volume'].iloc[-1]):,}"})
-        except Exception: pass
-    return pd.DataFrame(us_data)
-@st.cache_data(ttl=3600)
 def get_today_research_details():
     try:
         url = "https://finance.naver.com/research/company_list.naver"
@@ -314,14 +302,27 @@ def get_today_research_details():
 
 @st.cache_data(ttl=3600)
 def get_us_etf_summary(us_etfs):
+    # 순차 yf.Ticker 호출 → yf.download 배치 1회로 변경 (요청 1번에 전 종목 병렬 수집)
     us_data = []
-    for ticker in us_etfs:
+    tickers = list(us_etfs)
+    if not tickers:
+        return pd.DataFrame(us_data)
+    try:
+        data = yf.download(tickers, period="5d", group_by="ticker",
+                           threads=True, progress=False)
+    except Exception:
+        return pd.DataFrame(us_data)
+    for ticker in tickers:
         try:
-            df = yf.Ticker(ticker).history(period="5d")
-            if len(df) >= 2:
-                close = df['Close'].iloc[-1]
-                pct = ((close - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
-                us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{int(df['Volume'].iloc[-1]):,}"})
+            df = data[ticker] if len(tickers) > 1 else data
+            close_s = df['Close'].dropna()
+            if len(close_s) >= 2:
+                close = close_s.iloc[-1]
+                prev = close_s.iloc[-2]
+                pct = ((close - prev) / prev) * 100
+                vol_s = df['Volume'].dropna()
+                vol = int(vol_s.iloc[-1]) if len(vol_s) else 0
+                us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{vol:,}"})
         except Exception: pass
     return pd.DataFrame(us_data)
 
@@ -428,7 +429,6 @@ def get_nps_us_portfolio():
     ]
     return pd.DataFrame(fallback_holdings)
 
-@st.cache_data(ttl=3600)
 @st.cache_data(ttl=1800)
 def get_us_sector_etfs():
     # [v7.0] 하드코딩 더미 → yfinance 실데이터로 교체 (전일 종가 대비 등락률)
@@ -1576,13 +1576,19 @@ def value_passes(m, s):
 
 @st.cache_data(ttl=3600)
 def get_macro_indicators():
+    # 순차 yf.Ticker 호출 → yf.download 배치 1회로 변경 (홈 화면 첫 로딩 단축)
     results = {}
     tickers = {"VIX": "^VIX", "美 10년물 국채": "^TNX", "필라델피아 반도체": "^SOX", "WTI 원유": "CL=F", "원/달러 환율": "KRW=X"}
+    try:
+        data = yf.download(list(tickers.values()), period="5d", group_by="ticker",
+                           threads=True, progress=False)
+    except Exception:
+        return None
     for name, ticker in tickers.items():
         try:
-            df = yf.Ticker(ticker).history(period="5d")
-            if not df.empty and len(df) >= 2:
-                results[name] = {"value": float(df['Close'].iloc[-1]), "delta": float(df['Close'].iloc[-1] - df['Close'].iloc[-2]), "prev": float(df['Close'].iloc[-2])}
+            close = data[ticker]['Close'].dropna()
+            if len(close) >= 2:
+                results[name] = {"value": float(close.iloc[-1]), "delta": float(close.iloc[-1] - close.iloc[-2]), "prev": float(close.iloc[-2])}
         except Exception: pass
     return results if results else None
 
@@ -1672,7 +1678,6 @@ def get_us_top_gainers():
         return df, ex_rate, fetch_time
     except Exception: return empty_df, 1350.0, fetch_time
 
-@st.cache_data(ttl=86400)
 @st.cache_data(ttl=86400)
 def get_market_map():
     """종목코드 → 시장구분(코스피/코스닥/코넥스) 매핑. FDR StockListing의 Market 컬럼 활용."""
@@ -3460,7 +3465,6 @@ def get_investor_trend(code):
         return i_str, f_str, p_str, i_streak, f_streak
     except Exception: return "조회불가", "조회불가", "조회불가", 0, 0
 
-@st.cache_data(ttl=3600)
 @st.cache_data(ttl=600)
 def get_institution_buy_trend(code):
     """기관(전체) 최근 5거래일 순매수 합계 & 연속 순매수 일수 — 네이버 모바일 trend API.
@@ -6330,11 +6334,23 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
                 try:
                     tickers = {"금 (Gold)": "GC=F", "은 (Silver)": "SI=F", "구리 (닥터 코퍼)": "HG=F", "비트코인 (BTC)": "BTC-USD"}
                     series_dict = {}
+                    # 순차 yf.Ticker 호출 → yf.download 배치 1회 (4종목 동시 수집)
+                    _macro_dl = yf.download(list(tickers.values()), period="6mo",
+                                            group_by="ticker", threads=True, progress=False)
                     for name, ticker in tickers.items():
-                        df_hist = yf.Ticker(ticker).history(period="6mo")
+                        try:
+                            df_hist = _macro_dl[ticker].dropna(how="all") if len(tickers) > 1 else _macro_dl
+                        except Exception:
+                            continue
                         if not df_hist.empty:
-                            df_hist.index = df_hist.index.tz_localize(None).normalize()
-                            normalized = (df_hist['Close'] / df_hist['Close'].iloc[0] - 1) * 100
+                            # yf.download 일봉은 tz-naive로 올 수 있어 tz_localize 전에 방어
+                            if getattr(df_hist.index, "tz", None) is not None:
+                                df_hist.index = df_hist.index.tz_localize(None)
+                            df_hist.index = df_hist.index.normalize()
+                            close = df_hist['Close'].dropna()
+                            if close.empty:
+                                continue
+                            normalized = (close / close.iloc[0] - 1) * 100
                             normalized = normalized[~normalized.index.duplicated(keep='first')]
                             series_dict[name] = normalized
                     if series_dict:
@@ -6344,11 +6360,19 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
                         fig_macro.update_layout(height=400, yaxis_title="수익률 (%)", xaxis_title="날짜", hovermode="x unified")
                         st.plotly_chart(fig_macro, use_container_width=True)
                     
-                    df_10y = yf.Ticker("^TNX").history(period="6mo")
-                    df_2y = yf.Ticker("^IRX").history(period="6mo")
+                    # 순차 yf.Ticker 2회 → yf.download 배치 1회 (^TNX, ^IRX 동시 수집)
+                    _yc_dl = yf.download(["^TNX", "^IRX"], period="6mo",
+                                         group_by="ticker", threads=True, progress=False)
+                    try:
+                        df_10y = _yc_dl["^TNX"].dropna(how="all")
+                        df_2y = _yc_dl["^IRX"].dropna(how="all")
+                    except Exception:
+                        df_10y, df_2y = pd.DataFrame(), pd.DataFrame()
                     if not df_10y.empty and not df_2y.empty:
-                        df_10y.index = df_10y.index.tz_localize(None).normalize()
-                        df_2y.index = df_2y.index.tz_localize(None).normalize()
+                        for _d in (df_10y, df_2y):
+                            if getattr(_d.index, "tz", None) is not None:
+                                _d.index = _d.index.tz_localize(None)
+                            _d.index = _d.index.normalize()
                         df_spread = (df_10y['Close'] - df_2y['Close']).dropna()
                         st.markdown("#### 📉 미국채 10년-2년 장단기 금리차 (Yield Curve Spread)")
                         fig_spread = go.Figure()
@@ -6425,10 +6449,17 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
             if len(tickers_m) >= 2:
                 with st.spinner("최적 가중치 연산 중..."):
                     try:
+                        # 순차 yf.Ticker 호출 → yf.download 배치 1회 (컬럼 순서=tickers_m 보존, 라벨 일치 보장)
                         data_m = pd.DataFrame()
-                        for t in tickers_m:
-                            df_t = yf.Ticker(t).history(period="1y")
-                            if not df_t.empty: data_m[t] = df_t['Close']
+                        try:
+                            _dl = yf.download(tickers_m, period="1y", threads=True, progress=False)["Close"]
+                            if isinstance(_dl, pd.Series):
+                                _dl = _dl.to_frame(tickers_m[0])
+                            for t in tickers_m:
+                                if t in _dl.columns and not _dl[t].dropna().empty:
+                                    data_m[t] = _dl[t]
+                        except Exception:
+                            pass
                         data_m = data_m.dropna()
                         if not data_m.empty:
                             returns = data_m.pct_change().dropna()
