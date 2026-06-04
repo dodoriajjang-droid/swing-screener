@@ -526,37 +526,84 @@ def render_overnight_banner():
 
 def get_economic_events(year, month):
     """[추가] 해당 연·월의 주요 경제지표 일정을 {일: [(label, css_class), ...]} 형태로 반환.
-    - FOMC: 미 연준 공식 확정 일정(2026) — 결정 발표는 회의 2일차.
-    - CPI/고용지표: 통상 발표 시기(추정). BLS가 매달 확정하므로 정확한 날짜는 다를 수 있음.
-    실제 자동 수집은 환경 제약으로 어려워, 확정 일정은 직접 입력하고 추정 항목은 명시한다."""
+    [확정] FOMC·한은 금통위·ECB·BOJ(각국 중앙은행 공식 일정, 결정은 회의 2일차) / 미 CPI·고용(BLS 확정) / FOMC 의사록(회의 약 3주 후).
+    [추정] PCE·소매판매·ISM·한국 CPI·중국 PMI·한국 수출입 — 통상 발표 시기 기준. 기관이 매월 확정하므로 실제 날짜는 1~2일 다를 수 있음.
+    실제 자동 수집은 환경 제약으로 어려워, 확정 일정은 직접 입력하고 추정 항목은 명시한다.
+    ※ css_class는 캘린더 페이지 스타일과 호환되도록 기존 4종(fomc/cpi/jobs/bok)만 재사용한다."""
     events = {}
     def _add(day, label, cls):
-        events.setdefault(day, []).append((label, cls))
+        if day:
+            events.setdefault(day, []).append((label, cls))
 
-    # ── 2026 FOMC 금리결정일 (회의 2일차, 공식 확정) ──
-    fomc_2026 = {
-        1: [28], 3: [18], 4: [29], 6: [17], 7: [29], 9: [16], 10: [28], 12: [9],
-    }
-    if year == 2026 and month in fomc_2026:
-        for d in fomc_2026[month]:
-            _add(d, "🏛️ 🇺🇸FOMC 금리결정", "evt-econ-fomc")
+    def _nth_bday(y, m, n):
+        """해당 월의 n번째 영업일(주말 제외, 공휴일 미반영) 일자. 추정용."""
+        cnt = 0
+        for d in range(1, 29):
+            try:
+                if datetime(y, m, d).weekday() < 5:
+                    cnt += 1
+                    if cnt == n:
+                        return d
+            except Exception:
+                break
+        return None
 
-    # ── 미국 CPI (BLS 공식 확정 2026) ──
-    # 1월은 셧다운으로 13→2/13 연기됐으나, 표준 공식 일정을 사용.
+    if year != 2026:
+        return events
+
+    # ───────── 美 통화정책 ─────────
+    # FOMC 금리결정일 (회의 2일차, 공식 확정)
+    fomc_2026 = {1: [28], 3: [18], 4: [29], 6: [17], 7: [29], 9: [16], 10: [28], 12: [9]}
+    for d in fomc_2026.get(month, []):
+        _add(d, "🏛️ 🇺🇸FOMC 금리결정", "evt-econ-fomc")
+    # FOMC 의사록 (회의 약 3주 후 수요일, 확정)
+    fomc_minutes_2026 = {2: 18, 4: 8, 5: 20, 7: 8, 8: 19, 10: 7, 11: 18, 12: 30}
+    if month in fomc_minutes_2026:
+        _add(fomc_minutes_2026[month], "📝 🇺🇸FOMC 의사록", "evt-econ-fomc")
+
+    # ───────── 美 물가 ─────────
+    # CPI (BLS 공식 확정 2026) — 1월은 셧다운으로 2/13 연기됐으나 표준 일정 사용
     cpi_2026 = {1: 13, 2: 11, 3: 11, 4: 10, 5: 12, 6: 10, 7: 14, 8: 12, 9: 11, 10: 14, 11: 10, 12: 10}
-    if year == 2026 and month in cpi_2026:
+    if month in cpi_2026:
         _add(cpi_2026[month], "📊 🇺🇸CPI 물가", "evt-econ-cpi")
+    # PCE 물가 (연준 선호 지표, 통상 월말·추정)
+    pce_2026 = {1: 30, 2: 27, 3: 27, 4: 30, 5: 29, 6: 26, 7: 31, 8: 28, 9: 25, 10: 30, 11: 25, 12: 23}
+    if month in pce_2026:
+        _add(pce_2026[month], "📈 🇺🇸PCE 물가(연준선호)", "evt-econ-cpi")
 
-    # ── 미국 고용지표(비농업, BLS 공식 확정 2026) ──
+    # ───────── 美 실물경기 ─────────
+    # 고용지표(비농업, BLS 공식 확정 2026)
     jobs_2026 = {1: 9, 2: 6, 3: 6, 4: 3, 5: 8, 6: 5, 7: 2, 8: 7, 9: 4, 10: 2, 11: 6, 12: 4}
-    if year == 2026 and month in jobs_2026:
+    if month in jobs_2026:
         _add(jobs_2026[month], "👷 🇺🇸고용지표", "evt-econ-jobs")
+    # ISM 제조업 PMI (통상 1영업일·추정)
+    _add(_nth_bday(year, month, 1), "🏭 🇺🇸ISM 제조업 PMI", "evt-econ-jobs")
+    # 소매판매 (통상 월 중순·추정)
+    retail_2026 = {1: 15, 2: 17, 3: 16, 4: 15, 5: 15, 6: 16, 7: 16, 8: 14, 9: 16, 10: 15, 11: 17, 12: 15}
+    if month in retail_2026:
+        _add(retail_2026[month], "🛒 🇺🇸소매판매", "evt-econ-jobs")
 
-    # ── 한국 금통위 통화정책방향 결정회의 (2026 공식 확정) ──
-    # 한국은행 발표: 1/15, 2/26, 4/10, 5/28, 7/16, 8/27, 10/22, 11/26
+    # ───────── 韓 ─────────
+    # 한은 금통위 통화정책방향 결정회의 (2026 공식 확정)
     bok_2026 = {1: 15, 2: 26, 4: 10, 5: 28, 7: 16, 8: 27, 10: 22, 11: 26}
-    if year == 2026 and month in bok_2026:
+    if month in bok_2026:
         _add(bok_2026[month], "🏦 🇰🇷한은 금통위", "evt-econ-bok")
+    # 한국 소비자물가(CPI) (통계청, 통상 월초 2영업일·추정)
+    _add(_nth_bday(year, month, 2), "📊 🇰🇷소비자물가(CPI)", "evt-econ-cpi")
+    # 한국 수출입동향 (관세청, 매월 1일) — 수출 주도 경제, KOSPI 직접 동인
+    _add(1, "🚢 🇰🇷수출입동향", "evt-econ-jobs")
+
+    # ───────── 글로벌(韓 영향 큰 일정) ─────────
+    # ECB 통화정책회의 (2일차 결정, 2026 공식 확정)
+    ecb_2026 = {3: 19, 4: 30, 6: 11, 7: 23, 9: 10, 10: 29, 12: 17}
+    if month in ecb_2026:
+        _add(ecb_2026[month], "🏛️ 🇪🇺ECB 통화정책", "evt-econ-fomc")
+    # BOJ 금융정책결정회의 (2일차 결정, 2026 공식 확정) — 엔/원 환율·엔캐리 민감
+    boj_2026 = {1: 23, 3: 19, 4: 28, 6: 16, 7: 31, 9: 18, 10: 30, 12: 18}
+    if month in boj_2026:
+        _add(boj_2026[month], "🏯 🇯🇵BOJ 금융정책", "evt-econ-fomc")
+    # 중국 제조업 PMI (NBS 월말/차이신 월초, 통상 1일·추정) — 수출 수요 선행
+    _add(1, "🏭 🇨🇳제조업 PMI", "evt-econ-jobs")
 
     return events
 
@@ -4168,19 +4215,30 @@ def render_sentiment_strip(fg_data, macro_data):
 
 
 def render_week_catalysts():
-    """⑥ 이번 주 핵심 일정 — FOMC·CPI·고용(美)·금통위(韓) 매크로 이벤트만 압축 표시."""
+    """⑥ 이번 주 핵심 일정 — 중앙은행(FOMC·ECB·BOJ·한은)·물가(CPI·PCE)·경기(고용·PMI·소매판매·수출입)·수급(동시만기)을 압축 표시."""
     now_kst = (datetime.utcnow() + timedelta(hours=9)).date()
     monday = now_kst - timedelta(days=now_kst.weekday())
     days = [monday + timedelta(days=i) for i in range(7)]
     dow_kr = ["월", "화", "수", "목", "금", "토", "일"]
 
     def _evt_color(label):
-        if "FOMC" in label or "금통위" in label: return "#7c3aed"   # 금리 = 보라
-        if "CPI" in label or "물가" in label: return "#ea580c"      # 물가 = 주황
-        if "고용" in label: return "#2563eb"                        # 고용 = 파랑
+        # 카테고리별 색: 중앙은행=보라 / 물가=주황 / 고용=파랑 / 경기=청록 / 수급·만기=핑크
+        if any(k in label for k in ("FOMC", "금통위", "ECB", "BOJ", "통화정책", "금융정책", "의사록")): return "#7c3aed"
+        if any(k in label for k in ("CPI", "PCE", "PPI", "물가")): return "#ea580c"
+        if "고용" in label or "실업" in label: return "#2563eb"
+        if any(k in label for k in ("PMI", "소매판매", "수출", "무역", "GDP", "산업생산")): return "#0d9488"
+        if any(k in label for k in ("만기", "네마녀", "위칭", "MSCI")): return "#db2777"
         return "#475569"
 
-    rows = [(d, evs) for d in days if (evs := get_economic_events(d.year, d.month).get(d.day, []))]
+    def _events_for(d):
+        # 경제지표(get_economic_events) + 선물옵션 동시만기(3·6·9·12월 둘째 목요일)를 병합.
+        # 동시만기는 캘린더 페이지가 자체 로직으로 별도 표기하므로 여기서만 규칙으로 주입(중복 방지).
+        evs = list(get_economic_events(d.year, d.month).get(d.day, []))
+        if d.month in (3, 6, 9, 12) and d.weekday() == 3 and 8 <= d.day <= 14:
+            evs.append(("🌗 🇰🇷선물옵션 동시만기(네마녀)", "evt-econ-expiry"))
+        return evs
+
+    rows = [(d, evs) for d in days if (evs := _events_for(d))]
 
     if not rows:
         upcoming = []
@@ -4189,9 +4247,9 @@ def render_week_catalysts():
                 cand = now_kst.replace(day=dd)
             except ValueError:
                 break
-            for (lab, _c) in get_economic_events(cand.year, cand.month).get(dd, []):
+            for (lab, _c) in _events_for(cand):
                 upcoming.append((cand, lab))
-        upcoming = upcoming[:3]
+        upcoming = upcoming[:4]
         if upcoming:
             chips = "".join(
                 f'<span style="display:inline-block;background:#f1f5f9;color:{_evt_color(lab)};'
@@ -4200,12 +4258,12 @@ def render_week_catalysts():
             )
             st.markdown(
                 f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:12px 16px;">'
-                f'<div style="font-size:12.5px;color:#64748b;margin-bottom:4px;">이번 주는 예정된 주요 매크로 일정이 없습니다. 다가오는 일정 👇</div>'
+                f'<div style="font-size:12.5px;color:#64748b;margin-bottom:4px;">이번 주는 예정된 주요 일정이 없습니다. 다가오는 일정 👇</div>'
                 f'{chips}</div>', unsafe_allow_html=True)
         else:
             st.markdown(
                 '<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:14px 16px;'
-                'color:#64748b;font-size:13px;">📭 이번 주 예정된 FOMC·CPI·고용·금통위 일정이 없습니다.</div>',
+                'color:#64748b;font-size:13px;">📭 이번 주 예정된 주요 매크로·수급 일정이 없습니다.</div>',
                 unsafe_allow_html=True)
         return
 
@@ -4232,7 +4290,8 @@ def render_week_catalysts():
         f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">{body}</div>',
         unsafe_allow_html=True,
     )
-    st.caption("💡 발표 당일은 변동성이 커집니다. FOMC·CPI·고용(美)·금통위(韓) 전후 포지션 관리에 유의하세요. (일부 일정은 추정)")
+    st.caption("💡 발표 당일은 변동성이 커집니다. 중앙은행(FOMC·ECB·BOJ·한은)·물가(CPI·PCE)·경기(고용·PMI·소매판매·수출입)·동시만기 전후 포지션에 유의하세요. "
+               "(중앙은행·의사록·동시만기=확정 / 지표 발표일=통상 시기 기준 추정)")
 
 
 def render_watchlist_signals():
@@ -6441,7 +6500,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     st.divider()
 
     # ── ⑥ 이번 주 핵심 매크로 일정 ──
-    st.markdown("##### 🗓️ 이번 주 핵심 매크로 일정 (FOMC·CPI·고용·금통위)")
+    st.markdown("##### 🗓️ 이번 주 핵심 일정 (중앙은행·물가·경기·수급)")
     render_week_catalysts()
 
     st.divider()
@@ -7144,9 +7203,9 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
         st.markdown(
             "<div style='margin-top:10px;font-size:12px;color:#555;line-height:1.9;'>"
             "<b>범례</b> &nbsp; "
-            "<span style='background:#ede7f6;color:#4527a0;padding:2px 6px;border-radius:3px;'>🏛️ FOMC</span> "
-            "<span style='background:#fff8e1;color:#ff6f00;padding:2px 6px;border-radius:3px;'>📊 CPI</span> "
-            "<span style='background:#e0f7fa;color:#006064;padding:2px 6px;border-radius:3px;'>👷 고용지표</span> "
+            "<span style='background:#ede7f6;color:#4527a0;padding:2px 6px;border-radius:3px;'>🏛️ 중앙은행(FOMC·ECB·BOJ·의사록)</span> "
+            "<span style='background:#fff8e1;color:#ff6f00;padding:2px 6px;border-radius:3px;'>📊 물가(CPI·PCE)</span> "
+            "<span style='background:#e0f7fa;color:#006064;padding:2px 6px;border-radius:3px;'>👷 경기(고용·PMI·소매판매·수출입)</span> "
             "<span style='background:#fce4ec;color:#880e4f;padding:2px 6px;border-radius:3px;'>🏦 한은 금통위</span> "
             "<span style='background:#ffebee;color:#c62828;padding:2px 6px;border-radius:3px;'>🔴 옵션만기</span> "
             "<span style='background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:3px;'>🔹 위클리만기</span>"
@@ -7154,10 +7213,10 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
             unsafe_allow_html=True,
         )
         st.caption(
-            "ℹ️ 표시된 경제지표는 모두 **공식 확정 일정(2026)**입니다 — "
-            "FOMC(미 연준)·한은 금통위, 미 CPI·고용지표(BLS·OMB 공식 발표 기준). "
-            "옵션만기(미 셋째 금요일·한국 둘째 목요일)는 규칙 기반입니다. "
-            "단, 정부 셧다운 등으로 발표일이 사후 연기될 수 있으니 중대한 매매 전엔 원출처를 확인하세요."
+            "ℹ️ **확정 일정(2026)** — 중앙은행(FOMC·한은·ECB·BOJ)·FOMC 의사록, 미 CPI·고용지표(BLS 공식), "
+            "옵션만기(미 셋째 금요일·한국 둘째 목요일, 규칙 기반). "
+            "**추정 일정** — PCE·소매판매·ISM·한국 CPI·중국 PMI·한국 수출입은 통상 발표 시기 기준이라 실제 발표일과 1~2일 차이날 수 있습니다. "
+            "정부 셧다운 등으로 발표일이 사후 연기될 수 있으니 중대한 매매 전엔 원출처를 확인하세요."
         )
 
     with cal_tab3:
