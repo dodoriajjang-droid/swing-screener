@@ -1723,31 +1723,13 @@ def get_market_label(ticker_code):
 @st.cache_data(ttl=600)
 def get_stock_list_by_market():
     """코스피/코스닥 전체 종목 리스트(시세·시총·업종 포함) — 종목 리스트 페이지용.
-    반환: 정규화된 DataFrame[시장, 종목코드, 종목명, 현재가, 등락률, 거래대금(억), 시가총액(억), 업종]"""
-    try:
-        df = fdr.StockListing('KRX')
-        if df.empty or 'Market' not in df.columns:
-            return pd.DataFrame()
-        df = df.copy()
-        df['Code'] = df['Code'].astype(str).str.zfill(6)
+    반환: 정규화된 DataFrame[시장, 종목코드, 종목명, 현재가, 등락률, 거래대금(억), 시가총액(억), 업종]
+    fdr.StockListing('KRX')가 막히면 _kr_market_snapshot(fdr 개별시장 → pykrx) 폴백으로 실데이터를 복구한다."""
+    label = {'KOSPI': '코스피', 'KOSDAQ': '코스닥', 'KONEX': '코넥스',
+             'KOSDAQ GLOBAL': '코스닥', 'KOSDAQ_GLOBAL': '코스닥'}
 
-        def _num(col):
-            if col not in df.columns:
-                return 0
-            return pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
-
-        out = pd.DataFrame()
-        label = {'KOSPI': '코스피', 'KOSDAQ': '코스닥', 'KONEX': '코넥스',
-                 'KOSDAQ GLOBAL': '코스닥', 'KOSDAQ_GLOBAL': '코스닥'}
-        out['시장'] = df['Market'].astype(str).str.upper().str.strip().map(lambda m: label.get(m, m))
-        out['종목코드'] = df['Code']
-        out['종목명'] = df['Name'] if 'Name' in df.columns else ''
-        out['현재가'] = _num('Close').astype(int)
-        out['등락률'] = _num('ChagesRatio').round(2)
-        out['거래대금(억)'] = (_num('Amount') / 100000000).astype(int)
-        out['시가총액(억)'] = (_num('Marcap') / 100000000).astype(int)
-
-        # 업종 병합 (get_krx_stocks의 정제된 Sector)
+    def _merge_sector(out):
+        # 업종 병합 (get_krx_stocks의 정제된 Sector) — 기존 로직과 동일
         try:
             krx = get_krx_stocks()
             if not krx.empty:
@@ -1758,12 +1740,50 @@ def get_stock_list_by_market():
         except Exception:
             out['업종'] = '-'
         out['업종'] = out['업종'].fillna('-')
-
-        # 코스피/코스닥만 (코넥스 제외 옵션은 페이지에서 처리)
         out = out[out['시장'].isin(['코스피', '코스닥', '코넥스'])]
         return out.reset_index(drop=True)
+
+    # --- 1차: fdr 'KRX' 통합 (정상 시 기존과 동일한 출력) ---
+    try:
+        df = fdr.StockListing('KRX')
+        if df is not None and not df.empty and 'Market' in df.columns:
+            df = df.copy()
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+
+            def _num(col):
+                if col not in df.columns:
+                    return 0
+                return pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
+
+            out = pd.DataFrame()
+            out['시장'] = df['Market'].astype(str).str.upper().str.strip().map(lambda m: label.get(m, m))
+            out['종목코드'] = df['Code']
+            out['종목명'] = df['Name'] if 'Name' in df.columns else ''
+            out['현재가'] = _num('Close').astype(int)
+            out['등락률'] = _num('ChagesRatio').round(2)
+            out['거래대금(억)'] = (_num('Amount') / 100000000).astype(int)
+            out['시가총액(억)'] = (_num('Marcap') / 100000000).astype(int)
+            return _merge_sector(out)
     except Exception:
-        return pd.DataFrame()
+        pass
+
+    # --- 폴백: 다중소스 스냅샷(fdr 개별시장 → pykrx)으로 실데이터 복구 ---
+    try:
+        snap = _kr_market_snapshot()
+        if not snap.empty:
+            out = pd.DataFrame()
+            out['시장'] = snap['Market']
+            out['종목코드'] = snap['Code'].astype(str).str.zfill(6)
+            out['종목명'] = snap['Name']
+            out['현재가'] = pd.to_numeric(snap['Close'], errors='coerce').fillna(0).astype(int)
+            out['등락률'] = pd.to_numeric(snap['ChagesRatio'], errors='coerce').fillna(0).round(2)
+            out['거래대금(억)'] = (pd.to_numeric(snap['Amount'], errors='coerce').fillna(0) / 100000000).astype(int)
+            out['시가총액(억)'] = (pd.to_numeric(snap['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
+            return _merge_sector(out)
+    except Exception:
+        pass
+
+    return pd.DataFrame()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1919,6 +1939,105 @@ def get_korean_name(eng_name):
     # 사전에 없으면 원래 영문 이름 그대로 반환
     return name_str
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _kr_market_snapshot():
+    """fdr.StockListing('KRX')가 막혔을 때를 위한 폴백 시세 스냅샷.
+    소스를 순차 시도하여 실데이터([Code, Name, Close, ChagesRatio, Amount, Marcap, Market])를 확보한다.
+      1) fdr를 KOSPI/KOSDAQ로 분할 시도 ('KRX' 통합이 막혀도 개별은 되는 경우가 있음)
+      2) pykrx (KRX의 다른 엔드포인트 — fdr이 죽어도 살아있는 경우가 많음)
+    어떤 경우에도 예외를 밖으로 던지지 않으며, 모두 실패하면 빈 DataFrame을 반환한다(→ 기존 동작 이하로 떨어지지 않음)."""
+    def _num(df, col):
+        if col not in df.columns:
+            return pd.Series([0] * len(df))
+        return pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce').fillna(0)
+
+    # --- 소스 1: FDR 개별 시장 ---
+    def _from_fdr():
+        frames = []
+        for mcode, kname in [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")]:
+            try:
+                d = fdr.StockListing(mcode)
+                if d is None or d.empty:
+                    continue
+                d = d.copy()
+                d['__mkt'] = kname
+                frames.append(d)
+            except Exception:
+                continue
+        if not frames:
+            return pd.DataFrame()
+        df = pd.concat(frames, ignore_index=True)
+        out = pd.DataFrame()
+        out['Code'] = (df['Code'].astype(str).str.zfill(6)) if 'Code' in df.columns else ""
+        out['Name'] = df['Name'] if 'Name' in df.columns else ""
+        out['Close'] = _num(df, 'Close')
+        out['ChagesRatio'] = _num(df, 'ChagesRatio')
+        out['Amount'] = _num(df, 'Amount')
+        out['Marcap'] = _num(df, 'Marcap')
+        out['Market'] = df['__mkt']
+        return out[out['Code'].astype(str).str.len() == 6].reset_index(drop=True)
+
+    # --- 소스 2: pykrx ---
+    def _from_pykrx():
+        if not HAS_PYKRX:
+            return pd.DataFrame()
+        import datetime as _dt
+        frames = []
+        for mcode, kname in [("KOSPI", "코스피"), ("KOSDAQ", "코스닥")]:
+            ohlcv, used = None, None
+            for back in range(0, 8):   # 주말/공휴일이면 직전 거래일로 후퇴
+                ds = (_dt.datetime.now() - _dt.timedelta(days=back)).strftime("%Y%m%d")
+                try:
+                    t = pykrx_stock.get_market_ohlcv_by_ticker(ds, market=mcode)
+                    if t is not None and not t.empty and float(pd.to_numeric(t['종가'], errors='coerce').fillna(0).sum()) > 0:
+                        ohlcv, used = t, ds
+                        break
+                except Exception:
+                    continue
+            if ohlcv is None:
+                continue
+            o = ohlcv.reset_index().rename(columns={ohlcv.index.name or 'index': 'Code'})
+            o = o.rename(columns={o.columns[0]: 'Code'})   # 인덱스(티커) → Code 보장
+            try:
+                cap = pykrx_stock.get_market_cap_by_ticker(used, market=mcode).reset_index()
+                cap = cap.rename(columns={cap.columns[0]: 'Code'})
+                o = pd.merge(o, cap[['Code', '시가총액']], on='Code', how='left')
+            except Exception:
+                o['시가총액'] = 0
+            o['__mkt'] = kname
+            frames.append(o)
+        if not frames:
+            return pd.DataFrame()
+        df = pd.concat(frames, ignore_index=True)
+        out = pd.DataFrame()
+        out['Code'] = df['Code'].astype(str).str.zfill(6)
+        out['Close'] = pd.to_numeric(df.get('종가', 0), errors='coerce').fillna(0)
+        out['ChagesRatio'] = pd.to_numeric(df.get('등락률', 0), errors='coerce').fillna(0)
+        out['Amount'] = pd.to_numeric(df.get('거래대금', 0), errors='coerce').fillna(0)
+        out['Marcap'] = pd.to_numeric(df.get('시가총액', 0), errors='coerce').fillna(0)
+        out['Market'] = df['__mkt']
+        # 종목명은 get_krx_stocks(이름↔코드 매핑)에서 병합 (pykrx OHLCV엔 이름이 없음)
+        try:
+            krx = get_krx_stocks()
+            if not krx.empty:
+                out = pd.merge(out, krx[['Code', 'Name']], on='Code', how='left')
+        except Exception:
+            pass
+        if 'Name' not in out.columns:
+            out['Name'] = ""
+        out['Name'] = out['Name'].fillna("")
+        return out.reset_index(drop=True)
+
+    for _src in (_from_fdr, _from_pykrx):
+        try:
+            snap = _src()
+            if snap is not None and not snap.empty and float(snap['Close'].abs().sum()) > 0:
+                return snap.reset_index(drop=True)
+        except Exception:
+            continue
+    return pd.DataFrame(columns=['Code', 'Name', 'Close', 'ChagesRatio', 'Amount', 'Marcap', 'Market'])
+
+
 @st.cache_data(ttl=300)
 def get_trading_value_kings(limit=50):
     try:
@@ -1961,8 +2080,31 @@ def get_trading_value_kings(limit=50):
             return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
     except Exception: pass
 
-    # 🚨 서버 차단 시 예비 데이터로 히트맵 유지
+    # 🚨 1차 소스(fdr 'KRX') 실패 → 다중소스 스냅샷(fdr 개별시장 → pykrx)으로 '실제 등락률·거래대금' 복구
+    snap = _kr_market_snapshot()
+    if not snap.empty:
+        fb = snap.copy()
+        # 1차 경로와 동일 기준으로 ETF/스팩/선물 등 제외
+        mask = fb['Name'].astype(str).str.contains('KODEX|TIGER|KBSTAR|KOSEF|ARIRANG|HANARO|ACE|스팩|ETN|선물|인버스|레버리지', na=False)
+        fb = fb[~mask].copy()
+        fb = fb.sort_values('Amount', ascending=False).head(limit)
+        fb['Amount_Ouk'] = (fb['Amount'] / 100000000).astype(int)
+        try:
+            krx = get_krx_stocks()
+            if not krx.empty:
+                fb = pd.merge(fb, krx[['Code', 'Sector']], on='Code', how='left')
+            if 'Sector' not in fb.columns:
+                fb['Sector'] = '기타/분류불가'
+            fb['Sector'] = fb['Sector'].fillna('기타/분류불가')
+        except Exception:
+            fb['Sector'] = '기타/분류불가'
+        return fb[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
+
+    # 🚨 모든 시세 소스 실패 시: 이름만이라도 표시(등락률 0). 빈 결과면 빈 DF 반환.
     fallback_df = get_krx_stocks().head(limit)
+    if fallback_df.empty:
+        return pd.DataFrame(columns=['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector'])
+    fallback_df = fallback_df.copy()
     fallback_df['Close'] = 0
     fallback_df['ChagesRatio'] = 0.0
     fallback_df['Amount_Ouk'] = 1000
@@ -7862,6 +8004,14 @@ elif selected_menu == "💎 장기 우량주 & 가치주 발굴":
 elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
         st.markdown("## ⚡ 메가트렌드 & 테마 대장주")
         st.write("AI가 최신 트렌드를 분석하여, 숨겨진 글로벌 텐배거(10배 상승) 후보와 한·미 양국의 핵심 수혜주를 동시에 발굴합니다.")
+
+        # [버그수정] 이 페이지로 '새로 진입'했는데 결과 없는 '미완료 검색어'가 남아 있으면 정리한다.
+        #  이전에 검색하다 만 deep_tech_query 가 재진입 시 자동 재실행되어 '종목을 찾지 못했습니다' 오류가
+        #  잠깐 떴다 사라지던 현상을 방지. (이미 완료된 결과 deep_tech_results 는 그대로 보존)
+        if _nav_changed and st.session_state.get("deep_tech_results") is None:
+            st.session_state.deep_tech_query = None
+            st.session_state.deep_tech_brief = None
+
         # ... (이하 해당 블록 내용 전체)
         
         if not api_key_input:
