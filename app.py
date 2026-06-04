@@ -77,9 +77,123 @@ LIVE_REFRESH_PAGES = {
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
-th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+
+:root{
+  --jm-bg:#0a0e1a; --jm-bg2:#0d1424; --jm-bg3:#111a2e; --jm-side:#070b14;
+  --jm-border:rgba(56,138,221,.16); --jm-border-h:rgba(56,189,248,.45);
+  --jm-accent:#38bdf8; --jm-amber:#fbbf24;
+  --jm-up:#ff5d63; --jm-down:#4d94ff;
+  --jm-text:#e6edf6; --jm-dim:#8aa0bd;
+  --jm-mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ===== 배경 (블루-블랙 단말기) ===== */
+.stApp{
+  background:
+    radial-gradient(1200px 620px at 82% -12%, rgba(56,189,248,.07), transparent 60%),
+    radial-gradient(900px 520px at -10% 8%, rgba(99,102,241,.05), transparent 55%),
+    var(--jm-bg);
+}
+[data-testid="stHeader"], [data-testid="stAppViewContainer"]{ background:transparent; }
+.stMainBlockContainer, [data-testid="stMain"] .block-container{ animation:jmfade .5s ease both; }
+@keyframes jmfade{ from{opacity:0;transform:translateY(7px);} to{opacity:1;transform:none;} }
+
+/* ===== 숫자/데이터 = 모노스페이스 (터미널 룩) ===== */
+[data-testid="stMetricValue"], [data-testid="stMetricDelta"], [data-testid="stMetricLabel"],
+table, .stDataFrame, [data-testid="stTable"], code, .stCode, pre{
+  font-family:var(--jm-mono) !important; font-feature-settings:"tnum" 1;
+}
+h1,h2,h3,h4,h5,h6{ letter-spacing:-.012em; color:var(--jm-text); }
+h1{ font-weight:800; }
+
+/* ===== 사이드바 ===== */
+[data-testid="stSidebar"]{
+  background:linear-gradient(180deg,#070b14,#0a1120 70%,#070b14);
+  border-right:1px solid var(--jm-border);
+}
+[data-testid="stSidebar"] h1{ color:var(--jm-accent); text-shadow:0 0 18px rgba(56,189,248,.35); }
+[data-testid="stSidebar"] [role="radiogroup"]{ gap:2px; }
+[data-testid="stSidebar"] [role="radiogroup"] > label{
+  border-radius:9px; padding:5px 10px; border-left:2px solid transparent;
+  transition:background .15s ease, border-color .15s ease;
+}
+[data-testid="stSidebar"] [role="radiogroup"] > label:hover{ background:rgba(56,189,248,.07); }
+[data-testid="stSidebar"] [role="radiogroup"] > label:has(input:checked){
+  background:rgba(56,189,248,.13); border-left:2px solid var(--jm-accent);
+}
+[data-testid="stSidebar"] [role="radiogroup"] p{ font-size:13.5px; }
+
+/* ===== 벤토 카드 (bordered container) ===== */
+[data-testid="stVerticalBlockBorderWrapper"]{
+  background:linear-gradient(180deg,rgba(56,189,248,.03),transparent 42%),var(--jm-bg2);
+  border:1px solid var(--jm-border) !important; border-radius:16px !important;
+  transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:hover{
+  border-color:var(--jm-border-h) !important;
+  box-shadow:0 10px 34px rgba(2,8,20,.55), 0 0 0 1px rgba(56,189,248,.06);
+  transform:translateY(-2px);
+}
+
+/* ===== metric ===== */
+[data-testid="stMetric"]{
+  background:var(--jm-bg3); border:1px solid var(--jm-border);
+  border-radius:12px; padding:13px 16px;
+}
+[data-testid="stMetricValue"]{ font-weight:700; }
+
+/* ===== 버튼 ===== */
+.stButton>button, .stLinkButton>a, .stDownloadButton>button{
+  border-radius:10px; border:1px solid var(--jm-border);
+  background:rgba(56,189,248,.05); color:var(--jm-text); font-weight:600;
+  transition:all .15s ease;
+}
+.stButton>button:hover, .stLinkButton>a:hover, .stDownloadButton>button:hover{
+  border-color:var(--jm-accent); background:rgba(56,189,248,.12);
+  box-shadow:0 0 18px rgba(56,189,248,.18);
+}
+.stButton>button[kind="primary"], [data-testid="baseButton-primary"], [data-testid="stBaseButton-primary"]{
+  background:linear-gradient(180deg,#38bdf8,#0ea5e9); border:none; color:#04121f;
+  box-shadow:0 6px 20px rgba(56,189,248,.35);
+}
+.stButton>button[kind="primary"]:hover{ filter:brightness(1.06); box-shadow:0 8px 26px rgba(56,189,248,.5); }
+
+/* ===== 입력 / 셀렉트 ===== */
+[data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"]>div,
+.stTextInput input, .stNumberInput input{ background:var(--jm-bg3) !important; border-radius:10px !important; }
+.stTextInput input:focus, .stNumberInput input:focus{
+  border-color:var(--jm-accent) !important; box-shadow:0 0 0 2px rgba(56,189,248,.25) !important;
+}
+
+/* ===== dataframe / table ===== */
+[data-testid="stDataFrame"]{ border:1px solid var(--jm-border); border-radius:12px; overflow:hidden; }
+table th{
+  background:rgba(56,189,248,.06) !important; color:var(--jm-accent) !important;
+  font-weight:700 !important; text-transform:uppercase; font-size:11.5px; letter-spacing:.04em;
+}
+table td{ border-color:var(--jm-border) !important; }
+
+/* ===== tabs ===== */
+.stTabs [data-baseweb="tab-list"]{ gap:4px; border-bottom:1px solid var(--jm-border); }
+.stTabs [data-baseweb="tab"]{ border-radius:10px 10px 0 0; padding:8px 14px; color:var(--jm-dim); }
+.stTabs [aria-selected="true"]{ color:var(--jm-accent) !important; border-bottom:2px solid var(--jm-accent) !important; }
+
+/* ===== expander / alert / chat ===== */
+[data-testid="stExpander"]{ border:1px solid var(--jm-border); border-radius:12px; overflow:hidden; background:var(--jm-bg2); }
+[data-testid="stExpander"] summary:hover{ color:var(--jm-accent); }
+[data-testid="stAlert"]{ border-radius:12px; border:1px solid var(--jm-border); }
+[data-testid="stChatMessage"]{ background:var(--jm-bg2); border:1px solid var(--jm-border); border-radius:12px; }
+[data-testid="stCaptionContainer"]{ color:var(--jm-dim); }
+
+/* ===== divider ===== */
+hr{ border:none; height:1px; background:linear-gradient(90deg,transparent,var(--jm-border) 18%,var(--jm-border) 82%,transparent); }
+
+/* ===== scrollbar ===== */
+*::-webkit-scrollbar{ width:10px; height:10px; }
+*::-webkit-scrollbar-track{ background:transparent; }
+*::-webkit-scrollbar-thumb{ background:rgba(56,189,248,.25); border-radius:8px; border:2px solid transparent; background-clip:content-box; }
+*::-webkit-scrollbar-thumb:hover{ background:rgba(56,189,248,.5); background-clip:content-box; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -3301,7 +3415,7 @@ def _index_card_html(d, spark=None):
         return ""
     up_c, flat_c, down_c = "#ef4444", "#94a3b8", "#3b82f6"
     sign = d.get("sign", 0)
-    val_color = up_c if sign > 0 else (down_c if sign < 0 else "#334155")
+    val_color = up_c if sign > 0 else (down_c if sign < 0 else "#cbd5e1")
     arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "■")
     psign = "+" if sign > 0 else ("-" if sign < 0 else "")
     pct = d.get("pct")
@@ -3320,7 +3434,7 @@ def _index_card_html(d, spark=None):
             down_p = max(0.0, 100 - up_p - flat_p)
             bar = (
                 f'<div style="display:flex;height:8px;border-radius:5px;overflow:hidden;'
-                f'background:#e5e7eb;margin-top:10px;">'
+                f'background:rgba(255,255,255,0.10);margin-top:10px;">'
                 f'<div style="width:{up_p:.1f}%;background:{up_c};"></div>'
                 f'<div style="width:{flat_p:.1f}%;background:{flat_c};"></div>'
                 f'<div style="width:{down_p:.1f}%;background:{down_c};"></div></div>'
@@ -3335,11 +3449,11 @@ def _index_card_html(d, spark=None):
     return (
         f'<div style="padding:14px 4px;">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-        f'<span style="font-size:20px;font-weight:800;color:#1e293b;">{d["name"]}</span>'
+        f'<span style="font-size:20px;font-weight:800;color:#e6edf6;">{d["name"]}</span>'
         f'<span style="font-size:13px;">{cnt}</span></div>'
         f'<div style="margin-top:6px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;">'
         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
-        f'<span style="font-size:28px;font-weight:800;color:#1e293b;">{d["price"]:,.2f}</span>'
+        f'<span style="font-size:28px;font-weight:800;color:#e6edf6;">{d["price"]:,.2f}</span>'
         f'<span style="font-size:16px;font-weight:700;color:{val_color};">{pct_str}</span>'
         f'<span style="font-size:15px;color:{val_color};">{diff_str}</span></div>'
         f'<div style="flex-shrink:0;">{spark_svg}</div></div>'
@@ -3353,8 +3467,8 @@ def _flow_bar_html(label, val):
     if val is None:
         return (
             f'<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0;">'
-            f'<span style="width:52px;color:#475569;font-weight:600;">{label}</span>'
-            f'<span style="flex:1;height:8px;background:#eef2f6;border-radius:5px;margin:0 14px;"></span>'
+            f'<span style="width:52px;color:#aebfd6;font-weight:600;">{label}</span>'
+            f'<span style="flex:1;height:8px;background:rgba(255,255,255,0.08);border-radius:5px;margin:0 14px;"></span>'
             f'<span style="color:#94a3b8;font-weight:700;min-width:96px;text-align:right;">조회불가</span></div>'
         )
     color = buy_c if val >= 0 else sell_c
@@ -3367,8 +3481,8 @@ def _flow_bar_html(label, val):
         fill = f'<div style="position:absolute;right:50%;width:{half:.1f}%;height:100%;background:{color};border-radius:5px;"></div>'
     return (
         f'<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0;">'
-        f'<span style="width:52px;color:#475569;font-weight:600;">{label}</span>'
-        f'<span style="flex:1;position:relative;height:8px;background:#eef2f6;border-radius:5px;margin:0 14px;">{fill}'
+        f'<span style="width:52px;color:#aebfd6;font-weight:600;">{label}</span>'
+        f'<span style="flex:1;position:relative;height:8px;background:rgba(255,255,255,0.08);border-radius:5px;margin:0 14px;">{fill}'
         f'<span style="position:absolute;left:50%;top:-2px;width:1px;height:12px;background:#cbd5e1;"></span></span>'
         f'<span style="color:{color};font-weight:800;min-width:96px;text-align:right;">{sign}{abs(val):,}억</span></div>'
     )
@@ -3385,7 +3499,7 @@ def _market_flows_html(card, title):
         + _flow_bar_html("개인", p_v)
     )
     return (
-        f'<div style="font-weight:800;font-size:14px;color:#334155;margin:4px 0 2px;">{title}</div>'
+        f'<div style="font-weight:800;font-size:14px;color:#c9d6ea;margin:4px 0 2px;">{title}</div>'
         f'{bars}'
     )
 
@@ -3431,7 +3545,7 @@ def render_main_index_panel():
     if kospi:
         cards += _index_card_html(kospi, spark=get_index_spark("KOSPI"))
     if kospi and kosdaq:
-        cards += '<div style="height:1px;background:#eef2f6;margin:2px 0;"></div>'
+        cards += '<div style="height:1px;background:rgba(56,138,221,.16);margin:2px 0;"></div>'
     if kosdaq:
         cards += _index_card_html(kosdaq, spark=get_index_spark("KOSDAQ"))
 
@@ -3446,7 +3560,7 @@ def render_main_index_panel():
         flows += _market_flows_html(kospi, "📈 코스피")
     if _has_flow(kosdaq):
         if flows:
-            flows += '<div style="height:1px;background:#fcdcdc;margin:12px 0;"></div>'
+            flows += '<div style="height:1px;background:rgba(56,138,221,.16);margin:12px 0;"></div>'
         flows += _market_flows_html(kosdaq, "📊 코스닥")
 
     # [폴백] 둘 다 수급값이 없으면 가용한 쪽이라도 한 블록 표시
@@ -3458,7 +3572,7 @@ def render_main_index_panel():
     gauge = (
         f'<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">'
         f'<span style="color:#ef4444;">●</span>'
-        f'<span style="font-weight:800;font-size:17px;color:#1e293b;">오늘의 시장</span>'
+        f'<span style="font-weight:800;font-size:17px;color:#e6edf6;">오늘의 시장</span>'
         f'<span style="color:#94a3b8;">ⓘ</span>'
         f'<span style="font-weight:800;font-size:17px;color:{reg_color};margin-left:2px;">{reg_label}</span>'
         f'<span style="flex:1;position:relative;height:6px;border-radius:5px;margin-left:10px;'
@@ -3469,11 +3583,11 @@ def render_main_index_panel():
 
     st.markdown(
         f"""
-        <div style="background:#fff;border:1px solid #e9eef3;border-radius:16px;
-                    padding:6px 18px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+        <div style="background:#0d1424;border:1px solid rgba(56,138,221,.16);border-radius:16px;
+                    padding:6px 18px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.4);">
           {cards}
         </div>
-        <div style="background:#fff5f5;border:1px solid #fcdcdc;border-radius:16px;
+        <div style="background:#0e1626;border:1px solid rgba(56,138,221,.16);border-radius:16px;
                     padding:14px 18px;margin-top:10px;">
           {gauge}
           <div style="margin-top:12px;">{flows}</div>
@@ -3503,13 +3617,13 @@ def render_major_indices_bar():
         pstr = f'{arrow} {abs(pct):.2f}%' if pct is not None else ""
         cells += (
             f'<div style="flex:1;text-align:center;padding:6px 4px;">'
-            f'<div style="font-size:12px;color:#64748b;">{it["label"]}</div>'
-            f'<div style="font-size:15px;font-weight:800;color:#1e293b;">{vstr}</div>'
+            f'<div style="font-size:12px;color:#8aa0bd;">{it["label"]}</div>'
+            f'<div style="font-size:15px;font-weight:800;color:#e6edf6;">{vstr}</div>'
             f'<div style="font-size:12px;font-weight:700;color:{c};">{pstr}</div></div>'
         )
     st.markdown(
-        f'<div style="display:flex;background:#fff;border:1px solid #e9eef3;border-radius:14px;'
-        f'padding:6px;margin-top:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">{cells}</div>',
+        f'<div style="display:flex;background:#0d1424;border:1px solid rgba(56,138,221,.16);border-radius:14px;'
+        f'padding:6px;margin-top:10px;box-shadow:0 1px 3px rgba(0,0,0,0.4);">{cells}</div>',
         unsafe_allow_html=True,
     )
 
@@ -3530,19 +3644,19 @@ def render_marketcap_top(mkt="KOSPI", n=10):
         pct = r.get("pct")
         pstr = f'{arrow}{abs(pct):.2f}%' if pct is not None else ""
         price = f'{r["price"]:,.0f}' if r.get("price") is not None else "-"
-        border = "border-bottom:1px solid #f1f5f9;" if i < len(rows) else ""
+        border = "border-bottom:1px solid rgba(255,255,255,0.07);" if i < len(rows) else ""
         body += (
             f'<div style="display:grid;{GRID}align-items:center;column-gap:6px;padding:8px 0;{border}box-sizing:border-box;">'
             f'<span style="color:#94a3b8;font-weight:700;font-size:12px;">{i}</span>'
             f'<div style="min-width:0;overflow:hidden;">'
-            f'<div style="font-weight:700;color:#1e293b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
+            f'<div style="font-weight:700;color:#e6edf6;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r.get("cap","")}</div></div>'
-            f'<span style="text-align:right;color:#1e293b;font-size:12px;white-space:nowrap;overflow:hidden;">{price}</span>'
+            f'<span style="text-align:right;color:#e6edf6;font-size:12px;white-space:nowrap;overflow:hidden;">{price}</span>'
             f'<span style="text-align:right;color:{c};font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;">{pstr}</span>'
             f'</div>'
         )
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'<div style="background:#0d1424;border:1px solid rgba(56,138,221,.16);border-radius:14px;'
         f'padding:2px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
@@ -3566,15 +3680,15 @@ def render_industry_changes(n=12):
         w = abs(rate) / max_abs * 100
         return (
             f'<div style="display:grid;{GRID}align-items:center;column-gap:8px;padding:7px 0;box-sizing:border-box;">'
-            f'<span style="font-weight:600;color:#1e293b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
-            f'<span style="height:8px;background:#f1f5f9;border-radius:5px;position:relative;min-width:0;">'
+            f'<span style="font-weight:600;color:#e6edf6;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
+            f'<span style="height:8px;background:rgba(255,255,255,0.08);border-radius:5px;position:relative;min-width:0;">'
             f'<span style="position:absolute;left:0;width:{w:.0f}%;height:100%;background:{c};border-radius:5px;"></span></span>'
             f'<span style="text-align:right;color:{c};font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;">{arrow}{abs(rate):.2f}%</span>'
             f'</div>'
         )
     body = "".join(_row(r) for r in top)
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'<div style="background:#0d1424;border:1px solid rgba(56,138,221,.16);border-radius:14px;'
         f'padding:6px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
@@ -6076,7 +6190,6 @@ if selected_menu in LIVE_REFRESH_PAGES:
 if selected_menu == "🎛️ 홈: 종합 대시보드":
     # [추가] 메뉴를 '새로 눌러서' 이 화면으로 들어왔을 때만 화면을 맨 위로 올림.
     #  → 페이지 하단의 '실시간 퀀트 챗봇(채팅 입력창)'으로 화면이 튀어 내려가는 현상 방지.
-    #  자동 새로고침/챗봇 입력 같은 일반 rerun 때는 동작하지 않으므로 챗봇은 정상 사용 가능.
     if _nav_changed:
         components.html(
             """
@@ -6107,198 +6220,242 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     macro_data = get_macro_indicators()
     fg_data = get_fear_and_greed()
-    
-    st.markdown("## 🎛️ 홈: 종합 대시보드")
 
-    # [추가] 네이버 모바일 스타일 메인 지수 패널 (코스피/코스닥 + 오늘의 시장 + 투자자별 순매매 + 미니차트 + 주요지표)
-    with st.spinner("코스피·코스닥 지수 / 투자자별 수급 수집 중..."):
-        render_main_index_panel()
-    st.divider()
+    # ===== 벤토 그리드 헤더 =====
+    st.markdown(
+        "<div style='display:flex;align-items:baseline;gap:12px;margin:2px 0 0;'>"
+        "<span style='font-size:30px;font-weight:800;color:#e6edf6;letter-spacing:-.02em;'>🎛️ 종합 대시보드</span>"
+        "<span style='display:inline-flex;align-items:center;gap:6px;font-family:JetBrains Mono,monospace;"
+        "font-size:12px;color:#38bdf8;border:1px solid rgba(56,189,248,.4);border-radius:999px;padding:2px 10px;'>"
+        "<span style='width:7px;height:7px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;'></span>LIVE</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption("지수 · 수급 · 매크로 · AI 브리핑을 한 화면에서 — 5분마다 자동 갱신됩니다.")
 
-    # [추가] 시가총액 TOP & 업종별 등락률
-    mc_col, ind_col = st.columns(2)
-    with mc_col:
-        st.markdown("#### 🏆 시가총액 TOP 10")
-        mc_market = st.radio("시장", ["KOSPI", "KOSDAQ"], horizontal=True,
-                             label_visibility="collapsed", key="mcap_market_radio")
-        with st.spinner("시가총액 상위 종목 수집 중..."):
-            render_marketcap_top(mc_market, 10)
-    with ind_col:
-        st.markdown("#### 🔥 업종별 등락률 (강세 순)")
-        # 좌측 시총 컬럼의 KOSPI/KOSDAQ 라디오 높이만큼 여백을 줘서 두 표의 시작점을 맞춘다.
-        st.markdown("<div style='height:46px;'></div>", unsafe_allow_html=True)
-        with st.spinner("업종별 등락률 수집 중..."):
-            render_industry_changes(12)
-    st.divider()
+    # 벤토 타일 헤더 헬퍼 (카드 상단 라벨)
+    def _tile(title, icon="", sub=""):
+        sub_html = (
+            f"<span style='margin-left:auto;font-family:JetBrains Mono,monospace;"
+            f"font-size:11.5px;color:#8aa0bd;'>{sub}</span>" if sub else ""
+        )
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:8px;margin:4px 2px 10px;'>"
+            f"<span style='font-size:15px;font-weight:700;color:#e6edf6;letter-spacing:-.01em;'>{icon} {title}</span>"
+            f"{sub_html}</div>",
+            unsafe_allow_html=True,
+        )
 
-    # [v7.0] 시장 국면 신호등 — 가장 먼저 '오늘 장이 좋은지'부터 확인
+    # ── 시장 국면 신호등 (상단 풀폭 배너) ──
     render_market_regime_banner()
 
-    # [추가] 간밤 미국 시황 배너 — 공포지수/탐욕지수 게이지 '위'에 배치
-    st.markdown("#### 🌙 간밤 미국 시황 (Risk-On / Off 체크)")
-    with st.spinner("간밤 지수·VIX·환율 수집 중..."):
-        render_overnight_banner()
-    st.caption("💡 VIX(공포지수)가 급등하거나 지수가 크게 빠진 날은, 미국 급등주가 있어도 국장이 위험회피로 갈 수 있으니 보수적으로 접근하세요.")
-    st.divider()
+    # ── [벤토] 실시간 지수 (와이드 히어로 타일) ──
+    with st.container(border=True):
+        _tile("실시간 코스피 · 코스닥", "📈", "투자자별 순매매")
+        with st.spinner("코스피·코스닥 지수 / 투자자별 수급 수집 중..."):
+            render_main_index_panel()
 
-    # [추가] 오늘의 국장 장세 (상승/하락 종목 수) — 네이버 집계 수치만 가볍게 사용
-    with st.spinner("국장 등락 종목 수 집계 중..."):
-        render_kr_market_breadth()
-    st.divider()
-
-    m_col1, m_col2, m_col3 = st.columns([1, 1, 2])
-    def draw_gauge(val, prev, title, steps, is_error=False):
-        if is_error: return go.Figure(go.Indicator(mode="gauge", value=50, title={'text': f"<b>{title}</b><br><span style='font-size:12px;color:red'>서버 통신 지연 (방어)</span>"}, gauge={'axis': {'range': [0, steps[-1]['range'][1]]}, 'bar': {'color': "gray"}}))
-        return go.Figure(go.Indicator(mode="gauge+number+delta", value=val, title={'text': title}, delta={'reference': prev, 'position': "top"}, gauge={'axis': {'range': [0, steps[-1]['range'][1]], 'tickwidth': 1, 'tickcolor': "darkblue"}, 'bar': {'color': "black", 'thickness': 0.2}, 'bgcolor': "white", 'borderwidth': 1, 'bordercolor': "gray", 'steps': steps}))
-
-    with m_col1:
-        steps_vix = [{'range': [0, 15], 'color': "rgba(0, 255, 0, 0.3)"}, {'range': [15, 20], 'color': "rgba(255, 255, 0, 0.3)"}, {'range': [20, 30], 'color': "rgba(255, 165, 0, 0.3)"}, {'range': [30, 50], 'color': "rgba(255, 0, 0, 0.3)"}]
-        fig_vix = draw_gauge(macro_data['VIX']['value'], macro_data['VIX']['prev'], "<b>VIX (공포지수)</b>", steps_vix) if macro_data and 'VIX' in macro_data else draw_gauge(0,0,"VIX", steps_vix, True)
-        fig_vix.update_layout(margin=dict(l=10, r=10, t=60, b=10), height=200)
-        st.plotly_chart(fig_vix, use_container_width=True)
-
-    with m_col2:
-        steps_fg = [{'range': [0, 25], 'color': "rgba(255, 0, 0, 0.4)"}, {'range': [25, 45], 'color': "rgba(255, 165, 0, 0.4)"}, {'range': [45, 55], 'color': "rgba(255, 255, 0, 0.4)"}, {'range': [55, 75], 'color': "rgba(144, 238, 144, 0.4)"}, {'range': [75, 100], 'color': "rgba(0, 128, 0, 0.4)"}]
-        fig_fg = draw_gauge(fg_data['score'], fg_data['score'] - fg_data['delta'], "<b>CNN 탐욕 지수</b>", steps_fg) if fg_data else draw_gauge(50, 50, "CNN 공포/탐욕 지수", steps_fg, True)
-        fig_fg.update_layout(margin=dict(l=10, r=10, t=60, b=10), height=200)
-        st.plotly_chart(fig_fg, use_container_width=True)
-        
-    with m_col3:
+    # ── [벤토] 시가총액 TOP | 업종별 등락 (2-타일) ──
+    b_mc, b_ind = st.columns(2)
+    with b_mc:
         with st.container(border=True):
-            st.markdown("<br>", unsafe_allow_html=True)
+            _tile("시가총액 TOP 10", "🏆")
+            mc_market = st.radio("시장", ["KOSPI", "KOSDAQ"], horizontal=True,
+                                 label_visibility="collapsed", key="mcap_market_radio")
+            with st.spinner("시가총액 상위 종목 수집 중..."):
+                render_marketcap_top(mc_market, 10)
+    with b_ind:
+        with st.container(border=True):
+            _tile("업종별 등락률", "🔥", "강세 순")
+            st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
+            with st.spinner("업종별 등락률 수집 중..."):
+                render_industry_changes(12)
+
+    # ── [벤토] 간밤 미국 시황 (와이드 타일) ──
+    with st.container(border=True):
+        _tile("간밤 미국 시황", "🌙", "Risk-On / Off")
+        with st.spinner("간밤 지수·VIX·환율 수집 중..."):
+            render_overnight_banner()
+        st.caption("💡 VIX(공포지수)가 급등하거나 지수가 크게 빠진 날은, 미국 급등주가 있어도 국장이 위험회피로 갈 수 있으니 보수적으로 접근하세요.")
+
+    # ── [벤토] 오늘의 국장 장세 (와이드 슬림 타일) ──
+    with st.container(border=True):
+        _tile("오늘의 국장 장세", "📊", "상승 / 하락 종목 수")
+        with st.spinner("국장 등락 종목 수 집계 중..."):
+            render_kr_market_breadth()
+
+    # ── 게이지 (다크 테마용으로 재구성) ──
+    def draw_gauge(val, prev, title, steps, is_error=False):
+        if is_error:
+            fig = go.Figure(go.Indicator(
+                mode="gauge", value=50,
+                title={'text': f"{title}<br><span style='font-size:12px;color:#ff5d63'>서버 통신 지연 (방어)</span>"},
+                gauge={'axis': {'range': [0, steps[-1]['range'][1]]}, 'bar': {'color': "#475569"}}))
+        else:
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number+delta", value=val,
+                title={'text': title},
+                number={'font': {'color': '#e6edf6', 'size': 26}},
+                delta={'reference': prev, 'position': "top"},
+                gauge={'axis': {'range': [0, steps[-1]['range'][1]], 'tickwidth': 1, 'tickcolor': "#8aa0bd"},
+                       'bar': {'color': "#38bdf8", 'thickness': 0.25},
+                       'bgcolor': "rgba(255,255,255,0.04)", 'borderwidth': 1,
+                       'bordercolor': "rgba(56,138,221,0.25)", 'steps': steps}))
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                          font=dict(color='#e6edf6'))
+        return fig
+
+    g_vix, g_fg, g_macro = st.columns([1, 1, 2])
+    with g_vix:
+        with st.container(border=True):
+            _tile("VIX 공포지수", "😱")
+            steps_vix = [{'range': [0, 15], 'color': "rgba(34,197,94,0.35)"}, {'range': [15, 20], 'color': "rgba(250,204,21,0.35)"}, {'range': [20, 30], 'color': "rgba(251,146,60,0.35)"}, {'range': [30, 50], 'color': "rgba(239,68,68,0.40)"}]
+            fig_vix = draw_gauge(macro_data['VIX']['value'], macro_data['VIX']['prev'], "VIX", steps_vix) if macro_data and 'VIX' in macro_data else draw_gauge(0, 0, "VIX", steps_vix, True)
+            fig_vix.update_layout(margin=dict(l=10, r=10, t=44, b=10), height=200)
+            st.plotly_chart(fig_vix, use_container_width=True)
+    with g_fg:
+        with st.container(border=True):
+            _tile("CNN 탐욕지수", "🪙")
+            steps_fg = [{'range': [0, 25], 'color': "rgba(239,68,68,0.40)"}, {'range': [25, 45], 'color': "rgba(251,146,60,0.40)"}, {'range': [45, 55], 'color': "rgba(250,204,21,0.40)"}, {'range': [55, 75], 'color': "rgba(132,204,22,0.40)"}, {'range': [75, 100], 'color': "rgba(34,197,94,0.45)"}]
+            fig_fg = draw_gauge(fg_data['score'], fg_data['score'] - fg_data['delta'], "탐욕지수", steps_fg) if fg_data else draw_gauge(50, 50, "탐욕지수", steps_fg, True)
+            fig_fg.update_layout(margin=dict(l=10, r=10, t=44, b=10), height=200)
+            st.plotly_chart(fig_fg, use_container_width=True)
+    with g_macro:
+        with st.container(border=True):
+            _tile("핵심 매크로 지표", "🌐")
             c1, c2 = st.columns(2)
             if macro_data:
                 if '美 10년물 국채' in macro_data: c1.metric("🏦 美 10년물 국채", f"{macro_data['美 10년물 국채']['value']:.3f}%", f"{macro_data['美 10년물 국채']['delta']:.3f}%", delta_color="inverse")
                 if '원/달러 환율' in macro_data: c2.metric("💱 원/달러 환율", f"{macro_data['원/달러 환율']['value']:.1f}원", f"{macro_data['원/달러 환율']['delta']:.1f}원", delta_color="inverse")
-                st.markdown("---")
+                st.markdown("<div style='height:1px;background:rgba(56,138,221,.16);margin:10px 0;'></div>", unsafe_allow_html=True)
                 c3, c4 = st.columns(2)
                 if '필라델피아 반도체' in macro_data: c3.metric("💻 필라델피아 반도체(SOX)", f"{macro_data['필라델피아 반도체']['value']:.1f}", f"{macro_data['필라델피아 반도체']['delta']:.1f}")
                 if 'WTI 원유' in macro_data: c4.metric("🛢️ WTI 원유 (달러)", f"{macro_data['WTI 원유']['value']:.2f}", f"{macro_data['WTI 원유']['delta']:.2f}")
 
-    st.divider()
-    st.subheader("📰 AI 모닝 브리핑 (Global to Local)")
-    if api_key_input:
-        with st.spinner("최신 글로벌 매크로 데이터를 바탕으로 AI가 모닝 브리핑을 작성 중입니다..."):
-            top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
-            briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
-            current_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
-            st.info(f"**[생성 일시: {current_time} (KST)]**\n\n{briefing_text}", icon="💡")
-            st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
-    else:
-        st.warning("API 키를 입력하시면 AI가 작성하는 실시간 글로벌-국내 증시 브리핑을 볼 수 있습니다.")
-
-    st.divider()
-    col_dash1, col_dash2 = st.columns([1, 1])
-    with col_dash1:
-        st.subheader("⚡ 퀵 오더 (종목 직접 검색)")
-        market_radio_quick = st.radio("시장 선택 (퀵 오더)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, label_visibility="collapsed")
-        
-        if market_radio_quick == "🇰🇷 국내 주식":
-            krx_df = get_krx_stocks()
-            if not krx_df.empty:
-                opts = ["🔍 종목명 검색 후 엔터"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-                quick_query = st.selectbox("빠르게 매매할 종목을 찾아 호가창으로 이동하세요.", opts)
-                if quick_query != "🔍 종목명 검색 후 엔터":
-                    q_name = quick_query.rsplit(" (", 1)[0]
-                    q_code = quick_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                    st.link_button(f"🛒 '{q_name}' 네이버 호가창(주문) 바로가기", f"https://finance.naver.com/item/main.naver?code={q_code}", use_container_width=True)
-                    with st.expander(f"📊 '{q_name}' 퀵 타점 보기"):
-                        res = analyze_technical_pattern(q_name, q_code)
-                        if res:
-                            st.markdown(f"**현재가:** {int(res['현재가']):,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
-                            st.markdown(f"**진입가:** {int(res['진입가_가이드']):,}원 ｜ **손절가:** {int(res['손절가']):,}원")
-                        else: st.error("❌ 데이터를 불러올 수 없습니다.")
+    # ── [벤토] AI 모닝 브리핑 (와이드 타일) ──
+    with st.container(border=True):
+        _tile("AI 모닝 브리핑", "📰", "Global → Local")
+        if api_key_input:
+            with st.spinner("최신 글로벌 매크로 데이터를 바탕으로 AI가 모닝 브리핑을 작성 중입니다..."):
+                top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
+                briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
+                current_time = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
+                st.info(f"**[생성 일시: {current_time} (KST)]**\n\n{briefing_text}", icon="💡")
+                st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
         else:
-            us_search_query = st.text_input("🔍 미국 주식 종목명(한/영) 또는 티커를 검색하세요 (예: 애플, Nvidia, TSLA)")
-            if us_search_query:
-                with st.spinner("야후 파이낸스 글로벌 DB에서 종목을 찾는 중..."):
-                    search_results = search_us_ticker(us_search_query)
-                if search_results:
-                    selected_us_stock = st.selectbox("👇 검색된 종목 중 정확한 티커를 선택하세요:", ["선택하세요"] + search_results)
-                    if selected_us_stock != "선택하세요":
-                        us_ticker = selected_us_stock.split(" ")[0]
-                        st.link_button(f"🛒 '{us_ticker}' 야후 파이낸스 바로가기", f"https://finance.yahoo.com/quote/{us_ticker}", use_container_width=True)
-                        with st.expander(f"📊 '{us_ticker}' 퀵 타점 보기", expanded=False):
-                            with st.spinner("미국 주식 기술적 데이터 불러오는 중..."):
-                                res = analyze_technical_pattern(us_ticker, us_ticker)
-                                if res:
-                                    st.markdown(f"**현재가:** ${res['현재가']:,.2f} ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
-                                    st.markdown(f"**진입가:** ${res['진입가_가이드']:,.2f} ｜ **손절가:** ${res['손절가']:,.2f}")
-                                else: st.error("❌ 해당 티커의 데이터를 찾을 수 없습니다.")
-                else:
-                    st.error("❌ 검색 결과가 없습니다. 영문 명칭이나 다른 키워드로 다시 검색해보세요.")
+            st.warning("API 키를 입력하시면 AI가 작성하는 실시간 글로벌-국내 증시 브리핑을 볼 수 있습니다.")
 
-    with col_dash2:
-        st.subheader("🚦 내 관심종목 리스크 모니터링")
-        if not st.session_state.watchlist:
-            st.info("⭐내 관심종목 탭에 종목을 추가하시면 손익절 도달 여부를 감시해드립니다.")
-        else:
-            for item in st.session_state.watchlist:
-                res = analyze_technical_pattern(item['종목명'], item['티커'])
-                if res:
-                    is_us = not str(item['티커']).isdigit()
-                    cur_str = f"${res['현재가']:,.2f}" if is_us else f"{int(res['현재가']):,}원"
-                    sl_str = f"${res['손절가']:,.2f}" if is_us else f"{int(res['손절가']):,}원"
-                    tg_str = f"${res['목표가1']:,.2f}" if is_us else f"{int(res['목표가1']):,}원"
-                    
-                    if res['현재가'] <= res['손절가']: st.error(f"🔴 **손절가 이탈 위험:** {item['종목명']} (현재: {cur_str} / 손절선: {sl_str})")
-                    elif res['현재가'] >= res['목표가1'] * 0.98: st.success(f"🟢 **익절 구간 도달:** {item['종목명']} (현재: {cur_str} / 1차목표: {tg_str})")
-                    else: st.warning(f"🟡 **홀딩 대기중:** {item['종목명']} (현재: {cur_str})")
+    # ── [벤토] 퀵 오더 | 관심종목 리스크 (2-타일) ──
+    q_order, q_watch = st.columns(2)
+    with q_order:
+        with st.container(border=True):
+            _tile("퀵 오더", "⚡", "종목 직접 검색")
+            market_radio_quick = st.radio("시장 선택 (퀵 오더)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, label_visibility="collapsed")
 
-    st.divider()
-    st.subheader("💬 실시간 퀀트 챗봇 (Interactive RAG & Google Search)")
-    st.write("장중 궁금한 시장 이슈나 신작 출시 일정 등을 퀀트 비서에게 직접 물어보세요. (구글 실시간 검색 연동)")
-    
-    chat_container = st.container(height=400)
-    for msg in st.session_state.v4_chat_history:
-        chat_container.chat_message(msg["role"]).write(msg["content"])
+            if market_radio_quick == "🇰🇷 국내 주식":
+                krx_df = get_krx_stocks()
+                if not krx_df.empty:
+                    opts = ["🔍 종목명 검색 후 엔터"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+                    quick_query = st.selectbox("빠르게 매매할 종목을 찾아 호가창으로 이동하세요.", opts)
+                    if quick_query != "🔍 종목명 검색 후 엔터":
+                        q_name = quick_query.rsplit(" (", 1)[0]
+                        q_code = quick_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                        st.link_button(f"🛒 '{q_name}' 네이버 호가창(주문) 바로가기", f"https://finance.naver.com/item/main.naver?code={q_code}", use_container_width=True)
+                        with st.expander(f"📊 '{q_name}' 퀵 타점 보기"):
+                            res = analyze_technical_pattern(q_name, q_code)
+                            if res:
+                                st.markdown(f"**현재가:** {int(res['현재가']):,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
+                                st.markdown(f"**진입가:** {int(res['진입가_가이드']):,}원 ｜ **손절가:** {int(res['손절가']):,}원")
+                            else: st.error("❌ 데이터를 불러올 수 없습니다.")
+            else:
+                us_search_query = st.text_input("🔍 미국 주식 종목명(한/영) 또는 티커를 검색하세요 (예: 애플, Nvidia, TSLA)")
+                if us_search_query:
+                    with st.spinner("야후 파이낸스 글로벌 DB에서 종목을 찾는 중..."):
+                        search_results = search_us_ticker(us_search_query)
+                    if search_results:
+                        selected_us_stock = st.selectbox("👇 검색된 종목 중 정확한 티커를 선택하세요:", ["선택하세요"] + search_results)
+                        if selected_us_stock != "선택하세요":
+                            us_ticker = selected_us_stock.split(" ")[0]
+                            st.link_button(f"🛒 '{us_ticker}' 야후 파이낸스 바로가기", f"https://finance.yahoo.com/quote/{us_ticker}", use_container_width=True)
+                            with st.expander(f"📊 '{us_ticker}' 퀵 타점 보기", expanded=False):
+                                with st.spinner("미국 주식 기술적 데이터 불러오는 중..."):
+                                    res = analyze_technical_pattern(us_ticker, us_ticker)
+                                    if res:
+                                        st.markdown(f"**현재가:** ${res['현재가']:,.2f} ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
+                                        st.markdown(f"**진입가:** ${res['진입가_가이드']:,.2f} ｜ **손절가:** ${res['손절가']:,.2f}")
+                                    else: st.error("❌ 해당 티커의 데이터를 찾을 수 없습니다.")
+                    else:
+                        st.error("❌ 검색 결과가 없습니다. 영문 명칭이나 다른 키워드로 다시 검색해보세요.")
+    with q_watch:
+        with st.container(border=True):
+            _tile("관심종목 리스크 모니터링", "🚦")
+            if not st.session_state.watchlist:
+                st.info("⭐내 관심종목 탭에 종목을 추가하시면 손익절 도달 여부를 감시해드립니다.")
+            else:
+                for item in st.session_state.watchlist:
+                    res = analyze_technical_pattern(item['종목명'], item['티커'])
+                    if res:
+                        is_us = not str(item['티커']).isdigit()
+                        cur_str = f"${res['현재가']:,.2f}" if is_us else f"{int(res['현재가']):,}원"
+                        sl_str = f"${res['손절가']:,.2f}" if is_us else f"{int(res['손절가']):,}원"
+                        tg_str = f"${res['목표가1']:,.2f}" if is_us else f"{int(res['목표가1']):,}원"
 
-    # [수정] st.chat_input 은 페이지 최하단에 '고정'되는 위젯이라,
-    #  홈 화면 진입 시 브라우저가 입력창으로 스크롤을 튕겨 내리는 현상이 있었음.
-    #  → 일반 text_input + 전송 버튼으로 교체하여 화면이 튀지 않도록 고정.
-    in_col, btn_col = st.columns([5, 1])
-    prompt = in_col.text_input(
-        "퀀트 비서에게 질문", key="main_chat_text",
-        placeholder="예: 펄어비스 붉은사막 최신 출시 일정 검색해서 알려줘",
-        label_visibility="collapsed",
-    )
-    send = btn_col.button("📨 전송", key="main_chat_send", use_container_width=True)
+                        if res['현재가'] <= res['손절가']: st.error(f"🔴 **손절가 이탈 위험:** {item['종목명']} (현재: {cur_str} / 손절선: {sl_str})")
+                        elif res['현재가'] >= res['목표가1'] * 0.98: st.success(f"🟢 **익절 구간 도달:** {item['종목명']} (현재: {cur_str} / 1차목표: {tg_str})")
+                        else: st.warning(f"🟡 **홀딩 대기중:** {item['종목명']} (현재: {cur_str})")
 
-    if send and prompt and prompt.strip():
-        st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
-        chat_container.chat_message("user").write(prompt)
+    # ── [벤토] 실시간 퀀트 챗봇 (와이드 타일) ──
+    with st.container(border=True):
+        _tile("실시간 퀀트 챗봇", "💬", "RAG + Google Search")
+        st.write("장중 궁금한 시장 이슈나 신작 출시 일정 등을 퀀트 비서에게 직접 물어보세요. (구글 실시간 검색 연동)")
 
-        if not api_key_input:
-            st.error("좌측 사이드바에 API 키를 입력해주세요.")
-        else:
-            with chat_container.chat_message("assistant"):
-                with st.spinner("구글 검색을 통해 최신 팩트를 확인 중입니다..."):
-                    now_kst = datetime.utcnow() + timedelta(hours=9)
-                    today_str = now_kst.strftime("%Y년 %m월 %d일")
-                    macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()]) if macro_data else ""
-                    
-                    sys_prompt = f"""
-                    당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
-                    🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다.
-                    1. 사용자의 질문에 대해 당신은 반드시 '구글 검색(Google Search)'을 실행하여 가장 최신 기사와 공시를 확인해야 합니다.
-                    2. 과거 학습 데이터에 의존한 하드코딩된 답변을 금지합니다.
-                    3. 검색 결과를 바탕으로 확정된 '사실'만 명확하게 3~4줄로 요약하세요.
-                    [매크로 데이터]: {macro_context}\n사용자 질문: {prompt}
-                    """
-                    try:
-                        genai.configure(api_key=api_key_input)
-                        model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
-                        response = model.generate_content(sys_prompt)
-                        
-                        if response.candidates and response.candidates[0].content.parts:
-                            reply = response.text
-                        else:
+        chat_container = st.container(height=400)
+        for msg in st.session_state.v4_chat_history:
+            chat_container.chat_message(msg["role"]).write(msg["content"])
+
+        in_col, btn_col = st.columns([5, 1])
+        prompt = in_col.text_input(
+            "퀀트 비서에게 질문", key="main_chat_text",
+            placeholder="예: 펄어비스 붉은사막 최신 출시 일정 검색해서 알려줘",
+            label_visibility="collapsed",
+        )
+        send = btn_col.button("📨 전송", key="main_chat_send", use_container_width=True)
+
+        if send and prompt and prompt.strip():
+            st.session_state.v4_chat_history.append({"role": "user", "content": prompt})
+            chat_container.chat_message("user").write(prompt)
+
+            if not api_key_input:
+                st.error("좌측 사이드바에 API 키를 입력해주세요.")
+            else:
+                with chat_container.chat_message("assistant"):
+                    with st.spinner("구글 검색을 통해 최신 팩트를 확인 중입니다..."):
+                        now_kst = datetime.utcnow() + timedelta(hours=9)
+                        today_str = now_kst.strftime("%Y년 %m월 %d일")
+                        macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()]) if macro_data else ""
+
+                        sys_prompt = f"""
+                        당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
+                        🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다.
+                        1. 사용자의 질문에 대해 당신은 반드시 '구글 검색(Google Search)'을 실행하여 가장 최신 기사와 공시를 확인해야 합니다.
+                        2. 과거 학습 데이터에 의존한 하드코딩된 답변을 금지합니다.
+                        3. 검색 결과를 바탕으로 확정된 '사실'만 명확하게 3~4줄로 요약하세요.
+                        [매크로 데이터]: {macro_context}\n사용자 질문: {prompt}
+                        """
+                        try:
+                            genai.configure(api_key=api_key_input)
+                            model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
+                            response = model.generate_content(sys_prompt)
+
+                            if response.candidates and response.candidates[0].content.parts:
+                                reply = response.text
+                            else:
+                                reply = ask_gemini(prompt, api_key_input)
+                        except Exception:
                             reply = ask_gemini(prompt, api_key_input)
-                    except Exception:
-                        reply = ask_gemini(prompt, api_key_input)
-                    st.write(reply)
-            
-            st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
+                        st.write(reply)
+
+                st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단")
@@ -6734,8 +6891,8 @@ elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
             color = "#ef4444" if val > 0 else ("#3b82f6" if val < 0 else "#64748b")
             arrow = "▲" if val > 0 else ("▼" if val < 0 else "")
             return (f'<div style="display:flex;justify-content:space-between;padding:8px 12px;margin:5px 0;'
-                    f'background:#fff;border:1px solid #eef2f6;border-radius:10px;">'
-                    f'<span style="font-weight:700;color:#1e293b;">{name}</span>'
+                    f'background:#0d1424;border:1px solid rgba(56,138,221,.16);border-radius:10px;">'
+                    f'<span style="font-weight:700;color:#e6edf6;">{name}</span>'
                     f'<span style="font-weight:800;color:{color};">{arrow}{abs(val):.2f}%</span></div>')
         with c_win:
             st.markdown("#### 🔥 강세 섹터 (자금 유입 추정)")
@@ -7678,12 +7835,12 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
             with rcols[i % len(rcols)]:
                 c = _hz_color.get(t["horizon"], "#888")
                 st.markdown(
-                    f"<div style='border:1px solid #e5e7eb;border-left:4px solid {c};border-radius:10px;"
-                    f"padding:10px 12px;margin-bottom:8px;background:#fff;'>"
-                    f"<div style='font-weight:800;font-size:14px;color:#1e293b;'>{t['theme']}</div>"
+                    f"<div style='border:1px solid rgba(56,138,221,.16);border-left:4px solid {c};border-radius:10px;"
+                    f"padding:10px 12px;margin-bottom:8px;background:#0d1424;'>"
+                    f"<div style='font-weight:800;font-size:14px;color:#e6edf6;'>{t['theme']}</div>"
                     f"<div style='display:inline-block;font-size:11px;font-weight:700;color:#fff;background:{c};"
                     f"border-radius:6px;padding:1px 7px;margin:4px 0;'>{t['horizon']}</div>"
-                    f"<div style='font-size:12px;color:#475569;line-height:1.4;'>{t['reason']}</div></div>",
+                    f"<div style='font-size:12px;color:#aebfd6;line-height:1.4;'>{t['reason']}</div></div>",
                     unsafe_allow_html=True)
 
     if st.session_state.get("finder_brief"):
