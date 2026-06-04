@@ -59,7 +59,21 @@ def save_watchlist(wl):
 # 1. 초기 설정 
 # ==========================================
 st.set_page_config(page_title="Jaemini PRO 터미널 v7.0", layout="wide", page_icon="📈")
-st_autorefresh(interval=300000, limit=None, key="news_autorefresh")
+
+# [속도개선 2순위] 자동 새로고침은 '실시간 데이터가 필요한 페이지'에서만 동작시킨다.
+#  기존: 전 페이지를 5분마다 통째로 재실행 → 계산기/시뮬레이터/스캐너/리스트 등에서도
+#        불필요한 rerun + 짧은 TTL 캐시 만료로 인한 재요청이 발생.
+#  변경: 아래 LIVE_REFRESH_PAGES 에 속한 페이지에서만 호출(실제 호출은 메인 로직에서 selected_menu 확정 후).
+AUTOREFRESH_MS = 300000  # 5분. 갱신 주기를 바꾸려면 이 값만 조정하면 된다.
+LIVE_REFRESH_PAGES = {
+    "🎛️ 홈: 종합 대시보드",
+    "⭐ 내 관심종목 모니터링",
+    "🗺️ 시장 주도주 자금 히트맵",
+    "🕸️ 실시간 섹터 순환매 추적",
+    "🚨 당일 상/하한가 분석",
+    "🚦 거래량 급증 & 시장 경보",
+    "📰 실시간 특징주 속보 & 리포트",
+}
 
 st.markdown("""
 <style>
@@ -1788,6 +1802,7 @@ def _krx_list_from_naver(max_pages=22):
     return pd.DataFrame(columns=["Name", "Code", "Sector", "Market"])
 
 
+@st.cache_data(ttl=86400)  # [속도개선] 전체 종목 리스트는 하루 1회만 네트워크 수집. 기존 무(無)캐시 → 매 렌더마다 fdr 2회 호출 + 2,800행 apply 가 반복되던 것을 제거.
 def get_krx_stocks():
     try:
         # 1. 한국 주식 기본 데이터 가져오기
@@ -5910,6 +5925,12 @@ with st.sidebar:
 # 5. 메인 로직 
 # ==========================================
 
+# [속도개선 2순위] 실시간 페이지일 때만 5분 자동 새로고침 타이머를 등록한다.
+#  그 외 페이지(계산기·시뮬레이터·스캐너·리스트 등)는 자동 rerun 되지 않아
+#  불필요한 재요청/화면 튐/스크롤 점프가 사라진다. 페이지 추가/제외는 LIVE_REFRESH_PAGES 만 수정하면 된다.
+if selected_menu in LIVE_REFRESH_PAGES:
+    st_autorefresh(interval=AUTOREFRESH_MS, limit=None, key="news_autorefresh")
+
 if selected_menu == "🎛️ 홈: 종합 대시보드":
     # [추가] 메뉴를 '새로 눌러서' 이 화면으로 들어왔을 때만 화면을 맨 위로 올림.
     #  → 페이지 하단의 '실시간 퀀트 챗봇(채팅 입력창)'으로 화면이 튀어 내려가는 현상 방지.
@@ -8201,7 +8222,10 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
             st.rerun()
         with st.spinner("뉴스를 불러오는 중..."): update_news_state()
         
-        krx_dict = {row['Name']: row['Code'] for _, row in get_krx_stocks().iterrows() if len(str(row['Name'])) > 1}
+        # iterrows 제거: 2,800여 행을 매 새로고침마다 순회하던 것을 컬럼 벡터화로 대체
+        _krx_df = get_krx_stocks()
+        _name_ok = _krx_df['Name'].astype(str).str.len() > 1
+        krx_dict = dict(zip(_krx_df.loc[_name_ok, 'Name'], _krx_df.loc[_name_ok, 'Code']))
         news_aliases = {"삼전": ("삼성전자", "005930"), "하이닉스": ("SK하이닉스", "000660"), "현차": ("현대차", "005380"), "엔솔": ("LG에너지솔루션", "373220")}
         sorted_names = sorted(krx_dict.keys(), key=len, reverse=True)
         
