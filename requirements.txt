@@ -13,4 +13,3 @@ html5lib
 plotly
 pykrx==1.2.8
 yahooquery
-gspread google-auth
