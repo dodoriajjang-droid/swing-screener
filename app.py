@@ -21,6 +21,7 @@ import os
 import calendar
 import PIL.Image
 import traceback
+import jaemini_alert_center as alert_center  # [v7.1] 통합 경보 센터 모듈
 
 try:
     import PyPDF2
@@ -66,6 +67,7 @@ st.set_page_config(page_title="Jaemini PRO 터미널 v7.0", layout="wide", page_
 #  변경: 아래 LIVE_REFRESH_PAGES 에 속한 페이지에서만 호출(실제 호출은 메인 로직에서 selected_menu 확정 후).
 AUTOREFRESH_MS = 300000  # 5분. 갱신 주기를 바꾸려면 이 값만 조정하면 된다.
 LIVE_REFRESH_PAGES = {
+    "🚨 통합 경보 센터 (뉴스·차트·일정)",
     "🎛️ 홈: 종합 대시보드",
     "⭐ 내 관심종목 모니터링",
     "🗺️ 시장 주도주 자금 히트맵",
@@ -6345,6 +6347,7 @@ with st.sidebar:
         " ┗ 🇰🇷 국민성장펀드 12대 산업 수혜주",
         "   ", 
         "📂 [ 트레이딩 & 시장 경보 ]",
+        " ┣ 🚨 통합 경보 센터 (뉴스·차트·일정)",
         " ┣ 🔥 간밤의 미국 급등주 & 수혜주",
         " ┣ 🚨 당일 상/하한가 분석",
         " ┣ 🚦 거래량 급증 & 시장 경보",
@@ -10051,3 +10054,19 @@ elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
                         st.markdown(ask_gemini(ai_prompt, api_key_input))
 
             st.caption("※ 예측시장 확률은 실시간 베팅으로 계속 변동하며, 미래를 보장하지 않습니다. 투자 판단의 참고용 선행지표로만 활용하세요.")
+
+
+# ==========================================
+# [v7.1] 🚨 통합 경보 센터 (뉴스·차트·일정)
+#   - jaemini_alert_center.py 의 함수에 기존 앱 함수들을 '주입'해서 렌더
+# ==========================================
+elif selected_menu == "🚨 통합 경보 센터 (뉴스·차트·일정)":
+    alert_center.render_alert_center({
+        "analyze_technical_pattern": analyze_technical_pattern,
+        "get_latest_naver_news": get_latest_naver_news,
+        "get_economic_events": get_economic_events,
+        "fetch_polymarket_markets": fetch_polymarket_markets,
+        "get_krx_stocks": get_krx_stocks,
+        "ask_gemini": ask_gemini,
+        "api_key": api_key_input,
+    })
