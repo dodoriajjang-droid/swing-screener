@@ -1,15 +1,16 @@
 streamlit
-numpy>=2.0,<3
-pandas>=2.2,<3
-matplotlib>=3.8
-requests>=2.32
-lxml
-yfinance
-finance-datareader
-google-generativeai
+pandas
+numpy
+requests
 beautifulsoup4
-streamlit-autorefresh
-html5lib
+lxml                 # pandas.read_html / bs4 파싱에 필요 (Cloud 단골 누락 항목)
 plotly
-pykrx==1.2.8
+yfinance
 yahooquery
+finance-datareader
+pykrx
+google-generativeai
+streamlit-autorefresh
+Pillow
+PyPDF2
+ 
