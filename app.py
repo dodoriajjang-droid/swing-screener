@@ -4077,9 +4077,25 @@ def render_regime_hero():
     }.get(light, ("#475569", "#f8fafc", "#e2e8f0"))
 
     chips = ""
+    # [동기화] 시장 국면 배너의 '현재가·등락률'을 아래 '실시간 & 수급' 패널과 동일한 소스(네이버 get_kr_index_panel)에서 읽어 통일한다.
+    #   - 원인: get_market_regime은 fdr 일봉 종가를 쓰는데, 장중에는 일봉이 아직 당일 봉을 안 만들어 '전일 종가'가 잡혀 실시간 패널과 값이 달라짐.
+    #   - 정배열/역배열·점수·RSI는 일봉 분석이 필요하므로 그대로 두고, 화면 표시 숫자(price·pct)만 실시간으로 맞춘다.
+    try:
+        live_panel = get_kr_index_panel() or {}
+    except Exception:
+        live_panel = {}
+
     for k in ("KOSPI", "KOSDAQ"):
         d = reg.get(k)
         if isinstance(d, dict):
+            d = dict(d)  # 캐시 원본 보호용 사본
+            lv = live_panel.get(k)
+            if isinstance(lv, dict) and lv.get("price") is not None:
+                d["price"] = lv["price"]                      # 실시간 현재가로 교체
+                if lv.get("pct") is not None:                 # 네이버 pct는 절댓값 + 별도 sign → 부호 결합
+                    d["pct"] = abs(lv["pct"]) * (1 if lv.get("sign", 0) >= 0 else -1)
+                elif lv.get("sign") is not None:
+                    d["pct"] = abs(d.get("pct", 0)) * (1 if lv["sign"] >= 0 else -1)
             sign = _sign_of(d.get("pct", 0))
             c = _chg_color(sign)
             arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "·")
