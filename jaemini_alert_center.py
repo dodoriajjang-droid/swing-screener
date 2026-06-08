@@ -370,7 +370,10 @@ def render_alert_center(deps: dict):
     ])
 
     # 요약 배너에 채워 넣을 카운터
-    cnt = {"news_bad": 0, "news_good": 0, "chart_bear": 0, "chart_bull": 0, "evt_soon": 0, "cat_risk": 0}
+    #  - evt_month: 향후 1개월(30일) 이벤트 → 배너 '표기' + 종합 '등급' 산정 모두 사용
+    #  - evt_soon : 임박(D-3) 이벤트 → 참고용(현재 등급식엔 미사용. 필요 시 활용 가능)
+    cnt = {"news_bad": 0, "news_good": 0, "chart_bear": 0, "chart_bull": 0,
+           "evt_soon": 0, "evt_month": 0, "cat_risk": 0}
 
     # =====================================================================
     # TAB 1 — 뉴스·정세 경보
@@ -642,9 +645,12 @@ def render_alert_center(deps: dict):
         st.markdown("#### 🗓️ 매크로·파생 일정 임박 경보")
         st.caption("FOMC·CPI·금통위·고용지표·옵션만기 등 변동성 이벤트가 며칠 남았는지 D-day로 알려줍니다.")
 
-        within = st.slider("앞으로 며칠 이내 일정 표시", 3, 21, 10, key="ac_evt_within")
-        evts = scan_upcoming_events(get_economic_events, within_days=within)
-        cnt["evt_soon"] = sum(1 for e in evts if e["dleft"] <= 3)
+        within = st.slider("앞으로 며칠 이내 일정 표시", 3, 30, 10, key="ac_evt_within")
+        # 1개월(30일) 전체를 한 번 스캔한 뒤, 슬라이더 범위만 상세 표시 (가까운 순 정렬 유지)
+        evts_month = scan_upcoming_events(get_economic_events, within_days=30)
+        evts = [e for e in evts_month if e["dleft"] <= within]
+        cnt["evt_month"] = len(evts_month)                               # 배너 표기 + 등급 산정용: 향후 1개월 이벤트 수
+        cnt["evt_soon"] = sum(1 for e in evts_month if e["dleft"] <= 3)  # 참고용: 임박(D-3) 건수 (등급식엔 미사용)
 
         if not evts:
             st.success(f"앞으로 {within}일 이내 주요 변동성 일정이 없습니다.")
@@ -771,12 +777,16 @@ def render_alert_center(deps: dict):
     # 상단 종합 요약 배너 채우기 (탭 계산 끝난 뒤)
     # =====================================================================
     with summary_box:
-        total_red = cnt["news_bad"] + cnt["chart_bear"] + cnt["evt_soon"] + cnt["cat_risk"]
-        if total_red >= 6:
+        # 1개월 이벤트는 연중 대체로 10~18건(중앙값 14)으로 매달 깔리는 '기본 부하'에 가깝다.
+        # 따라서 이 baseline(EVT_BASELINE)을 기준점으로 두고 그 위에 뉴스·차트·재료 위험을 더해
+        # 등급을 매긴다. 임계값 = baseline + 기존(6/3/1).  ※ baseline을 올릴수록 등급이 덜 민감해짐.
+        EVT_BASELINE = 14
+        total_red = cnt["news_bad"] + cnt["chart_bear"] + cnt["evt_month"] + cnt["cat_risk"]
+        if total_red >= EVT_BASELINE + 6:     # 기본 부하 + 추가 위험 다수
             level_txt, level_color = "🔴 경계 (위험 신호 다수)", "#c62828"
-        elif total_red >= 3:
+        elif total_red >= EVT_BASELINE + 3:
             level_txt, level_color = "🟠 주의", "#e65100"
-        elif total_red >= 1:
+        elif total_red >= EVT_BASELINE + 1:
             level_txt, level_color = "🟡 관심", "#f9a825"
         else:
             level_txt, level_color = "🟢 안정", "#2e7d32"
@@ -792,9 +802,10 @@ def render_alert_center(deps: dict):
         s[0].metric("🔴 악재 뉴스", cnt["news_bad"])
         s[1].metric("🟢 호재 뉴스", cnt["news_good"])
         s[2].metric("📉 차트 하락경보", cnt["chart_bear"])
-        s[3].metric("🗓️ 임박 이벤트(D-3)", cnt["evt_soon"])
+        s[3].metric("🗓️ 1개월내 이벤트", cnt["evt_month"])
         s[4].metric("🎯 재료 소멸위험", cnt["cat_risk"])
-        st.caption("※ 위 등급은 악재 뉴스·차트 하락경보·임박 이벤트·재료 소멸위험 건수를 합산한 단순 휴리스틱입니다. 참고용.")
+        st.caption("※ 등급은 악재 뉴스·차트 하락경보·1개월내 이벤트·재료 소멸위험 건수를 합산한 단순 휴리스틱입니다. "
+                   "이벤트는 매달 ~14건이 기본 부하라, 이를 기준점으로 두고 그 위의 추가 위험으로 등급을 매깁니다. 참고용.")
 
 
 # ==========================================================================
