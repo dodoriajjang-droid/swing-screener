@@ -318,7 +318,9 @@ def scan_upcoming_events(get_economic_events, within_days=10) -> list:
         # 2) 파생 옵션만기 (규칙 기반: 미 3째 금요일, 한 2째 목요일)
         us_opex = _nth_weekday(yy, mm, 4, 3)   # 금요일=4
         kr_opex = _nth_weekday(yy, mm, 3, 2)   # 목요일=3
-        for edate, label in [(us_opex, "🇺🇸 옵션만기(변동성)"), (kr_opex, "🇰🇷 옵션만기(수급)")]:
+        # 3·6·9·12월 둘째 목요일은 '네마녀'(선물·옵션 동시만기) — '핵심 일정' 표기와 통일
+        kr_label = "🌗 🇰🇷선물옵션 동시만기(네마녀)" if mm in (3, 6, 9, 12) else "🇰🇷 옵션만기(수급)"
+        for edate, label in [(us_opex, "🇺🇸 옵션만기(변동성)"), (kr_opex, kr_label)]:
             if not edate:
                 continue
             dleft = (edate - today).days
