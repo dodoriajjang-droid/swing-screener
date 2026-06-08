@@ -384,6 +384,93 @@ RATE_DECISION_OUTLOOK = {
     ("BOJ",  2026, 7): ("normal", ""),
 }
 
+# ════════════════════════════════════════════════════════════════════════
+#  (선택) FOMC 확률 '자동 산출' — yfinance Fed Funds 선물(ZQ) → 시장 내재 stance
+# ════════════════════════════════════════════════════════════════════════
+#  ▸ 켜기/끄기: FED_AUTO_FETCH=True면 위 표의 FOMC stance를 '실시간 선물 값'으로 덮어씀(실패 시 표로 폴백).
+#  ▸ 원리(CME FedWatch 약식): 30일 Fed Funds 선물은 '그 달 일평균 실효금리'로 정산 →
+#       내재 월평균금리 = 100 − 종가.  회의는 월 중간에 열리고 결정은 '익일' 발효되므로
+#         월평균 = (회의일까지 일수/총일수)×현행금리 + (회의 익일~말일 일수/총일수)×결정후금리
+#       에서 '결정후금리'를 역산 → 현행 대비 예상 변동폭 → 25bp 1스텝 확률 → 결정 '확실성'으로 stance.
+#       (확실성 = max(p, 1−p): 한쪽으로 확실하면 서프라이즈↓ → 'low', 접전이면 'high')
+#  ▸ 현행 목표금리(중간값) FED_TARGET_RATE_PCT: 연준이 실제로 움직일 때만 갱신(드묾).
+#  ▸ ★ 한계/검증: 이 코드는 야후 접속이 되는 '사용자 환경'에서만 동작(개발 샌드박스에선 야후 차단).
+#       야후 선물 심볼 표기가 환경마다 달라질 수 있어 _zq_symbol_candidates 를 여러 형식으로 시도하며,
+#       첫 실행 시 반드시 FedWatch 실제 수치와 대조해 보정하세요. 안 맞거나 불확실하면 FED_AUTO_FETCH=False로
+#       끄면 위 수동 표만 사용합니다. 어떤 경우에도 실패하면 자동으로 표로 폴백하므로 앱이 깨지진 않습니다.
+FED_AUTO_FETCH = True                 # ← 자동 산출 사용 여부 (False면 RATE_DECISION_OUTLOOK 표만 사용)
+FED_TARGET_RATE_PCT = 3.625           # 현행 FOMC 목표금리 중간값(3.50–3.75%) — Fed 변경 시 갱신
+_CME_MONTH_CODE = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
+                   7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
+
+
+def _zq_symbol_candidates(year, month):
+    """야후에서 시도할 ZQ(Fed Funds) 월물 심볼 후보(환경별 표기 차 대응)."""
+    code = _CME_MONTH_CODE.get(month, "")
+    yy = year % 100
+    return [f"ZQ{code}{yy:02d}.CBT", f"ZQ{code}{yy:02d}.CME", f"ZQ{code}{yy:02d}.NYB"]
+
+
+# yfinance 네트워크 호출은 1시간 캐시(달력 렌더가 여러 번 _day_level을 호출해도 1회만 fetch)
+try:
+    _cache_deco = st.cache_data(ttl=3600, show_spinner=False)
+except Exception:
+    def _cache_deco(f):
+        return f
+
+
+@_cache_deco
+def _fetch_zq_implied_rate(symbols_tuple):
+    """ZQ 선물 후보 심볼들을 순서대로 시도 → '내재 월평균금리(=100−종가)' 반환. 모두 실패 시 None."""
+    try:
+        import yfinance as yf
+    except Exception:
+        return None
+    for sym in symbols_tuple:
+        try:
+            h = yf.Ticker(sym).history(period="7d")
+            if h is None or len(h) == 0:
+                continue
+            closes = h["Close"].dropna()
+            if len(closes) == 0:
+                continue
+            px = float(closes.iloc[-1])
+            if 90.0 <= px <= 100.5:            # 정상 가격대(금리 0~10% 수준)만 채택
+                return 100.0 - px
+        except Exception:
+            continue
+    return None
+
+
+def _fed_live_stance(meeting_date):
+    """Fed Funds 선물로 FOMC 결정 '서프라이즈' stance(low/normal/high) 산출. 실패·불확실 시 None(→표 폴백)."""
+    if not FED_AUTO_FETCH:
+        return None
+    try:
+        import calendar as _cal
+        y, m, day = meeting_date.year, meeting_date.month, meeting_date.day
+        N = _cal.monthrange(y, m)[1]
+        n1, n2 = day, N - day               # 회의일까지(현행) / 회의 익일~말일(결정후)
+        if n1 < 3 or n2 < 3:                 # 월초·월말 회의는 추정 노이즈 큼 → 폴백
+            return None
+        avg = _fetch_zq_implied_rate(tuple(_zq_symbol_candidates(y, m)))
+        if avg is None:
+            return None
+        r0 = FED_TARGET_RATE_PCT
+        r_end = (avg - (n1 / N) * r0) * (N / n2)   # 결정후금리 역산
+        change = r_end - r0
+        if abs(change) > 0.60:               # 한 회의 ±60bp 초과는 비현실적 → 데이터 의심 → 폴백
+            return None
+        p_move = min(abs(change) / 0.25, 1.0)      # 25bp 1스텝 확률(근사)
+        certainty = max(p_move, 1.0 - p_move)      # 0.5(완전 접전) ~ 1.0(완전 확실)
+        if certainty >= 0.85:
+            return "low"                     # 결과가 한쪽으로 확실 → 서프라이즈↓
+        if certainty <= 0.62:
+            return "high"                    # 접전(≈35~65%) → 서프라이즈↑
+        return "normal"
+    except Exception:
+        return None
+
 
 def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None):
     """📅 다가오는 ~1개월간 '종합 경보 등급'을 달력 형태로 예보.
@@ -477,14 +564,17 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     def _rate_outlook_adj(label, d):
         # 중앙은행 '결정일' 한정(의사록 제외) → 시장 예상(서프라이즈) 보정값.
         #   동결/변경 거의 확실 → -1(변동성↓), 불확실·격론 → +1(변동성↑), 기본 0.
+        #   FOMC는 yfinance Fed Funds 선물 실시간값을 우선 적용(실패 시 RATE_DECISION_OUTLOOK 표로 폴백).
         t = str(label)
         if "의사록" in t:                       return 0          # 의사록은 결정이 아님 → 제외
-        if   "FOMC 금리" in t:    bank = "FOMC"
-        elif "금통위"   in t:    bank = "BOK"
-        elif "ECB 통화"  in t:    bank = "ECB"
-        elif "BOJ 금융"  in t:    bank = "BOJ"
+        if "FOMC 금리" in t:
+            stance = _fed_live_stance(d)                          # ① 선물 실시간
+            if stance is None:                                    # ② 폴백: 수동 표
+                stance, _memo = RATE_DECISION_OUTLOOK.get(("FOMC", d.year, d.month), ("normal", ""))
+        elif "금통위"   in t:    stance, _ = RATE_DECISION_OUTLOOK.get(("BOK", d.year, d.month), ("normal", ""))
+        elif "ECB 통화"  in t:    stance, _ = RATE_DECISION_OUTLOOK.get(("ECB", d.year, d.month), ("normal", ""))
+        elif "BOJ 금융"  in t:    stance, _ = RATE_DECISION_OUTLOOK.get(("BOJ", d.year, d.month), ("normal", ""))
         else:                                   return 0
-        stance, _memo = RATE_DECISION_OUTLOOK.get((bank, d.year, d.month), ("normal", ""))
         return -1 if stance == "low" else (1 if stance == "high" else 0)
 
     def _day_level(d):
