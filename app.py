@@ -4217,10 +4217,18 @@ def render_sentiment_strip(fg_data, macro_data):
 
 
 def render_week_catalysts():
-    """⑥ 이번 주 핵심 일정 — 중앙은행(FOMC·ECB·BOJ·한은)·물가(CPI·PCE)·경기(고용·PMI·소매판매·수출입)·수급(동시만기)을 압축 표시."""
+    """⑥ 향후 1개월 핵심 일정 — 중앙은행(FOMC·ECB·BOJ·한은)·물가(CPI·PCE)·경기(고용·PMI·소매판매·수출입)·수급(동시만기)을 압축 표시."""
     now_kst = (datetime.utcnow() + timedelta(hours=9)).date()
-    monday = now_kst - timedelta(days=now_kst.weekday())
-    days = [monday + timedelta(days=i) for i in range(7)]
+
+    def _add_one_month(d):
+        # 같은 날짜 한 달 뒤(다음 달에 같은 일자가 없으면 말일로 보정: 예 1/31→2월 말일)
+        y, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+        last = calendar.monthrange(y, m)[1]
+        return d.replace(year=y, month=m, day=min(d.day, last))
+
+    # 오늘부터 약 1개월(같은 날짜 다음 달)까지를 조회 구간으로 사용
+    end_date = _add_one_month(now_kst)
+    days = [now_kst + timedelta(days=i) for i in range((end_date - now_kst).days + 1)]
     dow_kr = ["월", "화", "수", "목", "금", "토", "일"]
 
     def _evt_color(label):
@@ -4243,34 +4251,22 @@ def render_week_catalysts():
     rows = [(d, evs) for d in days if (evs := _events_for(d))]
 
     if not rows:
-        upcoming = []
-        for dd in range(now_kst.day, 32):
-            try:
-                cand = now_kst.replace(day=dd)
-            except ValueError:
-                break
-            for (lab, _c) in _events_for(cand):
-                upcoming.append((cand, lab))
-        upcoming = upcoming[:4]
-        if upcoming:
-            chips = "".join(
-                f'<span style="display:inline-block;background:#f1f5f9;color:{_evt_color(lab)};'
-                f'border-radius:8px;padding:4px 10px;margin:3px 5px 0 0;font-size:12px;font-weight:700;">'
-                f'{c.month}/{c.day} {lab}</span>' for c, lab in upcoming
-            )
-            st.markdown(
-                f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:12px 16px;">'
-                f'<div style="font-size:12.5px;color:#64748b;margin-bottom:4px;">이번 주는 예정된 주요 일정이 없습니다. 다가오는 일정 👇</div>'
-                f'{chips}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:14px 16px;'
-                'color:#64748b;font-size:13px;">📭 이번 주 예정된 주요 매크로·수급 일정이 없습니다.</div>',
-                unsafe_allow_html=True)
+        st.markdown(
+            '<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:14px 16px;'
+            'color:#64748b;font-size:13px;">📭 향후 1개월간 예정된 주요 매크로·수급 일정이 없습니다.</div>',
+            unsafe_allow_html=True)
         return
 
     body = ""
+    cur_month = None
     for d, evs in rows:
+        # 달이 바뀌면 가벼운 월 구분선 삽입(1개월 구간이 두 달에 걸칠 때 가독성↑)
+        if d.month != cur_month:
+            cur_month = d.month
+            body += (
+                f'<div style="padding:8px 10px 4px;font-size:11px;font-weight:800;'
+                f'color:#94a3b8;letter-spacing:0.3px;">{d.year}년 {d.month}월</div>'
+            )
         is_today = (d == now_kst)
         date_bg = "#fef2f2" if is_today else "transparent"
         date_c = "#dc2626" if is_today else "#0f172a"
@@ -6502,8 +6498,8 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     st.divider()
 
-    # ── ⑥ 이번 주 핵심 매크로 일정 ──
-    st.markdown("##### 🗓️ 이번 주 핵심 일정 (중앙은행·물가·경기·수급)")
+    # ── ⑥ 향후 1개월 핵심 매크로 일정 ──
+    st.markdown("##### 🗓️ 향후 1개월 핵심 일정 (중앙은행·물가·경기·수급)")
     render_week_catalysts()
 
     st.divider()
