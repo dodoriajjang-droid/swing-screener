@@ -6565,32 +6565,134 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
             if not api_key_input:
                 st.error("좌측 사이드바에 API 키를 입력해주세요.")
             else:
-                with chat_container.chat_message("assistant"):
-                    with st.spinner("구글 검색을 통해 최신 팩트를 확인 중입니다..."):
-                        now_kst2 = datetime.utcnow() + timedelta(hours=9)
-                        today_str = now_kst2.strftime("%Y년 %m월 %d일")
-                        macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()]) if macro_data else ""
+                # ── 종목 해석(국내): 프롬프트에서 종목명/6자리코드 추출 ──
+                def _resolve_kr_stock(text):
+                    try:
+                        krx = get_krx_stocks()
+                    except Exception:
+                        return None, None
+                    if krx is None or krx.empty:
+                        return None, None
+                    for m in re.findall(r"\d{6}", str(text)):
+                        hit = krx[krx["Code"].astype(str).str.zfill(6) == m]
+                        if not hit.empty:
+                            return str(hit.iloc[0]["Name"]), m
+                    best = None
+                    for _, r in krx.iterrows():
+                        nm = str(r["Name"]).strip()
+                        if len(nm) >= 2 and nm in str(text):
+                            if best is None or len(nm) > len(best[0]):
+                                best = (nm, str(r["Code"]).zfill(6))
+                    return (best[0], best[1]) if best else (None, None)
 
-                        sys_prompt = f"""
-                        당신은 사용자의 실전 트레이딩을 돕는 여의도 최고의 퀀트 비서입니다.
-                        🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다.
-                        1. 사용자의 질문에 대해 당신은 반드시 '구글 검색(Google Search)'을 실행하여 가장 최신 기사와 공시를 확인해야 합니다.
-                        2. 과거 학습 데이터에 의존한 하드코딩된 답변을 금지합니다.
-                        3. 검색 결과를 바탕으로 확정된 '사실'만 명확하게 3~4줄로 요약하세요.
-                        [매크로 데이터]: {macro_context}\n사용자 질문: {prompt}
-                        """
+                # ── 앱의 '실데이터 함수'만으로 종목 팩트시트 구성(없는 값은 '데이터 없음') ──
+                def _fmt(v, fmt=None, suf=""):
+                    try:
+                        if v is None or (isinstance(v, float) and pd.isna(v)):
+                            return "데이터 없음"
+                        return (fmt.format(v) if fmt else str(v)) + suf
+                    except Exception:
+                        return "데이터 없음"
+
+                def _build_stock_factsheet(name, code):
+                    L = [f"[검증된 실데이터 — {name} ({code}) · 출처: 시스템 수집(fdr·네이버)]"]
+                    try:
+                        t = analyze_technical_pattern(name, code)
+                    except Exception:
+                        t = None
+                    if t:
+                        L.append(f"- 현재가 {_fmt(t.get('현재가'),'{:,.0f}','원')} · 상태 {t.get('상태','데이터 없음')} · 거래량 {t.get('거래량 급증','데이터 없음')}")
+                        L.append(f"- RSI {_fmt(t.get('RSI'),'{:.1f}')} · 이평배열 {t.get('배열상태','데이터 없음')} · 주봉추세 {t.get('주봉추세','데이터 없음')}")
+                        L.append(f"- 20일선(진입가이드) {_fmt(t.get('진입가_가이드'),'{:,.0f}','원')} · 손절가 {_fmt(t.get('손절가'),'{:,.0f}','원')} · 목표가 {_fmt(t.get('목표가1'),'{:,.0f}')}/{_fmt(t.get('목표가2'),'{:,.0f}')}/{_fmt(t.get('목표가3'),'{:,.0f}')}")
+                        L.append(f"- PER {t.get('PER','데이터 없음')} · PBR {t.get('PBR','데이터 없음')} · 증권사 컨센서스 목표가 {_fmt(t.get('목표가_컨센서스'),'{:,.0f}','원')}")
+                        L.append(f"- 최근 거래일 수급: 기관 {_fmt(t.get('기관수급'))} · 외국인 {_fmt(t.get('외인수급'))} · 개인 {_fmt(t.get('개인수급'))}")
+                        L.append(f"- 연속 순매수(일): 기관 {_fmt(t.get('기관연속순매수'))} · 외국인 {_fmt(t.get('외인연속순매수'))} · 연기금 {_fmt(t.get('연기금연속순매수'))}")
+                    else:
+                        L.append("- 기술적·수급·밸류에이션: 데이터 없음(시세 조회 실패)")
+                    try:
+                        c = get_consensus_signal(code)
+                    except Exception:
+                        c = None
+                    if c:
+                        L.append(f"- 증권사 리포트(최근35일): 방향 {c['revision_dir']}(상향 {c['up']}/하향 {c['dn']}) · 최근30일 {c['report_count_30d']}건/총 {c['report_total']}건")
+                    else:
+                        L.append("- 증권사 리포트 리비전: 데이터 없음")
+                    try:
+                        ns = get_stock_news(code, name, limit=5) or []
+                    except Exception:
+                        ns = []
+                    if ns:
+                        L.append("- 최신 뉴스(네이버):")
+                        for n in ns[:5]:
+                            tt = str(n.get("title", "")).strip()
+                            if tt:
+                                L.append(f"    · {tt}")
+                    else:
+                        L.append("- 최신 뉴스: 데이터 없음")
+                    return "\n".join(L)
+
+                with chat_container.chat_message("assistant"):
+                    now_kst2 = datetime.utcnow() + timedelta(hours=9)
+                    today_str = now_kst2.strftime("%Y년 %m월 %d일")
+                    macro_context = "현재 거시경제: " + ", ".join([f"{k} {v['value']}" for k, v in macro_data.items()]) if macro_data else "데이터 없음"
+
+                    with st.spinner("종목 실데이터(시세·수급·컨센서스·뉴스)를 확인하는 중..."):
+                        s_name, s_code = _resolve_kr_stock(prompt)
+                        factsheet = _build_stock_factsheet(s_name, s_code) if s_code else ""
+
+                    if s_code:
+                        sys_prompt = f"""당신은 여의도 최고의 주식 애널리스트입니다. 오늘 날짜는 {today_str}입니다.
+아래 [검증된 실데이터]는 우리 시스템이 실제로 수집한 수치입니다. 여기에 더해 반드시 '구글 검색(Google Search)'을 실행해 최신 뉴스·공시·이벤트를 확인하세요.
+
+[절대 규칙 — 위반 금지]
+1) 답변의 모든 숫자·사실은 (a) 아래 [검증된 실데이터] 또는 (b) 방금 구글 검색으로 확인한 '출처 있는' 정보, 둘 중 하나여야 한다.
+2) 학습 데이터에 의존한 추측·일반론·기억 속 수치 사용 금지. 특히 현재가·목표가·실적을 기억으로 지어내지 말 것.
+3) 데이터에 없는 항목은 '데이터 없음'이라고 솔직히 쓰고, 빈칸을 그럴듯한 추정치로 메우지 말 것.
+4) 견해(매수/관망/매도)는 반드시 위 검증 데이터에 근거해 '왜'를 설명할 것.
+
+[검증된 실데이터]
+{factsheet}
+
+[매크로 환경] {macro_context}
+[사용자 질문] {prompt}
+
+애널리스트 수준으로 ①핵심 요약 ②기술적·수급 ③밸류에이션·컨센서스 ④최신 이슈(구글 검색) ⑤리스크 포함 균형 잡힌 견해 순서로, 검증된 사실만으로 답하라. 마지막 줄에 '※ 투자 조언이 아닌 참고용'을 적을 것."""
+                    else:
+                        sys_prompt = f"""당신은 여의도 퀀트 비서입니다. 오늘 날짜는 {today_str}입니다.
+반드시 '구글 검색(Google Search)'을 실행해 최신 사실을 확인하고, 검색으로 확인된 '출처 있는' 정보만으로 답하라.
+[절대 규칙] 학습 데이터에 의존한 추측·일반론·기억 속 수치 사용 금지. 확인 안 된 것은 '확인 불가'로 표기. 확정된 사실만 3~5줄로 요약.
+[매크로 환경] {macro_context}
+[사용자 질문] {prompt}"""
+
+                    reply = None
+                    grounded_ok = False
+                    with st.spinner("구글 검색으로 최신 팩트를 교차 확인하는 중..."):
                         try:
                             genai.configure(api_key=api_key_input)
                             model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
                             response = model.generate_content(sys_prompt)
-
                             if response.candidates and response.candidates[0].content.parts:
                                 reply = response.text
-                            else:
-                                reply = ask_gemini(prompt, api_key_input)
+                                grounded_ok = True
                         except Exception:
-                            reply = ask_gemini(prompt, api_key_input)
-                        st.write(reply)
+                            grounded_ok = False
+
+                    if not grounded_ok:
+                        # 검색/그라운딩 실패 → 학습데이터로 지어내지 않는다(할루시네이션 방지).
+                        if s_code and factsheet:
+                            try:
+                                strict = f"""아래는 우리 시스템이 수집한 '{s_name}({s_code})'의 검증된 실데이터다. 오늘은 {today_str}.
+이 데이터 안의 사실만 사용해 애널리스트 요약을 작성하라. 데이터에 없는 수치·전망을 새로 지어내지 말고, 없으면 '데이터 없음'이라고 쓰라.
+{factsheet}
+[사용자 질문] {prompt}
+마지막 줄에 '※ 실시간 검색 실패 — 시스템 실데이터 기준(최신 뉴스 일부 미반영), 투자 조언 아님'을 적을 것."""
+                                reply = "⚠️ 실시간 구글 검색에 실패해, 시스템이 수집한 검증된 실데이터만으로 요약합니다.\n\n" + ask_gemini(strict, api_key_input)
+                            except Exception:
+                                reply = "⚠️ 검색과 요약에 모두 실패했습니다. 아래는 수집된 실데이터 원본입니다(미검증 추정 없음):\n\n" + factsheet
+                        else:
+                            reply = ("⚠️ 실시간 검색에 실패했습니다. 검증되지 않은(기억에 의존한) 답변을 드리지 않기 위해 응답을 보류합니다.\n"
+                                     "잠시 후 다시 시도하시거나, 종목명을 정확히 포함해 질문해 주세요. (예: '삼성전자 어때?')")
+                    st.write(reply)
 
                 st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
