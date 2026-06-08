@@ -334,6 +334,155 @@ def scan_upcoming_events(get_economic_events, within_days=10) -> list:
     return out
 
 
+def render_grade_forecast_calendar(get_economic_events):
+    """📅 다가오는 ~1개월간 '종합 경보 등급'을 달력 형태로 예보.
+
+    ※ 예측의 한계: 종합 등급 구성요소 중 '뉴스(악재/호재)'와 '차트 하락경보'는 아직 일어나지 않은
+       일이라 예측 불가. 예측 가능한 건 '예정된 매크로·파생 일정'뿐이다. 따라서 이 달력은 그날 예정된
+       이벤트로 인한 '예상 변동성 위험'을 등급화한 이벤트 기반 예보다.
+    """
+    if not callable(get_economic_events):
+        st.info("📅 일정 예보 달력은 경제 일정 데이터(get_economic_events)가 연결되어야 표시됩니다.")
+        return
+
+    today = date.today()
+
+    # ── 1) 향후 ~40일 이벤트를 날짜별로 수집 (센터의 다른 지표와 동일 소스: scan_upcoming_events) ──
+    by_date = {}
+    try:
+        for e in scan_upcoming_events(get_economic_events, within_days=40):
+            by_date.setdefault(e["date"], []).append(e)
+    except Exception:
+        by_date = {}
+
+    # ── 2) 이벤트 영향도 가중치 → 일자별 점수 → 4단계 등급 ──
+    #    (※ 가중치·임계값은 여기서 조절: 숫자가 크면 더 쉽게 상위 등급으로 올라감)
+    def _impact(label):
+        t = str(label)
+        if any(k in t for k in ("FOMC 금리", "금통위", "ECB 통화", "BOJ 금융", "금리결정")): return 3  # 중앙은행 금리결정
+        if any(k in t for k in ("CPI", "PCE", "고용지표")):                                   return 3  # 최상위 지표(물가·고용)
+        if any(k in t for k in ("네마녀", "동시만기")):                                        return 3  # 쿼드러플위칭
+        if "옵션만기" in t:                                                                    return 2  # 일반 월물 만기
+        if "의사록" in t:                                                                      return 1
+        return 1                                                                                          # PMI·소매판매·수출입 등
+
+    def _is_quad_witching(d):   # 3·6·9·12월 둘째 목요일 = 네마녀(국내 선물·옵션 동시만기)
+        return d.month in (3, 6, 9, 12) and d.weekday() == 3 and 8 <= d.day <= 14
+
+    def _day_level(d):
+        evs = by_date.get(d, [])
+        score = sum(_impact(e["label"]) for e in evs)
+        if evs and _is_quad_witching(d):   # 만기일이 네마녀면 변동성 가중
+            score += 1
+        if score == 0:  return 0, evs
+        if score <= 2:  return 1, evs
+        if score <= 4:  return 2, evs
+        return 3, evs
+
+    LEVELS = {   # 등급: (라벨, 진한색, 옅은배경)  ← 상단 종합경보 배너 색과 통일
+        0: ("안정", "#2e7d32", "#f0fdf4"),
+        1: ("관심", "#b88300", "#fffbeb"),
+        2: ("주의", "#c2410c", "#fff7ed"),
+        3: ("경계", "#c62828", "#fef2f2"),
+    }
+    DOTS = {0: "🟢", 1: "🟡", 2: "🟠", 3: "🔴"}
+
+    # ── 3) 달력 범위: 이번 주 일요일 ~ (오늘+30)이 속한 주의 토요일 ──
+    start = today - timedelta(days=(today.weekday() + 1) % 7)            # 이번 주 일요일
+    end_anchor = today + timedelta(days=30)                             # 1개월 경계
+    end = end_anchor + timedelta(days=(5 - end_anchor.weekday()) % 7)   # 그 주 토요일까지 채움
+    total_days = (end - start).days + 1
+
+    dow = ["일", "월", "화", "수", "목", "금", "토"]
+    head = "".join(
+        f'<div style="text-align:center;font-size:11px;font-weight:800;'
+        f'color:{"#dc2626" if i == 0 else ("#2563eb" if i == 6 else "#64748b")};padding:3px 0;">{w}</div>'
+        for i, w in enumerate(dow)
+    )
+
+    cells = ""
+    for i in range(total_days):
+        d = start + timedelta(days=i)
+        is_today = (d == today)
+        if d < today or d > end_anchor:        # 범위 밖(이번 주 지난날 / 1개월 초과) → 흐리게
+            cells += (
+                f'<div style="min-height:76px;border:1px dashed #eef2f6;border-radius:9px;'
+                f'background:#fbfcfd;padding:6px 7px;opacity:.5;">'
+                f'<div style="font-size:12px;font-weight:700;color:#cbd5e1;">{d.day}</div></div>'
+            )
+            continue
+
+        lvl, evs = _day_level(d)
+        _lab, col, bgc = LEVELS[lvl]
+        brd = col if lvl >= 2 else "#e9eef3"
+        ring = f"box-shadow:0 0 0 2px {col} inset;" if is_today else ""
+        chips = ""
+        for e in evs[:3]:
+            chips += (
+                f'<div style="font-size:9.5px;line-height:1.25;color:{col};font-weight:700;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{e["label"]}</div>'
+            )
+        if len(evs) > 3:
+            chips += f'<div style="font-size:9px;color:#94a3b8;">+{len(evs) - 3}건</div>'
+
+        date_c = "#dc2626" if d.weekday() == 6 else ("#2563eb" if d.weekday() == 5 else "#0f172a")
+        today_tag = ' <span style="font-size:8.5px;color:#dc2626;font-weight:900;">●오늘</span>' if is_today else ""
+        cells += (
+            f'<div style="min-height:76px;border:1px solid {brd};border-radius:9px;'
+            f'background:{bgc};padding:6px 7px;{ring}">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+            f'<span style="font-size:12.5px;font-weight:800;color:{date_c};">{d.day}{today_tag}</span>'
+            f'<span style="font-size:10px;">{DOTS[lvl] if lvl else ""}</span></div>'
+            f'<div style="margin-top:3px;">{chips}</div></div>'
+        )
+
+    period = (f"{start.year}년 {start.month}월" if start.month == end.month
+              else f"{start.year}년 {start.month}~{end.month}월")
+    st.markdown(f"##### 📅 다가오는 1개월 종합 경보 등급 예보 · {period}")
+    st.markdown(
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:16px;padding:12px 14px;'
+        f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+        f'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px;">{head}</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">{cells}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    legend = "".join(
+        f'<span style="margin-right:13px;font-size:11.5px;color:#475569;">{DOTS[k]} {LEVELS[k][0]}</span>'
+        for k in (0, 1, 2, 3)
+    )
+    st.markdown(
+        f'<div style="margin-top:7px;">{legend}'
+        f'<span style="font-size:11px;color:#94a3b8;"> · 경계=중앙은행 결정·핵심지표·네마녀 등 변동성 큰 날 / 안정=예정 이벤트 없음</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    # 주의 이상 예보일 요약
+    dow_k = ["월", "화", "수", "목", "금", "토", "일"]
+    alert_days = []
+    d = today
+    while d <= end_anchor:
+        lvl, evs = _day_level(d)
+        if lvl >= 2:
+            alert_days.append((d, lvl, ", ".join(e["label"] for e in evs)))
+        d += timedelta(days=1)
+    if alert_days:
+        items = "".join(
+            f'<div style="font-size:12px;color:#475569;margin:2px 0;">{DOTS[lvl]} '
+            f'<b>{dd.month}/{dd.day}({dow_k[dd.weekday()]})</b> '
+            f'<span style="color:{LEVELS[lvl][1]};font-weight:800;">{LEVELS[lvl][0]}</span> — {nm}</div>'
+            for dd, lvl, nm in alert_days
+        )
+        st.markdown(
+            f'<div style="background:#fffaf5;border:1px solid #fed7aa;border-radius:12px;padding:10px 14px;margin-top:8px;">'
+            f'<div style="font-size:12.5px;font-weight:800;color:#c2410c;margin-bottom:5px;">⚠️ 주의 이상 예보일 · {len(alert_days)}일</div>'
+            f'{items}</div>', unsafe_allow_html=True)
+
+    st.caption("※ 이 예보는 '예정된 매크로·파생 일정'만 반영한 이벤트 기반 추정입니다. 악재/호재 뉴스·차트 같은 당일 신호는 "
+               "예측 불가하여 등급에 포함되지 않습니다. 지표 발표일은 통상 시기 기준(±1~2일 가능)이며 실제 시장은 다를 수 있습니다. 참고용.")
+    st.divider()
+
+
 # ==========================================================================
 # 3. 메인 렌더러
 # ==========================================================================
@@ -362,6 +511,9 @@ def render_alert_center(deps: dict):
 
     # ---------------- 상단 종합 요약 배너 ----------------
     summary_box = st.container()
+
+    # 📅 다가오는 1개월 '종합 경보 등급' 예보 (이벤트 기반 달력) — 배너 바로 아래·탭 위에 표시
+    render_grade_forecast_calendar(get_economic_events)
 
     tabs = st.tabs([
         "📰 뉴스·정세 경보",
