@@ -359,6 +359,32 @@ def _kr_index_drop(panel):
     return pts, worst, parts
 
 
+# ════════════════════════════════════════════════════════════════════════
+#  금리 결정 '시장 예상(서프라이즈)' 설정 — 예보 달력의 중앙은행 결정일 위험 보정용
+# ════════════════════════════════════════════════════════════════════════
+#  ▸ 왜? "금리 결정일"을 무조건 고위험으로 두면 부정확. 시장이 결정을 얼마나 확실히 예상하는지에 따라
+#       실제 변동성이 다르다. ①동결/변경이 '거의 확실'(예: FedWatch 95%+)하면 서프라이즈가 작아 변동성↓,
+#       ②'불확실/격론'(50:50 부근, 분열 의결)이면 변동성↑. ('priced-in'된 결정은 시장 반응이 작음)
+#  ▸ 한계: CME FedWatch·다국 내재확률을 무료로 '자동 수집'할 안정적 API가 없음
+#       (FedWatch는 클린 API 부재, yfinance Fed Funds 선물은 미국 전용·사용자 환경에서만 가능).
+#       → 분기당 회의가 몇 건뿐이므로 '수동 갱신' 테이블로 운영(관리 부담 적음).
+#  ▸ 주의: FOMC는 동결이 확실해도 점도표(SEP)·기자회견 '가이던스'로 변동성이 남을 수 있음 → 'low'는 한 단계만↓.
+#  ▸ 값: 'low'(시장 예상 거의 확실 → 위험 -1) / 'normal'(기본) / 'high'(불확실·격론 → 위험 +1)
+#  ▸ 갱신 출처: FedWatch(cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html),
+#       각국 OIS/스왑 내재확률·중앙은행 코멘트. ── 마지막 갱신: 2026-06-08
+RATE_DECISION_OUTLOOK = {
+    # (중앙은행, 연, 월): (stance, 메모)
+    ("FOMC", 2026, 6): ("low",    "FedWatch ~98~99% 동결(3.50–3.75%) — 결정은 거의 확실. 단 점도표·8-4 분열·매파 분위기로 가이던스 변동성 잔존"),
+    ("ECB",  2026, 6): ("normal", "25bp 인상 폭넓게 예상되나 경기-물가 딜레마로 양방향 논쟁적"),
+    ("BOJ",  2026, 6): ("normal", "점진적 정상화·데이터 의존 — 엔/원 환율·엔캐리 서프라이즈 여지"),
+    # ── 창 밖(7월 이후)·갱신 자리 (확보되면 stance 갱신) ──
+    ("FOMC", 2026, 7): ("normal", "하반기 인하 가능성 — 데이터 의존"),
+    ("BOK",  2026, 7): ("normal", ""),
+    ("ECB",  2026, 7): ("normal", ""),
+    ("BOJ",  2026, 7): ("normal", ""),
+}
+
+
 def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None):
     """📅 다가오는 ~1개월간 '종합 경보 등급'을 달력 형태로 예보.
 
@@ -448,16 +474,31 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     def _is_quad_witching(d):   # 3·6·9·12월 둘째 목요일 = 네마녀(국내 선물·옵션 동시만기)
         return d.month in (3, 6, 9, 12) and d.weekday() == 3 and 8 <= d.day <= 14
 
+    def _rate_outlook_adj(label, d):
+        # 중앙은행 '결정일' 한정(의사록 제외) → 시장 예상(서프라이즈) 보정값.
+        #   동결/변경 거의 확실 → -1(변동성↓), 불확실·격론 → +1(변동성↑), 기본 0.
+        t = str(label)
+        if "의사록" in t:                       return 0          # 의사록은 결정이 아님 → 제외
+        if   "FOMC 금리" in t:    bank = "FOMC"
+        elif "금통위"   in t:    bank = "BOK"
+        elif "ECB 통화"  in t:    bank = "ECB"
+        elif "BOJ 금융"  in t:    bank = "BOJ"
+        else:                                   return 0
+        stance, _memo = RATE_DECISION_OUTLOOK.get((bank, d.year, d.month), ("normal", ""))
+        return -1 if stance == "low" else (1 if stance == "high" else 0)
+
     def _day_level(d):
         evs = by_date.get(d, [])
         score = sum(_impact(e["label"]) for e in evs)
         if evs and _is_quad_witching(d):   # 만기일(네마녀)이면 변동성 가중
             score += 1
+        score += sum(_rate_outlook_adj(e["label"], d) for e in evs)  # 금리결정 '시장 예상' 보정
         score += event_spillover.get(d, 0)  # 네마녀 '다음 거래일' 소폭 가점(위칭 언와인드)
         if d == today:                     # 오늘은 '실제' 지수 급락도 반영(예측이 아닌 실현값)
             score += idx_pts_today
         else:                              # 미래 칸은 최근 급락의 '여진'만 반영(이벤트 외 시세는 예측 불가)
             score += aftershock.get(d, 0)
+        score = max(score, 0)              # 보정으로 음수가 되지 않도록
         if score == 0:  return 0, evs
         if score <= 2:  return 1, evs
         if score <= 4:  return 2, evs
@@ -513,6 +554,14 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             )
         if len(evs) > 3:
             chips += f'<div style="font-size:9px;color:#94a3b8;">+{len(evs) - 3}건</div>'
+        # 금리 결정일: 시장 예상(서프라이즈) 보정 표시
+        _radj = sum(_rate_outlook_adj(e["label"], d) for e in evs)
+        if _radj < 0:
+            chips += ('<div style="font-size:9px;color:#0369a1;font-weight:800;white-space:nowrap;'
+                      'overflow:hidden;text-overflow:ellipsis;">🏦 시장 예상 확실(변동성↓)</div>')
+        elif _radj > 0:
+            chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
+                      f'overflow:hidden;text-overflow:ellipsis;">🏦 결정 불확실(변동성↑)</div>')
         # 오늘은 '실제' 지수 급락을 사유로 표시
         if is_today and idx_pts_today > 0 and idx_parts_today:
             w = min(idx_parts_today, key=lambda x: x[1])   # 가장 큰 낙폭 시장
@@ -578,6 +627,11 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             elif d != today and event_spillover.get(d):                # 네마녀 다음날
                 wt_txt = "🌗 네마녀 다음날(위칭 언와인드)"
                 reason = f"{wt_txt} · {reason}" if reason else wt_txt
+            _radj = sum(_rate_outlook_adj(e["label"], d) for e in evs)  # 금리결정 시장 예상 메모
+            if _radj < 0:
+                reason = f"{reason} · 🏦 시장 예상 확실(변동성↓)"
+            elif _radj > 0:
+                reason = f"{reason} · 🏦 결정 불확실(변동성↑)"
             tag = " (오늘·실시간)" if d == today else ""
             alert_days.append((d, lvl, reason + tag))
         d += timedelta(days=1)
@@ -593,10 +647,11 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             f'<div style="font-size:12.5px;font-weight:800;color:#c2410c;margin-bottom:5px;">⚠️ 주의 이상 예보일 · {len(alert_days)}일</div>'
             f'{items}</div>', unsafe_allow_html=True)
 
-    st.caption("※ 미래 칸 등급은 '예정 일정 + 최근 충격 여진' 기반 예보입니다 — '안정'은 시장이 잠잠하다는 뜻이 아니라 '예정된 큰 이벤트가 없음'을 뜻합니다. "
+    st.caption("※ 미래 칸 등급은 '예정 일정 + 최근 충격 여진 + 금리 결정 시장예상' 기반 예보입니다 — '안정'은 시장이 잠잠하다는 뜻이 아니라 '예정된 큰 이벤트가 없음'을 뜻합니다. "
                "여진 가중치는 과거 1년 코스피·코스닥 실측에 맞춰 보정: ①3%↑ 급락 후 1~3거래일 변동성 평소의 2~3배(양방향, 추가하락 아님)로 확대 → '급락 여진' 반영, "
                "②네마녀 다음날은 평균적으론 잠잠하나 약세 잔존 가능 → 소폭 반영, ③FOMC·CPI 다음날은 실측상 정상화 → 가점 없음. "
-               "단 어떤 지표도 내일의 시세·뉴스를 정확히 예측하진 못합니다 — 충격 직후 보수적 대응을 돕는 참고용입니다.")
+               "또 금리 결정일은 시장 예상(예: FedWatch)을 반영 — 동결/변경이 거의 확실하면 서프라이즈가 작아 위험을 한 단계 낮추고(🏦 변동성↓), 불확실·격론이면 높입니다(🏦 변동성↑). "
+               "단 어떤 지표도 내일의 시세·뉴스를 정확히 예측하진 못합니다 — 금리 예상은 RATE_DECISION_OUTLOOK 표에서 수동 갱신(FedWatch 등 참고)하는 참고용입니다.")
     st.divider()
 
 
