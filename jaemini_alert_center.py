@@ -380,11 +380,16 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
         except Exception:
             idx_pts_today, idx_worst_today, idx_parts_today = 0, 0.0, []
 
-    # 급락 '여진': 큰 충격 다음 1~3거래일은 변동성이 이어지는 경향(변동성 클러스터링) 반영.
-    #   오늘 실현된 낙폭에만 기반(미래 시세는 모름) · 날이 갈수록 감쇠 · ※ 예측이 아니라 '충격 후 보수적' 가이드.
+    # 급락 '여진': 큰 급락 다음 1~3거래일은 '변동성'이 확대되는 경향(변동성 클러스터링).
+    #   ── 과거 1년 실측(코스피 -3%↑ 급락 n=15): +1일 변동성 평소의 약 2.3배(코스닥 ~3배), +2일 ~1.9배, +3일 ~1.25배.
+    #      방향은 +1~2일 평균 '반등'(+1.5%), +3일 되돌림 → 추가하락이 아니라 '양방향 변동성↑'가 본질.
+    #   오늘 실현된 낙폭에만 기반(미래 시세는 모름) · 날이 갈수록 감쇠.
     aftershock = {}   # {date: 가점}
     if idx_worst_today <= -1.5:
-        base = 4 if idx_worst_today <= -3.0 else (3 if idx_worst_today <= -2.0 else 2)
+        if   idx_worst_today <= -5.0: base = 5     # 극단 급락(-5%↑): 다음날 경계급
+        elif idx_worst_today <= -3.0: base = 4
+        elif idx_worst_today <= -2.0: base = 3
+        else:                         base = 2
         cur, step = today, 0
         while step < 3:
             cur += timedelta(days=1)
@@ -393,6 +398,20 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
                 pts = base - (step - 1)      # 1일째=base, 2일째=base-1, 3일째=base-2
                 if pts > 0:
                     aftershock[cur] = pts
+
+    # 네마녀(둘째 목, 3·6·9·12월) '다음 거래일' 소폭 가점 — 위칭 '언와인드'.
+    #   ── 과거 1년 실측: 네마녀 다음날은 평균적으론 오히려 잠잠하나(변동성 1.38%<평소 1.59%),
+    #      '하락 마감' 네마녀 뒤에는 며칠 약세·변동성 잔존(특히 +3일 1.93%) → 작게(+1=관심) 반영.
+    #   (반면 FOMC·CPI 다음날은 실측상 정상화 → 별도 가점 없음)
+    event_spillover = {}   # {date: 가점}
+    _s = today - timedelta(days=7)
+    while _s <= today + timedelta(days=40):
+        if _s.month in (3, 6, 9, 12) and _s.weekday() == 3 and 8 <= _s.day <= 14:   # 네마녀
+            _nd = _s + timedelta(days=1)
+            while _nd.weekday() >= 5:        # 다음 거래일
+                _nd += timedelta(days=1)
+            event_spillover[_nd] = 1
+        _s += timedelta(days=1)
 
     # ── 1) 향후 ~40일 이벤트를 날짜별로 수집 (센터의 다른 지표와 동일 소스: scan_upcoming_events) ──
     by_date = {}
@@ -432,8 +451,9 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     def _day_level(d):
         evs = by_date.get(d, [])
         score = sum(_impact(e["label"]) for e in evs)
-        if evs and _is_quad_witching(d):   # 만기일이 네마녀면 변동성 가중
+        if evs and _is_quad_witching(d):   # 만기일(네마녀)이면 변동성 가중
             score += 1
+        score += event_spillover.get(d, 0)  # 네마녀 '다음 거래일' 소폭 가점(위칭 언와인드)
         if d == today:                     # 오늘은 '실제' 지수 급락도 반영(예측이 아닌 실현값)
             score += idx_pts_today
         else:                              # 미래 칸은 최근 급락의 '여진'만 반영(이벤트 외 시세는 예측 불가)
@@ -498,10 +518,13 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             w = min(idx_parts_today, key=lambda x: x[1])   # 가장 큰 낙폭 시장
             chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
                       f'overflow:hidden;text-overflow:ellipsis;">📉 {w[0]} {w[1]:+.1f}% 급락</div>')
-        # 미래 칸: 최근 급락 여진이면 사유 표시
+        # 미래 칸: 최근 급락 여진(양방향 변동성↑) / 네마녀 다음날 사유 표시
         elif (not is_today) and aftershock.get(d):
             chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
-                      f'overflow:hidden;text-overflow:ellipsis;">📉 급락 여진</div>')
+                      f'overflow:hidden;text-overflow:ellipsis;">📊 변동성 여진(급락 후)</div>')
+        elif (not is_today) and event_spillover.get(d):
+            chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
+                      f'overflow:hidden;text-overflow:ellipsis;">🌗 네마녀 다음날</div>')
 
         today_tag = ' <span style="font-size:8.5px;color:#dc2626;font-weight:900;">●오늘</span>' if is_today else ""
         cells += (
@@ -549,9 +572,12 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
                 w = min(idx_parts_today, key=lambda x: x[1])
                 drop_txt = f"📉 지수 급락(오늘 {w[0]} {w[1]:+.1f}%)"
                 reason = f"{drop_txt} · {reason}" if reason else drop_txt
-            elif d != today and aftershock.get(d):                     # 미래 급락 여진 사유
-                shock_txt = "📉 급락 여진(변동성 지속 가능)"
+            elif d != today and aftershock.get(d):                     # 급락 여진(양방향 변동성↑)
+                shock_txt = "📊 급락 여진(변동성 확대·양방향)"
                 reason = f"{shock_txt} · {reason}" if reason else shock_txt
+            elif d != today and event_spillover.get(d):                # 네마녀 다음날
+                wt_txt = "🌗 네마녀 다음날(위칭 언와인드)"
+                reason = f"{wt_txt} · {reason}" if reason else wt_txt
             tag = " (오늘·실시간)" if d == today else ""
             alert_days.append((d, lvl, reason + tag))
         d += timedelta(days=1)
@@ -567,8 +593,9 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             f'<div style="font-size:12.5px;font-weight:800;color:#c2410c;margin-bottom:5px;">⚠️ 주의 이상 예보일 · {len(alert_days)}일</div>'
             f'{items}</div>', unsafe_allow_html=True)
 
-    st.caption("※ 미래 칸 등급은 '예정된 매크로·파생 일정' 기반 예보입니다 — '안정'은 시장이 잠잠하다는 뜻이 아니라 '예정된 큰 이벤트가 없음'을 뜻합니다. "
-               "'오늘' 칸은 실제 코스피·코스닥 급락을 반영하고, 큰 폭락이 있으면 향후 1~3거래일은 '변동성 여진'으로 등급을 높입니다(변동성이 며칠 이어지는 경향 반영). "
+    st.caption("※ 미래 칸 등급은 '예정 일정 + 최근 충격 여진' 기반 예보입니다 — '안정'은 시장이 잠잠하다는 뜻이 아니라 '예정된 큰 이벤트가 없음'을 뜻합니다. "
+               "여진 가중치는 과거 1년 코스피·코스닥 실측에 맞춰 보정: ①3%↑ 급락 후 1~3거래일 변동성 평소의 2~3배(양방향, 추가하락 아님)로 확대 → '급락 여진' 반영, "
+               "②네마녀 다음날은 평균적으론 잠잠하나 약세 잔존 가능 → 소폭 반영, ③FOMC·CPI 다음날은 실측상 정상화 → 가점 없음. "
                "단 어떤 지표도 내일의 시세·뉴스를 정확히 예측하진 못합니다 — 충격 직후 보수적 대응을 돕는 참고용입니다.")
     st.divider()
 
