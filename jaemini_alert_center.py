@@ -400,6 +400,19 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     except Exception:
         by_date = {}
 
+    # 주말(토·일) 일정은 국장 휴장이므로 '다음 거래일(월요일)'로 접는다 — 영향은 월요일 개장에 반영.
+    #   (예: 일부 미국·중국·한국 지표가 주말/월초에 잡히면 월요일 칸에 '주말' 표시와 함께 노출)
+    _folded = {}
+    for _d, _evs in by_date.items():
+        if _d.weekday() >= 5:                                  # 토(5)·일(6)
+            _mon = _d + timedelta(days=(7 - _d.weekday()))     # 다음 월요일
+            for _e in _evs:
+                _e2 = dict(_e); _e2["_weekend"] = _d           # 원래 주말 날짜 보관
+                _folded.setdefault(_mon, []).append(_e2)
+        else:
+            _folded.setdefault(_d, []).extend(_evs)
+    by_date = _folded
+
     # ── 2) 이벤트 영향도 가중치 → 일자별 점수 → 4단계 등급 ──
     #    (※ 가중치·임계값은 여기서 조절: 숫자가 크면 더 쉽게 상위 등급으로 올라감)
     def _impact(label):
@@ -436,29 +449,31 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     }
     DOTS = {0: "🟢", 1: "🟡", 2: "🟠", 3: "🔴"}
 
-    # ── 3) 달력 범위: 이번 주 일요일 ~ (오늘+30)이 속한 주의 토요일 ──
-    start = today - timedelta(days=(today.weekday() + 1) % 7)            # 이번 주 일요일
-    end_anchor = today + timedelta(days=30)                             # 1개월 경계
-    end = end_anchor + timedelta(days=(5 - end_anchor.weekday()) % 7)   # 그 주 토요일까지 채움
-    total_days = (end - start).days + 1
+    # ── 3) 달력 범위: 거래주(월~금)만 — 국장 휴장인 토·일 열은 제외 ──
+    start = today - timedelta(days=today.weekday())                                 # 이번 주 월요일
+    end_anchor = today + timedelta(days=30)                                         # 1개월 경계
+    end = (end_anchor - timedelta(days=end_anchor.weekday())) + timedelta(days=4)   # end_anchor 주의 금요일
 
-    dow = ["일", "월", "화", "수", "목", "금", "토"]
+    dow = ["월", "화", "수", "목", "금"]
     head = "".join(
-        f'<div style="text-align:center;font-size:11px;font-weight:800;'
-        f'color:{"#dc2626" if i == 0 else ("#2563eb" if i == 6 else "#64748b")};padding:3px 0;">{w}</div>'
-        for i, w in enumerate(dow)
+        f'<div style="text-align:center;font-size:11px;font-weight:800;color:#64748b;padding:3px 0;">{w}</div>'
+        for w in dow
     )
 
     cells = ""
-    for i in range(total_days):
-        d = start + timedelta(days=i)
+    d = start
+    while d <= end:
+        if d.weekday() >= 5:               # 토(5)·일(6)은 렌더하지 않음(국장 휴장)
+            d += timedelta(days=1)
+            continue
         is_today = (d == today)
-        if d < today or d > end_anchor:        # 범위 밖(이번 주 지난날 / 1개월 초과) → 흐리게
+        if d < today or d > end_anchor:     # 범위 밖(이번 주 지난 거래일 / 1개월 초과) → 흐리게
             cells += (
                 f'<div style="min-height:76px;border:1px dashed #eef2f6;border-radius:9px;'
                 f'background:#fbfcfd;padding:6px 7px;opacity:.5;">'
                 f'<div style="font-size:12px;font-weight:700;color:#cbd5e1;">{d.day}</div></div>'
             )
+            d += timedelta(days=1)
             continue
 
         lvl, evs = _day_level(d)
@@ -467,9 +482,12 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
         ring = f"box-shadow:0 0 0 2px {col} inset;" if is_today else ""
         chips = ""
         for e in evs[:3]:
+            wk = e.get("_weekend")          # 주말에서 접혀온 일정 → '주말(날짜)' 표시
+            suffix = (f' <span style="color:#94a3b8;font-weight:600;">(주말 {wk.month}/{wk.day})</span>'
+                      if wk else "")
             chips += (
                 f'<div style="font-size:9.5px;line-height:1.25;color:{col};font-weight:700;'
-                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{e["label"]}</div>'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{e["label"]}{suffix}</div>'
             )
         if len(evs) > 3:
             chips += f'<div style="font-size:9px;color:#94a3b8;">+{len(evs) - 3}건</div>'
@@ -483,24 +501,24 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
                       f'overflow:hidden;text-overflow:ellipsis;">📉 급락 여진</div>')
 
-        date_c = "#dc2626" if d.weekday() == 6 else ("#2563eb" if d.weekday() == 5 else "#0f172a")
         today_tag = ' <span style="font-size:8.5px;color:#dc2626;font-weight:900;">●오늘</span>' if is_today else ""
         cells += (
             f'<div style="min-height:82px;border:1px solid {brd};border-radius:9px;'
             f'background:{bgc};padding:6px 7px;{ring}">'
-            f'<div style="font-size:12.5px;font-weight:800;color:{date_c};">{d.day}{today_tag}</div>'
+            f'<div style="font-size:12.5px;font-weight:800;color:#0f172a;">{d.day}{today_tag}</div>'
             f'<div style="font-size:10px;font-weight:800;color:{col};margin:1px 0 2px;">{DOTS[lvl]} {lab}</div>'
             f'<div>{chips}</div></div>'
         )
+        d += timedelta(days=1)
 
     period = (f"{start.year}년 {start.month}월" if start.month == end.month
               else f"{start.year}년 {start.month}~{end.month}월")
-    st.markdown(f"##### 📅 다가오는 1개월 종합 경보 등급 예보 · {period}")
+    st.markdown(f"##### 📅 다가오는 1개월 종합 경보 등급 예보 · {period} (거래일 월~금)")
     st.markdown(
         f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:16px;padding:12px 14px;'
         f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
-        f'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px;">{head}</div>'
-        f'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;">{cells}</div></div>',
+        f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:5px;">{head}</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;">{cells}</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -510,7 +528,7 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     )
     st.markdown(
         f'<div style="margin-top:7px;">{legend}'
-        f'<span style="font-size:11px;color:#94a3b8;"> · 경계=중앙은행 결정·핵심지표·네마녀 등 변동성 큰 날 / 안정=예정 이벤트 없음</span></div>',
+        f'<span style="font-size:11px;color:#94a3b8;"> · 국장 휴장인 토·일은 제외 / 주말 일정은 다음 월요일 칸에 "(주말)"로 표시</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -521,7 +539,10 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     while d <= end_anchor:
         lvl, evs = _day_level(d)
         if lvl >= 2:
-            reason = ", ".join(e["label"] for e in evs)
+            reason = ", ".join(
+                (f'{e["label"]}(주말 {e["_weekend"].month}/{e["_weekend"].day})' if e.get("_weekend") else e["label"])
+                for e in evs
+            )
             if d == today and idx_pts_today > 0 and idx_parts_today:   # 오늘 급락 사유 덧붙임
                 w = min(idx_parts_today, key=lambda x: x[1])
                 drop_txt = f"📉 지수 급락(오늘 {w[0]} {w[1]:+.1f}%)"
