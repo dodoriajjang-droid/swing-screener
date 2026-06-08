@@ -334,7 +334,30 @@ def scan_upcoming_events(get_economic_events, within_days=10) -> list:
     return out
 
 
-def render_grade_forecast_calendar(get_economic_events):
+def _kr_index_drop(panel):
+    """오늘 코스피·코스닥 '실제' 등락률 → (위험 가점, 최대 낙폭%, [(시장명, 등락률%), ...]).
+    ※ 실현된 '오늘' 지수에만 적용 — 미래일은 예측 불가하므로 호출하지 않는다(가점 0).
+       종합 등급이 지수 급락을 못 잡던 문제를 보완: 지수가 크게 빠진 날은 단독으로도 상위 등급이 되게 한다."""
+    worst = 0.0
+    parts = []
+    if isinstance(panel, dict):
+        for key, nm in (("KOSPI", "코스피"), ("KOSDAQ", "코스닥")):
+            d = panel.get(key)
+            if isinstance(d, dict) and d.get("pct") is not None:
+                sp = abs(d["pct"]) * (1 if d.get("sign", 0) >= 0 else -1)   # 네이버 pct(절댓값)+sign → 부호 결합
+                parts.append((nm, sp))
+                if sp < worst:
+                    worst = sp
+    if   worst <= -3.0: pts = 6   # 폭락 → 단독으로도 경계권
+    elif worst <= -2.0: pts = 4
+    elif worst <= -1.5: pts = 3
+    elif worst <= -1.0: pts = 2
+    elif worst <= -0.7: pts = 1
+    else:               pts = 0
+    return pts, worst, parts
+
+
+def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None):
     """📅 다가오는 ~1개월간 '종합 경보 등급'을 달력 형태로 예보.
 
     ※ 예측의 한계: 종합 등급 구성요소 중 '뉴스(악재/호재)'와 '차트 하락경보'는 아직 일어나지 않은
@@ -346,6 +369,14 @@ def render_grade_forecast_calendar(get_economic_events):
         return
 
     today = date.today()
+
+    # 오늘 '실제' 지수 급락 가점 (실현된 오늘만 — 미래일은 예측 불가) → 오늘 칸 등급에 반영
+    idx_pts_today, idx_worst_today, idx_parts_today = 0, 0.0, []
+    if callable(get_kr_index_panel):
+        try:
+            idx_pts_today, idx_worst_today, idx_parts_today = _kr_index_drop(get_kr_index_panel())
+        except Exception:
+            idx_pts_today, idx_worst_today, idx_parts_today = 0, 0.0, []
 
     # ── 1) 향후 ~40일 이벤트를 날짜별로 수집 (센터의 다른 지표와 동일 소스: scan_upcoming_events) ──
     by_date = {}
@@ -374,6 +405,8 @@ def render_grade_forecast_calendar(get_economic_events):
         score = sum(_impact(e["label"]) for e in evs)
         if evs and _is_quad_witching(d):   # 만기일이 네마녀면 변동성 가중
             score += 1
+        if d == today:                     # 오늘은 '실제' 지수 급락도 반영(예측이 아닌 실현값)
+            score += idx_pts_today
         if score == 0:  return 0, evs
         if score <= 2:  return 1, evs
         if score <= 4:  return 2, evs
@@ -413,7 +446,7 @@ def render_grade_forecast_calendar(get_economic_events):
             continue
 
         lvl, evs = _day_level(d)
-        _lab, col, bgc = LEVELS[lvl]
+        lab, col, bgc = LEVELS[lvl]
         brd = col if lvl >= 2 else "#e9eef3"
         ring = f"box-shadow:0 0 0 2px {col} inset;" if is_today else ""
         chips = ""
@@ -424,16 +457,20 @@ def render_grade_forecast_calendar(get_economic_events):
             )
         if len(evs) > 3:
             chips += f'<div style="font-size:9px;color:#94a3b8;">+{len(evs) - 3}건</div>'
+        # 오늘은 '실제' 지수 급락을 사유로 표시
+        if is_today and idx_pts_today > 0 and idx_parts_today:
+            w = min(idx_parts_today, key=lambda x: x[1])   # 가장 큰 낙폭 시장
+            chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
+                      f'overflow:hidden;text-overflow:ellipsis;">📉 {w[0]} {w[1]:+.1f}% 급락</div>')
 
         date_c = "#dc2626" if d.weekday() == 6 else ("#2563eb" if d.weekday() == 5 else "#0f172a")
         today_tag = ' <span style="font-size:8.5px;color:#dc2626;font-weight:900;">●오늘</span>' if is_today else ""
         cells += (
-            f'<div style="min-height:76px;border:1px solid {brd};border-radius:9px;'
+            f'<div style="min-height:82px;border:1px solid {brd};border-radius:9px;'
             f'background:{bgc};padding:6px 7px;{ring}">'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-            f'<span style="font-size:12.5px;font-weight:800;color:{date_c};">{d.day}{today_tag}</span>'
-            f'<span style="font-size:10px;">{DOTS[lvl] if lvl else ""}</span></div>'
-            f'<div style="margin-top:3px;">{chips}</div></div>'
+            f'<div style="font-size:12.5px;font-weight:800;color:{date_c};">{d.day}{today_tag}</div>'
+            f'<div style="font-size:10px;font-weight:800;color:{col};margin:1px 0 2px;">{DOTS[lvl]} {lab}</div>'
+            f'<div>{chips}</div></div>'
         )
 
     period = (f"{start.year}년 {start.month}월" if start.month == end.month
@@ -464,7 +501,13 @@ def render_grade_forecast_calendar(get_economic_events):
     while d <= end_anchor:
         lvl, evs = _day_level(d)
         if lvl >= 2:
-            alert_days.append((d, lvl, ", ".join(e["label"] for e in evs)))
+            reason = ", ".join(e["label"] for e in evs)
+            if d == today and idx_pts_today > 0 and idx_parts_today:   # 오늘 급락 사유 덧붙임
+                w = min(idx_parts_today, key=lambda x: x[1])
+                drop_txt = f"📉 지수 급락(오늘 {w[0]} {w[1]:+.1f}%)"
+                reason = f"{drop_txt} · {reason}" if reason else drop_txt
+            tag = " (오늘·실시간)" if d == today else ""
+            alert_days.append((d, lvl, reason + tag))
         d += timedelta(days=1)
     if alert_days:
         items = "".join(
@@ -478,8 +521,8 @@ def render_grade_forecast_calendar(get_economic_events):
             f'<div style="font-size:12.5px;font-weight:800;color:#c2410c;margin-bottom:5px;">⚠️ 주의 이상 예보일 · {len(alert_days)}일</div>'
             f'{items}</div>', unsafe_allow_html=True)
 
-    st.caption("※ 이 예보는 '예정된 매크로·파생 일정'만 반영한 이벤트 기반 추정입니다. 악재/호재 뉴스·차트 같은 당일 신호는 "
-               "예측 불가하여 등급에 포함되지 않습니다. 지표 발표일은 통상 시기 기준(±1~2일 가능)이며 실제 시장은 다를 수 있습니다. 참고용.")
+    st.caption("※ 일별 등급은 '예정된 매크로·파생 일정'으로 추정한 이벤트 기반 예보입니다(미래의 뉴스·시세는 예측 불가). "
+               "단, '오늘' 칸은 실제 코스피·코스닥 급락을 함께 반영합니다. 지표 발표일은 통상 시기 기준(±1~2일)이며 실제 시장은 다를 수 있습니다. 참고용.")
     st.divider()
 
 
@@ -500,6 +543,7 @@ def render_alert_center(deps: dict):
     analyze_technical_pattern = deps.get("analyze_technical_pattern")
     get_latest_naver_news = deps.get("get_latest_naver_news")
     get_economic_events = deps.get("get_economic_events")
+    get_kr_index_panel = deps.get("get_kr_index_panel")   # [추가] 코스피·코스닥 실시간 등락률(등급·예보에 지수 급락 반영)
     fetch_polymarket_markets = deps.get("fetch_polymarket_markets")
     get_krx_stocks = deps.get("get_krx_stocks")
     ask_gemini = deps.get("ask_gemini")
@@ -513,7 +557,7 @@ def render_alert_center(deps: dict):
     summary_box = st.container()
 
     # 📅 다가오는 1개월 '종합 경보 등급' 예보 (이벤트 기반 달력) — 배너 바로 아래·탭 위에 표시
-    render_grade_forecast_calendar(get_economic_events)
+    render_grade_forecast_calendar(get_economic_events, get_kr_index_panel)
 
     tabs = st.tabs([
         "📰 뉴스·정세 경보",
@@ -929,11 +973,17 @@ def render_alert_center(deps: dict):
     # 상단 종합 요약 배너 채우기 (탭 계산 끝난 뒤)
     # =====================================================================
     with summary_box:
-        # 1개월 이벤트는 연중 대체로 10~18건(중앙값 14)으로 매달 깔리는 '기본 부하'에 가깝다.
-        # 따라서 이 baseline(EVT_BASELINE)을 기준점으로 두고 그 위에 뉴스·차트·재료 위험을 더해
-        # 등급을 매긴다. 임계값 = baseline + 기존(6/3/1).  ※ baseline을 올릴수록 등급이 덜 민감해짐.
+        # 1개월 이벤트는 연중 ~14건이 '기본 부하'(EVT_BASELINE). 그 위에 뉴스·차트·재료 위험을 더하고,
+        # '오늘 실제 지수 급락'(코스피·코스닥)도 더해 등급을 매긴다. 임계값 = baseline + (6/3/1).
+        #   ※ 지수 급락 반영 전에는 −6% 폭락에도 악재뉴스·차트경보가 적으면 '관심'에 머무는 문제가 있었음.
         EVT_BASELINE = 14
-        total_red = cnt["news_bad"] + cnt["chart_bear"] + cnt["evt_month"] + cnt["cat_risk"]
+        idx_pts, idx_worst, idx_parts = 0, 0.0, []
+        if callable(get_kr_index_panel):
+            try:
+                idx_pts, idx_worst, idx_parts = _kr_index_drop(get_kr_index_panel())
+            except Exception:
+                idx_pts, idx_worst, idx_parts = 0, 0.0, []
+        total_red = cnt["news_bad"] + cnt["chart_bear"] + cnt["evt_month"] + cnt["cat_risk"] + idx_pts
         if total_red >= EVT_BASELINE + 6:     # 기본 부하 + 추가 위험 다수
             level_txt, level_color = "🔴 경계 (위험 신호 다수)", "#c62828"
         elif total_red >= EVT_BASELINE + 3:
@@ -950,14 +1000,22 @@ def render_alert_center(deps: dict):
             f"</div>",
             unsafe_allow_html=True,
         )
+        # 오늘 지수 등락 + 급락 반영분 표시(왜 등급이 올랐는지 투명하게)
+        if idx_parts:
+            idx_txt = " · ".join(f"{nm} {sp:+.2f}%" for nm, sp in idx_parts)
+            note_c = "#c62828" if idx_pts >= 4 else ("#e65100" if idx_pts >= 2 else "#64748b")
+            extra = f" → 시장 급락 위험 <b>+{idx_pts}</b> 반영" if idx_pts > 0 else ""
+            st.markdown(
+                f"<div style='font-size:12.5px;color:{note_c};font-weight:700;margin:-2px 0 8px;'>"
+                f"📊 오늘 지수: {idx_txt}{extra}</div>", unsafe_allow_html=True)
         s = st.columns(5)
         s[0].metric("🔴 악재 뉴스", cnt["news_bad"])
         s[1].metric("🟢 호재 뉴스", cnt["news_good"])
         s[2].metric("📉 차트 하락경보", cnt["chart_bear"])
         s[3].metric("🗓️ 1개월내 이벤트", cnt["evt_month"])
         s[4].metric("🎯 재료 소멸위험", cnt["cat_risk"])
-        st.caption("※ 등급은 악재 뉴스·차트 하락경보·1개월내 이벤트·재료 소멸위험 건수를 합산한 단순 휴리스틱입니다. "
-                   "이벤트는 매달 ~14건이 기본 부하라, 이를 기준점으로 두고 그 위의 추가 위험으로 등급을 매깁니다. 참고용.")
+        st.caption("※ 등급은 악재 뉴스·차트 하락경보·1개월내 이벤트·재료 소멸위험 건수에 '오늘 실제 지수 급락'을 더한 단순 휴리스틱입니다. "
+                   "이벤트는 매달 ~14건이 기본 부하라 이를 기준점으로 두고, 그 위의 추가 위험(뉴스·차트·재료·지수 급락)으로 등급을 매깁니다. 참고용.")
 
 
 # ==========================================================================
