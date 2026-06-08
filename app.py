@@ -10077,6 +10077,7 @@ elif selected_menu == "🚨 통합 경보 센터 (뉴스·차트·일정)":
         "analyze_technical_pattern": analyze_technical_pattern,
         "get_latest_naver_news": get_latest_naver_news,
         "get_economic_events": get_economic_events,
+        "get_kr_index_panel": get_kr_index_panel,
         "fetch_polymarket_markets": fetch_polymarket_markets,
         "get_krx_stocks": get_krx_stocks,
         "ask_gemini": ask_gemini,
