@@ -12,5 +12,6 @@ finance-datareader
 pykrx
 google-generativeai
 streamlit-autorefresh
+streamlit-paste-button   # AI 비전: 클립보드 이미지 붙여넣기 버튼
 Pillow
 PyPDF2
