@@ -77,13 +77,13 @@ LIVE_REFRESH_PAGES = {
     "📰 실시간 특징주 속보 & 리포트",
 }
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
-th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
-</style>
-""", unsafe_allow_html=True)
+# [NOMURA THEME] 다크 터미널 리서치 테마 — 전역 CSS + Plotly 다크 템플릿 주입
+from nomura_theme import (
+    inject_nomura_theme, set_plotly_nomura,
+    nmr_topbar, nmr_masthead, nmr_section, nmr_note, nmr_badge, nmr_end, NMR,
+)
+inject_nomura_theme()
+set_plotly_nomura()
 
 # 세션 상태 초기화
 for key in ['seen_links', 'seen_titles', 'news_data']:
@@ -2412,7 +2412,7 @@ def style_volume_table(df, kind="surge"):
     if '등락률' in out.columns:
         sty = sty.map(color_updown, subset=['등락률'])
     if rate_name:
-        bar_color = '#ffd8a8' if kind == "surge" else '#a5d8ff'
+        bar_color = 'rgba(255,176,0,0.45)' if kind == "surge" else 'rgba(77,159,255,0.45)'
         try:
             sty = sty.bar(subset=[rate_name], color=bar_color, vmin=0)
         except Exception:
@@ -2492,7 +2492,7 @@ def style_warning_table(df, kind="mgmt"):
             return 'color:#c0392b;font-weight:700;'   # 🔴 치명적
         if any(k in s for k in ['실질심사', '적격성', '회생', '감사의견', '미제출']):
             return 'color:#e67e22;font-weight:600;'    # 🟠 위험
-        return 'color:#b7791f;'                          # 🟡 주의
+        return 'color:#E0A93E;'                          # 🟡 주의
 
     fmt = {}
     if '현재가' in out.columns: fmt['현재가'] = lambda x: f"{int(x):,}원" if pd.notna(x) else "-"
@@ -2539,7 +2539,7 @@ def style_report_table(df, kind="up"):
         sty = sty.map(color_updown, subset=['변동률'])
         try:
             if (out['변동률'].abs().fillna(0) >= 0.05).sum() >= 1:
-                bar_color = '#ffd8a8' if kind == "up" else '#a5d8ff'
+                bar_color = 'rgba(255,176,0,0.45)' if kind == "up" else 'rgba(77,159,255,0.45)'
                 sty = sty.bar(subset=['변동률'], color=bar_color, align='zero')
         except Exception:
             pass
@@ -2568,7 +2568,7 @@ def style_sector_etf_table(df):
     sty = out.style.format(fmt)
     if '등락률' in out.columns:
         sty = sty.map(color_updown, subset=['등락률'])
-        try: sty = sty.bar(subset=['등락률'], color=['#a5d8ff', '#ffd8a8'], align='zero')
+        try: sty = sty.bar(subset=['등락률'], color=['rgba(77,159,255,0.45)', 'rgba(255,176,0,0.45)'], align='zero')
         except Exception: pass
     sty = sty.set_properties(**{'font-size': '13px'})
     sty = sty.set_properties(subset=['섹터'], **{'font-weight': '600'})
@@ -2966,20 +2966,20 @@ def render_kr_market_breadth():
     scope = "코스피+코스닥" if b["markets"] == 2 else "단일 시장"
     st.markdown(
         f"#### 📊 오늘의 국장 장세 "
-        f"<span style='color:#94a3b8;font-size:0.78em;'>({scope} 전체 {total:,} 종목)</span>",
+        f"<span style='color:#6E747C;font-size:0.78em;'>({scope} 전체 {total:,} 종목)</span>",
         unsafe_allow_html=True,
     )
     st.markdown(
         f"""
-        <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:#e5e7eb;margin:4px 0 6px;">
-          <div style="width:{up_pct:.1f}%;background:#ef4444;"></div>
-          <div style="width:{flat_pct:.1f}%;background:#cbd5e1;"></div>
-          <div style="width:{down_pct:.1f}%;background:#3b82f6;"></div>
+        <div style="display:flex;height:16px;border-radius:8px;overflow:hidden;background:#262626;margin:4px 0 6px;">
+          <div style="width:{up_pct:.1f}%;background:#FF5252;"></div>
+          <div style="width:{flat_pct:.1f}%;background:#4A4F57;"></div>
+          <div style="width:{down_pct:.1f}%;background:#54A0FF;"></div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:0.9em;">
-          <span style="color:#ef4444;font-weight:700;">🔴 상승 {up:,} ({up_pct:.0f}%)</span>
-          <span style="color:#64748b;">➖ 보합 {flat:,}</span>
-          <span style="color:#3b82f6;font-weight:700;">하락 {down:,} ({down_pct:.0f}%) 🔵</span>
+          <span style="color:#FF5252;font-weight:700;">🔴 상승 {up:,} ({up_pct:.0f}%)</span>
+          <span style="color:#8B9097;">➖ 보합 {flat:,}</span>
+          <span style="color:#54A0FF;font-weight:700;">하락 {down:,} ({down_pct:.0f}%) 🔵</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3285,7 +3285,7 @@ def _sparkline_svg(vals, sign, w=120, h=36):
     """[추가] 종가 리스트 → 미니 라인차트(SVG). 상승=빨강/하락=파랑."""
     if not vals or len(vals) < 2:
         return ""
-    color = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
+    color = "#FF5252" if sign > 0 else ("#54A0FF" if sign < 0 else "#8B9097")
     lo, hi = min(vals), max(vals)
     rng = (hi - lo) or 1
     n = len(vals)
@@ -3309,9 +3309,9 @@ def _index_card_html(d, spark=None):
     """이미지(네이버 모바일) 스타일 개별 지수 카드 HTML."""
     if not d:
         return ""
-    up_c, flat_c, down_c = "#ef4444", "#94a3b8", "#3b82f6"
+    up_c, flat_c, down_c = "#FF5252", "#6E747C", "#54A0FF"
     sign = d.get("sign", 0)
-    val_color = up_c if sign > 0 else (down_c if sign < 0 else "#334155")
+    val_color = up_c if sign > 0 else (down_c if sign < 0 else "#C4C9CF")
     arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "■")
     psign = "+" if sign > 0 else ("-" if sign < 0 else "")
     pct = d.get("pct")
@@ -3330,7 +3330,7 @@ def _index_card_html(d, spark=None):
             down_p = max(0.0, 100 - up_p - flat_p)
             bar = (
                 f'<div style="display:flex;height:8px;border-radius:5px;overflow:hidden;'
-                f'background:#e5e7eb;margin-top:10px;">'
+                f'background:#262626;margin-top:10px;">'
                 f'<div style="width:{up_p:.1f}%;background:{up_c};"></div>'
                 f'<div style="width:{flat_p:.1f}%;background:{flat_c};"></div>'
                 f'<div style="width:{down_p:.1f}%;background:{down_c};"></div></div>'
@@ -3345,11 +3345,11 @@ def _index_card_html(d, spark=None):
     return (
         f'<div style="padding:14px 4px;">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-        f'<span style="font-size:20px;font-weight:800;color:#1e293b;">{d["name"]}</span>'
+        f'<span style="font-size:20px;font-weight:800;color:#E3E3E3;">{d["name"]}</span>'
         f'<span style="font-size:13px;">{cnt}</span></div>'
         f'<div style="margin-top:6px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;">'
         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
-        f'<span style="font-size:28px;font-weight:800;color:#1e293b;">{d["price"]:,.2f}</span>'
+        f'<span style="font-size:28px;font-weight:800;color:#E3E3E3;">{d["price"]:,.2f}</span>'
         f'<span style="font-size:16px;font-weight:700;color:{val_color};">{pct_str}</span>'
         f'<span style="font-size:15px;color:{val_color};">{diff_str}</span></div>'
         f'<div style="flex-shrink:0;">{spark_svg}</div></div>'
@@ -3359,13 +3359,13 @@ def _index_card_html(d, spark=None):
 
 def _flow_bar_html(label, val):
     """투자자별 순매매 한 줄 (외국인/기관/개인). val 단위: 억원(정수, +매수/-매도)."""
-    buy_c, sell_c = "#ef4444", "#3b82f6"
+    buy_c, sell_c = "#FF5252", "#54A0FF"
     if val is None:
         return (
             f'<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0;">'
-            f'<span style="width:52px;color:#475569;font-weight:600;">{label}</span>'
-            f'<span style="flex:1;height:8px;background:#eef2f6;border-radius:5px;margin:0 14px;"></span>'
-            f'<span style="color:#94a3b8;font-weight:700;min-width:96px;text-align:right;">조회불가</span></div>'
+            f'<span style="width:52px;color:#A8ADB4;font-weight:600;">{label}</span>'
+            f'<span style="flex:1;height:8px;background:#1C1C1C;border-radius:5px;margin:0 14px;"></span>'
+            f'<span style="color:#6E747C;font-weight:700;min-width:96px;text-align:right;">조회불가</span></div>'
         )
     color = buy_c if val >= 0 else sell_c
     sign = "+" if val >= 0 else "-"
@@ -3377,9 +3377,9 @@ def _flow_bar_html(label, val):
         fill = f'<div style="position:absolute;right:50%;width:{half:.1f}%;height:100%;background:{color};border-radius:5px;"></div>'
     return (
         f'<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0;">'
-        f'<span style="width:52px;color:#475569;font-weight:600;">{label}</span>'
-        f'<span style="flex:1;position:relative;height:8px;background:#eef2f6;border-radius:5px;margin:0 14px;">{fill}'
-        f'<span style="position:absolute;left:50%;top:-2px;width:1px;height:12px;background:#cbd5e1;"></span></span>'
+        f'<span style="width:52px;color:#A8ADB4;font-weight:600;">{label}</span>'
+        f'<span style="flex:1;position:relative;height:8px;background:#1C1C1C;border-radius:5px;margin:0 14px;">{fill}'
+        f'<span style="position:absolute;left:50%;top:-2px;width:1px;height:12px;background:#4A4F57;"></span></span>'
         f'<span style="color:{color};font-weight:800;min-width:96px;text-align:right;">{sign}{abs(val):,}억</span></div>'
     )
 
@@ -3395,7 +3395,7 @@ def _market_flows_html(card, title):
         + _flow_bar_html("개인", p_v)
     )
     return (
-        f'<div style="font-weight:800;font-size:14px;color:#334155;margin:4px 0 2px;">{title}</div>'
+        f'<div style="font-weight:800;font-size:14px;color:#C4C9CF;margin:4px 0 2px;">{title}</div>'
         f'{bars}'
     )
 
@@ -3418,8 +3418,8 @@ def render_main_index_panel():
         light, title, _ = reg.get('verdict', ("🟡", "중립", ""))
     except Exception:
         light, title = "🟡", "중립"
-    regime_map = {"🟢": ("좋아요", "#22c55e", 88), "🟡": ("중립", "#f59e0b", 50), "🔴": ("조심해요", "#ef4444", 14)}
-    reg_label, reg_color, reg_pos = regime_map.get(light, ("중립", "#f59e0b", 50))
+    regime_map = {"🟢": ("좋아요", "#00E676", 88), "🟡": ("중립", "#FFB000", 50), "🔴": ("조심해요", "#FF5252", 14)}
+    reg_label, reg_color, reg_pos = regime_map.get(light, ("중립", "#FFB000", 50))
 
     kospi = data.get("KOSPI")
     kosdaq = data.get("KOSDAQ")
@@ -3441,7 +3441,7 @@ def render_main_index_panel():
     if kospi:
         cards += _index_card_html(kospi, spark=get_index_spark("KOSPI"))
     if kospi and kosdaq:
-        cards += '<div style="height:1px;background:#eef2f6;margin:2px 0;"></div>'
+        cards += '<div style="height:1px;background:#1C1C1C;margin:2px 0;"></div>'
     if kosdaq:
         cards += _index_card_html(kosdaq, spark=get_index_spark("KOSDAQ"))
 
@@ -3456,7 +3456,7 @@ def render_main_index_panel():
         flows += _market_flows_html(kospi, "📈 코스피")
     if _has_flow(kosdaq):
         if flows:
-            flows += '<div style="height:1px;background:#fcdcdc;margin:12px 0;"></div>'
+            flows += '<div style="height:1px;background:rgba(255,77,79,0.30);margin:12px 0;"></div>'
         flows += _market_flows_html(kosdaq, "📊 코스닥")
 
     # [폴백] 둘 다 수급값이 없으면 가용한 쪽이라도 한 블록 표시
@@ -3467,13 +3467,13 @@ def render_main_index_panel():
 
     st.markdown(
         f"""
-        <div style="background:#fff;border:1px solid #e9eef3;border-radius:16px;
+        <div style="background:#0E0E0E;border:1px solid #222222;border-radius:16px;
                     padding:6px 18px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
           {cards}
         </div>
-        <div style="background:#fff5f5;border:1px solid #fcdcdc;border-radius:16px;
+        <div style="background:rgba(255,77,79,0.07);border:1px solid rgba(255,77,79,0.30);border-radius:16px;
                     padding:14px 18px;margin-top:10px;">
-          <div style="font-weight:800;font-size:14px;color:#b91c1c;margin-bottom:8px;">💰 투자자별 순매매 (수급)</div>
+          <div style="font-weight:800;font-size:14px;color:#FF4D4F;margin-bottom:8px;">💰 투자자별 순매매 (수급)</div>
           <div>{flows}</div>
         </div>
         """,
@@ -3493,7 +3493,7 @@ def render_major_indices_bar():
     cells = ""
     for it in items:
         sign = it.get("sign", 0)
-        c = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
+        c = "#FF5252" if sign > 0 else ("#54A0FF" if sign < 0 else "#8B9097")
         arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "")
         v = it.get("value")
         pct = it.get("pct")
@@ -3501,12 +3501,12 @@ def render_major_indices_bar():
         pstr = f'{arrow} {abs(pct):.2f}%' if pct is not None else ""
         cells += (
             f'<div style="flex:1;text-align:center;padding:6px 4px;">'
-            f'<div style="font-size:12px;color:#64748b;">{it["label"]}</div>'
-            f'<div style="font-size:15px;font-weight:800;color:#1e293b;">{vstr}</div>'
+            f'<div style="font-size:12px;color:#8B9097;">{it["label"]}</div>'
+            f'<div style="font-size:15px;font-weight:800;color:#E3E3E3;">{vstr}</div>'
             f'<div style="font-size:12px;font-weight:700;color:{c};">{pstr}</div></div>'
         )
     st.markdown(
-        f'<div style="display:flex;background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'<div style="display:flex;background:#0E0E0E;border:1px solid #222222;border-radius:14px;'
         f'padding:6px;margin-top:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">{cells}</div>',
         unsafe_allow_html=True,
     )
@@ -3523,24 +3523,24 @@ def render_marketcap_top(mkt="KOSPI", n=10):
     body = ""
     for i, r in enumerate(rows, 1):
         sign = r.get("sign", 0)
-        c = "#ef4444" if sign > 0 else ("#3b82f6" if sign < 0 else "#64748b")
+        c = "#FF5252" if sign > 0 else ("#54A0FF" if sign < 0 else "#8B9097")
         arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "")
         pct = r.get("pct")
         pstr = f'{arrow}{abs(pct):.2f}%' if pct is not None else ""
         price = f'{r["price"]:,.0f}' if r.get("price") is not None else "-"
-        border = "border-bottom:1px solid #f1f5f9;" if i < len(rows) else ""
+        border = "border-bottom:1px solid #1D1D1D;" if i < len(rows) else ""
         body += (
             f'<div style="display:grid;{GRID}align-items:center;column-gap:6px;padding:8px 0;{border}box-sizing:border-box;">'
-            f'<span style="color:#94a3b8;font-weight:700;font-size:12px;">{i}</span>'
+            f'<span style="color:#6E747C;font-weight:700;font-size:12px;">{i}</span>'
             f'<div style="min-width:0;overflow:hidden;">'
-            f'<div style="font-weight:700;color:#1e293b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r.get("cap","")}</div></div>'
-            f'<span style="text-align:right;color:#1e293b;font-size:12px;white-space:nowrap;overflow:hidden;">{price}</span>'
+            f'<div style="font-weight:700;color:#E3E3E3;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
+            f'<div style="font-size:10px;color:#6E747C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r.get("cap","")}</div></div>'
+            f'<span style="text-align:right;color:#E3E3E3;font-size:12px;white-space:nowrap;overflow:hidden;">{price}</span>'
             f'<span style="text-align:right;color:{c};font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;">{pstr}</span>'
             f'</div>'
         )
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'<div style="background:#0E0E0E;border:1px solid #222222;border-radius:14px;'
         f'padding:2px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
@@ -3559,20 +3559,20 @@ def render_industry_changes(n=12):
     GRID = "grid-template-columns:88px minmax(0,1fr) 60px;"
     def _row(r):
         rate = r["rate"]
-        c = "#ef4444" if rate > 0 else ("#3b82f6" if rate < 0 else "#64748b")
+        c = "#FF5252" if rate > 0 else ("#54A0FF" if rate < 0 else "#8B9097")
         arrow = "▲" if rate > 0 else ("▼" if rate < 0 else "")
         w = abs(rate) / max_abs * 100
         return (
             f'<div style="display:grid;{GRID}align-items:center;column-gap:8px;padding:7px 0;box-sizing:border-box;">'
-            f'<span style="font-weight:600;color:#1e293b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
-            f'<span style="height:8px;background:#f1f5f9;border-radius:5px;position:relative;min-width:0;">'
+            f'<span style="font-weight:600;color:#E3E3E3;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>'
+            f'<span style="height:8px;background:#1D1D1D;border-radius:5px;position:relative;min-width:0;">'
             f'<span style="position:absolute;left:0;width:{w:.0f}%;height:100%;background:{c};border-radius:5px;"></span></span>'
             f'<span style="text-align:right;color:{c};font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;">{arrow}{abs(rate):.2f}%</span>'
             f'</div>'
         )
     body = "".join(_row(r) for r in top)
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
+        f'<div style="background:#0E0E0E;border:1px solid #222222;border-radius:14px;'
         f'padding:6px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
@@ -3986,11 +3986,11 @@ def render_market_regime_banner():
         return
     light, title, desc = reg.get('verdict', ("🟡", "데이터 지연", ""))
     bg = {"🟢": "rgba(40,167,69,0.12)", "🟡": "rgba(255,193,7,0.12)", "🔴": "rgba(220,53,69,0.12)"}.get(light, "rgba(120,120,120,0.1)")
-    border = {"🟢": "#28a745", "🟡": "#ffc107", "🔴": "#dc3545"}.get(light, "#888")
+    border = {"🟢": "#00E676", "🟡": "#FFB000", "🔴": "#FF4D4F"}.get(light, "#8B9097")
     st.markdown(
         f"""<div style="background:{bg};border:1px solid {border};border-radius:10px;padding:12px 16px;margin-bottom:10px;">
         <span style="font-size:20px;font-weight:700;">{light} 오늘의 시장 국면: {title}</span><br>
-        <span style="font-size:13px;color:#666;">{desc}</span></div>""",
+        <span style="font-size:13px;color:#9AA0A6;">{desc}</span></div>""",
         unsafe_allow_html=True)
     cols = st.columns(3)
     for i, key in enumerate(['KOSPI', 'KOSDAQ']):
@@ -4010,7 +4010,7 @@ def render_market_regime_banner():
 #     전문 트레이더의 아침 점검 흐름(간밤→국면→지수/수급→자금→심리→일정→내종목)으로 재구성.
 #   - 무거운 plotly 게이지 2개 → 슬림 HTML 타일로 교체(정보 밀도↑, 로딩 부담↓).
 # =====================================================================
-_UP_C, _DN_C, _FLAT_C = "#ef4444", "#3b82f6", "#94a3b8"   # 한국식 색: 상승=빨강 / 하락=파랑
+_UP_C, _DN_C, _FLAT_C = "#FF5252", "#54A0FF", "#6E747C"   # 한국식 색: 상승=빨강 / 하락=파랑
 
 
 def _sign_of(x):
@@ -4021,7 +4021,7 @@ def _sign_of(x):
 
 
 def _chg_color(sign):
-    return _UP_C if sign > 0 else (_DN_C if sign < 0 else "#64748b")
+    return _UP_C if sign > 0 else (_DN_C if sign < 0 else "#8B9097")
 
 
 def render_regime_hero():
@@ -4032,10 +4032,10 @@ def render_regime_hero():
         reg = {}
     light, title, desc = reg.get('verdict', ("🟡", "데이터 지연", "지수 데이터를 불러오는 중입니다."))
     accent, bg, brd = {
-        "🟢": ("#15803d", "linear-gradient(135deg,#f0fdf4,#ffffff)", "#bbf7d0"),
-        "🟡": ("#b45309", "linear-gradient(135deg,#fffbeb,#ffffff)", "#fde68a"),
-        "🔴": ("#b91c1c", "linear-gradient(135deg,#fef2f2,#ffffff)", "#fecaca"),
-    }.get(light, ("#475569", "#f8fafc", "#e2e8f0"))
+        "🟢": ("#00E676", "linear-gradient(135deg,rgba(0,230,118,0.10),#0E0E0E)", "rgba(0,230,118,0.35)"),
+        "🟡": ("#FFB000", "linear-gradient(135deg,rgba(255,176,0,0.10),#0E0E0E)", "rgba(255,176,0,0.35)"),
+        "🔴": ("#FF4D4F", "linear-gradient(135deg,rgba(255,77,79,0.10),#0E0E0E)", "rgba(255,77,79,0.35)"),
+    }.get(light, ("#A8ADB4", "#141414", "#262626"))
 
     chips = ""
     # [동기화] 시장 국면 배너의 '현재가·등락률'을 아래 '실시간 & 수급' 패널과 동일한 소스(네이버 get_kr_index_panel)에서 읽어 통일한다.
@@ -4061,25 +4061,25 @@ def render_regime_hero():
             c = _chg_color(sign)
             arrow = "▲" if sign > 0 else ("▼" if sign < 0 else "·")
             chips += (
-                f'<div style="flex:1;min-width:118px;background:#fff;border:1px solid {brd};'
+                f'<div style="flex:1;min-width:118px;background:#0E0E0E;border:1px solid {brd};'
                 f'border-radius:12px;padding:10px 12px;">'
-                f'<div style="font-size:11.5px;color:#64748b;font-weight:700;">{d.get("light","")} {d.get("name","")}'
-                f'<span style="color:#94a3b8;font-weight:600;"> · {d.get("align","")}</span></div>'
+                f'<div style="font-size:11.5px;color:#8B9097;font-weight:700;">{d.get("light","")} {d.get("name","")}'
+                f'<span style="color:#6E747C;font-weight:600;"> · {d.get("align","")}</span></div>'
                 f'<div style="display:flex;align-items:baseline;gap:7px;margin-top:2px;">'
-                f'<span style="font-size:18px;font-weight:800;color:#0f172a;">{d.get("price",0):,.2f}</span>'
+                f'<span style="font-size:18px;font-weight:800;color:#E8E8E8;">{d.get("price",0):,.2f}</span>'
                 f'<span style="font-size:13px;font-weight:800;color:{c};">{arrow} {abs(d.get("pct",0)):.2f}%</span></div></div>'
             )
     b = reg.get("breadth")
     if b:
         ratio = b.get("up_ratio", 0)
-        bc = _UP_C if ratio >= 55 else (_DN_C if ratio <= 45 else "#64748b")
+        bc = _UP_C if ratio >= 55 else (_DN_C if ratio <= 45 else "#8B9097")
         chips += (
-            f'<div style="flex:1;min-width:118px;background:#fff;border:1px solid {brd};'
+            f'<div style="flex:1;min-width:118px;background:#0E0E0E;border:1px solid {brd};'
             f'border-radius:12px;padding:10px 12px;">'
-            f'<div style="font-size:11.5px;color:#64748b;font-weight:700;">📊 시장 폭(상승비율)</div>'
+            f'<div style="font-size:11.5px;color:#8B9097;font-weight:700;">📊 시장 폭(상승비율)</div>'
             f'<div style="display:flex;align-items:baseline;gap:7px;margin-top:2px;">'
             f'<span style="font-size:18px;font-weight:800;color:{bc};">{ratio:.0f}%</span>'
-            f'<span style="font-size:11.5px;color:#64748b;">↗{b.get("up",0):,} ↘{b.get("down",0):,}</span></div></div>'
+            f'<span style="font-size:11.5px;color:#8B9097;">↗{b.get("up",0):,} ↘{b.get("down",0):,}</span></div></div>'
         )
 
     st.markdown(
@@ -4090,7 +4090,7 @@ def render_regime_hero():
             <span style="font-size:30px;line-height:1;">{light}</span>
             <span style="font-size:21px;font-weight:900;color:{accent};letter-spacing:-0.5px;">오늘의 시장 국면 · {title}</span>
           </div>
-          <div style="font-size:13.5px;color:#475569;margin:8px 0 14px;line-height:1.5;">{desc}</div>
+          <div style="font-size:13.5px;color:#A8ADB4;margin:8px 0 14px;line-height:1.5;">{desc}</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">{chips}</div>
         </div>
         """,
@@ -4129,13 +4129,13 @@ def render_overnight_tape():
     for label, vstr, cstr, sign in tiles:
         c = _chg_color(sign)
         cells += (
-            f'<div style="flex:1;min-width:104px;text-align:center;padding:11px 6px;border-right:1px solid #f1f5f9;">'
-            f'<div style="font-size:11.5px;color:#64748b;font-weight:700;white-space:nowrap;">{label}</div>'
-            f'<div style="font-size:17px;font-weight:800;color:#0f172a;margin-top:3px;white-space:nowrap;">{vstr}</div>'
+            f'<div style="flex:1;min-width:104px;text-align:center;padding:11px 6px;border-right:1px solid #1D1D1D;">'
+            f'<div style="font-size:11.5px;color:#8B9097;font-weight:700;white-space:nowrap;">{label}</div>'
+            f'<div style="font-size:17px;font-weight:800;color:#E8E8E8;margin-top:3px;white-space:nowrap;">{vstr}</div>'
             f'<div style="font-size:12px;font-weight:800;color:{c};margin-top:1px;white-space:nowrap;">{cstr}</div></div>'
         )
     st.markdown(
-        f'<div style="display:flex;flex-wrap:wrap;background:#fff;border:1px solid #e9eef3;'
+        f'<div style="display:flex;flex-wrap:wrap;background:#0E0E0E;border:1px solid #222222;'
         f'border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04);">{cells}</div>',
         unsafe_allow_html=True,
     )
@@ -4146,41 +4146,41 @@ def render_sentiment_strip(fg_data, macro_data):
     vix_html = ""
     if macro_data and "VIX" in macro_data:
         v = macro_data["VIX"]["value"]; dv = macro_data["VIX"]["delta"]
-        if v < 15: vc, vlab = "#16a34a", "안정"
-        elif v < 20: vc, vlab = "#ca8a04", "주의"
-        elif v < 30: vc, vlab = "#ea580c", "경계"
-        else: vc, vlab = "#dc2626", "공포"
+        if v < 15: vc, vlab = "#00E676", "안정"
+        elif v < 20: vc, vlab = "#FFB000", "주의"
+        elif v < 30: vc, vlab = "#FF8C1A", "경계"
+        else: vc, vlab = "#FF4D4F", "공포"
         ds = _sign_of(dv)
-        dcol = "#dc2626" if ds > 0 else ("#16a34a" if ds < 0 else "#64748b")   # VIX는 상승이 위험
+        dcol = "#FF4D4F" if ds > 0 else ("#00E676" if ds < 0 else "#8B9097")   # VIX는 상승이 위험
         vix_html = (
-            f'<div style="flex:1;min-width:160px;background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:12px 16px;">'
-            f'<div style="font-size:12px;color:#64748b;font-weight:700;">😱 VIX 변동성(美 공포지수)</div>'
+            f'<div style="flex:1;min-width:160px;background:#0E0E0E;border:1px solid #222222;border-radius:14px;padding:12px 16px;">'
+            f'<div style="font-size:12px;color:#8B9097;font-weight:700;">😱 VIX 변동성(美 공포지수)</div>'
             f'<div style="display:flex;align-items:baseline;gap:8px;margin-top:4px;">'
             f'<span style="font-size:24px;font-weight:900;color:{vc};">{v:.2f}</span>'
             f'<span style="font-size:13px;font-weight:800;color:{vc};">{vlab}</span>'
             f'<span style="font-size:12px;font-weight:700;color:{dcol};">{"+" if ds>0 else ""}{dv:.2f}</span></div>'
-            f'<div style="font-size:10.5px;color:#94a3b8;margin-top:3px;">20↑ 변동성 확대 · 30↑ 공포 국면</div></div>'
+            f'<div style="font-size:10.5px;color:#6E747C;margin-top:3px;">20↑ 변동성 확대 · 30↑ 공포 국면</div></div>'
         )
 
     fg_html = ""
     if fg_data:
         score = fg_data.get("score", 50); rating = fg_data.get("rating", ""); delta = fg_data.get("delta", 0)
-        if score >= 75: fc = "#16a34a"
-        elif score >= 55: fc = "#65a30d"
-        elif score >= 45: fc = "#ca8a04"
-        elif score >= 25: fc = "#ea580c"
-        else: fc = "#dc2626"
+        if score >= 75: fc = "#00E676"
+        elif score >= 55: fc = "#A3E635"
+        elif score >= 45: fc = "#FFB000"
+        elif score >= 25: fc = "#FF8C1A"
+        else: fc = "#FF4D4F"
         pos = min(max(score, 0), 100)
         fg_html = (
-            f'<div style="flex:2;min-width:250px;background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:12px 16px;">'
+            f'<div style="flex:2;min-width:250px;background:#0E0E0E;border:1px solid #222222;border-radius:14px;padding:12px 16px;">'
             f'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-            f'<span style="font-size:12px;color:#64748b;font-weight:700;">🧭 CNN 공포·탐욕 지수</span>'
+            f'<span style="font-size:12px;color:#8B9097;font-weight:700;">🧭 CNN 공포·탐욕 지수</span>'
             f'<span style="font-size:13px;font-weight:800;color:{fc};">{score} · {rating}</span></div>'
             f'<div style="position:relative;height:10px;border-radius:6px;margin:11px 0 5px;'
-            f'background:linear-gradient(90deg,#dc2626,#f59e0b,#16a34a);">'
+            f'background:linear-gradient(90deg,#FF4D4F,#FFB000,#00E676);">'
             f'<span style="position:absolute;left:{pos}%;top:-3px;width:16px;height:16px;border-radius:50%;'
-            f'background:#fff;border:2.5px solid {fc};transform:translateX(-50%);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span></div>'
-            f'<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#94a3b8;">'
+            f'background:#0E0E0E;border:2.5px solid {fc};transform:translateX(-50%);box-shadow:0 1px 3px rgba(0,0,0,0.2);"></span></div>'
+            f'<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#6E747C;">'
             f'<span>극단적 공포 0</span><span>중립 50</span><span>100 극단적 탐욕</span></div></div>'
         )
 
@@ -4210,12 +4210,12 @@ def render_week_catalysts():
 
     def _evt_color(label):
         # 카테고리별 색: 중앙은행=보라 / 물가=주황 / 고용=파랑 / 경기=청록 / 수급·만기=핑크
-        if any(k in label for k in ("FOMC", "금통위", "ECB", "BOJ", "통화정책", "금융정책", "의사록")): return "#7c3aed"
-        if any(k in label for k in ("CPI", "PCE", "PPI", "물가")): return "#ea580c"
-        if "고용" in label or "실업" in label: return "#2563eb"
-        if any(k in label for k in ("PMI", "소매판매", "수출", "무역", "GDP", "산업생산")): return "#0d9488"
-        if any(k in label for k in ("만기", "네마녀", "위칭", "MSCI")): return "#db2777"
-        return "#475569"
+        if any(k in label for k in ("FOMC", "금통위", "ECB", "BOJ", "통화정책", "금융정책", "의사록")): return "#B287FF"
+        if any(k in label for k in ("CPI", "PCE", "PPI", "물가")): return "#FF8C1A"
+        if "고용" in label or "실업" in label: return "#4D9FFF"
+        if any(k in label for k in ("PMI", "소매판매", "수출", "무역", "GDP", "산업생산")): return "#2DD4BF"
+        if any(k in label for k in ("만기", "네마녀", "위칭", "MSCI")): return "#FF6BBD"
+        return "#A8ADB4"
 
     def _events_for(d):
         # 경제지표(get_economic_events) + 선물옵션 동시만기(3·6·9·12월 둘째 목요일)를 병합.
@@ -4229,8 +4229,8 @@ def render_week_catalysts():
 
     if not rows:
         st.markdown(
-            '<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:14px 16px;'
-            'color:#64748b;font-size:13px;">📭 향후 1개월간 예정된 주요 매크로·수급 일정이 없습니다.</div>',
+            '<div style="background:#0E0E0E;border:1px solid #222222;border-radius:14px;padding:14px 16px;'
+            'color:#8B9097;font-size:13px;">📭 향후 1개월간 예정된 주요 매크로·수급 일정이 없습니다.</div>',
             unsafe_allow_html=True)
         return
 
@@ -4242,26 +4242,26 @@ def render_week_catalysts():
             cur_month = d.month
             body += (
                 f'<div style="padding:8px 10px 4px;font-size:11px;font-weight:800;'
-                f'color:#94a3b8;letter-spacing:0.3px;">{d.year}년 {d.month}월</div>'
+                f'color:#6E747C;letter-spacing:0.3px;">{d.year}년 {d.month}월</div>'
             )
         is_today = (d == now_kst)
-        date_bg = "#fef2f2" if is_today else "transparent"
-        date_c = "#dc2626" if is_today else "#0f172a"
-        tag = ' <span style="font-size:10px;color:#dc2626;font-weight:800;">● 오늘</span>' if is_today else ""
+        date_bg = "rgba(255,77,79,0.10)" if is_today else "transparent"
+        date_c = "#FF4D4F" if is_today else "#E8E8E8"
+        tag = ' <span style="font-size:10px;color:#FF4D4F;font-weight:800;">● 오늘</span>' if is_today else ""
         chips = "".join(
-            f'<span style="display:inline-block;background:#f8fafc;color:{_evt_color(lab)};'
-            f'border:1px solid #eef2f6;border-radius:8px;padding:3px 9px;margin:0 5px 0 0;font-size:12px;font-weight:700;">{lab}</span>'
+            f'<span style="display:inline-block;background:#141414;color:{_evt_color(lab)};'
+            f'border:1px solid #1C1C1C;border-radius:8px;padding:3px 9px;margin:0 5px 0 0;font-size:12px;font-weight:700;">{lab}</span>'
             for (lab, _c) in evs
         )
         body += (
             f'<div style="display:flex;align-items:center;gap:12px;padding:9px 10px;'
-            f'background:{date_bg};border-bottom:1px solid #f1f5f9;">'
+            f'background:{date_bg};border-bottom:1px solid #1D1D1D;">'
             f'<div style="min-width:78px;font-size:13px;font-weight:800;color:{date_c};">'
             f'{d.month}/{d.day}({dow_kr[d.weekday()]}){tag}</div>'
             f'<div style="flex:1;">{chips}</div></div>'
         )
     st.markdown(
-        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:4px 14px;'
+        f'<div style="background:#0E0E0E;border:1px solid #222222;border-radius:14px;padding:4px 14px;'
         f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">{body}</div>',
         unsafe_allow_html=True,
     )
@@ -4295,10 +4295,10 @@ def render_watchlist_signals():
     alerts.sort(key=lambda x: x[0])
 
     style = {
-        0: ("🔴", "#fef2f2", "#fecaca", "#b91c1c"),
-        1: ("🟢", "#f0fdf4", "#bbf7d0", "#15803d"),
-        2: ("🟡", "#fffbeb", "#fde68a", "#b45309"),
-        3: ("⚪", "#f8fafc", "#e2e8f0", "#64748b"),
+        0: ("🔴", "rgba(255,77,79,0.10)", "rgba(255,77,79,0.35)", "#FF4D4F"),
+        1: ("🟢", "rgba(0,230,118,0.10)", "rgba(0,230,118,0.35)", "#00E676"),
+        2: ("🟡", "rgba(255,176,0,0.10)", "rgba(255,176,0,0.35)", "#FFB000"),
+        3: ("⚪", "#141414", "#262626", "#8B9097"),
     }
     n_risk = sum(1 for a in alerts if a[0] == 0)
     n_take = sum(1 for a in alerts if a[0] == 1)
@@ -4310,7 +4310,7 @@ def render_watchlist_signals():
             f'<div style="display:flex;align-items:center;gap:10px;background:{bg};border:1px solid {brd};'
             f'border-radius:11px;padding:9px 13px;margin-bottom:6px;">'
             f'<span style="font-size:15px;">{ic}</span>'
-            f'<span style="font-weight:800;color:#0f172a;min-width:104px;">{name}</span>'
+            f'<span style="font-weight:800;color:#E8E8E8;min-width:104px;">{name}</span>'
             f'<span style="font-size:13px;color:{tc};font-weight:600;">{msg}</span></div>'
         )
     st.markdown(cards, unsafe_allow_html=True)
@@ -4740,7 +4740,7 @@ def render_single_stock_themes(stock_name: str, api_key: str):
         
         # HTML과 CSS를 사용해 스트림릿 화면에 예쁜 태그(칩) 디자인 적용
         tags_html = "".join([
-            f'<span style="display: inline-block; background-color: #1e3a8a; color: #ffffff; '
+            f'<span style="display: inline-block; background-color: #3D6FE0; color: #ffffff; '
             f'padding: 5px 12px; border-radius: 15px; margin-right: 8px; margin-bottom: 8px; '
             f'font-size: 13px; font-weight: 600; box-shadow: 0px 2px 4px rgba(0,0,0,0.1);">'
             f'# {theme}</span>' 
@@ -4892,7 +4892,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         if tech_result.get('과거검증'):
             pnl = tech_result['수익률']
-            color = "#ff4b4b" if pnl > 0 else "#1f77b4"
+            color = "#ff4b4b" if pnl > 0 else "#4D9FFF"
             bg_color = "rgba(255, 75, 75, 0.1)" if pnl > 0 else "rgba(31, 119, 180, 0.1)"
             st.markdown(f"""<div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {color};">
                 <h3 style="margin:0; color: {color};">⏰ 타임머신 검증 결과</h3>
@@ -5067,7 +5067,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
 
                 ch1, ch2 = st.columns(2)
                 with ch1:
-                    fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col], open=long_df['Open'], high=long_df['High'], low=long_df['Low'], close=long_df['Close'], increasing_line_color='#ff4b4b', decreasing_line_color='#1f77b4', name="주가")])
+                    fig_price = go.Figure(data=[go.Candlestick(x=long_df[x_col], open=long_df['Open'], high=long_df['High'], low=long_df['Low'], close=long_df['Close'], increasing_line_color='#ff4b4b', decreasing_line_color='#4D9FFF', name="주가")])
                     fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['MA20'], mode='lines', line=dict(color='orange', width=1.5), name='20일선'))
                     fig_price.add_trace(go.Scatter(x=long_df[x_col], y=long_df['Bollinger_Upper'], mode='lines', line=dict(color='gray', width=1, dash='dot'), name='볼밴상단'))
                     fig_price.add_hline(y=max_p, line_dash="dash", line_color="rgba(255,0,0,0.5)", annotation_text="고점(1.0)")
@@ -5080,7 +5080,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 
                 with ch2:
                     fig_vol = go.Figure()
-                    fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#1f77b4"))
+                    fig_vol.add_trace(go.Bar(x=long_df[x_col], y=long_df['Volume'], name="거래량", marker_color="#4D9FFF"))
                     fig_vol.add_trace(go.Scatter(x=long_df[x_col], y=long_df['OBV'], name="OBV", yaxis="y2", line=dict(color="orange", width=2)))
                     fig_vol.update_layout(margin=dict(l=0, r=0, t=10, b=0), xaxis=dict(showgrid=False, type=x_type), height=250, showlegend=False, yaxis=dict(showgrid=False), yaxis2=dict(overlaying="y", side="right", showgrid=False))
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
@@ -5723,7 +5723,7 @@ def _short_trend_figure(risk):
         fig.add_trace(go.Scatter(
             x=[d for d, _ in bser], y=[v for _, v in bser],
             name="공매도 잔고비중(%)", yaxis="y2", mode="lines",
-            line=dict(color="#b91c1c", width=2),
+            line=dict(color="#FF4D4F", width=2),
             hovertemplate="%{x}<br>잔고비중 %{y:.2f}%<extra></extra>"))
     fig.update_layout(
         height=180, margin=dict(l=8, r=8, t=8, b=8),
@@ -6255,21 +6255,29 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 # 4. 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v7.0")
-    st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
+    st.markdown(
+        """
+<div class="nmr-side-brand">
+  <div class="nmr-side-brand-top"><span class="sq">■</span> JAEMINI&nbsp;PRO</div>
+  <div class="nmr-side-brand-sub">● LIVE EQUITY TERMINAL&nbsp;&nbsp;<span class="v">v7.0</span></div>
+  <div class="nmr-side-brand-desc">풀옵션 단기 스윙 &amp; 퀀트 추적 시스템</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.caption("🆕 v7.0: 주봉 멀티타임프레임 · 시장 국면 신호등 · 공매도/빚투 리스크")
 
     # 실시간 현재 날짜·시간 (KST) — 브라우저에서 초 단위로 갱신, 모든 페이지에서 표시
     components.html(
         """
         <div id="kst-clock" style="
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #1e293b, #334155);
-            color: #e2e8f0; border: 1px solid #475569; border-radius: 10px;
+            font-family: 'JetBrains Mono','Noto Sans KR',ui-monospace,Menlo,monospace;
+            background: #0B0B0B;
+            color: #E8E8E8; border: 1px solid #232323; border-radius: 2px;
             padding: 10px 12px; text-align: center; margin: 2px 0 8px 0;">
-            <div style="font-size: 12px; color:#94a3b8; letter-spacing:0.5px;">🇰🇷 한국 시간 (KST)</div>
-            <div id="kst-date" style="font-size: 15px; font-weight:600; margin-top:3px;">--</div>
-            <div id="kst-time" style="font-size: 22px; font-weight:700; font-variant-numeric: tabular-nums; color:#f8fafc;">--:--:--</div>
+            <div style="font-size:10px; color:#00E676; letter-spacing:2.5px; font-weight:700;">● KST · SEOUL — 한국 시간</div>
+            <div id="kst-date" style="font-size:12.5px; font-weight:600; margin-top:4px; color:#8B9097; letter-spacing:1px;">--</div>
+            <div id="kst-time" style="font-size:22px; font-weight:800; font-variant-numeric: tabular-nums; color:#FFB000; letter-spacing:1px;">--:--:--</div>
         </div>
         <script>
         function updateKST() {
@@ -6421,23 +6429,30 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     fg_data = get_fear_and_greed()
 
     now_kst = datetime.utcnow() + timedelta(hours=9)
-    st.markdown(
-        f"""
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;margin-bottom:2px;">
-          <span style="font-size:25px;font-weight:900;color:#0f172a;letter-spacing:-1px;">🖥️ 여의도 모닝 데스크</span>
-          <span style="font-size:13px;color:#94a3b8;font-weight:600;">{now_kst.strftime('%Y.%m.%d')} ({['월','화','수','목','금','토','일'][now_kst.weekday()]}) {now_kst.strftime('%H:%M')} KST · 5분 자동 갱신</span>
-        </div>
-        <div style="font-size:13px;color:#64748b;margin-bottom:14px;">간밤 글로벌 → 오늘의 국면 → 지수·수급 → 자금 흐름 → 심리 → 일정 → 내 종목 순으로, 매매에 필요한 핵심만 모았습니다.</div>
-        """,
-        unsafe_allow_html=True,
+    _dow_kr = ['월','화','수','목','금','토','일'][now_kst.weekday()]
+    nmr_topbar(
+        left="JAEMINI GLOBAL TERMINAL",
+        right=f"{now_kst.strftime('%Y.%m.%d')} ({_dow_kr}) · {now_kst.strftime('%H:%M')} KST",
+        live=True,
+    )
+    nmr_masthead(
+        brand="JAEMINI PRO",
+        kicker="LIVE EQUITY TERMINAL",
+        title_top="MORNING DESK,",
+        title_accent="여의도 모닝 데스크",
+        desc="간밤 글로벌 → 오늘의 국면 → 지수·수급 → 자금 흐름 → 심리 → 일정 → 내 종목 순으로, "
+             "매매에 필요한 <b>핵심만</b> 모았습니다.",
+        stance="STANCE: PRE-MARKET CHECK",
+        metas=["SECTOR: KR EQUITY", "AUTO-REFRESH: 5MIN"],
     )
 
     # ── ① 오늘의 시장 국면 (결정 배너) ──
+    nmr_section("01", "오늘의 시장 국면", "MARKET REGIME")
     with st.spinner("시장 국면 분석 중..."):
         render_regime_hero()
 
     # ── ② 간밤 글로벌 (오늘 국장 방향타) ──
-    st.markdown("##### 🌙 간밤 글로벌 — 오늘 국장의 방향타")
+    nmr_section("02", "간밤 글로벌 — 오늘 국장의 방향타", "OVERNIGHT GLOBAL")
     with st.spinner("간밤 미국 지수·금리·유가 수집 중..."):
         render_overnight_tape()
     st.caption("💡 VIX 급등·美 금리 급등·환율 급등 시엔 국장도 위험회피로 기울 수 있어, 좋은 종목이 있어도 보수적으로 접근하는 편이 유리합니다.")
@@ -6445,14 +6460,14 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     st.divider()
 
     # ── ③ 코스피·코스닥 실시간 & 투자자별 수급 ──
-    st.markdown("##### 📈 코스피·코스닥 실시간 & 수급 (외국인·기관·개인)")
+    nmr_section("03", "코스피·코스닥 실시간 & 수급", "INDEX · INVESTOR FLOWS")
     with st.spinner("지수·투자자별 수급 수집 중..."):
         render_main_index_panel()
 
     st.divider()
 
     # ── ④ 오늘의 자금 흐름: 시총 TOP & 업종 등락 ──
-    st.markdown("##### 💰 오늘의 자금 흐름 (주도주·섹터)")
+    nmr_section("04", "오늘의 자금 흐름 (주도주·섹터)", "MONEY FLOW")
     mc_col, ind_col = st.columns(2)
     with mc_col:
         st.markdown("**🏆 시가총액 TOP 10**")
@@ -6470,26 +6485,26 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     st.divider()
 
     # ── ⑤ 투자 심리 (VIX + 공포·탐욕) ──
-    st.markdown("##### 🧭 투자 심리 (변동성·투자자 심리)")
+    nmr_section("05", "투자 심리 (변동성·공포탐욕)", "SENTIMENT GAUGE")
     render_sentiment_strip(fg_data, macro_data)
 
     st.divider()
 
     # ── ⑥ 향후 1개월 핵심 매크로 일정 ──
-    st.markdown("##### 🗓️ 향후 1개월 핵심 일정 (중앙은행·물가·경기·수급)")
+    nmr_section("06", "향후 1개월 핵심 일정", "MACRO CALENDAR")
     render_week_catalysts()
 
     st.divider()
 
     # ── ⑦ 내 관심종목 신호 (액션) ──
-    st.markdown("##### 🚦 내 관심종목 신호 (손절·익절 자동 감시)")
+    nmr_section("07", "내 관심종목 신호 (손절·익절 감시)", "WATCHLIST SIGNALS")
     with st.spinner("관심종목 기술적 점검 중..."):
         render_watchlist_signals()
 
     st.divider()
 
     # ── ⑧ AI 모닝 브리핑 ──
-    st.markdown("##### 📰 AI 모닝 브리핑 (Global → Local)")
+    nmr_section("08", "AI 모닝 브리핑 (Global → Local)", "AI MORNING BRIEF")
     if api_key_input:
         with st.spinner("AI가 글로벌 매크로 데이터로 모닝 브리핑을 작성 중입니다..."):
             top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
@@ -6502,7 +6517,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     st.divider()
 
     # ── ⑨ 실행 도구: 종목 검색/주문 + 퀀트 비서 (대시보드 가독성을 위해 접이식 배치) ──
-    st.markdown("##### 🛠️ 실행 도구")
+    nmr_section("09", "실행 도구", "EXECUTION TOOLS")
     with st.expander("🔎 종목 빠른 검색 & 주문 (퀵 오더)", expanded=False):
         market_radio_quick = st.radio("시장 선택 (퀵 오더)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, label_visibility="collapsed")
 
@@ -6696,6 +6711,8 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
                 st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
 
+
+    nmr_end()
 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     st.markdown("## 💼 내 계좌 & 포트폴리오 진단")
@@ -6971,7 +6988,7 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
                             c1.metric("총 Call 거래량", f"{int(call_vol):,}")
                             c2.metric("총 Put 거래량", f"{int(put_vol):,}")
                             c3.metric("Put/Call Ratio", f"{pc_ratio:.2f}", "1.0 초과 시 약세 심리", delta_color="inverse" if pc_ratio > 1 else "normal")
-                            fig_pc = px.pie(values=[call_vol, put_vol], names=['Call (상승 기대)', 'Put (하락 기대)'], hole=0.5, color_discrete_sequence=['#2ca02c', '#d62728'])
+                            fig_pc = px.pie(values=[call_vol, put_vol], names=['Call (상승 기대)', 'Put (하락 기대)'], hole=0.5, color_discrete_sequence=['#22D36F', '#FF5252'])
                             st.plotly_chart(fig_pc, use_container_width=True)
                     except Exception as e: st.error(f"옵션 연산 실패: {e}")
         with sub_t2:
@@ -7128,11 +7145,11 @@ elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
         # ── 요약 카드: 강세 3 / 약세 3 ─────────────────────────
         c_win, c_lose = st.columns(2)
         def _chip(name, val):
-            color = "#ef4444" if val > 0 else ("#3b82f6" if val < 0 else "#64748b")
+            color = "#FF5252" if val > 0 else ("#54A0FF" if val < 0 else "#8B9097")
             arrow = "▲" if val > 0 else ("▼" if val < 0 else "")
             return (f'<div style="display:flex;justify-content:space-between;padding:8px 12px;margin:5px 0;'
-                    f'background:#fff;border:1px solid #eef2f6;border-radius:10px;">'
-                    f'<span style="font-weight:700;color:#1e293b;">{name}</span>'
+                    f'background:#0E0E0E;border:1px solid #1C1C1C;border-radius:10px;">'
+                    f'<span style="font-weight:700;color:#E3E3E3;">{name}</span>'
                     f'<span style="font-weight:800;color:{color};">{arrow}{abs(val):.2f}%</span></div>')
         with c_win:
             st.markdown("#### 🔥 강세 섹터 (자금 유입 추정)")
@@ -7147,7 +7164,7 @@ elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
 
         # ── 전체 섹터 수익률 가로 바 차트 (강세 빨강 / 약세 파랑) ──
         chart_df = df_sorted.sort_values(period_col, ascending=True)  # 아래→위 오름차순
-        bar_colors = ["#ef4444" if v > 0 else "#3b82f6" for v in chart_df[period_col]]
+        bar_colors = ["#FF5252" if v > 0 else "#54A0FF" for v in chart_df[period_col]]
         fig_bar = go.Figure(go.Bar(
             x=chart_df[period_col],
             y=chart_df['테마'],
@@ -7164,7 +7181,7 @@ elif selected_menu == "🕸️ 실시간 섹터 순환매 추적":
             xaxis_title="수익률 (%)",
             plot_bgcolor="rgba(0,0,0,0)",
         )
-        fig_bar.add_vline(x=0, line_width=1, line_color="#94a3b8")
+        fig_bar.add_vline(x=0, line_width=1, line_color="#6E747C")
         st.plotly_chart(fig_bar, use_container_width=True)
 
         st.info(
@@ -7228,31 +7245,31 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
 
         html_parts = [
             "<style>",
-            ".cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background: #ddd; border: 1px solid #ccc; font-family: sans-serif; }",
-            ".cal-head { background: #f8f9fa; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; }",
-            ".cal-cell { background: white; min-height: 120px; padding: 5px; display: flex; flex-direction: column; }",
-            ".cal-cell.today { background: #f0f8ff; border: 2px solid #1f77b4; }",
+            ".cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background: #1F1F1F; border: 1px solid #2A2A2A; font-family: sans-serif; }",
+            ".cal-head { background: #101010; text-align: center; font-weight: bold; padding: 10px; font-size: 14px; }",
+            ".cal-cell { background: #0F0F0F; min-height: 120px; padding: 5px; display: flex; flex-direction: column; }",
+            ".cal-cell.today { background: rgba(77,159,255,0.10); border: 2px solid #4D9FFF; }",
             ".cal-num { font-weight: bold; margin-bottom: 5px; font-size: 15px; }",
-            ".evt-us-red { background: #ffebee; color: #c62828; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #c62828; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-us-warn { background: #fff3e0; color: #e65100; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #e65100; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-us-green { background: #e8f5e9; color: #2e7d32; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #2e7d32; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-kr-red { background: #fce4ec; color: #b71c1c; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #b71c1c; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-kr-blue { background: #e3f2fd; color: #1565c0; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #1565c0; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-kr-green { background: #f1f8e9; color: #1b5e20; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #1b5e20; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-econ-fomc { background: #ede7f6; color: #4527a0; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #4527a0; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-econ-cpi { background: #fff8e1; color: #ff6f00; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #ff6f00; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-econ-jobs { background: #e0f7fa; color: #006064; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #006064; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
-            ".evt-econ-bok { background: #fce4ec; color: #880e4f; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #880e4f; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-us-red { background: rgba(255,77,79,0.12); color: #FF5F5F; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #FF5F5F; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-us-warn { background: rgba(255,140,26,0.12); color: #FF8C1A; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #FF8C1A; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-us-green { background: rgba(0,230,118,0.12); color: #2BD576; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #2BD576; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-kr-red { background: rgba(255,107,189,0.13); color: #FF5F5F; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #FF5F5F; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-kr-blue { background: rgba(77,159,255,0.13); color: #6AB0FF; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #6AB0FF; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-kr-green { background: rgba(0,230,118,0.10); color: #2BD576; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #2BD576; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-fomc { background: rgba(178,135,255,0.13); color: #B287FF; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #B287FF; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-cpi { background: rgba(255,176,0,0.12); color: #FFA040; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #FFA040; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-jobs { background: rgba(45,212,191,0.13); color: #2DD4BF; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #2DD4BF; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-econ-bok { background: rgba(255,107,189,0.13); color: #FF7EC2; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #FF7EC2; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             "</style>",
             "<div class='cal-grid'>",
-            "<div class='cal-head' style='color:#d32f2f;'>일</div><div class='cal-head'>월</div><div class='cal-head'>화</div><div class='cal-head'>수</div><div class='cal-head'>목</div><div class='cal-head'>금</div><div class='cal-head' style='color:#1976d2;'>토</div>"
+            "<div class='cal-head' style='color:#FF6B6B;'>일</div><div class='cal-head'>월</div><div class='cal-head'>화</div><div class='cal-head'>수</div><div class='cal-head'>목</div><div class='cal-head'>금</div><div class='cal-head' style='color:#6AB0FF;'>토</div>"
         ]
         
         econ_events = get_economic_events(year, month)
 
         for week in cal:
             for i, day in enumerate(week):
-                if day == 0: html_parts.append("<div class='cal-cell' style='background:#fafafa;'></div>")
+                if day == 0: html_parts.append("<div class='cal-cell' style='background:#101010;'></div>")
                 else:
                     events = ""
                     # 경제지표(FOMC·CPI·고용·금통위)를 가장 위에 표시
@@ -7270,7 +7287,7 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
                         if day == us_opex_day: events += "<div class='evt-us-red'>🔴 🇺🇸옵션만기(변동성폭발)</div>"
                         else: events += "<div class='evt-us-warn'>⚠️ 🇺🇸만기주간(핀닝/하락)</div>"
 
-                    num_color = "#d32f2f" if i == 0 else "#1976d2" if i == 6 else "#333"
+                    num_color = "#FF6B6B" if i == 0 else "#6AB0FF" if i == 6 else "#C9C9C9"
                     cell_cls = "cal-cell today" if day == today_day else "cal-cell"
                     day_lbl = f"{day} (오늘)" if day == today_day else str(day)
                     html_parts.append(f"<div class='{cell_cls}'><div class='cal-num' style='color:{num_color};'>{day_lbl}</div>{events}</div>")
@@ -7279,14 +7296,14 @@ elif selected_menu == "📅 핵심 증시 일정 & IPO 달력":
         st.markdown("".join(html_parts), unsafe_allow_html=True)
 
         st.markdown(
-            "<div style='margin-top:10px;font-size:12px;color:#555;line-height:1.9;'>"
+            "<div style='margin-top:10px;font-size:12px;color:#9AA0A6;line-height:1.9;'>"
             "<b>범례</b> &nbsp; "
-            "<span style='background:#ede7f6;color:#4527a0;padding:2px 6px;border-radius:3px;'>🏛️ 중앙은행(FOMC·ECB·BOJ·의사록)</span> "
-            "<span style='background:#fff8e1;color:#ff6f00;padding:2px 6px;border-radius:3px;'>📊 물가(CPI·PCE)</span> "
-            "<span style='background:#e0f7fa;color:#006064;padding:2px 6px;border-radius:3px;'>👷 경기(고용·PMI·소매판매·수출입)</span> "
-            "<span style='background:#fce4ec;color:#880e4f;padding:2px 6px;border-radius:3px;'>🏦 한은 금통위</span> "
-            "<span style='background:#ffebee;color:#c62828;padding:2px 6px;border-radius:3px;'>🔴 옵션만기</span> "
-            "<span style='background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:3px;'>🔹 위클리만기</span>"
+            "<span style='background:rgba(178,135,255,0.13);color:#B287FF;padding:2px 6px;border-radius:3px;'>🏛️ 중앙은행(FOMC·ECB·BOJ·의사록)</span> "
+            "<span style='background:rgba(255,176,0,0.12);color:#FFA040;padding:2px 6px;border-radius:3px;'>📊 물가(CPI·PCE)</span> "
+            "<span style='background:rgba(45,212,191,0.13);color:#2DD4BF;padding:2px 6px;border-radius:3px;'>👷 경기(고용·PMI·소매판매·수출입)</span> "
+            "<span style='background:rgba(255,107,189,0.13);color:#FF7EC2;padding:2px 6px;border-radius:3px;'>🏦 한은 금통위</span> "
+            "<span style='background:rgba(255,77,79,0.12);color:#FF5F5F;padding:2px 6px;border-radius:3px;'>🔴 옵션만기</span> "
+            "<span style='background:rgba(77,159,255,0.13);color:#6AB0FF;padding:2px 6px;border-radius:3px;'>🔹 위클리만기</span>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -7499,11 +7516,11 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     
                     fig = go.Figure()
                     x_axis = bt_df.index
-                    fig.add_trace(go.Scatter(x=x_axis, y=bt_df['Close'], name="주가 (Close)", line=dict(color='#3b82f6', width=1.5)))
+                    fig.add_trace(go.Scatter(x=x_axis, y=bt_df['Close'], name="주가 (Close)", line=dict(color='#54A0FF', width=1.5)))
                     buy_idx = bt_df[bt_df['Trade_Mark'] == 1].index
-                    fig.add_trace(go.Scatter(x=buy_idx, y=bt_df.loc[buy_idx, 'Close'], mode='markers', name='Buy (매수)', marker=dict(symbol='triangle-up', size=14, color='#ef4444', line=dict(width=1, color='darkred'))))
+                    fig.add_trace(go.Scatter(x=buy_idx, y=bt_df.loc[buy_idx, 'Close'], mode='markers', name='Buy (매수)', marker=dict(symbol='triangle-up', size=14, color='#FF5252', line=dict(width=1, color='darkred'))))
                     sell_idx = bt_df[bt_df['Trade_Mark'] == -1].index
-                    fig.add_trace(go.Scatter(x=sell_idx, y=bt_df.loc[sell_idx, 'Close'], mode='markers', name='Sell (매도)', marker=dict(symbol='triangle-down', size=14, color='#3b82f6', line=dict(width=1, color='darkblue'))))
+                    fig.add_trace(go.Scatter(x=sell_idx, y=bt_df.loc[sell_idx, 'Close'], mode='markers', name='Sell (매도)', marker=dict(symbol='triangle-down', size=14, color='#54A0FF', line=dict(width=1, color='darkblue'))))
 
                     fig.update_layout(title=f"'{t_code}' 백테스트 타점 시각화 ({strategy_sel})", height=500, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
@@ -7515,15 +7532,15 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     c1, c2, c3, c4 = st.columns(4)
                     def metric_card(title, value, delta=None, is_red=False, is_green=False):
                         bg_color = "rgba(100, 100, 100, 0.05)"
-                        border_color = "#888"
+                        border_color = "#8B9097"
                         if is_red:
                             bg_color = "rgba(220, 38, 38, 0.08)"
-                            border_color = "#dc2626"
+                            border_color = "#FF4D4F"
                         elif is_green:
                             bg_color = "rgba(22, 163, 74, 0.08)"
-                            border_color = "#16a34a"
-                        delta_html = f"<div style='font-size:0.85em; margin-top:5px; color:#555;'>{delta}</div>" if delta else ""
-                        return f"<div style='background-color: {bg_color}; padding: 15px; border-radius: 8px; border-left: 4px solid {border_color}; margin-bottom: 10px;'><div style='font-size:0.9em; color:#555; font-weight:bold;'>{title}</div><div style='font-size:1.6em; font-weight:bold; font-family:\"JetBrains Mono\", monospace; margin-top:5px;'>{value}</div>{delta_html}</div>"
+                            border_color = "#00E676"
+                        delta_html = f"<div style='font-size:0.85em; margin-top:5px; color:#9AA0A6;'>{delta}</div>" if delta else ""
+                        return f"<div style='background-color: {bg_color}; padding: 15px; border-radius: 8px; border-left: 4px solid {border_color}; margin-bottom: 10px;'><div style='font-size:0.9em; color:#9AA0A6; font-weight:bold;'>{title}</div><div style='font-size:1.6em; font-weight:bold; font-family:\"JetBrains Mono\", monospace; margin-top:5px;'>{value}</div>{delta_html}</div>"
 
                     with c1: st.markdown(metric_card("전략 누적 수익률", f"{final_strat:.2f}%", f"단순 보유 대비 {final_strat - final_market:+.2f}%p", is_red=(final_strat>0), is_green=(final_strat<0)), unsafe_allow_html=True) 
                     with c2: st.markdown(metric_card("최대 낙폭 (MDD)", f"{mdd:.2f}%", "계좌 최대 하락률", is_green=(mdd<-20)), unsafe_allow_html=True)
@@ -7720,7 +7737,7 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                                "낙폭과대_스캔.csv", "text/csv")
 
 elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
-    st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
+    st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#6E747C;'>BETA</span>", unsafe_allow_html=True)
     st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치 + 차트 + 펀더멘털 + 공매도/신용 + 뉴스 본문 AI 판정 + "
                "**실적·목표가 컨센서스 + 매크로→섹터 틸트**를 한 번에 융합하고, **관리종목·거래정지·투자경보는 자동 제외**한 뒤 "
                "**단기·중기·장기 투자 후보를 자동 분류**합니다.")
@@ -7735,7 +7752,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     # ── 0) 오늘의 시장 분위기 한 줄 ──
     with st.spinner("시장 분위기 진단 중..."):
         mood = get_market_mood()
-    _mc = {"🟢": "#16a34a", "🟡": "#f59e0b", "🔴": "#dc2626"}.get(mood["light"], "#888")
+    _mc = {"🟢": "#00E676", "🟡": "#FFB000", "🔴": "#FF4D4F"}.get(mood["light"], "#8B9097")
     _risk_txt = ("공격적(위험선호)" if mood["risk_on"] >= 0.3
                  else "방어적(위험회피)" if mood["risk_on"] <= -0.3 else "중립")
     mc1, mc2, mc3, mc4 = st.columns(4)
@@ -8069,18 +8086,18 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
         st.markdown("### 🛰️ 오늘의 테마·정치 레이더")
         if radar.get("mood_comment"):
             st.info(f"🗣️ {radar['mood_comment']}")
-        _hz_color = {"단기": "#dc2626", "중기": "#2563eb", "장기": "#16a34a"}
+        _hz_color = {"단기": "#FF4D4F", "중기": "#4D9FFF", "장기": "#00E676"}
         rcols = st.columns(min(len(radar["themes"]), 5) or 1)
         for i, t in enumerate(radar["themes"][:5]):
             with rcols[i % len(rcols)]:
-                c = _hz_color.get(t["horizon"], "#888")
+                c = _hz_color.get(t["horizon"], "#8B9097")
                 st.markdown(
-                    f"<div style='border:1px solid #e5e7eb;border-left:4px solid {c};border-radius:10px;"
-                    f"padding:10px 12px;margin-bottom:8px;background:#fff;'>"
-                    f"<div style='font-weight:800;font-size:14px;color:#1e293b;'>{t['theme']}</div>"
+                    f"<div style='border:1px solid #262626;border-left:4px solid {c};border-radius:10px;"
+                    f"padding:10px 12px;margin-bottom:8px;background:#0E0E0E;'>"
+                    f"<div style='font-weight:800;font-size:14px;color:#E3E3E3;'>{t['theme']}</div>"
                     f"<div style='display:inline-block;font-size:11px;font-weight:700;color:#fff;background:{c};"
                     f"border-radius:6px;padding:1px 7px;margin:4px 0;'>{t['horizon']}</div>"
-                    f"<div style='font-size:12px;color:#475569;line-height:1.4;'>{t['reason']}</div></div>",
+                    f"<div style='font-size:12px;color:#A8ADB4;line-height:1.4;'>{t['reason']}</div></div>",
                     unsafe_allow_html=True)
 
     if st.session_state.get("finder_brief"):
@@ -8252,8 +8269,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                 _exc_html = ""
                                 if _exc:
                                     _snip = _exc[:120] + ("…" if len(_exc) > 120 else "")
-                                    _exc_html = f"  \n  <span style='color:#64748b;font-size:12px;'>📄 {_snip}</span>"
-                                _meta_html = f"  \n  <span style='color:#94a3b8;font-size:12px;'>{meta}</span>" if meta else ""
+                                    _exc_html = f"  \n  <span style='color:#8B9097;font-size:12px;'>📄 {_snip}</span>"
+                                _meta_html = f"  \n  <span style='color:#6E747C;font-size:12px;'>{meta}</span>" if meta else ""
                                 if link:
                                     st.markdown(f"- {_badge}[{title}]({link})" + _meta_html + _exc_html, unsafe_allow_html=True)
                                 else:
@@ -9222,7 +9239,7 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         if curr_price > 0:
                             fig_line.add_hline(y=curr_price, line_dash="dot", line_color="rgba(0,0,255,0.5)", annotation_text=f"현재 주가 {curr_price:,}원")
                             
-                        fig_line.update_layout(hovermode="x unified", height=400, template="plotly_white")
+                        fig_line.update_layout(hovermode="x unified", height=400, template="nomura_dark")
                         st.plotly_chart(fig_line, use_container_width=True)
                         
                     with col_chart2:
@@ -9245,10 +9262,10 @@ elif selected_menu == "🎯 증권사 목표가 컨센서스":
                         fig_pie = px.pie(opinion_counts, values='건수', names='투자의견', hole=0.5,
                                          color='투자의견', 
                                          color_discrete_map={
-                                            '강력매수 (Strong Buy)': '#003300', 
-                                            '매수 (Buy)': '#1b5e20', 
-                                            '중립 (Hold)': '#ff7f0e', 
-                                            '매도 (Sell)': '#d62728'
+                                            '강력매수 (Strong Buy)': '#2BD576', 
+                                            '매수 (Buy)': '#2BD576', 
+                                            '중립 (Hold)': '#FFA040', 
+                                            '매도 (Sell)': '#FF5252'
                                          })
                         fig_pie.update_layout(height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
                         st.plotly_chart(fig_pie, use_container_width=True)
@@ -9915,12 +9932,12 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
         fig_growth = go.Figure()
         fig_growth.add_trace(go.Scatter(
             x=years, y=val_list, name="평가액", mode="lines",
-            line=dict(color="#93c5fd", width=1.5), fill="tozeroy",
+            line=dict(color="#7DB8FF", width=1.5), fill="tozeroy",
             fillcolor="rgba(147,197,253,0.45)",
             hovertemplate="%{x}년<br>평가액 %{y:,.0f}원<extra></extra>"))
         fig_growth.add_trace(go.Scatter(
             x=years, y=inv_list, name="투입 원금", mode="lines",
-            line=dict(color="#3b82f6", width=1.5), fill="tozeroy",
+            line=dict(color="#54A0FF", width=1.5), fill="tozeroy",
             fillcolor="rgba(59,130,246,0.55)",
             hovertemplate="%{x}년<br>투입 원금 %{y:,.0f}원<extra></extra>"))
         fig_growth.update_layout(
@@ -9941,7 +9958,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                                 for v in cart.values()]).sort_values("비중", ascending=False)
             wdf_show = wdf.set_index("종목")
             try:
-                sty_w = wdf_show.style.format({"비중": "{:.1f}%"}).bar(subset=["비중"], color="#ffd8a8", vmin=0)
+                sty_w = wdf_show.style.format({"비중": "{:.1f}%"}).bar(subset=["비중"], color="rgba(255,176,0,0.45)", vmin=0)
                 st.dataframe(sty_w, use_container_width=True, height=300)
             except Exception:
                 st.dataframe(wdf_show, use_container_width=True)
