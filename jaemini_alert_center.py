@@ -595,10 +595,10 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
         return 3, evs
 
     LEVELS = {   # 등급: (라벨, 진한색, 옅은배경)  ← 상단 종합경보 배너 색과 통일
-        0: ("안정", "#2BD576", "rgba(0,230,118,0.10)"),
-        1: ("관심", "#E0A93E", "rgba(255,176,0,0.10)"),
-        2: ("주의", "#FF8C4D", "rgba(255,176,0,0.08)"),
-        3: ("경계", "#FF5F5F", "rgba(255,77,79,0.10)"),
+        0: ("안정", "#2e7d32", "#f0fdf4"),
+        1: ("관심", "#b88300", "#fffbeb"),
+        2: ("주의", "#c2410c", "#fff7ed"),
+        3: ("경계", "#c62828", "#fef2f2"),
     }
     DOTS = {0: "🟢", 1: "🟡", 2: "🟠", 3: "🔴"}
 
@@ -609,7 +609,7 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
 
     dow = ["월", "화", "수", "목", "금"]
     head = "".join(
-        f'<div style="text-align:center;font-size:11px;font-weight:800;color:#8B9097;padding:3px 0;">{w}</div>'
+        f'<div style="text-align:center;font-size:11px;font-weight:800;color:#64748b;padding:3px 0;">{w}</div>'
         for w in dow
     )
 
@@ -622,32 +622,32 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
         is_today = (d == today)
         if d < today or d > end_anchor:     # 범위 밖(이번 주 지난 거래일 / 1개월 초과) → 흐리게
             cells += (
-                f'<div style="min-height:76px;border:1px dashed #1C1C1C;border-radius:9px;'
-                f'background:#0C0C0C;padding:6px 7px;opacity:.5;">'
-                f'<div style="font-size:12px;font-weight:700;color:#4A4F57;">{d.day}</div></div>'
+                f'<div style="min-height:76px;border:1px dashed #eef2f6;border-radius:9px;'
+                f'background:#fbfcfd;padding:6px 7px;opacity:.5;">'
+                f'<div style="font-size:12px;font-weight:700;color:#cbd5e1;">{d.day}</div></div>'
             )
             d += timedelta(days=1)
             continue
 
         lvl, evs = _day_level(d)
         lab, col, bgc = LEVELS[lvl]
-        brd = col if lvl >= 2 else "#222222"
+        brd = col if lvl >= 2 else "#e9eef3"
         ring = f"box-shadow:0 0 0 2px {col} inset;" if is_today else ""
         chips = ""
         for e in evs[:3]:
             wk = e.get("_weekend")          # 주말에서 접혀온 일정 → '주말(날짜)' 표시
-            suffix = (f' <span style="color:#6E747C;font-weight:600;">(주말 {wk.month}/{wk.day})</span>'
+            suffix = (f' <span style="color:#94a3b8;font-weight:600;">(주말 {wk.month}/{wk.day})</span>'
                       if wk else "")
             chips += (
                 f'<div style="font-size:9.5px;line-height:1.25;color:{col};font-weight:700;'
                 f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{e["label"]}{suffix}</div>'
             )
         if len(evs) > 3:
-            chips += f'<div style="font-size:9px;color:#6E747C;">+{len(evs) - 3}건</div>'
+            chips += f'<div style="font-size:9px;color:#94a3b8;">+{len(evs) - 3}건</div>'
         # 금리 결정일: 시장 예상(서프라이즈) 보정 표시
         _radj = sum(_rate_outlook_adj(e["label"], d) for e in evs)
         if _radj < 0:
-            chips += ('<div style="font-size:9px;color:#38BDF8;font-weight:800;white-space:nowrap;'
+            chips += ('<div style="font-size:9px;color:#0369a1;font-weight:800;white-space:nowrap;'
                       'overflow:hidden;text-overflow:ellipsis;">🏦 시장 예상 확실(변동성↓)</div>')
         elif _radj > 0:
             chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
@@ -665,11 +665,11 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
             chips += (f'<div style="font-size:9px;color:{col};font-weight:800;white-space:nowrap;'
                       f'overflow:hidden;text-overflow:ellipsis;">🌗 네마녀 다음날</div>')
 
-        today_tag = ' <span style="font-size:8.5px;color:#FF4D4F;font-weight:900;">●오늘</span>' if is_today else ""
+        today_tag = ' <span style="font-size:8.5px;color:#dc2626;font-weight:900;">●오늘</span>' if is_today else ""
         cells += (
             f'<div style="min-height:82px;border:1px solid {brd};border-radius:9px;'
             f'background:{bgc};padding:6px 7px;{ring}">'
-            f'<div style="font-size:12.5px;font-weight:800;color:#E8E8E8;">{d.day}{today_tag}</div>'
+            f'<div style="font-size:12.5px;font-weight:800;color:#0f172a;">{d.day}{today_tag}</div>'
             f'<div style="font-size:10px;font-weight:800;color:{col};margin:1px 0 2px;">{DOTS[lvl]} {lab}</div>'
             f'<div>{chips}</div></div>'
         )
@@ -679,7 +679,7 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
               else f"{start.year}년 {start.month}~{end.month}월")
     st.markdown(f"##### 📅 다가오는 1개월 종합 경보 등급 예보 · {period} (거래일 월~금)")
     st.markdown(
-        f'<div style="background:#0E0E0E;border:1px solid #222222;border-radius:16px;padding:12px 14px;'
+        f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:16px;padding:12px 14px;'
         f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
         f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:5px;">{head}</div>'
         f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;">{cells}</div></div>',
@@ -687,12 +687,12 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
     )
 
     legend = "".join(
-        f'<span style="margin-right:13px;font-size:11.5px;color:#A8ADB4;">{DOTS[k]} {LEVELS[k][0]}</span>'
+        f'<span style="margin-right:13px;font-size:11.5px;color:#475569;">{DOTS[k]} {LEVELS[k][0]}</span>'
         for k in (0, 1, 2, 3)
     )
     st.markdown(
         f'<div style="margin-top:7px;">{legend}'
-        f'<span style="font-size:11px;color:#6E747C;"> · 국장 휴장인 토·일은 제외 / 주말 일정은 다음 월요일 칸에 "(주말)"로 표시</span></div>',
+        f'<span style="font-size:11px;color:#94a3b8;"> · 국장 휴장인 토·일은 제외 / 주말 일정은 다음 월요일 칸에 "(주말)"로 표시</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -727,14 +727,14 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
         d += timedelta(days=1)
     if alert_days:
         items = "".join(
-            f'<div style="font-size:12px;color:#A8ADB4;margin:2px 0;">{DOTS[lvl]} '
+            f'<div style="font-size:12px;color:#475569;margin:2px 0;">{DOTS[lvl]} '
             f'<b>{dd.month}/{dd.day}({dow_k[dd.weekday()]})</b> '
             f'<span style="color:{LEVELS[lvl][1]};font-weight:800;">{LEVELS[lvl][0]}</span> — {nm}</div>'
             for dd, lvl, nm in alert_days
         )
         st.markdown(
-            f'<div style="background:rgba(255,176,0,0.07);border:1px solid rgba(255,176,0,0.35);border-radius:12px;padding:10px 14px;margin-top:8px;">'
-            f'<div style="font-size:12.5px;font-weight:800;color:#FF8C4D;margin-bottom:5px;">⚠️ 주의 이상 예보일 · {len(alert_days)}일</div>'
+            f'<div style="background:#fffaf5;border:1px solid #fed7aa;border-radius:12px;padding:10px 14px;margin-top:8px;">'
+            f'<div style="font-size:12.5px;font-weight:800;color:#c2410c;margin-bottom:5px;">⚠️ 주의 이상 예보일 · {len(alert_days)}일</div>'
             f'{items}</div>', unsafe_allow_html=True)
 
     st.caption("※ 미래 칸 등급은 '예정 일정 + 최근 충격 여진 + 금리 결정 시장예상' 기반 예보입니다 — '안정'은 시장이 잠잠하다는 뜻이 아니라 '예정된 큰 이벤트가 없음'을 뜻합니다. "
@@ -769,8 +769,6 @@ def render_alert_center(deps: dict):
     api_key = deps.get("api_key", "")
 
     st.title("🚨 통합 경보 센터")
-    st.markdown('<div class="nmr-kicker" style="margin:-6px 0 10px;">— INTEGRATED ALERT CENTER / NEWS · CHART · CALENDAR</div>',
-                unsafe_allow_html=True)
     st.caption("뉴스·정세 / 차트 패턴 / 시기·일정(호재 소멸)을 한 화면에서 감시하는 매매 경보기입니다. "
                "각 신호는 '참고용'이며 매매 판단은 본인 책임입니다.")
 
@@ -1206,13 +1204,13 @@ def render_alert_center(deps: dict):
                 idx_pts, idx_worst, idx_parts = 0, 0.0, []
         total_red = cnt["news_bad"] + cnt["chart_bear"] + cnt["evt_month"] + cnt["cat_risk"] + idx_pts
         if total_red >= EVT_BASELINE + 6:     # 기본 부하 + 추가 위험 다수
-            level_txt, level_color = "🔴 경계 (위험 신호 다수)", "#FF5F5F"
+            level_txt, level_color = "🔴 경계 (위험 신호 다수)", "#c62828"
         elif total_red >= EVT_BASELINE + 3:
-            level_txt, level_color = "🟠 주의", "#FF8C1A"
+            level_txt, level_color = "🟠 주의", "#e65100"
         elif total_red >= EVT_BASELINE + 1:
             level_txt, level_color = "🟡 관심", "#f9a825"
         else:
-            level_txt, level_color = "🟢 안정", "#2BD576"
+            level_txt, level_color = "🟢 안정", "#2e7d32"
 
         st.markdown(
             f"<div style='background:{level_color}1a;border-left:6px solid {level_color};"
@@ -1224,7 +1222,7 @@ def render_alert_center(deps: dict):
         # 오늘 지수 등락 + 급락 반영분 표시(왜 등급이 올랐는지 투명하게)
         if idx_parts:
             idx_txt = " · ".join(f"{nm} {sp:+.2f}%" for nm, sp in idx_parts)
-            note_c = "#FF5F5F" if idx_pts >= 4 else ("#FF8C1A" if idx_pts >= 2 else "#8B9097")
+            note_c = "#c62828" if idx_pts >= 4 else ("#e65100" if idx_pts >= 2 else "#64748b")
             extra = f" → 시장 급락 위험 <b>+{idx_pts}</b> 반영" if idx_pts > 0 else ""
             st.markdown(
                 f"<div style='font-size:12.5px;color:{note_c};font-weight:700;margin:-2px 0 8px;'>"
