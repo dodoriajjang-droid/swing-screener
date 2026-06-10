@@ -4494,12 +4494,71 @@ def search_us_ticker(query):
     except Exception: return []
 
 @st.cache_data(ttl=3600)
+# === [전문가 보조지표 계산] ==================================================
+def _calc_expert_metrics(adf):
+    """가격 DF에서 전문가 보조지표 계산 → dict 반환. (네트워크 호출 없음, 부족하면 항목별 None)
+    - 고점대비52주: 최근 252거래일 고점 대비 % (0에 가까울수록 신고가권)
+    - 이격도20: 20일선 대비 괴리 % (과열/눌림 판단)
+    - 수익률20일: 시장 상대강도(RS) 계산용 최근 20일 수익률 %
+    - MFI: 14일 자금흐름지수(거래량 가중 RSI)
+    - 평균거래대금20일: 종가×거래량 20일 평균 (유동성 필터, 통화 단위 그대로)
+    - 변동성20일: 일간 수익률 20일 표준편차 %/일"""
+    out = {"고점대비52주": None, "이격도20": None, "수익률20일": None,
+           "MFI": None, "평균거래대금20일": None, "변동성20일": None}
+    try:
+        close = pd.to_numeric(adf["Close"], errors="coerce").dropna()
+        if len(close) < 21:
+            return out
+        cur = float(close.iloc[-1])
+        if cur <= 0:
+            return out
+        hi_src = adf["High"] if ("High" in adf.columns and adf["High"].notna().any()) else close
+        hi = float(pd.to_numeric(hi_src, errors="coerce").tail(252).max())
+        if hi > 0:
+            out["고점대비52주"] = round((cur / hi - 1) * 100, 1)
+        if "MA20" in adf.columns and pd.notna(adf["MA20"].iloc[-1]):
+            ma20 = float(adf["MA20"].iloc[-1])
+        else:
+            ma20 = float(close.rolling(20).mean().iloc[-1])
+        if ma20 > 0:
+            out["이격도20"] = round((cur / ma20 - 1) * 100, 1)
+        out["수익률20일"] = round((cur / float(close.iloc[-21]) - 1) * 100, 1)
+        if {"High", "Low", "Volume"}.issubset(adf.columns):
+            h = pd.to_numeric(adf["High"], errors="coerce")
+            lo = pd.to_numeric(adf["Low"], errors="coerce")
+            c = pd.to_numeric(adf["Close"], errors="coerce")
+            v = pd.to_numeric(adf["Volume"], errors="coerce")
+            tp = (h + lo + c) / 3.0
+            mf = tp * v
+            dtp = tp.diff()
+            pos = mf.where(dtp > 0, 0.0).rolling(14).sum()
+            neg = mf.where(dtp < 0, 0.0).rolling(14).sum()
+            denom = neg.replace(0, float("nan"))
+            mfi = 100 - 100 / (1 + pos / denom)
+            val = mfi.iloc[-1]
+            if pd.notna(val):
+                out["MFI"] = round(float(val), 1)
+        if "Volume" in adf.columns:
+            v = pd.to_numeric(adf["Volume"], errors="coerce")
+            amt = (pd.to_numeric(adf["Close"], errors="coerce") * v).rolling(20).mean()
+            val = amt.iloc[-1]
+            if pd.notna(val) and val > 0:
+                out["평균거래대금20일"] = float(val)
+        vol = close.pct_change().rolling(20).std().iloc[-1]
+        if pd.notna(vol):
+            out["변동성20일"] = round(float(vol) * 100, 2)
+    except Exception:
+        pass
+    return out
+# === [/전문가 보조지표 계산] =================================================
+
+
 def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
     if not ticker_code: return None
     is_us = not str(ticker_code).isdigit()
     if is_us: stock_name = get_korean_name(stock_name)
     try:
-        df = get_historical_data(ticker_code, 150)
+        df = get_historical_data(ticker_code, 260)   # 52주 신고가 계산을 위해 260일 조회
         if df.empty or len(df) < 20 + offset_days: return None
         
         today_close = float(df['Close'].iloc[-1]) 
@@ -4548,7 +4607,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         per, pbr, fcf, shares, target_price = get_fundamentals(ticker_code)
         
         target_1 = float(latest['Bollinger_Upper'])
-        recent_high = float(analysis_df['Close'].max())
+        recent_high = float(analysis_df['Close'].tail(150).max())   # 목표가 로직은 기존(150일) 기준 유지
         target_2 = float(recent_high) if recent_high > (target_1 * 1.02) else float(target_1 * 1.05)
         target_3 = float(target_2 * 1.08)
         
@@ -4611,6 +4670,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "연기금추정순매수": pension_sum, "연기금연속순매수": pension_streak,
             "PER": per, "PBR": pbr, "FCF": fcf, "Shares": shares, "목표가_컨센서스": target_price,
             "OBV": analysis_df['OBV'].tail(20), "차트 데이터": analysis_df.tail(20), 
+            **_calc_expert_metrics(analysis_df),
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
         }
     except Exception as e: 
@@ -6130,6 +6190,50 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
         mid = _clip(mid - 8)
         longs = _clip(longs - 6)
 
+    # ===== [전문가 보강] 시장 상대강도(RS)·52주 신고가·MFI·이격/유동성/변동성 =====
+    is_kr = str(tech.get("티커", "")).isdigit()
+    _idx20 = mood.get("_idx20") if isinstance(mood, dict) else None
+    _iret = (_idx20 or {}).get("kr" if is_kr else "us")
+    _sret = _f_num(tech.get("수익률20일"))
+    rs20 = (_sret - _iret) if (_sret is not None and _iret is not None) else None
+    if rs20 is not None:                      # 시장 대비 20일 초과수익(%p) — 오닐式 상대강도
+        if rs20 >= 7:
+            short = _clip(short + 8); mid = _clip(mid + 5)
+            r_s.append(f"시장대비 강세 RS +{rs20:.0f}%p"); r_m.append(f"상대강도 우위 +{rs20:.0f}%p")
+        elif rs20 >= 3:
+            short = _clip(short + 4)
+        elif rs20 <= -7:
+            short = _clip(short - 7); mid = _clip(mid - 4)
+    off52 = _f_num(tech.get("고점대비52주"))
+    if off52 is not None:                     # 신고가 근접 = 주도주 모멘텀
+        if off52 >= -3:
+            short = _clip(short + 7); mid = _clip(mid + 7)
+            r_s.append("52주 신고가권"); r_m.append("52주 신고가권(주도주)")
+        elif off52 >= -10:
+            mid = _clip(mid + 4)
+    mfi = _f_num(tech.get("MFI"))
+    if mfi is not None:                       # 거래량 가중 자금흐름
+        if 55 <= mfi <= 80:
+            mid = _clip(mid + 4); r_m.append(f"자금 유입(MFI {mfi:.0f})")
+        elif mfi > 85:
+            short = _clip(short - 5); risk_flags.append(f"🌡️MFI 과열 {mfi:.0f}")
+        elif mfi < 20:
+            short = _clip(short - 2)
+    gap20 = _f_num(tech.get("이격도20"))
+    if gap20 is not None and gap20 >= 18:     # 20일선 과이격 = 추격매수 위험
+        short = _clip(short - 8); risk_flags.append(f"🌡️20일선 이격 +{gap20:.0f}%")
+    vol20 = _f_num(tech.get("변동성20일"))
+    if vol20 is not None and vol20 >= 4.5:    # 일변동성 과대
+        short = _clip(short - 4); risk_flags.append(f"🎢고변동성 {vol20:.1f}%/일")
+    amt20 = _f_num(tech.get("평균거래대금20일"))
+    if is_kr and amt20 is not None:           # 유동성 필터(국내): 20일 평균 거래대금
+        _eok = amt20 / 1e8
+        if _eok < 10:
+            short = _clip(short - 12); mid = _clip(mid - 8); longs = _clip(longs - 4)
+            risk_flags.append(f"💧유동성 부족({_eok:.0f}억/일)")
+        elif _eok < 30:
+            short = _clip(short - 5); mid = _clip(mid - 3)
+
     scores = {"단기": round(short, 1), "중기": round(mid, 1), "장기": round(longs, 1)}
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     horizon = ranked[0][0]
@@ -6146,6 +6250,20 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
     elif top >= 50: grade = "🟡 양호"
     else: grade = "⚪ 약함"
     return scores, horizon, round(top, 1), grade, reasons, risk_flags
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_index_ret20():
+    """시장 상대강도(RS) 기준선: 코스피·S&P500의 최근 20거래일 수익률(%). 실패 항목은 None."""
+    out = {"kr": None, "us": None}
+    for key, sym in (("kr", "KS11"), ("us", "US500")):
+        try:
+            s = fdr.DataReader(sym, (datetime.now() - timedelta(days=70)).strftime("%Y-%m-%d"))["Close"].dropna()
+            if len(s) >= 21:
+                out[key] = round(float(s.iloc[-1] / s.iloc[-21] - 1) * 100, 2)
+        except Exception:
+            pass
+    return out
 
 
 def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_n, want_long):
@@ -7965,7 +8083,7 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
 elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
     st.caption("시장 분위기(신호등·VIX·공포탐욕) + 테마/정치 + 차트 + 펀더멘털 + 공매도/신용 + 뉴스 본문 AI 판정 + "
-               "**실적·목표가 컨센서스 + 매크로→섹터 틸트**를 한 번에 융합하고, **관리종목·거래정지·투자경보는 자동 제외**한 뒤 "
+               "**실적·목표가 컨센서스 + 매크로→섹터 틸트 + 52주 신고가·시장 상대강도(RS)·MFI 자금흐름·유동성/변동성 필터**를 한 번에 융합하고, **관리종목·거래정지·투자경보는 자동 제외**한 뒤 "
                "**단기·중기·장기 투자 후보를 자동 분류**합니다.")
 
     # 세션 상태 초기화
@@ -8011,17 +8129,18 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     with fc3:
         theme_focus = st.text_input("🎯 관심 테마·키워드 (선택)", placeholder="예: AI 반도체 / 방산 / 원자력 / 로봇 / 바이오")
     with fc4:
-        depth = st.selectbox("🔬 탐색 깊이", ["빠르게 (≈40종목)", "표준 (≈70종목)", "정밀 (≈110종목)"], index=1)
+        depth = st.selectbox("🔬 탐색 깊이", ["빠르게 (TOP 100)", "표준 (TOP 200)", "정밀 (TOP 300)"], index=2)
+    # (국내 거래대금 상위 N, 미국 상위 N, 펀더멘털 보강 상한, 뉴스 수집 종목 수)
     depth_cfg = {
-        "빠르게 (≈40종목)": (40, 12, 40, 12),
-        "표준 (≈70종목)": (60, 20, 60, 20),
-        "정밀 (≈110종목)": (90, 30, 90, 28),
+        "빠르게 (TOP 100)": (100, 25, 70, 12),
+        "표준 (TOP 200)": (200, 40, 110, 20),
+        "정밀 (TOP 300)": (300, 60, 150, 28),
     }[depth]
     kr_n, us_n, phaseb_cap, news_n = depth_cfg
 
     want_long = ("전체" in horizon_focus) or ("장기" in horizon_focus)
 
-    st.caption("⏳ 정밀 모드는 차트·펀더멘털·공매도·뉴스 본문까지 한 번에 수집하므로 1~3분 걸릴 수 있어요. 결과·기사 본문은 캐시되어 재실행이 빠릅니다.")
+    st.caption("⏳ 기본값인 정밀(TOP 300)은 거래대금 상위 300종목의 차트·펀더멘털·공매도·뉴스 본문까지 한 번에 수집해 3~6분 걸릴 수 있어요. 결과·기사 본문은 캐시되어 재실행은 훨씬 빠릅니다.")
 
     if st.button("🧭 통합 검색 시작", type="primary", use_container_width=True):
         if not api_key_input:
@@ -8074,6 +8193,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 # 매크로 지표(섹터 틸트용) — 1회 수집
                 macro_ind = get_macro_indicators() or {}
                 st.session_state["finder_macro"] = macro_ind
+                mood["_idx20"] = get_index_ret20()   # 시장 상대강도(RS) 기준선(코스피·S&P 20일 수익률)
 
                 items = list(pool.items())  # [(code, info)]
                 # 4) Phase A — 기술적 분석 (병렬)
@@ -8086,7 +8206,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     code, info = it
                     return code, _finder_tech(info["name"], code)
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
                     for fut in concurrent.futures.as_completed({ex.submit(_runA, it): it for it in items}):
                         code, res = fut.result()
                         doneA += 1
@@ -9242,13 +9362,32 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
 
     with ana_tab2:
         st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
-        st.info("💡 **이미지 복사 팁:** 차트 위에서 우클릭 후 '이미지 주소 복사'를 하여 우측 칸에 `Ctrl+V` 하시는 것이 가장 오류가 없습니다.")
-        upload_col, url_col = st.columns(2)
-        with upload_col: uploaded_chart = st.file_uploader("📸 점선 박스 클릭 후 Ctrl+V", type=["png", "jpg", "jpeg"])
-        with url_col: image_url = st.text_input("🔗 이미지 주소(URL) 붙여넣기", placeholder="https://example.com/chart.png")
-            
+        st.info("💡 차트를 캡처(Windows: `Win+Shift+S` / Mac: `Cmd+Shift+4`)한 뒤 **📋 클립보드 붙여넣기 버튼**만 누르면 바로 들어옵니다. 파일 업로드와 이미지 URL 방식도 그대로 지원해요.")
+        paste_col, upload_col, url_col = st.columns([1, 1, 1])
+        with paste_col:
+            st.markdown("**📋 클립보드 캡처 붙여넣기**")
+            try:
+                from streamlit_paste_button import paste_image_button as _paste_image_button
+                _paste_res = _paste_image_button(label="📋 캡처한 차트 붙여넣기", key="vision_paste_btn", errors="ignore")
+                if _paste_res is not None and getattr(_paste_res, "image_data", None) is not None:
+                    st.session_state["vision_pasted_img"] = _paste_res.image_data
+            except ImportError:
+                st.warning("📦 클립보드 붙여넣기에는 `streamlit-paste-button` 패키지가 필요합니다. "
+                           "requirements.txt에 추가해 두었으니 재배포(또는 `pip install streamlit-paste-button`)하면 버튼이 활성화돼요.")
+            if st.session_state.get("vision_pasted_img") is not None:
+                if st.button("🗑️ 붙여넣은 이미지 지우기", key="vision_paste_clear", use_container_width=True):
+                    st.session_state["vision_pasted_img"] = None
+                    st.rerun()
+        with upload_col:
+            uploaded_chart = st.file_uploader("📸 이미지 파일 업로드", type=["png", "jpg", "jpeg"])
+        with url_col:
+            image_url = st.text_input("🔗 이미지 주소(URL) 붙여넣기", placeholder="https://example.com/chart.png")
+
         img_to_analyze = None
-        if uploaded_chart:
+        if st.session_state.get("vision_pasted_img") is not None:
+            img_to_analyze = st.session_state["vision_pasted_img"]
+            st.image(img_to_analyze, caption="📋 클립보드에서 붙여넣은 차트", use_container_width=True)
+        elif uploaded_chart:
             img_to_analyze = PIL.Image.open(uploaded_chart)
             st.image(img_to_analyze, use_container_width=True)
         elif image_url:
