@@ -6302,22 +6302,23 @@ with st.sidebar:
         " ┣ 💼 내 계좌 & 포트폴리오 진단",
         " ┗ ⭐ 내 관심종목 모니터링",
         " ", 
+        "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
+        " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
+        " ┣ 🧭 AI 통합 투자 발굴기 (테스트)",
+        " ┣ 🚀 단기 스윙 퀀트 스캐너",
+        " ┣ 💎 장기 우량주 & 가치주 발굴",
+        " ┣ 📉 낙폭과대 스캐너 (고점대비 -30%↓)",
+        " ┣ 🏛️ 국민연금 5% 대량보유 픽",
+        " ┣ ⚡ 메가트렌드 & 테마 대장주",
+        " ┣ 🇰🇷 국민성장펀드 12대 산업 수혜주",
+        " ┗ 📋 코스피·코스닥 종목 리스트",
+        "  ", 
         "📂 [ 시장 흐름 & 매크로 ]",
         " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
         " ┣ 🗺️ 시장 주도주 자금 히트맵",
         " ┣ 🕸️ 실시간 섹터 순환매 추적",
         " ┣ 📅 핵심 증시 일정 & IPO 달력",
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
-        "  ", 
-        "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
-        " ┣ 🧭 AI 통합 투자 발굴기 (테스트)",
-        " ┣ 📉 낙폭과대 스캐너 (고점대비 -30%↓)",
-        " ┣ 📋 코스피·코스닥 종목 리스트",
-        " ┣ 🚀 단기 스윙 퀀트 스캐너",
-        " ┣ 🏛️ 국민연금 5% 대량보유 픽",
-        " ┣ 💎 장기 우량주 & 가치주 발굴",
-        " ┣ ⚡ 메가트렌드 & 테마 대장주",
-        " ┗ 🇰🇷 국민성장펀드 12대 산업 수혜주",
         "   ", 
         "📂 [ 트레이딩 & 시장 경보 ]",
         " ┣ 🚨 통합 경보 센터 (뉴스·차트·일정)",
@@ -6327,12 +6328,11 @@ with st.sidebar:
         " ┗ 📰 실시간 특징주 속보 & 리포트",
         "    ", 
         "📂 [ 심층 분석 & 도구 ]",
-        " ┣ 👴 노후 준비 ETF 시뮬레이터 (v2.0)", # <-- 이거 추가
-        " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
+        " ┣ 👴 노후 준비 ETF 시뮬레이터 (v2.0)",
         " ┣ 📊 국내외 핵심 ETF 분석",
         " ┣ 💰 고배당주 파이프라인 (TOP 300)",
         " ┣ 🎯 증권사 목표가 컨센서스",
-        " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)"
+        " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)",
     ]
 
     if "main_menu_radio" not in st.session_state:
@@ -6374,6 +6374,178 @@ with st.sidebar:
     if st.button("🔄 현재 화면 새로고침", use_container_width=True): 
         st.cache_data.clear()
         st.rerun()
+
+
+# === [포트폴리오 파일 업로드 파서] ===========================================
+def parse_portfolio_upload(uploaded_file):
+    """증권사 잔고 엑셀/CSV 또는 샘플 양식을 읽어 (DataFrame[종목명,진입단가,보유수량], 안내문) 반환.
+    - 인코딩(utf-8/cp949)·구분자(쉼표/탭/세미콜론) 조합을 자동 시도해 '컬럼 매핑이 성공하는' 해석을 채택
+    - 머리글 행 자동 탐색(파일 위쪽의 제목/계좌정보 줄 무시)
+    - 컬럼 자동 매핑: 종목명·상품명 / 보유수량·잔고수량·수량 / 매입단가·평균단가·평단가 ...
+    - 단가 컬럼이 없고 '매입금액'만 있으면 금액÷수량으로 환산
+    - 종목코드가 있으면 KRX 정식 종목명으로 보정(엑셀에서 잘린 앞자리 0 복원)
+    - 같은 종목 여러 줄(분할 매수)은 가중평균 단가로 자동 합산
+    실패 시 ValueError(사용자 안내 메시지)를 발생시킨다."""
+    import io as _io, re as _re
+
+    def _norm(x):
+        return _re.sub(r"[\s_()\[\]]", "", str(x)).lower()
+
+    NAME_KEYS  = ["종목명", "상품명", "종목", "name", "ticker", "티커"]
+    CODE_KEYS  = ["종목코드", "단축코드", "종목번호", "code", "symbol"]
+    QTY_KEYS   = ["보유수량", "잔고수량", "결제잔고", "보유량", "주식수", "수량", "qty", "quantity", "shares"]
+    PRICE_KEYS = ["진입단가", "매입단가", "평균단가", "평균매입가", "매입평균가", "평단가",
+                  "매수단가", "매입가", "avgprice", "averageprice", "buyprice"]
+    AMT_KEYS   = ["매입금액", "매수금액", "투자원금", "투자금액", "매입원금"]
+
+    def _find_col(cols_norm, keys):
+        for k in keys:
+            kk = _norm(k)
+            for i, c in enumerate(cols_norm):
+                if kk and kk in c:
+                    return i
+        return None
+
+    def _map_columns(df0):
+        """머리글 행 탐색 + 컬럼 매핑. 성공 시 dict, 실패 시 None."""
+        if df0 is None or df0.empty:
+            return None
+        for r in range(min(15, len(df0))):
+            cells = [_norm(v) for v in df0.iloc[r].tolist()]
+            has_name = any(any(_norm(k) in c for c in cells) for k in (NAME_KEYS + CODE_KEYS))
+            has_qty  = any(any(_norm(k) in c for c in cells) for k in QTY_KEYS)
+            if not (has_name and has_qty):
+                continue
+            header = ["" if v is None else str(v) for v in df0.iloc[r].tolist()]
+            cn = [_norm(h) for h in header]
+            i_name, i_code = _find_col(cn, NAME_KEYS), _find_col(cn, CODE_KEYS)
+            i_qty = _find_col(cn, QTY_KEYS)
+            i_price, i_amt = _find_col(cn, PRICE_KEYS), _find_col(cn, AMT_KEYS)
+            if i_qty is None or (i_name is None and i_code is None):
+                continue
+            if i_price is None and i_amt is None:
+                continue
+            # 제목들이 한 칸에 뭉쳐 있으면(구분자 오인식) 이 해석은 무효
+            if len({x for x in (i_name, i_code, i_qty, i_price, i_amt) if x is not None}) < 2:
+                continue
+            body = df0.iloc[r + 1:].reset_index(drop=True)
+            body.columns = range(len(header))
+            return dict(header=header, body=body, i_name=i_name, i_code=i_code,
+                        i_qty=i_qty, i_price=i_price, i_amt=i_amt)
+        return None
+
+    fname = (getattr(uploaded_file, "name", "") or "").lower()
+    raw = uploaded_file.getvalue()
+    mapped = None
+    if fname.endswith((".xlsx", ".xlsm", ".xls")):
+        try:
+            df0 = pd.read_excel(_io.BytesIO(raw), header=None, dtype=str)
+        except Exception as e:
+            raise ValueError(f"엑셀 파일을 여는 데 실패했습니다 ({e}). CSV로 저장해 다시 올려보세요.")
+        mapped = _map_columns(df0)
+    else:
+        tried = set()
+        for _enc in ("utf-8-sig", "cp949", "euc-kr", "utf-8", "latin1"):
+            for _sep in (",", "\t", ";", "|"):
+                try:
+                    df0 = pd.read_csv(_io.BytesIO(raw), header=None, dtype=str, encoding=_enc,
+                                      sep=_sep, engine="python", names=list(range(64)),
+                                      skip_blank_lines=True)
+                except Exception:
+                    continue
+                df0 = df0.dropna(axis=1, how="all")
+                sig = (df0.shape, str(df0.head(2).values.tolist())[:300])
+                if sig in tried:
+                    continue
+                tried.add(sig)
+                mapped = _map_columns(df0)
+                if mapped:
+                    break
+            if mapped:
+                break
+    if mapped is None:
+        raise ValueError("머리글 행을 찾지 못했습니다. 첫 줄에 '종목명, 진입단가, 보유수량' 같은 "
+                         "제목이 필요합니다. (옆의 샘플 양식을 받아 그대로 채우면 가장 쉽습니다)")
+
+    header, body = mapped["header"], mapped["body"]
+    i_name, i_code = mapped["i_name"], mapped["i_code"]
+    i_qty, i_price, i_amt = mapped["i_qty"], mapped["i_price"], mapped["i_amt"]
+
+    def _num(v):
+        s = _re.sub(r"[,₩원\s$]", "", str(v))
+        if s in ("", "-", "nan", "none", "None", "NaN"):
+            return None
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    krx = None
+    try:
+        krx = get_krx_stocks()
+    except Exception:
+        krx = None  # 시세망 문제 시에도 이름 기반으로는 계속 진행
+
+    rows, skipped = [], 0
+    for _, r in body.iterrows():
+        qty = _num(r[i_qty])
+        name = "" if i_name is None else str(r[i_name]).strip()
+        code_raw = "" if i_code is None else str(r[i_code]).strip()
+        if name.lower() in ("nan", "none"):
+            name = ""
+        if code_raw.lower() in ("nan", "none"):
+            code_raw = ""
+        if (qty is None or qty <= 0) and not name and not code_raw:
+            continue  # 완전 빈 줄
+        if qty is None or qty <= 0:
+            skipped += 1  # 합계·예수금 등 수량 없는 줄
+            continue
+        price = _num(r[i_price]) if i_price is not None else None
+        if (price is None or price <= 0) and i_amt is not None:
+            amt = _num(r[i_amt])
+            if amt and amt > 0:
+                price = amt / qty
+        if code_raw:  # 종목코드 → KRX 정식 종목명 보정 (앞자리 0 복원)
+            digits = _re.sub(r"\D", "", code_raw)
+            if digits and krx is not None and not krx.empty:
+                code6 = digits.zfill(6)[-6:]
+                hit = krx[krx["Code"].astype(str).str.zfill(6) == code6]
+                if not hit.empty:
+                    name = str(hit["Name"].iloc[0])
+            if not name:
+                name = code_raw  # 숫자 아닌 코드(미국 티커 등)는 그대로 사용
+        if not name or price is None or price <= 0:
+            skipped += 1
+            continue
+        rows.append({"종목명": name, "진입단가": round(float(price), 2), "보유수량": int(qty)})
+
+    if not rows:
+        raise ValueError("불러올 수 있는 보유 종목이 없습니다. 수량과 단가 값이 채워져 있는지 확인해 주세요.")
+
+    out = pd.DataFrame(rows, columns=["종목명", "진입단가", "보유수량"])
+    if out["종목명"].duplicated().any():  # 분할 매수 → 가중평균 합산
+        out["_금액"] = out["진입단가"] * out["보유수량"]
+        g = out.groupby("종목명", as_index=False).agg({"_금액": "sum", "보유수량": "sum"})
+        g["진입단가"] = (g["_금액"] / g["보유수량"]).round(2)
+        out = g[["종목명", "진입단가", "보유수량"]]
+
+    used = []
+    if i_name is not None:
+        used.append(f"종목명←'{header[i_name]}'")
+    if i_code is not None and i_code != i_name:
+        used.append(f"종목코드←'{header[i_code]}'")
+    used.append(f"수량←'{header[i_qty]}'")
+    if i_price is not None:
+        used.append(f"단가←'{header[i_price]}'")
+    elif i_amt is not None:
+        used.append(f"단가←'{header[i_amt]}'÷수량")
+    msg = f"✅ {len(out)}개 종목을 불러왔습니다"
+    if skipped:
+        msg += f" (합계·빈 줄 등 {skipped}행 건너뜀)"
+    msg += " · 인식한 컬럼: " + ", ".join(used)
+    return out, msg
+# === [/포트폴리오 파일 업로드 파서] ==========================================
+
 
 # ==========================================
 # 5. 메인 로직 
@@ -6703,19 +6875,90 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
 
     if "portfolio_df" not in st.session_state:
         st.session_state.portfolio_df = pd.DataFrame([{"종목명": "", "진입단가": 0, "보유수량": 0}])
+    if "pf_editor_ver" not in st.session_state:
+        st.session_state.pf_editor_ver = 0
 
-    st.markdown("### 📊 1. 내 포트폴리오 입력 (표 아래 '➕ 추가'를 눌러 종목 추가)")
-    
+    st.markdown("### 📊 1. 내 포트폴리오 입력")
+
+    up_col, sample_col = st.columns([3, 2])
+    with up_col:
+        up_file = st.file_uploader(
+            "📤 파일을 여기로 끌어다 놓으면 표가 한 번에 채워집니다 (엑셀/CSV)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="pf_upload",
+            help="증권사(키움·미래에셋·삼성 등) 잔고 화면에서 내려받은 엑셀도 그대로 올리면 종목명·수량·매입단가 컬럼을 자동으로 찾아 읽습니다.",
+        )
+    with sample_col:
+        st.caption("처음이라면 👇 샘플 양식을 받아 숫자만 바꿔 올리세요.")
+        _sample_df = pd.DataFrame({
+            "종목명": ["삼성전자", "SK하이닉스", "AAPL"],
+            "진입단가": [71000, 180000, 210],
+            "보유수량": [10, 5, 3],
+        })
+        st.download_button("📑 샘플 양식 받기 (CSV)", _sample_df.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="포트폴리오_샘플.csv", mime="text/csv", use_container_width=True)
+        try:
+            import io as _io
+            _xbuf = _io.BytesIO()
+            _sample_df.to_excel(_xbuf, index=False)
+            st.download_button("📑 샘플 양식 받기 (엑셀)", _xbuf.getvalue(), file_name="포트폴리오_샘플.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
+        except Exception:
+            pass  # openpyxl 미설치 환경에서는 CSV 샘플만 제공
+
+    if up_file is not None:
+        _file_key = (up_file.name, up_file.size)
+        if st.session_state.get("pf_loaded_key") != _file_key:
+            try:
+                _pf_new, _pf_msg = parse_portfolio_upload(up_file)
+                st.session_state.portfolio_df = _pf_new
+                st.session_state.pf_loaded_key = _file_key
+                st.session_state.pf_upload_msg = _pf_msg
+                st.session_state.pf_editor_ver += 1
+                st.rerun()
+            except ValueError as _e:
+                st.error(f"⚠️ {_e}")
+            except Exception as _e:
+                st.error(f"⚠️ 파일을 해석하지 못했습니다: {_e}")
+    if st.session_state.get("pf_upload_msg"):
+        st.success(st.session_state.pf_upload_msg)
+
+    st.caption("표는 직접 고칠 수 있고, 엑셀에서 복사한 표를 셀에 붙여넣기(Ctrl+V)해도 됩니다. 행 추가는 표 맨 아래 ➕ 버튼.")
     edited_df = st.data_editor(
-        st.session_state.portfolio_df, 
-        num_rows="dynamic", 
+        st.session_state.portfolio_df,
+        num_rows="dynamic",
         column_config={
             "종목명": st.column_config.TextColumn("종목명 또는 티커", required=True),
             "진입단가": st.column_config.NumberColumn("내 진입단가", min_value=0, step=1, format="%d"),
             "보유수량": st.column_config.NumberColumn("보유 수량", min_value=0, step=1, format="%d"),
         },
-        use_container_width=True
+        use_container_width=True,
+        key=f"pf_editor_{st.session_state.pf_editor_ver}",
     )
+    st.session_state.portfolio_df = edited_df
+
+    _save_col, _clear_col = st.columns([3, 1])
+    with _save_col:
+        _valid_save = edited_df[
+            (edited_df["종목명"].astype(str).str.strip() != "")
+            & (pd.to_numeric(edited_df["진입단가"], errors="coerce").fillna(0) > 0)
+            & (pd.to_numeric(edited_df["보유수량"], errors="coerce").fillna(0) > 0)
+        ]
+        st.download_button(
+            "💾 내 포트폴리오 저장 (CSV) — 다음에 이 파일만 다시 올리면 그대로 복원돼요",
+            _valid_save.to_csv(index=False).encode("utf-8-sig"),
+            file_name="내_포트폴리오.csv", mime="text/csv",
+            use_container_width=True, disabled=_valid_save.empty,
+        )
+    with _clear_col:
+        if st.button("🗑️ 표 비우기", use_container_width=True):
+            st.session_state.portfolio_df = pd.DataFrame([{"종목명": "", "진입단가": 0, "보유수량": 0}])
+            st.session_state.pf_editor_ver += 1
+            st.session_state.pf_loaded_key = None
+            st.session_state.pf_upload_msg = ""
+            st.session_state.pop("pf_upload", None)
+            st.rerun()
 
     valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
 
