@@ -6450,7 +6450,8 @@ with st.sidebar:
         " ┣ 📊 국내외 핵심 ETF 분석",
         " ┣ 💰 고배당주 파이프라인 (TOP 300)",
         " ┣ 🎯 증권사 목표가 컨센서스",
-        " ┗ ⚖️ 적정 주가 계산기 (버핏 모델)",
+        " ┣ ⚖️ 적정 주가 계산기 (버핏 모델)",
+        " ┗ 👁️ 차트 이미지 AI 비전 분석",
     ]
 
     if "main_menu_radio" not in st.session_state:
@@ -9298,111 +9299,110 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
 
 elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
     st.markdown("## 🔬 개별 기업 정밀 진단 (AI 비전)")
-    ana_tab1, ana_tab2 = st.tabs(["📊 티커 검색 분석", "👁️ 차트 이미지 AI 비전 분석"])
-    
-    with ana_tab1:
-        market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
-        if market_choice == "🇰🇷 국내 주식":
-            krx_df = get_krx_stocks()
-            searched_name = searched_code = None
-            do_analyze = False
-            if not krx_df.empty:
-                opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-                col_s1, col_s2 = st.columns([8, 2])
-                with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
-                with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
-                if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
-                    searched_name = kr_query.rsplit(" (", 1)[0]
-                    searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                    do_analyze = True
-            else:
-                # 폴백: 종목 목록 로드 실패 시 종목코드 직접 입력
-                st.warning("⚠️ 국내 종목 목록을 일시적으로 불러오지 못했습니다. 아래에 **종목코드 6자리**를 직접 입력해 분석하세요. (예: 005930)")
-                col_s1, col_s2 = st.columns([8, 2])
-                with col_s1: kr_manual = st.text_input("종목코드/이름 입력:", placeholder="예: 005930  또는  005930 삼성전자", label_visibility="collapsed", key="kr_manual_in")
-                with col_s2: kr_manual_btn = st.button("📊 분석 시작", use_container_width=True, key="kr_manual_btn")
-                if kr_manual:
-                    m = re.search(r"\d{6}", kr_manual)
-                    if m:
-                        searched_code = m.group()
-                        searched_name = kr_manual.replace(searched_code, "").strip() or searched_code
-                        do_analyze = True
-                    elif kr_manual_btn:
-                        st.error("6자리 종목코드를 포함해 입력해 주세요. 예: 005930")
-            if do_analyze and searched_code:
-                with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
-                    res = analyze_technical_pattern(searched_name, searched_code)
-                    if res:
-                        # 🌟 다중 테마 뷰어 출력 (국내 주식) 🌟
-                        render_single_stock_themes(searched_name, api_key_input)
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
-                    else:
-                        st.error("❌ 데이터 로드 실패 — 종목코드를 확인해 주세요.")
+    st.caption("👁️ 차트 이미지(캡처) AI 비전 분석은 사이드바 **[심층 분석 & 도구] → 👁️ 차트 이미지 AI 비전 분석** 메뉴로 이동했습니다.")
+    market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
+    if market_choice == "🇰🇷 국내 주식":
+        krx_df = get_krx_stocks()
+        searched_name = searched_code = None
+        do_analyze = False
+        if not krx_df.empty:
+            opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+            col_s1, col_s2 = st.columns([8, 2])
+            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
+            with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
+            if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
+                searched_name = kr_query.rsplit(" (", 1)[0]
+                searched_code = kr_query.rsplit("(", 1)[-1].replace(")", "").strip()
+                do_analyze = True
         else:
-            col_us1, col_us2 = st.columns([8, 2])
-            with col_us1: us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
-            with col_us2: us_search_btn = st.button("🔍 검색", use_container_width=True)
-            if us_query or us_search_btn:
-                with st.spinner(f"📡 검색 중..."): us_results = search_us_ticker(us_query)
-                if us_results: st.session_state.us_search_results = us_results
-                else: st.error("❌ 검색 결과 없음")
-            
-            if "us_search_results" in st.session_state and st.session_state.us_search_results:
-                sel_us_opt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + st.session_state.us_search_results)
-                analyze_btn = st.button("📊 분석 시작", use_container_width=True)
-                if analyze_btn and sel_us_opt != "선택하세요":
-                    us_ticker = sel_us_opt.split(" ")[0]
-                    with st.spinner(f"📡 '{us_ticker}' 분석 중..."):
-                        res = analyze_technical_pattern(us_ticker, us_ticker)
-                        if res: 
-                            # 🌟 다중 테마 뷰어 출력 (미국 주식) 🌟
-                            render_single_stock_themes(us_ticker, api_key_input)
-                            
-                            draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
+            # 폴백: 종목 목록 로드 실패 시 종목코드 직접 입력
+            st.warning("⚠️ 국내 종목 목록을 일시적으로 불러오지 못했습니다. 아래에 **종목코드 6자리**를 직접 입력해 분석하세요. (예: 005930)")
+            col_s1, col_s2 = st.columns([8, 2])
+            with col_s1: kr_manual = st.text_input("종목코드/이름 입력:", placeholder="예: 005930  또는  005930 삼성전자", label_visibility="collapsed", key="kr_manual_in")
+            with col_s2: kr_manual_btn = st.button("📊 분석 시작", use_container_width=True, key="kr_manual_btn")
+            if kr_manual:
+                m = re.search(r"\d{6}", kr_manual)
+                if m:
+                    searched_code = m.group()
+                    searched_name = kr_manual.replace(searched_code, "").strip() or searched_code
+                    do_analyze = True
+                elif kr_manual_btn:
+                    st.error("6자리 종목코드를 포함해 입력해 주세요. 예: 005930")
+        if do_analyze and searched_code:
+            with st.spinner(f"📡 '{searched_name}' 타점 분석 중..."):
+                res = analyze_technical_pattern(searched_name, searched_code)
+                if res:
+                    # 🌟 다중 테마 뷰어 출력 (국내 주식) 🌟
+                    render_single_stock_themes(searched_name, api_key_input)
+                    draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_kr")
+                else:
+                    st.error("❌ 데이터 로드 실패 — 종목코드를 확인해 주세요.")
+    else:
+        col_us1, col_us2 = st.columns([8, 2])
+        with col_us1: us_query = st.text_input("👇 미국 주식 종목명/티커 입력 (예: AAPL):", label_visibility="collapsed")
+        with col_us2: us_search_btn = st.button("🔍 검색", use_container_width=True)
+        if us_query or us_search_btn:
+            with st.spinner(f"📡 검색 중..."): us_results = search_us_ticker(us_query)
+            if us_results: st.session_state.us_search_results = us_results
+            else: st.error("❌ 검색 결과 없음")
+        
+        if "us_search_results" in st.session_state and st.session_state.us_search_results:
+            sel_us_opt = st.selectbox("🎯 정확한 종목 선택:", ["선택하세요"] + st.session_state.us_search_results)
+            analyze_btn = st.button("📊 분석 시작", use_container_width=True)
+            if analyze_btn and sel_us_opt != "선택하세요":
+                us_ticker = sel_us_opt.split(" ")[0]
+                with st.spinner(f"📡 '{us_ticker}' 분석 중..."):
+                    res = analyze_technical_pattern(us_ticker, us_ticker)
+                    if res: 
+                        # 🌟 다중 테마 뷰어 출력 (미국 주식) 🌟
+                        render_single_stock_themes(us_ticker, api_key_input)
+                        
+                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
 
-    with ana_tab2:
-        st.markdown("### 👁️ AI Vision: 인간의 눈으로 보는 차트 분석")
-        st.info("💡 차트를 캡처(Windows: `Win+Shift+S` / Mac: `Cmd+Shift+4`)한 뒤 **📋 클립보드 붙여넣기 버튼**만 누르면 바로 들어옵니다. 파일 업로드와 이미지 URL 방식도 그대로 지원해요.")
-        paste_col, upload_col, url_col = st.columns([1, 1, 1])
-        with paste_col:
-            st.markdown("**📋 클립보드 캡처 붙여넣기**")
-            try:
-                from streamlit_paste_button import paste_image_button as _paste_image_button
-                _paste_res = _paste_image_button(label="📋 캡처한 차트 붙여넣기", key="vision_paste_btn", errors="ignore")
-                if _paste_res is not None and getattr(_paste_res, "image_data", None) is not None:
-                    st.session_state["vision_pasted_img"] = _paste_res.image_data
-            except ImportError:
-                st.warning("📦 클립보드 붙여넣기에는 `streamlit-paste-button` 패키지가 필요합니다. "
-                           "requirements.txt에 추가해 두었으니 재배포(또는 `pip install streamlit-paste-button`)하면 버튼이 활성화돼요.")
-            if st.session_state.get("vision_pasted_img") is not None:
-                if st.button("🗑️ 붙여넣은 이미지 지우기", key="vision_paste_clear", use_container_width=True):
-                    st.session_state["vision_pasted_img"] = None
-                    st.rerun()
-        with upload_col:
-            uploaded_chart = st.file_uploader("📸 이미지 파일 업로드", type=["png", "jpg", "jpeg"])
-        with url_col:
-            image_url = st.text_input("🔗 이미지 주소(URL) 붙여넣기", placeholder="https://example.com/chart.png")
 
-        img_to_analyze = None
+elif selected_menu == "👁️ 차트 이미지 AI 비전 분석":
+    st.markdown("## 👁️ 차트 이미지 AI 비전 분석")
+    st.info("💡 차트를 캡처(Windows: `Win+Shift+S` / Mac: `Cmd+Shift+4`)한 뒤 **📋 클립보드 붙여넣기 버튼**만 누르면 바로 들어옵니다. 파일 업로드와 이미지 URL 방식도 그대로 지원해요.")
+    paste_col, upload_col, url_col = st.columns([1, 1, 1])
+    with paste_col:
+        st.markdown("**📋 클립보드 캡처 붙여넣기**")
+        try:
+            from streamlit_paste_button import paste_image_button as _paste_image_button
+            _paste_res = _paste_image_button(label="📋 캡처한 차트 붙여넣기", key="vision_paste_btn", errors="ignore")
+            if _paste_res is not None and getattr(_paste_res, "image_data", None) is not None:
+                st.session_state["vision_pasted_img"] = _paste_res.image_data
+        except ImportError:
+            st.warning("📦 클립보드 붙여넣기에는 `streamlit-paste-button` 패키지가 필요합니다. "
+                       "requirements.txt에 추가해 두었으니 재배포(또는 `pip install streamlit-paste-button`)하면 버튼이 활성화돼요.")
         if st.session_state.get("vision_pasted_img") is not None:
-            img_to_analyze = st.session_state["vision_pasted_img"]
-            st.image(img_to_analyze, caption="📋 클립보드에서 붙여넣은 차트", use_container_width=True)
-        elif uploaded_chart:
-            img_to_analyze = PIL.Image.open(uploaded_chart)
-            st.image(img_to_analyze, use_container_width=True)
-        elif image_url:
-            try:
-                img_to_analyze = PIL.Image.open(requests.get(image_url, stream=True).raw)
-                st.image(img_to_analyze, use_container_width=True)
-            except Exception: st.error("❌ 이미지 URL 오류")
+            if st.button("🗑️ 붙여넣은 이미지 지우기", key="vision_paste_clear", use_container_width=True):
+                st.session_state["vision_pasted_img"] = None
+                st.rerun()
+    with upload_col:
+        uploaded_chart = st.file_uploader("📸 이미지 파일 업로드", type=["png", "jpg", "jpeg"])
+    with url_col:
+        image_url = st.text_input("🔗 이미지 주소(URL) 붙여넣기", placeholder="https://example.com/chart.png")
 
-        if img_to_analyze and st.button("🤖 Gemini Vision 정밀 분석 시작", type="primary", use_container_width=True):
-            if not api_key_input: st.error("API 키가 필요합니다.")
-            else:
-                with st.spinner("AI가 차트를 시각적으로 해독 중입니다..."):
-                    prompt = "전설적인 차트 분석가로서 차트의 패턴, 지지/저항선, 단기 대응 전략을 마크다운으로 분석해주세요."
-                    result = ask_gemini_vision(prompt, img_to_analyze, api_key_input)
-                    st.success(result)
+    img_to_analyze = None
+    if st.session_state.get("vision_pasted_img") is not None:
+        img_to_analyze = st.session_state["vision_pasted_img"]
+        st.image(img_to_analyze, caption="📋 클립보드에서 붙여넣은 차트", use_container_width=True)
+    elif uploaded_chart:
+        img_to_analyze = PIL.Image.open(uploaded_chart)
+        st.image(img_to_analyze, use_container_width=True)
+    elif image_url:
+        try:
+            img_to_analyze = PIL.Image.open(requests.get(image_url, stream=True).raw)
+            st.image(img_to_analyze, use_container_width=True)
+        except Exception: st.error("❌ 이미지 URL 오류")
+
+    if img_to_analyze and st.button("🤖 Gemini Vision 정밀 분석 시작", type="primary", use_container_width=True):
+        if not api_key_input: st.error("API 키가 필요합니다.")
+        else:
+            with st.spinner("AI가 차트를 시각적으로 해독 중입니다..."):
+                prompt = "전설적인 차트 분석가로서 차트의 패턴, 지지/저항선, 단기 대응 전략을 마크다운으로 분석해주세요."
+                result = ask_gemini_vision(prompt, img_to_analyze, api_key_input)
+                st.success(result)
 
 elif selected_menu == "📊 국내외 핵심 ETF 분석":
     st.markdown("## 📊 국내외 핵심 ETF 분석")
