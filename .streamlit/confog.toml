@@ -1,2 +1,12 @@
+# Jaemini PRO — Nomura dark research theme
+# 이 파일을 app.py 와 같은 폴더의 `.streamlit/config.toml` 경로에 두세요.
+# (st.dataframe 그리드, 셀렉트박스 드롭다운, 토글 색 등 CSS가 닿지 않는
+#  내부 위젯 색상은 이 테마 설정이 담당합니다)
+
 [theme]
-primaryColor = "#38bdf8"
+base = "dark"
+primaryColor = "#00E676"            # 브랜드 그린 (선택/포커스/토글)
+backgroundColor = "#0A0A0A"         # 페이지 — 피치 블랙
+secondaryBackgroundColor = "#141414" # 입력창·데이터프레임 헤더
+textColor = "#E8E8E8"
+font = "monospace"
