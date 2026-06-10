@@ -4,6 +4,7 @@ numpy
 requests
 beautifulsoup4
 lxml                 # pandas.read_html / bs4 파싱에 필요 (Cloud 단골 누락 항목)
+openpyxl             # 포트폴리오 엑셀(.xlsx) 업로드/샘플 양식 생성에 필요
 plotly
 yfinance
 yahooquery
@@ -13,4 +14,3 @@ google-generativeai
 streamlit-autorefresh
 Pillow
 PyPDF2
- 
