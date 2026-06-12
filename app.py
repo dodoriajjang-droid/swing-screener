@@ -2248,10 +2248,141 @@ def get_drawdown_info(code, lookback="52주", rebound_days=120):
             rebound = round((cur / lo - 1) * 100, 1) if lo > 0 else None
         except Exception:
             rebound = None
+        
+        # 🩹 [NEW] 회복 신호 6종 — 이미 받아온 데이터만 사용 (추가 네트워크 0건)
+        sig = {"ma20_recover": False, "golden5_20": False, "higher_low": False,
+               "vol_revive": False, "obv_rise": False, "ma60_up": False}
+        try:
+            ma5 = close.rolling(5).mean()
+            ma20 = close.rolling(20).mean()
+            ma60 = close.rolling(60).mean()
+            if pd.notna(ma20.iloc[-1]):
+                sig["ma20_recover"] = bool(cur > float(ma20.iloc[-1]))                     # 20일선 회복
+            if pd.notna(ma5.iloc[-1]) and pd.notna(ma20.iloc[-1]):
+                sig["golden5_20"] = bool(float(ma5.iloc[-1]) > float(ma20.iloc[-1]))       # 단기 골든(5>20)
+            if len(close) >= 40:
+                _lo_recent = float(close.tail(20).min())
+                _lo_prev = float(close.tail(40).head(20).min())
+                sig["higher_low"] = bool(_lo_recent > _lo_prev * 1.005)                    # 저점 높이기
+            if len(ma60.dropna()) >= 11:
+                sig["ma60_up"] = bool(float(ma60.iloc[-1]) > float(ma60.iloc[-11]))        # 60일선 상승 전환
+            if "Volume" in df.columns and df["Volume"].notna().any():
+                vol = df["Volume"].dropna()
+                if len(vol) >= 40:
+                    _v_recent = float(vol.tail(10).mean())
+                    _v_base = float(vol.tail(40).head(30).mean())
+                    sig["vol_revive"] = bool(_v_base > 0 and _v_recent > _v_base * 1.3)    # 거래량 회복(+30%)
+                # OBV(매집) 20일 증가
+                _common = close.index.intersection(vol.index)
+                if len(_common) >= 21:
+                    _c2, _v2 = close.loc[_common], vol.loc[_common]
+                    obv = (np.sign(_c2.diff()).fillna(0) * _v2).cumsum()
+                    sig["obv_rise"] = bool(float(obv.iloc[-1]) > float(obv.iloc[-21]))
+        except Exception:
+            pass
+        
         return {"current": cur, "high": hi, "high_date": high_date,
-                "drawdown": dd, "rsi": rsi, "rebound": rebound}
+                "drawdown": dd, "rsi": rsi, "rebound": rebound, **sig}
     except Exception:
         return None
+
+
+# ── 🩹 [NEW] 낙폭과대 '회복 가능성' 진단 보조 함수들 ─────────────────────────
+@st.cache_data(ttl=900, show_spinner=False)
+def get_kr_sector_heat():
+    """네이버 업종별 시세에서 {업종명: 전일대비 등락률%} 맵 구성 (HTTP 1회, 15분 캐시)."""
+    try:
+        url = "https://finance.naver.com/sise/sise_group.naver?type=upjong"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        tables = pd.read_html(StringIO(res.content.decode('euc-kr', errors='replace')))
+        for t in tables:
+            cols = [str(c) for c in t.columns]
+            if any('업종명' in c for c in cols):
+                name_col = next(c for c in t.columns if '업종명' in str(c))
+                chg_col = next((c for c in t.columns if '전일대비' in str(c) or '등락' in str(c)), None)
+                if chg_col is None:
+                    continue
+                heat = {}
+                for _, r in t.dropna(subset=[name_col]).iterrows():
+                    nm = str(r[name_col]).strip()
+                    try:
+                        v = float(str(r[chg_col]).replace('%', '').replace('+', '').strip())
+                        if nm and nm != '업종명':
+                            heat[nm] = v
+                    except Exception:
+                        continue
+                if heat:
+                    return heat
+    except Exception:
+        pass
+    return {}
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_us_sector_heat():
+    """미국 섹터 SPDR ETF의 최근 5거래일 수익률(%) 맵 — {한글섹터명: %} (15분 캐시)."""
+    etf_map = {"IT/기술": "XLK", "금융": "XLF", "헬스케어/바이오": "XLV", "임의소비재": "XLY",
+               "산업재": "XLI", "통신/플랫폼": "XLC", "필수소비재": "XLP", "에너지": "XLE",
+               "소재": "XLB", "부동산": "XLRE", "유틸리티": "XLU"}
+    heat = {}
+    start = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
+    for sec_kr, etf in etf_map.items():
+        try:
+            d = fdr.DataReader(etf, start)
+            c = d["Close"].dropna()
+            if len(c) >= 6:
+                heat[sec_kr] = round((float(c.iloc[-1]) / float(c.iloc[-6]) - 1) * 100, 2)
+        except Exception:
+            continue
+    return heat
+
+def match_sector_heat(sector, kr_heat, us_heat, is_kr):
+    """종목 섹터 문자열 ↔ 온기 맵 베스트 매칭. 실패 시 None."""
+    s = str(sector or "").strip()
+    if not s or s in ("-", "기타/분류불가", "ETF"):
+        return None
+    heat = kr_heat if is_kr else us_heat
+    if not heat:
+        return None
+    if s in heat:
+        return heat[s]
+    # 부분 일치 (양방향 contains, 2글자 이상)
+    for k, v in heat.items():
+        if len(s) >= 2 and (s in k or k in s):
+            return v
+    return None
+
+def calc_recovery_score(row, heat_val):
+    """낙폭 종목의 '회복 가능성' 점수(0~100)·등급·근거 산출.
+    기술 신호(20일선 회복·저점 높이기·거래량/OBV 등) + 반등 위치 + RSI 구간 + 테마 온기 합산."""
+    score, reasons = 0, []
+    rb = row.get("rebound")
+    if rb is not None:
+        if 5 <= rb <= 40: score += 20; reasons.append("바닥 확인+반등 초입")
+        elif 0 <= rb < 5: score += 5; reasons.append("바닥권(반등 미확인)")
+        elif 40 < rb <= 70: score += 10; reasons.append("반등 진행 중")
+        elif rb > 70: score -= 10; reasons.append("반등 후반(늦은 진입 주의)")
+    rsi = row.get("rsi")
+    if rsi is not None:
+        if 35 <= rsi <= 60: score += 15; reasons.append("RSI 회복 구간")
+        elif 30 <= rsi < 35: score += 10; reasons.append("RSI 과매도 탈출 시도")
+        elif rsi < 25: score -= 10; reasons.append("⚠️ 하락 진행형(떨어지는 칼날)")
+        elif rsi > 70: score -= 5; reasons.append("단기 과열")
+    if row.get("ma20_recover"): score += 15; reasons.append("20일선 회복")
+    if row.get("golden5_20"): score += 10; reasons.append("단기 골든(5>20)")
+    if row.get("higher_low"): score += 15; reasons.append("저점 높이기")
+    if row.get("vol_revive"): score += 10; reasons.append("거래량 회복")
+    if row.get("obv_rise"): score += 10; reasons.append("OBV(매집) 증가")
+    if row.get("ma60_up"): score += 5; reasons.append("60일선 상승 전환")
+    if heat_val is not None:
+        if heat_val >= 1.0: score += 10; reasons.append(f"🔥 업종 온기 +{heat_val:.1f}%")
+        elif heat_val >= 0: score += 5; reasons.append(f"업종 보합({heat_val:+.1f}%)")
+        elif heat_val <= -1.0: score -= 5; reasons.append(f"🥶 업종 냉각({heat_val:.1f}%)")
+    score = max(0, min(100, score))
+    if score >= 70: grade = "🟢 회복 유력"
+    elif score >= 50: grade = "🟡 회복 조짐"
+    elif score >= 30: grade = "⚪ 관찰"
+    else: grade = "🔴 바닥 미확인"
+    return score, grade, " · ".join(reasons) if reasons else "신호 없음"
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -8328,8 +8459,10 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
     - **+100% 이상** → 이미 반등이 많이 진행됨 (늦었을 수 있음)
 - **RSI** — 0~100 사이 과매수/과매도 지표. **30 이하면 🧊과매도**(단기 반등 기대 구간이나 추세 하락 지속 위험도 큼).
 - **고점일** — 위 ‘최고가’가 기록된 날짜.
+- **🩹 회복점수 (0~100)** — ‘많이 빠진 것’과 ‘회복이 시작된 것’은 다릅니다. 기술 신호(20일선 회복·단기 골든크로스·**저점 높이기**·거래량 회복·OBV 매집·60일선 상승 전환) + 반등 위치(바닥 확인 후 초입 구간 가점) + RSI 구간 + **테마 온기**(소속 업종/섹터가 살아나는 중인지)를 합산한 종합 점수입니다. 🟢70↑ 회복 유력 · 🟡50↑ 회복 조짐 · ⚪30↑ 관찰 · 🔴30↓ 바닥 미확인.
+- **테마온기(%)** — 국내는 네이버 업종 전일 등락률, 미국은 섹터 ETF 최근 5거래일 수익률. 종목 혼자가 아니라 **업종 전체가 돌아서는지**(테마적 회복) 확인하는 지표.
 
-💡 **활용 팁**: ‘많이 빠졌으면서(낙폭 큼) + 바닥 다지고 살짝 고개 든(반등 +10~30%)’ 종목이 반등 매매에선 매력적입니다.
+💡 **활용 팁**: ‘많이 빠졌으면서(낙폭 큼) + 바닥 다지고 살짝 고개 든(반등 +10~30%) + 회복점수 높은’ 종목이 반등 매매에선 매력적입니다. 표 아래 **🤖 AI 회복 검증** 버튼을 누르면 상위 종목의 하락 원인이 일회성인지 구조적인지 실시간 검색으로 교차 확인해줍니다.
 표의 **각 컬럼 머리글을 클릭하면 오름차순/내림차순 정렬**됩니다 (숫자 정렬).
 """
         )
@@ -8424,6 +8557,28 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
             st.warning(f"조건(고점 대비 -{meta[1]}% 이하)을 만족하는 종목이 없습니다. 낙폭 기준을 낮춰보세요.")
         else:
             st.success(f"✅ {meta[3]}개 스캔 중 **{len(rows)}개** 포착 — 고점({meta[2]}) 대비 **-{meta[1]}% 이하** · 반등기준 {meta[4] if len(meta) > 4 else '6개월'}")
+            
+            # 🩹 [NEW] 회복 가능성 점수 산출 (테마 온기 + 기술 신호 합산)
+            _any_kr = any(str(r["code"]).isdigit() for r in rows)
+            _any_us = any(not str(r["code"]).isdigit() for r in rows)
+            with st.spinner("🩹 업종/섹터 온기 조회 및 회복 점수 계산 중..."):
+                _kr_heat = get_kr_sector_heat() if _any_kr else {}
+                _us_heat = get_us_sector_heat() if _any_us else {}
+                for r in rows:
+                    _is_kr = str(r["code"]).isdigit()
+                    _hv = match_sector_heat(r.get("sector"), _kr_heat, _us_heat, _is_kr)
+                    r["_heat"] = _hv
+                    r["_rec_score"], r["_rec_grade"], r["_rec_why"] = calc_recovery_score(r, _hv)
+            
+            _dd_sort = st.radio("⬇️ 정렬 기준", ["🩹 회복점수 높은순 (추천)", "📉 낙폭 깊은순", "📈 저점대비 반등 높은순"],
+                                horizontal=True, key="dd_sort_radio")
+            if _dd_sort.startswith("🩹"):
+                rows = sorted(rows, key=lambda r: (r.get("_rec_score", 0), -abs(r.get("drawdown") or 0)), reverse=True)
+            elif _dd_sort.startswith("📈"):
+                rows = sorted(rows, key=lambda r: (r.get("rebound") if r.get("rebound") is not None else -999), reverse=True)
+            else:
+                rows = sorted(rows, key=lambda r: r["drawdown"])
+            
             # 시장 구성으로 가격 단위 판별(정렬 가능하도록 숫자 컬럼 유지)
             codes = [str(r["code"]) for r in rows]
             all_kr = all(c.isdigit() for c in codes)
@@ -8442,13 +8597,16 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                     "종목명": r["name"],
                     "시장": r["market"],
                     "테마/섹터": _sec,
+                    "🩹회복점수": r.get("_rec_score", 0),
+                    "회복판정": r.get("_rec_grade", "-"),
+                    "테마온기(%)": (round(float(r["_heat"]), 1) if r.get("_heat") is not None else None),
                     price_label: round(float(r["current"]), 2),
                     high_label: round(float(r["high"]), 2),
                     "고점일": (r.get("high_date") or "-"),
                     "낙폭(%)": round(float(r["drawdown"]), 1),
                     "저점대비반등(%)": (round(float(r["rebound"]), 1) if r.get("rebound") is not None else None),
                     "RSI": (int(rsi) if rsi is not None else None),
-                    "신호": ("🧊 과매도" if (rsi is not None and rsi <= 30) else ""),
+                    "회복근거": r.get("_rec_why", "-"),
                 })
             dd_df = pd.DataFrame(df_rows)
             price_fmt = "%.0f" if all_kr else ("$%.2f" if all_us else "%.2f")
@@ -8458,6 +8616,10 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                     height=min(640, 80 + len(df_rows) * 35),
                     column_config={
                         "순위": st.column_config.NumberColumn("순위", format="%d", width="small"),
+                        "🩹회복점수": st.column_config.ProgressColumn("🩹회복점수", min_value=0, max_value=100, format="%d",
+                            help="기술 신호(20일선 회복·저점 높이기·거래량/OBV 회복 등) + 반등 위치 + RSI 구간 + 업종 온기를 합산한 0~100점. 70↑ 회복 유력 / 50↑ 회복 조짐 / 30↓ 바닥 미확인."),
+                        "테마온기(%)": st.column_config.NumberColumn("테마온기(%)", format="%+.1f%%",
+                            help="국내: 네이버 업종 전일 등락률 ｜ 미국: 섹터 ETF 최근 5거래일 수익률. 업종이 살아나는 중인지(테마적 회복) 확인."),
                         price_label: st.column_config.NumberColumn(price_label, format=price_fmt),
                         high_label: st.column_config.NumberColumn(high_label, format=price_fmt),
                         "낙폭(%)": st.column_config.NumberColumn("낙폭(%)", format="%.1f%%",
@@ -8466,6 +8628,8 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                             help="선택 기간 내 최저가(바닥) 대비 현재가 상승률. 바닥 회복 정도."),
                         "RSI": st.column_config.NumberColumn("RSI", format="%d",
                             help="0~100 과매수/과매도 지표. 30 이하면 과매도."),
+                        "회복근거": st.column_config.TextColumn("회복근거", width="large",
+                            help="회복점수에 반영된 신호 목록"),
                     },
                 )
             else:
@@ -8473,10 +8637,55 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                 st.dataframe(dd_df, use_container_width=True, hide_index=True,
                              height=min(640, 80 + len(df_rows) * 35))
             st.caption("💡 컬럼 머리글을 클릭하면 **숫자 기준 오름차순/내림차순 정렬**됩니다. "
-                       "낙폭(%)=고점 대비 하락률 · 저점대비반등(%)=바닥 대비 회복률 · 🧊과매도(RSI≤30). "
+                       "🩹회복점수 = 기술 신호 + 반등 위치 + RSI + 테마 온기 종합 (🟢70↑ 유력 · 🟡50↑ 조짐 · ⚪30↑ 관찰 · 🔴30↓ 바닥 미확인). "
                        "상세 차트·수급·재무는 '🔬 개별 기업 정밀 진단' 탭에서 확인하세요.")
             st.download_button("⬇️ 결과 CSV 저장", dd_df.to_csv(index=False).encode("utf-8-sig"),
                                "낙폭과대_스캔.csv", "text/csv")
+            
+            # 🤖 [NEW] AI 회복 검증 — 상위 후보의 '하락 원인(일회성 vs 구조적)'과 테마 회복 가능성을 검색으로 교차 확인
+            st.markdown("---")
+            _top_n = min(10, len(rows))
+            _top_rows = sorted(rows, key=lambda r: r.get("_rec_score", 0), reverse=True)[:_top_n]
+            if st.button(f"🤖 AI 회복 검증 — 회복점수 상위 {_top_n}개 종목의 하락 원인·테마 전망 분석 (실시간 검색)",
+                         use_container_width=True, key="dd_ai_btn"):
+                if not api_key_input:
+                    st.error("좌측 사이드바에 Gemini API 키를 입력해주세요.")
+                else:
+                    _facts = "\n".join(
+                        f"- {r['name']} ({r['code']}/{r['market']}/{r.get('sector','-')}): "
+                        f"낙폭 {r['drawdown']:.1f}% · 저점대비반등 {r.get('rebound','-')}% · RSI {r.get('rsi','-')} · "
+                        f"회복점수 {r.get('_rec_score',0)}점 · 신호[{r.get('_rec_why','-')}] · 업종온기 {r.get('_heat','-')}%"
+                        for r in _top_rows)
+                    _prompt = f"""당신은 낙폭과대 역발상(컨트래리언) 전략 전문 펀드매니저입니다. 아래는 우리 시스템이 실측한 낙폭과대 종목 데이터입니다.
+
+[검증된 실데이터]
+{_facts}
+
+반드시 '구글 검색(Google Search)'으로 각 종목의 최근 뉴스·공시를 확인한 뒤, 종목별로 아래 형식의 마크다운 표 한 줄씩 작성하세요:
+| 종목명 | 하락 원인 (검색 근거) | 원인 성격 | 테마/업황 회복 전망 | 회복 가능성 |
+- '원인 성격'은 [일회성 악재 / 수급·시장 동반 하락 / 구조적 악화] 중 택1.
+- '회복 가능성'은 [상/중/하] + 5단어 이내 근거.
+- 구조적 악화(실적 붕괴·산업 사양화·재무 위험)로 판단되면 회복 가능성 '하'로 솔직하게 평가할 것.
+- 검색으로 확인 안 되는 내용은 '확인 불가'로 적고 지어내지 말 것.
+표 아래에 '🏆 최종 회복 유력 TOP 3'를 이유와 함께 3줄로 요약. 마지막 줄에 '※ 투자 조언이 아닌 참고용' 표기."""
+                    with st.spinner("🔍 AI가 종목별 하락 원인과 테마 전망을 실시간 검색으로 교차 확인 중... (10~20초)"):
+                        _ai_out = None
+                        try:
+                            genai.configure(api_key=api_key_input)
+                            _g_model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
+                            _g_res = _g_model.generate_content(_prompt)
+                            if _g_res.candidates and _g_res.candidates[0].content.parts:
+                                _ai_out = _g_res.text
+                        except Exception:
+                            _ai_out = None
+                        if not _ai_out:   # 그라운딩 실패 → 일반 모델 폴백 (지어내기 방지 지침 포함)
+                            _ai_out = "⚠️ 실시간 검색 연동에 실패해 시스템 실데이터 기준으로만 평가합니다.\n\n" + ask_gemini(
+                                _prompt + "\n\n(검색이 불가하니 위 실데이터의 기술 신호만으로 보수적으로 평가하고, 뉴스성 내용은 '확인 불가'로 표기할 것)", api_key_input)
+                    st.session_state.dd_ai_result = _ai_out
+            if st.session_state.get("dd_ai_result"):
+                with st.container(border=True):
+                    st.markdown("#### 🤖 AI 회복 검증 리포트")
+                    st.markdown(st.session_state.dd_ai_result)
 
 elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     st.markdown("## 🧭 AI 통합 투자 발굴기  <span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
