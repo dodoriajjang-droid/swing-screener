@@ -7193,6 +7193,78 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     if st.session_state.get("pf_upload_msg"):
         st.success(st.session_state.pf_upload_msg)
 
+    # 🔎 [NEW] 종목 검색해서 담기 (장바구니 방식) — 체크한 종목이 아래 표에 행으로 자동 추가됩니다.
+    with st.container(border=True):
+        st.markdown("**🔎 종목 검색해서 담기** — 검색 후 체크만 하면 아래 표에 자동으로 담깁니다. (담은 뒤 표에서 **단가·수량**만 입력하세요)")
+        if "pf_search_query" not in st.session_state:
+            st.session_state.pf_search_query = ""
+
+        _s_cols = st.columns([4, 1], vertical_alignment="bottom")
+        with _s_cols[0]:
+            pf_search_input = st.text_input(
+                "종목 검색", placeholder=" 🔍 검색어를 입력하세요. (예: 우주항공, 삼성전자, AAPL)",
+                label_visibility="collapsed", key="pf_search_in").strip()
+        with _s_cols[1]:
+            pf_search_clicked = st.button("종목 검색", type="primary", use_container_width=True, key="pf_search_btn")
+
+        if pf_search_clicked:
+            if pf_search_input:
+                st.session_state.pf_search_query = pf_search_input
+            else:
+                st.warning("⚠️ 검색어를 먼저 입력해주세요!")
+
+        if st.session_state.pf_search_query:
+            _q = st.session_state.pf_search_query
+            pf_options = []
+            with st.spinner("데이터베이스에서 종목을 찾는 중입니다..."):
+                _krx_s = get_krx_stocks()   # 국내 주식 + ETF 포함
+                if not _krx_s.empty:
+                    _m = _krx_s[_krx_s['Name'].str.contains(_q, case=False, na=False)]
+                    for _, _r in _m.head(60).iterrows():
+                        pf_options.append(f"{_r['Name']} [{_r['Code']}]")
+                if re.search('[a-zA-Z]', _q):   # 영문 포함 시 미국 주식/ETF 검색
+                    try:
+                        for _res_us in search_us_ticker(_q):
+                            _sym = _res_us.split(" ")[0]
+                            _ko = _res_us.split(" (")[1].split(" /")[0]
+                            pf_options.append(f"{_ko} [{_sym}]")
+                    except Exception:
+                        pass
+
+            if pf_options:
+                with st.form(key="pf_add_form", clear_on_submit=True):
+                    st.success(f"🎉 '{_q}' 검색 결과 총 **{len(pf_options)}개**를 찾았습니다!")
+                    pf_selected = st.multiselect("👇 결과 목록에서 포트폴리오에 담을 종목을 모두 골라주세요:", options=pf_options)
+                    pf_submit = st.form_submit_button("🛒 선택한 종목 포트폴리오 표에 추가하기", use_container_width=True)
+
+                    if pf_submit:
+                        if pf_selected:
+                            _cur = st.session_state.portfolio_df.copy()
+                            _existing = set(_cur["종목명"].astype(str).str.strip().str.upper())
+                            _new_rows = []
+                            for _sel in pf_selected:
+                                _nm = str(_sel).strip()   # "이름 [코드]" 형식 그대로 저장 → 진단 시 코드 우선 인식(모호 매칭 방지)
+                                if _nm.upper() in _existing:
+                                    continue
+                                _new_rows.append({"종목명": _nm, "진입단가": 0, "보유수량": 0})
+                                _existing.add(_nm.upper())
+                            if _new_rows:
+                                # 비어 있는 placeholder 행은 제거 후 합치기
+                                _mask_empty = (_cur["종목명"].astype(str).str.strip() == "") \
+                                              & (pd.to_numeric(_cur["진입단가"], errors="coerce").fillna(0) == 0) \
+                                              & (pd.to_numeric(_cur["보유수량"], errors="coerce").fillna(0) == 0)
+                                _cur = _cur[~_mask_empty]
+                                st.session_state.portfolio_df = pd.concat(
+                                    [_cur, pd.DataFrame(_new_rows)], ignore_index=True)
+                                st.session_state.pf_editor_ver += 1   # data_editor 강제 새로고침
+                                st.toast(f"✅ {len(_new_rows)}개 종목을 표에 담았습니다! 단가·수량을 입력해주세요.", icon="🛒")
+                            st.session_state.pf_search_query = ""
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ 추가할 종목을 위에서 먼저 선택해주세요.")
+            else:
+                st.error("앗! 검색 결과가 없습니다. 🥲 다른 키워드로 다시 검색해보세요.")
+
     st.caption("표는 직접 고칠 수 있고, 엑셀에서 복사한 표를 셀에 붙여넣기(Ctrl+V)해도 됩니다. 행 추가는 표 맨 아래 ➕ 버튼.")
     edited_df = st.data_editor(
         st.session_state.portfolio_df,
@@ -7279,12 +7351,20 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                     pos_name_kr = pos_name
                     is_us = False
                     
+                    # 🛒 [NEW] '이름 [코드]' 형식(검색해서 담기)이면 코드를 우선 인식 → 이름 모호 매칭(예: KO→KODEX) 방지
+                    _br = re.search(r'\[([A-Za-z0-9.\-]{1,12})\]\s*$', pos_name)
+                    if _br:
+                        _code = _br.group(1).strip()
+                        pos_name_kr = pos_name[:_br.start()].strip() or _code
+                        search_ticker = _code
+                        is_us = not _code.isdigit()   # 6자리 숫자면 국내, 아니면 미국 티커
+                    
                     # 💡 [핵심 로직 수정] 영어 포함 여부가 아니라, '한국 주식 DB(KRX)'에 있는지 먼저 확인!
                     krx_df = get_krx_stocks()
+                    if search_ticker:
+                        pass   # 위에서 코드로 확정됨 → 이름 검색 생략
                     # 1. 한국 종목 중에 정확히 일치하는 이름이 있는지 먼저 확인 (대소문자 무시)
-                    exact_match = krx_df[krx_df['Name'].str.upper() == pos_name.upper()]
-                    
-                    if not exact_match.empty:
+                    elif not (exact_match := krx_df[krx_df['Name'].str.upper() == pos_name.upper()]).empty:
                         is_us = False
                         search_ticker = exact_match['Code'].iloc[0]
                         pos_name_kr = exact_match['Name'].iloc[0]
