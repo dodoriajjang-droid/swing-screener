@@ -3801,6 +3801,80 @@ def get_fundamentals(ticker_code):
         except Exception: 
             return 'N/A', 'N/A', None, None, 'N/A'
 
+# ── [NEW] AI 적정주가 (PER·PBR 멀티팩터 밸류에이션) ──────────────────────
+@st.cache_data(ttl=3600)
+def get_sector_per(ticker_code):
+    """네이버 증권 메인 페이지에서 '동일업종 PER'을 긁어온다. (국내 전용, 1시간 캐시)"""
+    if not str(ticker_code).isdigit():
+        return None
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={ticker_code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        for th in soup.find_all('th'):
+            if '동일업종 PER' in th.get_text():
+                td = th.find_next('td')
+                if td:
+                    m = re.search(r'([\d,]+\.?\d*)', td.get_text(strip=True).replace(',', ''))
+                    if m:
+                        v = float(m.group(1))
+                        if 0 < v < 500:
+                            return v
+        return None
+    except Exception:
+        return None
+
+def calc_ai_target_price(per, pbr, current_price, ticker_code):
+    """PER·PBR 역산(EPS·BPS·ROE)으로 AI 적정주가를 산출.
+    ① 그레이엄 공식: √(22.5 × EPS × BPS)
+    ② S-RIM(잔여이익모델 약식): BPS × (ROE ÷ 요구수익률 8%)
+    ③ 업종 상대가치(국내): EPS × 동일업종 PER
+    → 산출 가능한 방법들의 평균값을 반환. 실패 시 (None, 사유) 반환."""
+    try:
+        curr = float(current_price)
+        if curr <= 0:
+            return None, "현재가 오류"
+        per_v = float(str(per).replace(',', ''))
+        pbr_v = float(str(pbr).replace(',', ''))
+        if per_v <= 0:
+            return None, "적자 기업 (PER 음수/없음)"
+        if pbr_v <= 0:
+            return None, "PBR 데이터 없음"
+
+        eps = curr / per_v          # 주당순이익 역산
+        bps = curr / pbr_v          # 주당순자산 역산
+        roe = (eps / bps) * 100.0   # ROE(%) = PBR/PER × 100
+
+        methods = []
+        details = []
+
+        # ① 그레이엄 공식
+        graham = (22.5 * eps * bps) ** 0.5
+        methods.append(graham)
+        details.append(f"그레이엄 {graham:,.0f}")
+
+        # ② S-RIM 약식 (요구수익률 8%, ROE 40% 초과 시 과대평가 방지 캡)
+        roe_capped = min(roe, 40.0)
+        srim = bps * (roe_capped / 8.0)
+        methods.append(srim)
+        details.append(f"S-RIM {srim:,.0f}")
+
+        # ③ 업종 PER 상대가치 (국내 종목만)
+        sec_per = get_sector_per(ticker_code)
+        if sec_per:
+            rel = eps * sec_per
+            methods.append(rel)
+            details.append(f"업종PER {rel:,.0f}")
+
+        ai_target = sum(methods) / len(methods)
+        # 극단값 방어: 현재가 대비 ±70% 범위로 클리핑
+        ai_target = max(curr * 0.3, min(ai_target, curr * 1.7))
+
+        detail_str = f"EPS {eps:,.0f} · BPS {bps:,.0f} · ROE {roe:.1f}%" + (f" · 업종PER {sec_per:.1f}배" if sec_per else "")
+        return ai_target, detail_str
+    except Exception:
+        return None, "산출 불가"
+
 @st.cache_data(ttl=3600)
 def get_historical_data(ticker_code, days):
     if str(ticker_code).isdigit():
@@ -4605,6 +4679,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             pension_sum, pension_streak = get_pension_fund_trend(ticker_code)
             
         per, pbr, fcf, shares, target_price = get_fundamentals(ticker_code)
+        ai_target_val, ai_target_detail = calc_ai_target_price(per, pbr, current_price, ticker_code)
         
         target_1 = float(latest['Bollinger_Upper'])
         recent_high = float(analysis_df['Close'].tail(150).max())   # 목표가 로직은 기존(150일) 기준 유지
@@ -4669,6 +4744,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
             "기관연속순매수": inst_streak, "외인연속순매수": forgn_streak,
             "연기금추정순매수": pension_sum, "연기금연속순매수": pension_streak,
             "PER": per, "PBR": pbr, "FCF": fcf, "Shares": shares, "목표가_컨센서스": target_price,
+            "AI목표가": ai_target_val, "AI목표가_근거": ai_target_detail,
             "OBV": analysis_df['OBV'].tail(20), "차트 데이터": analysis_df.tail(20), 
             **_calc_expert_metrics(analysis_df),
             "오늘현재가": today_close, "수익률": pnl_pct, "과거검증": offset_days > 0
@@ -4998,7 +5074,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         
         st.markdown("---")
         
-        c5, c6, c7, c8 = st.columns([1.2, 1.2, 1, 2.5]) 
+        c5, c6, c6b, c7, c8 = st.columns([1.1, 1.1, 1.1, 0.9, 2.3]) 
         c5.metric("🛑 손절 라인", fmt_price(tech_result['손절가']), fmt_price(tech_result['손절가'] - curr, True) + " (리스크)", delta_color="normal")
         
         cons_text = tech_result.get("목표가_컨센서스", "N/A")
@@ -5011,6 +5087,20 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             c6.metric("🏦 증권가 목표가", fmt_price(cons_val), fmt_price(cons_val - curr, True) + " (괴리)", delta_color="normal")
         else:
             c6.metric("🏦 증권가 목표가", "목표가 없음")
+        
+        # [NEW] 🤖 AI 적정주가 (PER·PBR 멀티팩터 밸류에이션)
+        ai_tp = tech_result.get("AI목표가")
+        ai_tp_detail = tech_result.get("AI목표가_근거", "")
+        _ai_help = ("PER·PBR을 역산한 EPS·BPS·ROE 기반 멀티팩터 적정주가입니다.\n"
+                    "① 그레이엄 공식 √(22.5×EPS×BPS)\n"
+                    "② S-RIM 약식: BPS×(ROE÷요구수익률 8%)\n"
+                    "③ 업종 PER 상대가치(국내): EPS×동일업종 PER\n"
+                    "→ 산출 가능한 방법들의 평균 (현재가 ±70% 클리핑)\n"
+                    f"{('산출 근거: ' + ai_tp_detail) if ai_tp else ''}")
+        if ai_tp:
+            c6b.metric("🤖 AI 적정주가", fmt_price(ai_tp), fmt_price(ai_tp - curr, True) + " (괴리)", delta_color="normal", help=_ai_help)
+        else:
+            c6b.metric("🤖 AI 적정주가", "산출 불가", ai_tp_detail, delta_color="off", help=_ai_help)
             
         c7.metric("📊 RSI (상대강도)", f"{tech_result['RSI']:.1f}", "🔴 과열" if tech_result['RSI'] >= 70 else "🔵 바닥" if tech_result['RSI'] <= 30 else "⚪ 보통", delta_color="inverse" if tech_result['RSI'] >= 70 else "normal")
         
