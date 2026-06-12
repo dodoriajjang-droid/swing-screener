@@ -1832,6 +1832,54 @@ def _krx_list_from_naver(max_pages=22):
     return pd.DataFrame(columns=["Name", "Code", "Sector", "Market"])
 
 
+# ── [NEW] 국내 ETF 전체 목록 로더 (우주항공·방산 등 테마 ETF 검색 지원) ──────
+def _get_etf_list():
+    """국내 상장 ETF 전체 목록을 DataFrame(Name, Code, Sector, Market)으로 반환.
+    1) FinanceDataReader → 2) 네이버 ETF API → 3) pykrx 순서로 폴백."""
+    # 1차: FinanceDataReader
+    try:
+        etf = fdr.StockListing('ETF/KR')
+        if etf is not None and not etf.empty:
+            code_col = next((c for c in ['Symbol', 'Code', 'symbol', 'code'] if c in etf.columns), None)
+            name_col = next((c for c in ['Name', 'name'] if c in etf.columns), None)
+            if code_col and name_col:
+                out = etf[[name_col, code_col]].copy()
+                out.columns = ['Name', 'Code']
+                out['Code'] = out['Code'].astype(str).str.zfill(6)
+                out['Sector'] = 'ETF'
+                out['Market'] = 'ETF'
+                return out.dropna(subset=['Name']).drop_duplicates(subset=['Code']).reset_index(drop=True)
+    except Exception:
+        pass
+    # 2차: 네이버 ETF 시세 API (JSON)
+    try:
+        url = "https://finance.naver.com/api/sise/etfItemList.nhn"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        items = res.json().get('result', {}).get('etfItemList', [])
+        if items:
+            rows = [{'Name': it.get('itemname'), 'Code': str(it.get('itemcode')).zfill(6),
+                     'Sector': 'ETF', 'Market': 'ETF'} for it in items if it.get('itemcode')]
+            if rows:
+                return pd.DataFrame(rows).dropna(subset=['Name']).drop_duplicates(subset=['Code']).reset_index(drop=True)
+    except Exception:
+        pass
+    # 3차: pykrx
+    try:
+        from pykrx import stock as _pykrx_stock
+        tickers = _pykrx_stock.get_etf_ticker_list()
+        rows = []
+        for t in tickers:
+            try:
+                rows.append({'Name': _pykrx_stock.get_etf_ticker_name(t), 'Code': str(t).zfill(6),
+                             'Sector': 'ETF', 'Market': 'ETF'})
+            except Exception:
+                continue
+        if rows:
+            return pd.DataFrame(rows).dropna(subset=['Name']).drop_duplicates(subset=['Code']).reset_index(drop=True)
+    except Exception:
+        pass
+    return pd.DataFrame(columns=['Name', 'Code', 'Sector', 'Market'])
+
 @st.cache_data(ttl=86400)  # [속도개선] 전체 종목 리스트는 하루 1회만 네트워크 수집. 기존 무(無)캐시 → 매 렌더마다 fdr 2회 호출 + 2,800행 apply 가 반복되던 것을 제거.
 def get_krx_stocks():
     try:
@@ -1890,6 +1938,13 @@ def get_krx_stocks():
 
             df = df[['Name', 'Code', 'Sector', 'Market']].copy()
             df['Code'] = df['Code'].astype(str).str.zfill(6)
+            
+            # 🛰️ [NEW] ETF 목록 병합 (우주항공·방산·반도체 등 테마 ETF 검색 가능하게)
+            #    → 주식 목록 '뒤'에 붙여서, 시총 상위 N개 스캔 등 기존 로직(head)에는 영향 없음
+            etf_df = _get_etf_list()
+            if not etf_df.empty:
+                df = pd.concat([df, etf_df], ignore_index=True)
+            
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
             
     except Exception: 
@@ -1897,8 +1952,13 @@ def get_krx_stocks():
         
     # FDR 실패/빈 결과 → 네이버 시가총액 폴백으로 목록 구성
     nv = _krx_list_from_naver()
+    etf_df = _get_etf_list()
     if not nv.empty:
+        if not etf_df.empty:
+            nv = pd.concat([nv, etf_df], ignore_index=True).drop_duplicates(subset=['Name']).reset_index(drop=True)
         return nv
+    if not etf_df.empty:
+        return etf_df
     return pd.DataFrame(columns=['Name', 'Code', 'Sector', 'Market'])
 
 def fetch_naver_volume(sosok, pages=1):
