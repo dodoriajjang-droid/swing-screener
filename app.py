@@ -2493,6 +2493,119 @@ def get_us_sector_map():
         return {}
 
 
+# =====================================================================
+# [신규] 지금 뜨는 섹터 (미장 테마) — 테마별 대표 종목 평균 등락률
+#   curated 테마→티커 맵 → 오늘 등락률 배치 조회 → 테마 평균으로 강세 순 정렬
+# =====================================================================
+US_THEME_MAP = {
+    "HBM/메모리": ["MU", "WDC", "STX", "SIMO", "FORM", "AMKR"],
+    "반도체 장비": ["AMAT", "LRCX", "KLAC", "ASML", "ONTO", "COHU", "ACLS"],
+    "반도체": ["NVDA", "AMD", "AVGO", "QCOM", "ARM", "INTC", "MRVL", "TSM"],
+    "AI 데이터센터/인프라": ["VRT", "ANET", "SMCI", "DELL", "COHR", "NBIS", "CIEN"],
+    "전력/유틸리티(AI 수요)": ["VST", "CEG", "NRG", "TLN", "GEV", "NEE"],
+    "원자력/SMR/핵융합": ["CCJ", "SMR", "OKLO", "LEU", "UEC", "NNE", "BWXT"],
+    "전력 인프라/송배전": ["ETN", "PWR", "GEV", "VRT", "EMR", "HUBB"],
+    "양자컴퓨팅": ["IONQ", "RGTI", "QBTS", "QUBT", "ARQQ"],
+    "휴머노이드 로봇": ["TER", "ISRG", "ZBRA", "CGNX"],
+    "드론/eVTOL": ["ACHR", "JOBY", "EH", "KTOS", "AVAV"],
+    "우주/위성": ["RKLB", "ASTS", "LUNR", "PL", "BKSY"],
+    "위성통신": ["ASTS", "IRDM", "GSAT", "GILT", "VSAT"],
+    "비만치료제(GLP-1)": ["LLY", "NVO", "VKTX", "AMGN", "ALT"],
+    "유전자편집/치료": ["CRSP", "NTLA", "BEAM", "EDIT", "RXRX"],
+    "원격의료/디지털헬스": ["HIMS", "DXCM", "TDOC", "PODD", "GH"],
+    "헬스케어": ["UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE"],
+    "크립토/채굴": ["MARA", "RIOT", "CLSK", "CIFR", "IREN", "HUT", "BTBT"],
+    "스테이블코인/RWA": ["COIN", "MSTR", "HOOD", "GLXY"],
+    "핀테크/결제": ["SQ", "SOFI", "AFRM", "HOOD", "FOUR", "BILL", "PYPL"],
+    "전기차": ["TSLA", "RIVN", "LCID", "LI", "NIO", "XPEV"],
+    "2차전지/충전": ["ALB", "CHPT", "BLNK", "QS", "LAC", "EVGO"],
+    "태양광": ["FSLR", "ENPH", "RUN", "ARRY", "SHLS", "JKS", "CSIQ"],
+    "수소/연료전지": ["PLUG", "BE", "BLDP", "FCEL", "LIN"],
+    "금/광물/희토류": ["NEM", "GOLD", "AEM", "CDE", "MP", "FCX", "SCCO"],
+    "농업/비료/식량": ["NTR", "MOS", "CF", "ADM", "BG", "TSN"],
+    "정유/가스": ["XOM", "CVX", "COP", "OXY", "DVN", "SLB", "EOG"],
+    "항공우주/방산": ["LMT", "RTX", "NOC", "GD", "BA", "LDOS", "CW"],
+    "여행/항공/크루즈": ["CCL", "RCL", "NCLH", "DAL", "UAL", "LUV", "ABNB"],
+    "사이버보안": ["CRWD", "PANW", "ZS", "FTNT", "NET", "S", "GEN"],
+    "AI 소프트웨어/에이전트": ["PLTR", "NOW", "AI", "SNOW", "DDOG", "HUBS"],
+    "소셜/디지털광고": ["META", "GOOGL", "PINS", "SNAP", "APP", "TTD"],
+    "소비/엔터/스트리밍": ["NFLX", "DIS", "ROKU", "SPOT"],
+    "이커머스/리테일": ["AMZN", "WMT", "COST", "TGT", "CHWY", "ETSY"],
+    "게임/메타버스": ["RBLX", "EA", "TTWO", "U", "PLTK", "NTES"],
+    "중국 빅테크": ["BABA", "PDD", "JD", "BIDU", "LI", "FUTU"],
+    "금융": ["JPM", "BAC", "WFC", "GS", "MS", "SCHW", "BLK"],
+    "리츠/배당": ["O", "PLD", "AMT", "SPG", "WELL", "STAG"],
+    "빅테크(M7)": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
+    "필수소비/식음료": ["KO", "PEP", "MDLZ", "CMG", "GIS", "SBUX"],
+}
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_trending_sectors():
+    import yfinance as yf
+    uniq = sorted({t for lst in US_THEME_MAP.values() for t in lst})
+    try:
+        data = yf.download(uniq, period="5d", interval="1d",
+                           group_by="ticker", threads=True, progress=False)
+    except Exception:
+        return []
+    if data is None or len(data) == 0:
+        return []
+    multi = isinstance(data.columns, pd.MultiIndex)
+    chg = {}
+    for tk in uniq:
+        try:
+            d = data[tk] if multi else data
+            c = d["Close"].dropna()
+            if len(c) >= 2:
+                chg[tk] = (float(c.iloc[-1]) / float(c.iloc[-2]) - 1) * 100
+        except Exception:
+            continue
+    out = []
+    for theme, tickers in US_THEME_MAP.items():
+        members = [(t, chg[t]) for t in tickers if t in chg]
+        if not members:
+            continue
+        members.sort(key=lambda x: x[1], reverse=True)
+        avg = sum(p for _, p in members) / len(members)
+        out.append({"theme": theme, "avg": avg, "members": members, "n": len(members)})
+    out.sort(key=lambda x: x["avg"], reverse=True)
+    return out
+
+
+def render_trending_sectors(sectors, limit=None):
+    if not sectors:
+        st.info("섹터 데이터를 일시적으로 불러오지 못했어요.")
+        return
+    data = sectors[:limit] if limit else sectors
+
+    def _chip(tk, pct):
+        cc = "#ef4444" if pct > 0 else ("#3b82f6" if pct < 0 else "#64748b")
+        return ("<span style='background:#f8fafc;border:1px solid #eef2f7;border-radius:8px;"
+                "padding:3px 9px;font-size:12px;white-space:nowrap;'>"
+                f"<b style='color:#334155;'>{tk}</b> "
+                f"<span style='color:{cc};font-weight:600;'>{pct:+.2f}%</span></span>")
+
+    rows = []
+    for s in data:
+        avg = s["avg"]
+        c = "#ef4444" if avg > 0 else ("#3b82f6" if avg < 0 else "#64748b")
+        top3 = s["members"][:3]
+        more = s["n"] - len(top3)
+        chips = "".join(_chip(t, p) for t, p in top3)
+        more_chip = ("<span style='background:#f1f5f9;border-radius:8px;padding:3px 9px;"
+                     f"font-size:12px;color:#94a3b8;align-self:center;'>+{more}</span>") if more > 0 else ""
+        rows.append(
+            "<div style='padding:11px 0;border-bottom:1px solid #f1f5f9;'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;gap:8px;'>"
+            f"<span style='font-weight:700;color:#1e293b;font-size:14px;'>{s['theme']}</span>"
+            f"<span style='font-weight:700;color:{c};font-size:14px;white-space:nowrap;'>{avg:+.2f}%</span></div>"
+            f"<div style='display:flex;flex-wrap:wrap;gap:6px;'>{chips}{more_chip}</div></div>"
+        )
+    st.markdown(
+        "<div style='background:#fff;border:1px solid #e9eef3;border-radius:14px;padding:4px 16px;'>"
+        + "".join(rows) + "</div>", unsafe_allow_html=True)
+
+
 @st.cache_data(ttl=86400)
 def get_us_scan_targets(limit=300):
     try:
@@ -7307,6 +7420,7 @@ with st.sidebar:
         " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
         " ┣ 🗺️ 시장 주도주 자금 히트맵",
         " ┣ 🕸️ 실시간 섹터 순환매 추적",
+        " ┣ 🔥 지금 뜨는 섹터 (미장 테마)",
         " ┣ 📅 핵심 증시 일정 & IPO 달력",
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
         "   ", 
@@ -7832,6 +7946,18 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     with t_ind:
         with st.spinner("업종별 등락 수집 중..."):
             render_industry_changes(12)
+
+    st.divider()
+
+    # ── ④-c 지금 뜨는 섹터 TOP5 (미장 테마) ──
+    st.markdown("##### 🔥 지금 뜨는 섹터 TOP5 (미장 테마)")
+    with st.spinner("지금 뜨는 섹터 분석 중..."):
+        _sectors_top = get_trending_sectors()
+    if _sectors_top:
+        render_trending_sectors(_sectors_top, limit=5)
+        st.caption("전체 테마는 좌측 **‘🔥 지금 뜨는 섹터’** 메뉴에서 확인하세요.")
+    else:
+        st.caption("지금 뜨는 섹터 데이터를 일시적으로 불러오지 못했어요.")
 
     st.divider()
 
@@ -10210,6 +10336,23 @@ elif selected_menu == "🚨 당일 상/하한가 분석":
             display_lower['거래대금(억)'] = display_lower['거래대금(억)'].apply(lambda x: f"{x:,}")
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
         else: st.info("현재 하한가 종목이 없습니다.")
+
+elif selected_menu == "🔥 지금 뜨는 섹터 (미장 테마)":
+    st.markdown("## 🔥 지금 뜨는 섹터")
+    st.caption("🇺🇸 미국 주요 테마 기준 · 대표 종목 평균 등락률 순 · 🔴빨강=상승 / 🔵파랑=하락")
+    with st.spinner("테마별 종목 등락 수집 중... (첫 조회는 수십 초, 이후 30분 캐시)"):
+        sectors = get_trending_sectors()
+    if not sectors:
+        st.error("❌ 섹터 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.")
+    else:
+        hot = sum(1 for s in sectors if s["avg"] > 0)
+        cc1, cc2, cc3 = st.columns(3)
+        cc1.metric("강세 테마", f"{hot} / {len(sectors)}")
+        cc2.metric("🔥 최강 테마", sectors[0]["theme"], f"{sectors[0]['avg']:+.2f}%")
+        cc3.metric("🧊 최약 테마", sectors[-1]["theme"], f"{sectors[-1]['avg']:+.2f}%")
+        st.markdown("#### 테마별 평균 등락 (강세 순)")
+        render_trending_sectors(sectors)
+    st.caption("대표 종목 평균 등락률 기준이며, 테마 구성은 참고용입니다. 투자 권유가 아닙니다.")
 
 elif selected_menu == "🚦 거래량 급증 & 시장 경보":
     st.markdown("## 🚦 거래량 급증 & 시장 경보")
