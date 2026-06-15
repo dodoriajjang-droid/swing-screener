@@ -1306,10 +1306,19 @@ def get_daily_market_briefing(macro_data, top_gainers, _api_key):
     - 원/달러 환율: {krw}원
     - 美 10년물 국채금리: {tnx}%
     - 전일 미국장 주요 급등주: {gainers_str}
-    위 팩트 데이터를 바탕으로 다음 3가지 항목을 마크다운 포맷으로 가독성 좋게 작성해주세요.
-    1. 🇺🇸 **간밤의 미 증시 요약**: 매크로 데이터와 급등주를 바탕으로 한 전일 미국장 요약 (2~3줄)
-    2. 🇰🇷 **국내 증시 투자의견**: 미 증시 결과와 환율/금리가 오늘 한국 코스피/코스닥 수급에 미칠 영향 (2~3줄)
-    3. 🎯 **오늘의 픽 (주목할 섹터)**: 장중 자금이 쏠릴 것으로 예상되는 국내 수혜 섹터 1~2개와 그 이유 (1줄)
+    위 팩트 데이터를 바탕으로, 아래 3개 항목만 마크다운으로 간결하게 작성하세요.
+    - 맨 위에 별도의 큰 제목이나 인사말은 넣지 말고, 바로 첫 항목부터 시작하세요.
+    - 각 항목의 제목은 반드시 '## ' 로 시작하세요.
+
+    ## 🌍 글로벌 시황
+    간밤 미국 증시(3대 지수·반도체 SOX·美 10년물 금리·유가)와 위험자산 선호 심리를 2~3줄로 요약.
+
+    ## 🇰🇷 국내 시황
+    위 미국장 결과와 환율·금리가 오늘 코스피/코스닥 수급 및 외국인 자금 방향에 미칠 영향을 2~3줄로 분석.
+
+    ## 🎯 오늘의 픽 (주목할 섹터)
+    **🌍 글로벌:** 미국 시장에서 자금이 쏠릴 것으로 예상되는 섹터 1~2개와 근거를 1줄로.
+    **🇰🇷 국내:** 위 글로벌 흐름의 수혜가 예상되는 국내 섹터 1~2개와 근거를 1줄로.
     """
     return ask_gemini(prompt, _api_key)
 
@@ -7407,168 +7416,14 @@ def parse_portfolio_upload(uploaded_file):
 # [속도개선 2순위] 실시간 페이지일 때만 5분 자동 새로고침 타이머를 등록한다.
 #  그 외 페이지(계산기·시뮬레이터·스캐너·리스트 등)는 자동 rerun 되지 않아
 #  불필요한 재요청/화면 튐/스크롤 점프가 사라진다. 페이지 추가/제외는 LIVE_REFRESH_PAGES 만 수정하면 된다.
-if selected_menu in LIVE_REFRESH_PAGES:
-    st_autorefresh(interval=AUTOREFRESH_MS, limit=None, key="news_autorefresh")
-
-if selected_menu == "🎛️ 홈: 종합 대시보드":
-    # [추가] 메뉴를 '새로 눌러서' 이 화면으로 들어왔을 때만 화면을 맨 위로 올림.
-    #  → 페이지 하단의 '실시간 퀀트 챗봇(채팅 입력창)'으로 화면이 튀어 내려가는 현상 방지.
-    #  자동 새로고침/챗봇 입력 같은 일반 rerun 때는 동작하지 않으므로 챗봇은 정상 사용 가능.
-    if _nav_changed:
-        components.html(
-            """
-            <script>
-            (function () {
-              function toTop() {
-                try {
-                  var d = window.parent.document;
-                  var sels = ['section.main', '[data-testid="stMain"]',
-                              '[data-testid="stAppViewContainer"]', '.main',
-                              '.stMainBlockContainer', '.appview-container'];
-                  sels.forEach(function (s) {
-                    var el = d.querySelector(s);
-                    if (el) { try { el.scrollTo(0, 0); } catch (e) {} el.scrollTop = 0; }
-                  });
-                  try { window.parent.scrollTo(0, 0); } catch (e) {}
-                  d.documentElement.scrollTop = 0;
-                  d.body.scrollTop = 0;
-                } catch (e) {}
-              }
-              toTop();
-              [60, 200, 450, 800].forEach(function (t) { setTimeout(toTop, t); });
-            })();
-            </script>
-            """,
-            height=0,
-        )
-
-    macro_data = get_macro_indicators()
-    fg_data = get_fear_and_greed()
-
-    now_kst = datetime.utcnow() + timedelta(hours=9)
-    st.markdown(
-        f"""
-        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;margin-bottom:2px;">
-          <span style="font-size:25px;font-weight:900;color:#0f172a;letter-spacing:-1px;">🖥️ 여의도 모닝 데스크</span>
-          <span style="font-size:13px;color:#94a3b8;font-weight:600;">{now_kst.strftime('%Y.%m.%d')} ({['월','화','수','목','금','토','일'][now_kst.weekday()]}) {now_kst.strftime('%H:%M')} KST · 5분 자동 갱신</span>
-        </div>
-        <div style="font-size:13px;color:#64748b;margin-bottom:14px;">간밤 글로벌 → 오늘의 국면 → 지수·수급 → 자금 흐름 → 심리 → 일정 → 내 종목 순으로, 매매에 필요한 핵심만 모았습니다.</div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ── ① 오늘의 시장 국면 (결정 배너) ──
-    with st.spinner("시장 국면 분석 중..."):
-        render_regime_hero()
-
-    # ── ② 간밤 글로벌 (오늘 국장 방향타) ──
-    st.markdown("##### 🌙 간밤 글로벌 — 오늘 국장의 방향타")
-    with st.spinner("간밤 미국 지수·금리·유가 수집 중..."):
-        render_overnight_tape()
-    st.caption("💡 VIX 급등·美 금리 급등·환율 급등 시엔 국장도 위험회피로 기울 수 있어, 좋은 종목이 있어도 보수적으로 접근하는 편이 유리합니다.")
-
-    st.divider()
-
-    # ── [이동] 📰 AI 모닝 브리핑 (간밤 글로벌 바로 아래로 배치) ──
-    st.markdown("##### 📰 AI 모닝 브리핑 (Global → Local)")
-    if api_key_input:
-        with st.spinner("AI가 글로벌 매크로 데이터로 모닝 브리핑을 작성 중입니다..."):
-            top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
-            briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
-            nb_render_briefing(briefing_text, now_kst.strftime('%Y-%m-%d %H:%M'))
-            st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
-    else:
-        st.warning("좌측 사이드바에 API 키를 입력하시면, AI가 작성하는 글로벌→국내 모닝 브리핑을 볼 수 있습니다.")
-
-    st.divider()
-
-    # ── ③ 코스피·코스닥 실시간 & 투자자별 수급 ──
-    st.markdown("##### 📈 코스피·코스닥 실시간 & 수급 (외국인·기관·개인)")
-    with st.spinner("지수·투자자별 수급 수집 중..."):
-        render_main_index_panel()
-
-    st.divider()
-
-    # ── ④ 오늘의 자금 흐름: 시총 TOP & 업종 등락 ──
-    st.markdown("##### 💰 오늘의 자금 흐름 (주도주·섹터)")
-    mc_col, ind_col = st.columns(2)
-    with mc_col:
-        st.markdown("**🏆 시가총액 TOP 10**")
-        mc_market = st.radio("시장", ["KOSPI", "KOSDAQ"], horizontal=True,
-                             label_visibility="collapsed", key="mcap_market_radio")
-        with st.spinner("시가총액 상위 수집 중..."):
-            render_marketcap_top(mc_market, 10)
-    with ind_col:
-        st.markdown("**🔥 업종별 등락률 (강세 순)**")
-        # 좌측 시총 컬럼의 라디오 높이만큼 여백 → 두 표의 시작점을 맞춤
-        st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
-        with st.spinner("업종별 등락 수집 중..."):
-            render_industry_changes(12)
-
-    st.divider()
-
-    # ── ⑤ 투자 심리 (VIX + 공포·탐욕) ──
-    st.markdown("##### 🧭 투자 심리 (변동성·투자자 심리)")
-    render_sentiment_strip(fg_data, macro_data)
-
-    st.divider()
-
-    # ── ⑥ 향후 1개월 핵심 매크로 일정 ──
-    st.markdown("##### 🗓️ 향후 1개월 핵심 일정 (중앙은행·물가·경기·수급)")
-    render_week_catalysts()
-
-    st.divider()
-
-    # ── ⑦ 내 관심종목 신호 (액션) ──
-    st.markdown("##### 🚦 내 관심종목 신호 (손절·익절 자동 감시)")
-    with st.spinner("관심종목 기술적 점검 중..."):
-        render_watchlist_signals()
-
-    st.divider()
-
-    # ── ⑨ 실행 도구: 종목 검색/주문 + 퀀트 비서 (대시보드 가독성을 위해 접이식 배치) ──
-    st.markdown("##### 🛠️ 실행 도구")
-    with st.expander("🔎 종목 빠른 검색 & 주문 (퀵 오더)", expanded=False):
-        market_radio_quick = st.radio("시장 선택 (퀵 오더)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True, label_visibility="collapsed")
-
-        if market_radio_quick == "🇰🇷 국내 주식":
-            krx_df = get_krx_stocks()
-            if not krx_df.empty:
-                opts = ["🔍 종목명 검색 후 엔터"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-                quick_query = st.selectbox("빠르게 매매할 종목을 찾아 호가창으로 이동하세요.", opts)
-                if quick_query != "🔍 종목명 검색 후 엔터":
-                    q_name = quick_query.rsplit(" (", 1)[0]
-                    q_code = quick_query.rsplit("(", 1)[-1].replace(")", "").strip()
-                    st.link_button(f"🛒 '{q_name}' 네이버 호가창(주문) 바로가기", f"https://finance.naver.com/item/main.naver?code={q_code}", use_container_width=True)
-                    with st.container(border=True):
-                        st.markdown(f"**📊 '{q_name}' 퀵 타점**")
-                        res = analyze_technical_pattern(q_name, q_code)
-                        if res:
-                            st.markdown(f"**현재가:** {int(res['현재가']):,}원 ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
-                            st.markdown(f"**진입가:** {int(res['진입가_가이드']):,}원 ｜ **손절가:** {int(res['손절가']):,}원")
-                        else: st.error("❌ 데이터를 불러올 수 없습니다.")
-        else:
-            us_search_query = st.text_input("🔍 미국 주식 종목명(한/영) 또는 티커를 검색하세요 (예: 애플, Nvidia, TSLA)")
-            if us_search_query:
-                with st.spinner("야후 파이낸스 글로벌 DB에서 종목을 찾는 중..."):
-                    search_results = search_us_ticker(us_search_query)
-                if search_results:
-                    selected_us_stock = st.selectbox("👇 검색된 종목 중 정확한 티커를 선택하세요:", ["선택하세요"] + search_results)
-                    if selected_us_stock != "선택하세요":
-                        us_ticker = selected_us_stock.split(" ")[0]
-                        st.link_button(f"🛒 '{us_ticker}' 야후 파이낸스 바로가기", f"https://finance.yahoo.com/quote/{us_ticker}", use_container_width=True)
-                        with st.container(border=True):
-                            st.markdown(f"**📊 '{us_ticker}' 퀵 타점**")
-                            with st.spinner("미국 주식 기술적 데이터 불러오는 중..."):
-                                res = analyze_technical_pattern(us_ticker, us_ticker)
-                                if res:
-                                    st.markdown(f"**현재가:** ${res['현재가']:,.2f} ｜ **상태:** {res['상태']} ｜ **RSI:** {res['RSI']:.1f}")
-                                    st.markdown(f"**진입가:** ${res['진입가_가이드']:,.2f} ｜ **손절가:** ${res['손절가']:,.2f}")
-                                else: st.error("❌ 해당 티커의 데이터를 찾을 수 없습니다.")
-                else:
-                    st.error("❌ 검색 결과가 없습니다. 영문 명칭이나 다른 키워드로 다시 검색해보세요.")
-
-    with st.expander("💬 퀀트 비서에게 묻기 (실시간 구글 검색 연동)", expanded=False):
+# =====================================================================
+# [신규] 퀀트 비서 — 전역 팝업(st.dialog). 어느 페이지에서나 작은 버튼으로 호출.
+# =====================================================================
+def _quant_assistant_body():
+        try:
+            macro_data = get_macro_indicators()
+        except Exception:
+            macro_data = None
         st.caption("장중 궁금한 시장 이슈나 신작 출시 일정 등을 퀀트 비서에게 직접 물어보세요.")
 
         chat_container = st.container(height=380)
@@ -7718,6 +7573,153 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     st.write(reply)
 
                 st.session_state.v4_chat_history.append({"role": "assistant", "content": reply})
+
+if hasattr(st, "dialog"):
+    @st.dialog("💬 퀀트 비서 · 실시간 검색 연동", width="large")
+    def _quant_assistant_dialog():
+        _quant_assistant_body()
+
+def _open_quant_assistant():
+    if hasattr(st, "dialog"):
+        _quant_assistant_dialog()
+    else:
+        st.session_state["_qa_inline_open"] = True
+
+def render_global_quant_button():
+    _qa_sp, _qa_bt = st.columns([5, 2])
+    with _qa_bt:
+        if st.button("💬 퀀트 비서에게 묻기", key="global_qa_open", use_container_width=True,
+                     help="어느 페이지에서나 시장·종목을 실시간 검색·질문하세요"):
+            _open_quant_assistant()
+    if not hasattr(st, "dialog") and st.session_state.get("_qa_inline_open"):
+        with st.container(border=True):
+            _qc1, _qc2 = st.columns([6, 1])
+            _qc1.markdown("#### 💬 퀀트 비서")
+            if _qc2.button("✕ 닫기", key="qa_inline_close"):
+                st.session_state["_qa_inline_open"] = False
+                st.rerun()
+            _quant_assistant_body()
+
+
+render_global_quant_button()
+
+if selected_menu in LIVE_REFRESH_PAGES:
+    st_autorefresh(interval=AUTOREFRESH_MS, limit=None, key="news_autorefresh")
+
+if selected_menu == "🎛️ 홈: 종합 대시보드":
+    # [추가] 메뉴를 '새로 눌러서' 이 화면으로 들어왔을 때만 화면을 맨 위로 올림.
+    #  → 페이지 하단의 '실시간 퀀트 챗봇(채팅 입력창)'으로 화면이 튀어 내려가는 현상 방지.
+    #  자동 새로고침/챗봇 입력 같은 일반 rerun 때는 동작하지 않으므로 챗봇은 정상 사용 가능.
+    if _nav_changed:
+        components.html(
+            """
+            <script>
+            (function () {
+              function toTop() {
+                try {
+                  var d = window.parent.document;
+                  var sels = ['section.main', '[data-testid="stMain"]',
+                              '[data-testid="stAppViewContainer"]', '.main',
+                              '.stMainBlockContainer', '.appview-container'];
+                  sels.forEach(function (s) {
+                    var el = d.querySelector(s);
+                    if (el) { try { el.scrollTo(0, 0); } catch (e) {} el.scrollTop = 0; }
+                  });
+                  try { window.parent.scrollTo(0, 0); } catch (e) {}
+                  d.documentElement.scrollTop = 0;
+                  d.body.scrollTop = 0;
+                } catch (e) {}
+              }
+              toTop();
+              [60, 200, 450, 800].forEach(function (t) { setTimeout(toTop, t); });
+            })();
+            </script>
+            """,
+            height=0,
+        )
+
+    macro_data = get_macro_indicators()
+    fg_data = get_fear_and_greed()
+
+    now_kst = datetime.utcnow() + timedelta(hours=9)
+    st.markdown(
+        f"""
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;margin-bottom:2px;">
+          <span style="font-size:25px;font-weight:900;color:#0f172a;letter-spacing:-1px;">🖥️ 여의도 모닝 데스크</span>
+          <span style="font-size:13px;color:#94a3b8;font-weight:600;">{now_kst.strftime('%Y.%m.%d')} ({['월','화','수','목','금','토','일'][now_kst.weekday()]}) {now_kst.strftime('%H:%M')} KST · 5분 자동 갱신</span>
+        </div>
+        <div style="font-size:13px;color:#64748b;margin-bottom:14px;">간밤 글로벌 → 오늘의 국면 → 지수·수급 → 자금 흐름 → 심리 → 일정 → 내 종목 순으로, 매매에 필요한 핵심만 모았습니다.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── ① 오늘의 시장 국면 (결정 배너) ──
+    with st.spinner("시장 국면 분석 중..."):
+        render_regime_hero()
+
+    # ── ② 간밤 글로벌 (오늘 국장 방향타) ──
+    st.markdown("##### 🌙 간밤 글로벌 — 오늘 국장의 방향타")
+    with st.spinner("간밤 미국 지수·금리·유가 수집 중..."):
+        render_overnight_tape()
+    st.caption("💡 VIX 급등·美 금리 급등·환율 급등 시엔 국장도 위험회피로 기울 수 있어, 좋은 종목이 있어도 보수적으로 접근하는 편이 유리합니다.")
+
+    st.divider()
+
+    # ── [이동] 📰 AI 모닝 브리핑 (간밤 글로벌 바로 아래로 배치) ──
+    st.markdown("##### 📰 AI 모닝 브리핑 (Global → Local)")
+    if api_key_input:
+        with st.spinner("AI가 글로벌 매크로 데이터로 모닝 브리핑을 작성 중입니다..."):
+            top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
+            briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
+            nb_render_briefing(briefing_text, now_kst.strftime('%Y-%m-%d %H:%M'))
+            st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
+    else:
+        st.warning("좌측 사이드바에 API 키를 입력하시면, AI가 작성하는 글로벌→국내 모닝 브리핑을 볼 수 있습니다.")
+
+    st.divider()
+
+    # ── ③ 코스피·코스닥 실시간 & 투자자별 수급 ──
+    st.markdown("##### 📈 코스피·코스닥 실시간 & 수급 (외국인·기관·개인)")
+    with st.spinner("지수·투자자별 수급 수집 중..."):
+        render_main_index_panel()
+
+    st.divider()
+
+    # ── ④ 오늘의 자금 흐름: 시총 TOP & 업종 등락 ──
+    st.markdown("##### 💰 오늘의 자금 흐름 (주도주·섹터)")
+    mc_col, ind_col = st.columns(2)
+    with mc_col:
+        st.markdown("**🏆 시가총액 TOP 10**")
+        mc_market = st.radio("시장", ["KOSPI", "KOSDAQ"], horizontal=True,
+                             label_visibility="collapsed", key="mcap_market_radio")
+        with st.spinner("시가총액 상위 수집 중..."):
+            render_marketcap_top(mc_market, 10)
+    with ind_col:
+        st.markdown("**🔥 업종별 등락률 (강세 순)**")
+        # 좌측 시총 컬럼의 라디오 높이만큼 여백 → 두 표의 시작점을 맞춤
+        st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
+        with st.spinner("업종별 등락 수집 중..."):
+            render_industry_changes(12)
+
+    st.divider()
+
+    # ── ⑤ 투자 심리 (VIX + 공포·탐욕) ──
+    st.markdown("##### 🧭 투자 심리 (변동성·투자자 심리)")
+    render_sentiment_strip(fg_data, macro_data)
+
+    st.divider()
+
+    # ── ⑥ 향후 1개월 핵심 매크로 일정 ──
+    st.markdown("##### 🗓️ 향후 1개월 핵심 일정 (중앙은행·물가·경기·수급)")
+    render_week_catalysts()
+
+    st.divider()
+
+    # ── ⑦ 내 관심종목 신호 (액션) ──
+    st.markdown("##### 🚦 내 관심종목 신호 (손절·익절 자동 감시)")
+    with st.spinner("관심종목 기술적 점검 중..."):
+        render_watchlist_signals()
+
 
 
 elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
@@ -11531,3 +11533,20 @@ elif selected_menu == "🚨 통합 경보 센터 (뉴스·차트·일정)":
         "ask_gemini": ask_gemini,
         "api_key": api_key_input,
     })
+
+
+# =====================================================================
+# [공통] 전 페이지 하단 면책 푸터 — 어떤 메뉴든 화면 맨 아래에 항상 표시
+#   (메뉴 분기 바깥 최상위에 두어 매 실행마다 렌더됨)
+# =====================================================================
+st.markdown(
+    "<div style=\"margin-top:46px;padding:16px 20px;border-top:1px solid #e2e8f0;"
+    "background:#f8fafc;border-radius:12px;text-align:center;\">"
+    "<div style=\"font-size:12.5px;color:#64748b;line-height:1.75;\">"
+    "⚠️ 본 서비스의 모든 정보·점수·신호·AI 분석은 <b>투자 권유가 아닌 참고 자료</b>이며, "
+    "데이터는 지연되거나 오류가 있을 수 있습니다.<br>"
+    "모든 투자 판단과 그 결과에 대한 책임은 <b>전적으로 이용자 본인</b>에게 있습니다."
+    "</div>"
+    "<div style=\"font-size:11px;color:#94a3b8;margin-top:7px;\">"
+    "정보 제공 목적 · 매수·매도 추천이 아닙니다 · © 2026</div>"
+    "</div>", unsafe_allow_html=True)
