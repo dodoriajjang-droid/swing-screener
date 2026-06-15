@@ -2494,7 +2494,7 @@ def get_us_sector_map():
 
 
 # =====================================================================
-# [신규] 지금 뜨는 섹터 (미장 테마) — 테마별 대표 종목 평균 등락률
+# [신규] 지금 뜨는 섹터 (국장·미장) — 테마별 대표 종목 평균 등락률
 #   curated 테마→티커 맵 → 오늘 등락률 배치 조회 → 테마 평균으로 강세 순 정렬
 # =====================================================================
 US_THEME_MAP = {
@@ -2539,29 +2539,84 @@ US_THEME_MAP = {
     "필수소비/식음료": ["KO", "PEP", "MDLZ", "CMG", "GIS", "SBUX"],
 }
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def get_trending_sectors():
-    import yfinance as yf
-    uniq = sorted({t for lst in US_THEME_MAP.values() for t in lst})
+KR_THEME_MAP = {
+    "반도체": ["삼성전자", "SK하이닉스", "한미반도체", "DB하이텍", "리노공업"],
+    "HBM/반도체 소부장": ["한미반도체", "리노공업", "주성엔지니어링", "원익IPS", "솔브레인", "ISC", "하나마이크론", "테크윙"],
+    "2차전지": ["LG에너지솔루션", "삼성SDI", "LG화학", "에코프로비엠", "에코프로", "엘앤에프", "포스코퓨처엠"],
+    "자동차/부품": ["현대차", "기아", "현대모비스", "한국타이어앤테크놀로지", "현대위아", "HL만도"],
+    "바이오/제약": ["삼성바이오로직스", "셀트리온", "알테오젠", "유한양행", "SK바이오팜", "HLB", "리가켐바이오"],
+    "인터넷/플랫폼": ["NAVER", "카카오", "카카오페이", "카카오뱅크", "더존비즈온"],
+    "게임": ["엔씨소프트", "넷마블", "크래프톤", "펄어비스", "위메이드", "카카오게임즈", "시프트업"],
+    "방산/우주항공": ["한화에어로스페이스", "한국항공우주", "LIG넥스원", "현대로템", "한화시스템"],
+    "조선": ["HD한국조선해양", "삼성중공업", "한화오션", "HD현대미포", "HD현대중공업"],
+    "원자력/SMR": ["두산에너빌리티", "한전기술", "한전KPS", "비에이치아이", "우진"],
+    "전력기기/전선": ["HD현대일렉트릭", "LS ELECTRIC", "LS", "대한전선", "제룡전기", "일진전기"],
+    "금융지주/보험": ["KB금융", "신한지주", "하나금융지주", "우리금융지주", "메리츠금융지주", "삼성생명", "삼성화재"],
+    "증권": ["미래에셋증권", "삼성증권", "키움증권", "NH투자증권", "한국금융지주"],
+    "철강/비철금속": ["POSCO홀딩스", "현대제철", "고려아연", "풍산", "동국제강"],
+    "화학/정유": ["LG화학", "롯데케미칼", "S-Oil", "SK이노베이션", "금호석유", "한화솔루션"],
+    "엔터/미디어": ["하이브", "에스엠", "JYP Ent.", "와이지엔터테인먼트", "CJ ENM"],
+    "화장품/뷰티": ["아모레퍼시픽", "LG생활건강", "코스맥스", "한국콜마", "에이피알", "실리콘투"],
+    "음식료": ["CJ제일제당", "오리온", "농심", "롯데칠성", "삼양식품"],
+    "로봇": ["두산로보틱스", "레인보우로보틱스", "로보티즈", "유진로봇", "에스피지"],
+    "의료기기/미용": ["클래시스", "휴젤", "제이시스메디칼", "파마리서치", "루닛", "뷰노"],
+    "풍력/신재생": ["씨에스윈드", "씨에스베어링", "유니슨", "대명에너지"],
+    "건설/플랜트": ["현대건설", "대우건설", "GS건설", "DL이앤씨", "삼성E&A"],
+    "지주/통신": ["SK", "LG", "삼성물산", "SK텔레콤", "KT", "LG유플러스"],
+    "우주/위성": ["한국항공우주", "쎄트렉아이", "켄코아에어로스페이스", "AP위성", "인텔리안테크"],
+    "AI 반도체/팹리스": ["파두", "오픈엣지테크놀로지", "가온칩스", "칩스앤미디어", "에이디테크놀로지"],
+}
+
+
+def _kr_change_map():
+    """get_stock_list_by_market 스냅샷 → {종목명: 오늘 등락률(%)}. (fdr→pykrx 폴백 내장)"""
     try:
-        data = yf.download(uniq, period="5d", interval="1d",
-                           group_by="ticker", threads=True, progress=False)
+        df = get_stock_list_by_market()
     except Exception:
-        return []
-    if data is None or len(data) == 0:
-        return []
-    multi = isinstance(data.columns, pd.MultiIndex)
-    chg = {}
-    for tk in uniq:
+        return {}
+    if df is None or df.empty or "종목명" not in df.columns or "등락률" not in df.columns:
+        return {}
+    m = {}
+    for nm, rt in zip(df["종목명"], df["등락률"]):
         try:
-            d = data[tk] if multi else data
-            c = d["Close"].dropna()
-            if len(c) >= 2:
-                chg[tk] = (float(c.iloc[-1]) / float(c.iloc[-2]) - 1) * 100
+            m[str(nm).strip()] = float(rt)
         except Exception:
             continue
+    return m
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_trending_sectors(market="US"):
+    """테마별 대표 종목 평균 등락률(강세 순). market: 'US'(yfinance) | 'KR'(fdr/pykrx)."""
+    if market == "KR":
+        chg = _kr_change_map()
+        if not chg:
+            return []
+        theme_map = KR_THEME_MAP
+    else:
+        import yfinance as yf
+        uniq = sorted({t for lst in US_THEME_MAP.values() for t in lst})
+        try:
+            data = yf.download(uniq, period="5d", interval="1d",
+                               group_by="ticker", threads=True, progress=False)
+        except Exception:
+            return []
+        if data is None or len(data) == 0:
+            return []
+        multi = isinstance(data.columns, pd.MultiIndex)
+        chg = {}
+        for tk in uniq:
+            try:
+                d = data[tk] if multi else data
+                c = d["Close"].dropna()
+                if len(c) >= 2:
+                    chg[tk] = (float(c.iloc[-1]) / float(c.iloc[-2]) - 1) * 100
+            except Exception:
+                continue
+        theme_map = US_THEME_MAP
+
     out = []
-    for theme, tickers in US_THEME_MAP.items():
+    for theme, tickers in theme_map.items():
         members = [(t, chg[t]) for t in tickers if t in chg]
         if not members:
             continue
@@ -2607,62 +2662,90 @@ def render_trending_sectors(sectors, limit=None):
 
 
 # =====================================================================
-# [신규] 국장 수급 분석 (외국인·기관·개인 순매수) — KRX(pykrx) 기반
+# [신규] 국장 수급 분석 (외국인·기관·개인 순매수) — 네이버 기반 (클라우드 호환)
 #   순매수/순매도 TOP · 개미 vs 스마트머니 · 수급 주체 손바뀜(전환)
-#   ※ pykrx가 클라우드 IP에서 차단되거나 KRX 로그인 미설정이면 빈 결과 → 안내 표시
+#   거래대금 상위 종목을 네이버(frgn.naver)에서 스캔 → 외국인·기관 순매매량×종가 → 억 환산
+#   개인 ≈ -(외국인+기관). pykrx/KRX 불필요 → 클라우드에서도 동작.
 # =====================================================================
-def _kr_latest_and_prev_bday():
+def _fetch_stock_investor_2d(code):
+    """frgn.naver → 오늘/어제 외국인·기관 순매매량 + 오늘 종가. 실패 시 None."""
     try:
-        from pykrx import stock
-        latest = stock.get_nearest_business_day_in_a_week()
-        d = datetime.strptime(latest, "%Y%m%d") - timedelta(days=1)
-        prev = stock.get_nearest_business_day_in_a_week(date=d.strftime("%Y%m%d"), prev=True)
-        return latest, prev
+        res = requests.get(f"https://finance.naver.com/item/frgn.naver?code={code}",
+                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        soup = BeautifulSoup(res.text, "html.parser")
+        tables = soup.select("table.type2")
+        if len(tables) < 2:
+            return None
+        recs = []
+        for row in tables[1].select("tr"):
+            tds = row.select("td")
+            if len(tds) < 9 or not tds[0].get_text(strip=True):
+                continue
+
+            def _n(i):
+                t = tds[i].get_text(strip=True).replace(",", "").replace("+", "")
+                if not t or t == "-":
+                    return 0
+                try:
+                    return int(float(t))
+                except Exception:
+                    return 0
+            recs.append({"close": _n(1), "inst": _n(5), "forn": _n(6)})
+            if len(recs) >= 2:
+                break
+        if not recs:
+            return None
+        t0 = recs[0]
+        t1 = recs[1] if len(recs) >= 2 else {"inst": 0, "forn": 0}
+        return {"price": t0["close"], "inst": t0["inst"], "forn": t0["forn"],
+                "inst_prev": t1["inst"], "forn_prev": t1["forn"]}
     except Exception:
-        return None, None
+        return None
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def get_kr_investor_netbuy(date_str):
-    """특정 영업일 KOSPI+KOSDAQ 종목별 외국인/기관/개인 순매수거래대금(억) + 등락률."""
-    try:
-        from pykrx import stock
-    except Exception:
+def get_kr_investor_flows(universe_n=150):
+    """거래대금 상위 종목의 외국인/기관/개인 순매수(억) + 전일 스마트머니 부호. 네이버 기반."""
+    base = get_stock_list_by_market()
+    if base is None or base.empty or "거래대금(억)" not in base.columns:
         return pd.DataFrame()
-    rows, got = {}, False
-    inv_map = {"외국인": "외국인", "기관": "기관합계", "개인": "개인"}
-    for label, inv in inv_map.items():
-        try:
-            df = stock.get_market_net_purchases_of_equities(date_str, date_str, "ALL", inv)
-        except Exception:
-            continue
-        if df is None or df.empty or "순매수거래대금" not in df.columns:
-            continue
-        got = True
-        for tk, r in df.iterrows():
-            rec = rows.setdefault(str(tk), {"종목명": "", "외국인": 0.0, "기관": 0.0, "개인": 0.0})
-            nm = r.get("종목명")
-            if isinstance(nm, str) and nm:
-                rec["종목명"] = nm
+    base = base[base["시장"].isin(["코스피", "코스닥"])].copy()
+    base = base.sort_values("거래대금(억)", ascending=False).head(universe_n)
+    chg_map = {}
+    if "등락률" in base.columns:
+        for c, rt in zip(base["종목코드"], base["등락률"]):
             try:
-                rec[label] = float(r["순매수거래대금"]) / 1e8
+                chg_map[str(c).zfill(6)] = float(rt)
             except Exception:
                 pass
-    if not got or not rows:
-        return pd.DataFrame()
-    out = pd.DataFrame([{"티커": k, **v} for k, v in rows.items()])
-    out["스마트머니"] = out["외국인"] + out["기관"]
-    # 등락률 보강 (선택)
+    targets = [(str(c).zfill(6), str(n)) for c, n in zip(base["종목코드"], base["종목명"])]
+
+    def _work(item):
+        code, name = item
+        d = _fetch_stock_investor_2d(code)
+        if not d:
+            return None
+        price = d["price"] or 0
+        forn = d["forn"] * price / 1e8
+        inst = d["inst"] * price / 1e8
+        return {"티커": code, "종목명": name, "등락률": chg_map.get(code, float("nan")),
+                "외국인": forn, "기관": inst, "개인": -(forn + inst),
+                "스마트머니": forn + inst,
+                "스마트머니_전일": float(d["forn_prev"] + d["inst_prev"])}
+
+    rows = []
+    import concurrent.futures as _cf
     try:
-        ohlcv = stock.get_market_ohlcv_by_ticker(date_str, "ALL")
-        if ohlcv is not None and not ohlcv.empty and "등락률" in ohlcv.columns:
-            chg = {str(tk): float(v) for tk, v in ohlcv["등락률"].items()}
-            out["등락률"] = out["티커"].map(chg)
+        with _cf.ThreadPoolExecutor(max_workers=12) as ex:
+            for r in ex.map(_work, targets):
+                if r:
+                    rows.append(r)
     except Exception:
-        pass
-    if "등락률" not in out.columns:
-        out["등락률"] = float("nan")
-    return out
+        for it in targets:
+            r = _work(it)
+            if r:
+                rows.append(r)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 def _su_amt(v):
@@ -2721,28 +2804,23 @@ def _render_flow_chips(df, n=10, sort_col="스마트머니", ascending=False):
                 + "".join(rows) + "</div>", unsafe_allow_html=True)
 
 
-def _render_handover(today_df, prev_df, n=15):
+def _render_handover(df, n=15):
     """스마트머니(외인+기관) 기준 어제 순매도 → 오늘 순매수 전환(바닥 신호)."""
-    if today_df is None or today_df.empty or prev_df is None or prev_df.empty:
+    if df is None or df.empty or "스마트머니_전일" not in df.columns:
         st.info("전일 데이터가 없어 손바뀜을 계산할 수 없어요."); return
-    t = today_df.set_index("티커"); p = prev_df.set_index("티커")
-    common = t.index.intersection(p.index)
-    found = []
-    for tk in common:
-        ts = float(t.loc[tk, "스마트머니"]); ps = float(p.loc[tk, "스마트머니"])
-        if ps < 0 and ts > 0:
-            found.append((str(t.loc[tk, "종목명"]), ts, ps))
-    found.sort(key=lambda x: x[1], reverse=True)
-    if not found:
+    cand = df[(df["스마트머니_전일"] < 0) & (df["스마트머니"] > 0)].sort_values(
+        "스마트머니", ascending=False).head(n).reset_index(drop=True)
+    if cand.empty:
         st.info("오늘 '순매도 → 순매수' 전환 종목이 없습니다."); return
     rows = []
-    for i, (nm, ts, ps) in enumerate(found[:n], 1):
+    for i, r in cand.iterrows():
+        ts = float(r["스마트머니"])
         rows.append(
             "<div style='display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;'>"
-            f"<span style='width:18px;color:#94a3b8;font-weight:700;font-size:12px;'>{i}</span>"
-            f"<span style='flex:1;font-weight:700;color:#1e293b;font-size:13px;'>{nm}</span>"
-            "<span style='font-size:12px;color:#94a3b8;'>스마트머니 "
-            f"<span style='color:#3b82f6;'>{ps:+,.0f}</span> → <span style='color:#ef4444;font-weight:700;'>{ts:+,.0f}억</span></span>"
+            f"<span style='width:18px;color:#94a3b8;font-weight:700;font-size:12px;'>{i+1}</span>"
+            f"<span style='flex:1;font-weight:700;color:#1e293b;font-size:13px;'>{r['종목명']}</span>"
+            "<span style='font-size:12px;color:#94a3b8;'>전일 <span style='color:#3b82f6;'>순매도</span> → "
+            f"오늘 <span style='color:#ef4444;font-weight:700;'>{ts:+,.0f}억</span></span>"
             "<span style='margin-left:8px;background:#fee2e2;color:#dc2626;border-radius:10px;padding:2px 9px;font-size:11px;font-weight:700;'>전환</span></div>"
         )
     st.markdown("<div style='background:#fff;border:1px solid #e9eef3;border-radius:12px;padding:2px 14px;'>"
@@ -7563,7 +7641,7 @@ with st.sidebar:
         " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
         " ┣ 🗺️ 시장 주도주 자금 히트맵",
         " ┣ 🕸️ 실시간 섹터 순환매 추적",
-        " ┣ 🔥 지금 뜨는 섹터 (미장 테마)",
+        " ┣ 🔥 지금 뜨는 섹터 (국장·미장)",
         " ┣ 💰 국장 수급 분석 (외국인·기관·개인)",
         " ┣ 📅 핵심 증시 일정 & IPO 달력",
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
@@ -8093,15 +8171,26 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     st.divider()
 
-    # ── ④-c 지금 뜨는 섹터 TOP5 (미장 테마) ──
-    st.markdown("##### 🔥 지금 뜨는 섹터 TOP5 (미장 테마)")
-    with st.spinner("지금 뜨는 섹터 분석 중..."):
-        _sectors_top = get_trending_sectors()
-    if _sectors_top:
-        render_trending_sectors(_sectors_top, limit=5)
-        st.caption("전체 테마는 좌측 **‘🔥 지금 뜨는 섹터’** 메뉴에서 확인하세요.")
-    else:
-        st.caption("지금 뜨는 섹터 데이터를 일시적으로 불러오지 못했어요.")
+    # ── ④-c 지금 뜨는 섹터 TOP5 (국장·미장) ──
+    st.markdown("##### 🔥 지금 뜨는 섹터 TOP5")
+    _sec_kr_col, _sec_us_col = st.columns(2)
+    with _sec_kr_col:
+        st.markdown("**🇰🇷 국장 TOP5**")
+        with st.spinner("국장 섹터 분석 중..."):
+            _sec_kr = get_trending_sectors("KR")
+        if _sec_kr:
+            render_trending_sectors(_sec_kr, limit=5)
+        else:
+            st.caption("국장 섹터 데이터를 일시적으로 불러오지 못했어요.")
+    with _sec_us_col:
+        st.markdown("**🇺🇸 미장 TOP5**")
+        with st.spinner("미장 섹터 분석 중..."):
+            _sec_us = get_trending_sectors("US")
+        if _sec_us:
+            render_trending_sectors(_sec_us, limit=5)
+        else:
+            st.caption("미장 섹터 데이터를 일시적으로 불러오지 못했어요.")
+    st.caption("전체 테마는 좌측 **‘🔥 지금 뜨는 섹터 (국장·미장)’** 메뉴에서 확인하세요.")
 
     st.divider()
 
@@ -10483,65 +10572,57 @@ elif selected_menu == "🚨 당일 상/하한가 분석":
 
 elif selected_menu == "💰 국장 수급 분석 (외국인·기관·개인)":
     st.markdown("## 💰 국장 수급 분석 (외국인·기관·개인)")
-    latest, prev = _kr_latest_and_prev_bday()
-    if not latest:
-        st.error("❌ 거래일 정보를 가져오지 못했습니다. 잠시 후 다시 시도해주세요.")
+    st.caption("최근 거래일 기준 · 거래대금 상위 종목 스캔 · 단위: 억원 · 🔴빨강=순매수/상승 · 🔵파랑=순매도/하락")
+    with st.spinner("네이버 투자자별 순매수 데이터 수집 중... (첫 조회는 십수 초, 이후 30분 캐시)"):
+        flows = get_kr_investor_flows()
+    if flows is None or flows.empty:
+        st.error("❌ 수급 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
     else:
-        st.caption(f"📅 기준일 {latest} · 단위: 억원 · 🔴빨강=순매수/상승 · 🔵파랑=순매도/하락")
-        with st.spinner("KRX 투자자별 순매수 데이터 수집 중... (첫 조회는 느릴 수 있어요)"):
-            flows = get_kr_investor_netbuy(latest)
-        if flows is None or flows.empty:
-            st.error("❌ KRX 수급 데이터를 불러오지 못했습니다.\n\n"
-                     "KRX 데이터(pykrx)가 현재 서버 환경에서 차단됐거나 KRX 로그인(KRX_ID/KRX_PW)이 설정되지 않았을 수 있어요. "
-                     "로컬 실행이나 KRX 접근이 가능한 환경에서는 정상 표시됩니다.")
-        else:
-            t_top, t_smart, t_hand = st.tabs(
-                ["🏆 순매수·순매도 TOP", "🧠 개미 vs 스마트머니", "🔄 수급 주체 손바뀜"])
-            with t_top:
-                for emoji, inv in [("🦅", "외국인"), ("🏛️", "기관"), ("🐜", "개인")]:
-                    st.markdown(f"#### {emoji} {inv}")
-                    cb, cs = st.columns(2)
-                    with cb:
-                        st.markdown("**🔴 순매수 TOP10**")
-                        _render_netbuy_list(flows, inv, ascending=False)
-                    with cs:
-                        st.markdown("**🔵 순매도 TOP10**")
-                        _render_netbuy_list(flows, inv, ascending=True)
-                    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
-            with t_smart:
-                st.caption("스마트머니 = 외국인+기관 합산. 개미(개인)와 반대로 움직이는 종목을 찾습니다.")
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("#### 🧠 스마트머니 매집 (개미는 매도)")
-                    st.caption("외국인+기관 순매수 & 개인 순매도")
-                    _render_flow_chips(flows[(flows["스마트머니"] > 0) & (flows["개인"] < 0)],
-                                       sort_col="스마트머니", ascending=False)
-                with c2:
-                    st.markdown("#### 🐜 개미만 매집 (스마트머니 이탈)")
-                    st.caption("개인 순매수 & 외국인+기관 순매도")
-                    _render_flow_chips(flows[(flows["개인"] > 0) & (flows["스마트머니"] < 0)],
-                                       sort_col="개인", ascending=False)
-                st.markdown("#### 🤝 3주체 동반 순매수")
-                _both = flows[(flows["외국인"] > 0) & (flows["기관"] > 0) & (flows["개인"] > 0)].copy()
-                if not _both.empty:
-                    _both["합계"] = _both["외국인"] + _both["기관"] + _both["개인"]
-                _render_flow_chips(_both, sort_col=("합계" if "합계" in _both.columns else "스마트머니"),
-                                   ascending=False)
-            with t_hand:
-                st.caption("어제 순매도 → 오늘 순매수로 전환된 종목 (스마트머니 기준 · 흔히 '바닥 신호'로 해석)")
-                with st.spinner("전일 데이터와 비교 중..."):
-                    prev_flows = get_kr_investor_netbuy(prev) if prev else pd.DataFrame()
-                _render_handover(flows, prev_flows)
-    st.caption("데이터: KRX(pykrx) · 정보 제공용이며 매수·매도 추천이 아닙니다. 투자 판단과 책임은 본인에게 있습니다.")
+        st.caption(f"📊 거래대금 상위 {len(flows)}개 종목 분석 · 개인은 외국인·기관의 반대값으로 추정")
+        t_top, t_smart, t_hand = st.tabs(
+            ["🏆 순매수·순매도 TOP", "🧠 개미 vs 스마트머니", "🔄 수급 주체 손바뀜"])
+        with t_top:
+            for emoji, inv, note in [("🦅", "외국인", ""), ("🏛️", "기관", ""), ("🐜", "개인", " (추정)")]:
+                st.markdown(f"#### {emoji} {inv}{note}")
+                cb, cs = st.columns(2)
+                with cb:
+                    st.markdown("**🔴 순매수 TOP10**")
+                    _render_netbuy_list(flows, inv, ascending=False)
+                with cs:
+                    st.markdown("**🔵 순매도 TOP10**")
+                    _render_netbuy_list(flows, inv, ascending=True)
+                st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+        with t_smart:
+            st.caption("스마트머니 = 외국인+기관 합산. (네이버 데이터 특성상 개인은 외국인·기관의 반대값으로 추정)")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### 🧠 스마트머니 매집")
+                st.caption("외국인+기관 순매수 상위 (개미는 반대편)")
+                _render_flow_chips(flows[flows["스마트머니"] > 0], sort_col="스마트머니", ascending=False)
+            with c2:
+                st.markdown("#### 🐜 개미 우위")
+                st.caption("외국인+기관 순매도 상위 (개미가 받아낸 종목)")
+                _render_flow_chips(flows[flows["스마트머니"] < 0], sort_col="스마트머니", ascending=True)
+            st.markdown("#### 🤝 외국인·기관 동반 순매수")
+            st.caption("외국인·기관이 둘 다 순매수한 종목 (가장 강한 수급 신호)")
+            _render_flow_chips(flows[(flows["외국인"] > 0) & (flows["기관"] > 0)],
+                               sort_col="스마트머니", ascending=False)
+        with t_hand:
+            st.caption("어제 순매도 → 오늘 순매수로 전환된 종목 (스마트머니 기준 · 흔히 '바닥 신호'로 해석)")
+            _render_handover(flows)
+    st.caption("데이터: 네이버 금융 · 정보 제공용이며 매수·매도 추천이 아닙니다. 투자 판단과 책임은 본인에게 있습니다.")
 
-elif selected_menu == "🔥 지금 뜨는 섹터 (미장 테마)":
+elif selected_menu == "🔥 지금 뜨는 섹터 (국장·미장)":
     st.markdown("## 🔥 지금 뜨는 섹터")
-    st.caption("🇺🇸 미국 주요 테마 기준 · 대표 종목 평균 등락률 순 · 🔴빨강=상승 / 🔵파랑=하락")
-    with st.spinner("테마별 종목 등락 수집 중... (첫 조회는 수십 초, 이후 30분 캐시)"):
-        sectors = get_trending_sectors()
-    if not sectors:
-        st.error("❌ 섹터 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.")
-    else:
+    st.caption("대표 종목 평균 등락률 순 · 🔴빨강=상승 / 🔵파랑=하락")
+
+    def _render_sector_market(market, spinner_msg):
+        with st.spinner(spinner_msg):
+            sectors = get_trending_sectors(market)
+        if not sectors:
+            who = "국장" if market == "KR" else "미장"
+            st.error(f"❌ {who} 섹터 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.")
+            return
         hot = sum(1 for s in sectors if s["avg"] > 0)
         cc1, cc2, cc3 = st.columns(3)
         cc1.metric("강세 테마", f"{hot} / {len(sectors)}")
@@ -10549,6 +10630,12 @@ elif selected_menu == "🔥 지금 뜨는 섹터 (미장 테마)":
         cc3.metric("🧊 최약 테마", sectors[-1]["theme"], f"{sectors[-1]['avg']:+.2f}%")
         st.markdown("#### 테마별 평균 등락 (강세 순)")
         render_trending_sectors(sectors)
+
+    tab_kr, tab_us = st.tabs(["🇰🇷 국장 (KOSPI·KOSDAQ)", "🇺🇸 미장 (US)"])
+    with tab_kr:
+        _render_sector_market("KR", "국장 테마별 등락 수집 중...")
+    with tab_us:
+        _render_sector_market("US", "미장 테마별 등락 수집 중... (첫 조회는 수십 초, 이후 30분 캐시)")
     st.caption("대표 종목 평균 등락률 기준이며, 테마 구성은 참고용입니다. 투자 권유가 아닙니다.")
 
 elif selected_menu == "🚦 거래량 급증 & 시장 경보":
