@@ -2568,12 +2568,45 @@ KR_THEME_MAP = {
 }
 
 
+@st.cache_data(ttl=600)
+def get_kr_universe_naver(per_market=200):
+    """네이버 모바일 API 시총 상위 → DataFrame[종목코드,종목명,등락률,현재가] (코스피+코스닥).
+    fdr.StockListing('KRX')가 클라우드에서 막혀도 동작하는 네이버 기반 유니버스."""
+    rows = []
+    for mkt in ("KOSPI", "KOSDAQ"):
+        got = 0
+        for page in range(1, 6):
+            data = _naver_json(f"https://m.stock.naver.com/api/stocks/marketValue/{mkt}?page={page}&pageSize=100")
+            stocks = (data or {}).get("stocks") or []
+            if not stocks:
+                break
+            for s in stocks:
+                code = str(s.get("itemCode", "")).zfill(6)
+                if not code or code == "000000":
+                    continue
+                pct = _num(s.get("fluctuationsRatio"))
+                rows.append({
+                    "종목코드": code,
+                    "종목명": s.get("stockName", ""),
+                    "등락률": float(pct) if pct is not None else 0.0,
+                    "현재가": _num(s.get("closePrice")) or 0,
+                })
+                got += 1
+            if got >= per_market or len(stocks) < 100:
+                break
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).drop_duplicates(subset=["종목코드"]).reset_index(drop=True)
+
+
 def _kr_change_map():
-    """get_stock_list_by_market 스냅샷 → {종목명: 오늘 등락률(%)}. (fdr→pykrx 폴백 내장)"""
-    try:
-        df = get_stock_list_by_market()
-    except Exception:
-        return {}
+    """{종목명: 오늘 등락률(%)} — 네이버 모바일 API(클라우드 호환) 우선, fdr 폴백."""
+    df = get_kr_universe_naver()
+    if df is None or df.empty:
+        try:
+            df = get_stock_list_by_market()
+        except Exception:
+            df = None
     if df is None or df.empty or "종목명" not in df.columns or "등락률" not in df.columns:
         return {}
     m = {}
@@ -2587,7 +2620,7 @@ def _kr_change_map():
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_trending_sectors(market="US"):
-    """테마별 대표 종목 평균 등락률(강세 순). market: 'US'(yfinance) | 'KR'(fdr/pykrx)."""
+    """테마별 대표 종목 평균 등락률(강세 순). market: 'US'(yfinance) | 'KR'(네이버 모바일 API)."""
     if market == "KR":
         chg = _kr_change_map()
         if not chg:
@@ -2705,12 +2738,18 @@ def _fetch_stock_investor_2d(code):
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_kr_investor_flows(universe_n=150):
-    """거래대금 상위 종목의 외국인/기관/개인 순매수(억) + 전일 스마트머니 부호. 네이버 기반."""
-    base = get_stock_list_by_market()
-    if base is None or base.empty or "거래대금(억)" not in base.columns:
+    """시총 상위 종목의 외국인/기관/개인 순매수(억) + 전일 스마트머니 부호. 네이버 기반."""
+    base = get_kr_universe_naver()
+    if base is None or base.empty:
+        try:
+            b2 = get_stock_list_by_market()
+            if b2 is not None and not b2.empty and "거래대금(억)" in b2.columns:
+                base = b2[b2["시장"].isin(["코스피", "코스닥"])].sort_values("거래대금(억)", ascending=False)
+        except Exception:
+            base = None
+    if base is None or base.empty or "종목코드" not in base.columns:
         return pd.DataFrame()
-    base = base[base["시장"].isin(["코스피", "코스닥"])].copy()
-    base = base.sort_values("거래대금(억)", ascending=False).head(universe_n)
+    base = base.head(universe_n)
     chg_map = {}
     if "등락률" in base.columns:
         for c, rt in zip(base["종목코드"], base["등락률"]):
