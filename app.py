@@ -2635,6 +2635,135 @@ def style_volume_table(df, kind="surge"):
     sty = sty.set_properties(subset=['종목명'], **{'text-align': 'left', 'font-weight': '600'})
     return sty, rate_name
 
+
+# =====================================================================
+# [신규] 미장(US) 거래량 급증/급감 — 주요 대형주 유니버스 기준
+#   '오늘 거래량 ÷ 최근 20일 평균 거래량' 배율로 산출 (>1 급증 / <1 급감)
+# =====================================================================
+US_VOL_UNIVERSE = [
+    ("Apple","AAPL"),("Microsoft","MSFT"),("Nvidia","NVDA"),("Amazon","AMZN"),("Alphabet","GOOGL"),
+    ("Meta","META"),("Tesla","TSLA"),("Broadcom","AVGO"),("AMD","AMD"),("Netflix","NFLX"),
+    ("Berkshire","BRK-B"),("JPMorgan","JPM"),("Visa","V"),("Mastercard","MA"),("UnitedHealth","UNH"),
+    ("Eli Lilly","LLY"),("Johnson & Johnson","JNJ"),("Exxon","XOM"),("Chevron","CVX"),("Walmart","WMT"),
+    ("Costco","COST"),("Home Depot","HD"),("Procter & Gamble","PG"),("Coca-Cola","KO"),("PepsiCo","PEP"),
+    ("Adobe","ADBE"),("Salesforce","CRM"),("Oracle","ORCL"),("Cisco","CSCO"),("Intel","INTC"),
+    ("Qualcomm","QCOM"),("Texas Instruments","TXN"),("Micron","MU"),("Applied Materials","AMAT"),("Lam Research","LRCX"),
+    ("ASML","ASML"),("ARM","ARM"),("Palantir","PLTR"),("Super Micro","SMCI"),("Arista","ANET"),
+    ("ServiceNow","NOW"),("Uber","UBER"),("Airbnb","ABNB"),("PayPal","PYPL"),("Block","SQ"),
+    ("Shopify","SHOP"),("Snowflake","SNOW"),("CrowdStrike","CRWD"),("Datadog","DDOG"),("Zscaler","ZS"),
+    ("Disney","DIS"),("Comcast","CMCSA"),("Verizon","VZ"),("AT&T","T"),("T-Mobile","TMUS"),
+    ("Boeing","BA"),("Caterpillar","CAT"),("Deere","DE"),("GE Aerospace","GE"),("Honeywell","HON"),
+    ("Lockheed","LMT"),("RTX","RTX"),("Ford","F"),("General Motors","GM"),("Rivian","RIVN"),
+    ("Lucid","LCID"),("Marvell","MRVL"),("Coinbase","COIN"),("MicroStrategy","MSTR"),("Robinhood","HOOD"),
+    ("SoFi","SOFI"),("Bank of America","BAC"),("Wells Fargo","WFC"),("Goldman Sachs","GS"),("Morgan Stanley","MS"),
+    ("Citigroup","C"),("Pfizer","PFE"),("Merck","MRK"),("AbbVie","ABBV"),("Moderna","MRNA"),
+    ("Gilead","GILD"),("Amgen","AMGN"),("Starbucks","SBUX"),("McDonald's","MCD"),("Nike","NKE"),
+    ("GE Vernova","GEV"),("Vistra","VST"),("Constellation Energy","CEG"),("First Solar","FSLR"),("Enphase","ENPH"),
+    ("Plug Power","PLUG"),("Cleveland-Cliffs","CLF"),("Freeport","FCX"),("Occidental","OXY"),("ConocoPhillips","COP"),
+    ("Devon","DVN"),("Halliburton","HAL"),("Schlumberger","SLB"),("Micron2","MU"),("Intel2","INTC"),
+]
+
+@st.cache_data(ttl=1800)
+def get_us_volume_surge_drop(top_n=20):
+    import yfinance as yf
+    seen, targets = set(), []
+    for nm, tk in US_VOL_UNIVERSE:
+        if tk not in seen:
+            seen.add(tk); targets.append((nm, tk))
+    tickers = [t[1] for t in targets]
+    name_map = {t[1]: t[0] for t in targets}
+    try:
+        data = yf.download(tickers, period="2mo", interval="1d",
+                           group_by="ticker", threads=True, progress=False)
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+    if data is None or len(data) == 0:
+        return pd.DataFrame(), pd.DataFrame()
+    multi = isinstance(data.columns, pd.MultiIndex)
+    rows = []
+    for tk in tickers:
+        try:
+            d = data[tk] if multi else data
+            vol = d["Volume"].dropna(); close = d["Close"].dropna()
+            if len(vol) < 7 or len(close) < 2:
+                continue
+            today_v = float(vol.iloc[-1])
+            base = vol.iloc[-21:-1] if len(vol) >= 21 else vol.iloc[:-1]
+            avg_v = float(base.mean())
+            if avg_v <= 0 or today_v <= 0:
+                continue
+            rows.append({
+                "종목": f"{name_map.get(tk, tk)} ({tk})",
+                "현재가": float(close.iloc[-1]),
+                "등락률": (float(close.iloc[-1]) / float(close.iloc[-2]) - 1) * 100,
+                "거래량 배율": today_v / avg_v,
+            })
+        except Exception:
+            continue
+    if not rows:
+        return pd.DataFrame(), pd.DataFrame()
+    alldf = pd.DataFrame(rows)
+    surge = alldf.sort_values("거래량 배율", ascending=False).head(top_n).reset_index(drop=True)
+    drop_ = alldf.sort_values("거래량 배율", ascending=True).head(top_n).reset_index(drop=True)
+    for x in (surge, drop_):
+        x.index = x.index + 1; x.index.name = "순위"
+    return surge, drop_
+
+
+def style_us_volume_table(df, kind="surge"):
+    if df is None or df.empty:
+        return None
+    def color_updown(v):
+        if pd.isna(v): return ''
+        if v > 0: return 'color:#e74c3c;font-weight:700;'
+        if v < 0: return 'color:#2e86de;font-weight:700;'
+        return 'color:gray;'
+    sty = df.style.format({"현재가": "${:,.2f}", "등락률": "{:+.2f}%", "거래량 배율": "{:.1f}×"})
+    try:
+        sty = sty.map(color_updown, subset=["등락률"])
+    except Exception:
+        pass
+    bar_color = '#ffd8a8' if kind == "surge" else '#a5d8ff'
+    try:
+        sty = sty.bar(subset=["거래량 배율"], color=bar_color, vmin=0)
+    except Exception:
+        pass
+    sty = sty.set_properties(**{'font-size': '14px', 'text-align': 'center'})
+    try:
+        sty = sty.set_properties(subset=['종목'], **{'text-align': 'left', 'font-weight': '600'})
+    except Exception:
+        pass
+    return sty
+
+
+def render_main_volume_top10():
+    """메인(대시보드)용 — 국장 거래량 급증/급감 TOP10 요약 + 경보탭 안내."""
+    with st.spinner("거래량 급증/급감 데이터 수집 중..."):
+        s_df, d_df = get_volume_surge_drop()
+    st.caption("🇰🇷 국장 기준 · 🔴빨강=상승 / 🔵파랑=하락 · 막대가 길수록 거래량이 더 터진 종목")
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        st.markdown("**🔥 거래량 급증 TOP10**")
+        sty, _ = style_volume_table(s_df.head(10), "surge")
+        if sty is not None:
+            st.dataframe(sty, use_container_width=True, height=388)
+        elif not s_df.empty:
+            st.dataframe(s_df.head(10), use_container_width=True, hide_index=True)
+        else:
+            st.caption("데이터를 일시적으로 불러오지 못했어요.")
+    with cc2:
+        st.markdown("**❄️ 거래량 급감 TOP10**")
+        sty2, _ = style_volume_table(d_df.head(10), "drop")
+        if sty2 is not None:
+            st.dataframe(sty2, use_container_width=True, height=388)
+        elif not d_df.empty:
+            st.dataframe(d_df.head(10), use_container_width=True, hide_index=True)
+        else:
+            st.caption("데이터를 일시적으로 불러오지 못했어요.")
+    st.info("📊 **TOP20 전체 · 🇺🇸 미장(US) 거래량 · 관리종목/시장경보**는 좌측 메뉴 "
+            "**‘🚦 거래량 급증 & 시장 경보’** 탭에서 확인하세요.")
+
+
 @st.cache_data(ttl=3600)
 def get_market_warnings():
     def fetch_warning_table(url):
@@ -7703,6 +7832,12 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     st.divider()
 
+    # ── ④-b 거래량 급증·급감 TOP10 (국장) — 자세히는 경보 탭 ──
+    st.markdown("##### 🔥 거래량 급증·급감 TOP10 (국장)")
+    render_main_volume_top10()
+
+    st.divider()
+
     # ── ⑤ 투자 심리 (VIX + 공포·탐욕) ──
     st.markdown("##### 🧭 투자 심리 (변동성·투자자 심리)")
     render_sentiment_strip(fg_data, macro_data)
@@ -10078,29 +10213,49 @@ elif selected_menu == "🚦 거래량 급증 & 시장 경보":
     tab_vol, tab_warn = st.tabs(["📊 거래량 급증/급감", "🛡️ 관리종목 및 시장경보"])
 
     with tab_vol:
-        with st.spinner("데이터 스크래핑 중..."): surge_df, drop_df = get_volume_surge_drop()
         st.caption("💡 **거래량 폭증** = 평소보다 돈·관심이 몰린 종목 (세력 의심 / 급등 후보). "
                    "색상은 한국식 — 🔴빨강=상승, 🔵파랑=하락. 막대가 길수록 거래량이 더 터진 종목입니다.")
+        sub_kr, sub_us = st.tabs(["🇰🇷 국장 (KRX) TOP20", "🇺🇸 미장 (US) TOP20"])
 
-        c_surge, c_drop = st.columns(2)
-        with c_surge:
-            st.markdown("#### 🔥 거래량 급증 TOP")
-            sty_s, _ = style_volume_table(surge_df, "surge")
-            if sty_s is not None:
-                st.dataframe(sty_s, use_container_width=True, height=560)
-            elif not surge_df.empty:
-                st.dataframe(surge_df, use_container_width=True, hide_index=True)
+        with sub_kr:
+            with st.spinner("국장 거래량 데이터 스크래핑 중..."): surge_df, drop_df = get_volume_surge_drop()
+            c_surge, c_drop = st.columns(2)
+            with c_surge:
+                st.markdown("#### 🔥 거래량 급증 TOP20")
+                sty_s, _ = style_volume_table(surge_df, "surge")
+                if sty_s is not None:
+                    st.dataframe(sty_s, use_container_width=True, height=740)
+                elif not surge_df.empty:
+                    st.dataframe(surge_df, use_container_width=True, hide_index=True)
+                else:
+                    st.error("❌ 현재 데이터를 불러올 수 없습니다.")
+            with c_drop:
+                st.markdown("#### ❄️ 거래량 급감 TOP20")
+                sty_d, _ = style_volume_table(drop_df, "drop")
+                if sty_d is not None:
+                    st.dataframe(sty_d, use_container_width=True, height=740)
+                elif not drop_df.empty:
+                    st.dataframe(drop_df, use_container_width=True, hide_index=True)
+                else:
+                    st.error("❌ 현재 데이터를 불러올 수 없습니다.")
+
+        with sub_us:
+            st.caption("🇺🇸 주요 미국 대형주 유니버스 기준 · **오늘 거래량 ÷ 최근 20일 평균** 배율(>1 급증 / <1 급감) · "
+                       "첫 조회는 수십 초 걸릴 수 있어요(이후 30분 캐시).")
+            with st.spinner("미장 거래량 데이터 수집 중... (야후 파이낸스)"):
+                us_surge, us_drop = get_us_volume_surge_drop()
+            if us_surge.empty and us_drop.empty:
+                st.error("❌ 미국 거래량 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.")
             else:
-                st.error("❌ 현재 데이터를 불러올 수 없습니다.")
-        with c_drop:
-            st.markdown("#### ❄️ 거래량 급감 TOP")
-            sty_d, _ = style_volume_table(drop_df, "drop")
-            if sty_d is not None:
-                st.dataframe(sty_d, use_container_width=True, height=560)
-            elif not drop_df.empty:
-                st.dataframe(drop_df, use_container_width=True, hide_index=True)
-            else:
-                st.error("❌ 현재 데이터를 불러올 수 없습니다.")
+                uc1, uc2 = st.columns(2)
+                with uc1:
+                    st.markdown("#### 🔥 거래량 급증 TOP20")
+                    s = style_us_volume_table(us_surge, "surge")
+                    st.dataframe(s if s is not None else us_surge, use_container_width=True, height=740)
+                with uc2:
+                    st.markdown("#### ❄️ 거래량 급감 TOP20")
+                    d = style_us_volume_table(us_drop, "drop")
+                    st.dataframe(d if d is not None else us_drop, use_container_width=True, height=740)
     with tab_warn:
         with st.spinner("시장경보 데이터 스크래핑 중..."): mgmt_df, alert_df = get_market_warnings()
 
