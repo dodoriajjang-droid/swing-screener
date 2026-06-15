@@ -2606,6 +2606,149 @@ def render_trending_sectors(sectors, limit=None):
         + "".join(rows) + "</div>", unsafe_allow_html=True)
 
 
+# =====================================================================
+# [신규] 국장 수급 분석 (외국인·기관·개인 순매수) — KRX(pykrx) 기반
+#   순매수/순매도 TOP · 개미 vs 스마트머니 · 수급 주체 손바뀜(전환)
+#   ※ pykrx가 클라우드 IP에서 차단되거나 KRX 로그인 미설정이면 빈 결과 → 안내 표시
+# =====================================================================
+def _kr_latest_and_prev_bday():
+    try:
+        from pykrx import stock
+        latest = stock.get_nearest_business_day_in_a_week()
+        d = datetime.strptime(latest, "%Y%m%d") - timedelta(days=1)
+        prev = stock.get_nearest_business_day_in_a_week(date=d.strftime("%Y%m%d"), prev=True)
+        return latest, prev
+    except Exception:
+        return None, None
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_kr_investor_netbuy(date_str):
+    """특정 영업일 KOSPI+KOSDAQ 종목별 외국인/기관/개인 순매수거래대금(억) + 등락률."""
+    try:
+        from pykrx import stock
+    except Exception:
+        return pd.DataFrame()
+    rows, got = {}, False
+    inv_map = {"외국인": "외국인", "기관": "기관합계", "개인": "개인"}
+    for label, inv in inv_map.items():
+        try:
+            df = stock.get_market_net_purchases_of_equities(date_str, date_str, "ALL", inv)
+        except Exception:
+            continue
+        if df is None or df.empty or "순매수거래대금" not in df.columns:
+            continue
+        got = True
+        for tk, r in df.iterrows():
+            rec = rows.setdefault(str(tk), {"종목명": "", "외국인": 0.0, "기관": 0.0, "개인": 0.0})
+            nm = r.get("종목명")
+            if isinstance(nm, str) and nm:
+                rec["종목명"] = nm
+            try:
+                rec[label] = float(r["순매수거래대금"]) / 1e8
+            except Exception:
+                pass
+    if not got or not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame([{"티커": k, **v} for k, v in rows.items()])
+    out["스마트머니"] = out["외국인"] + out["기관"]
+    # 등락률 보강 (선택)
+    try:
+        ohlcv = stock.get_market_ohlcv_by_ticker(date_str, "ALL")
+        if ohlcv is not None and not ohlcv.empty and "등락률" in ohlcv.columns:
+            chg = {str(tk): float(v) for tk, v in ohlcv["등락률"].items()}
+            out["등락률"] = out["티커"].map(chg)
+    except Exception:
+        pass
+    if "등락률" not in out.columns:
+        out["등락률"] = float("nan")
+    return out
+
+
+def _su_amt(v):
+    return f"{v:+,.0f}억"
+
+
+def _render_netbuy_list(df, col, ascending=False, n=10):
+    if df is None or df.empty or col not in df.columns:
+        st.info("데이터 없음"); return
+    d = df[df[col] != 0].sort_values(col, ascending=ascending).head(n).reset_index(drop=True)
+    if d.empty:
+        st.info("해당 데이터 없음"); return
+    rows = []
+    for i, r in d.iterrows():
+        amt = r[col]; ac = "#ef4444" if amt > 0 else "#3b82f6"
+        chg = r.get("등락률", float("nan"))
+        if pd.isna(chg):
+            chg_html = "<span style='width:64px;'></span>"
+        else:
+            cc = "#ef4444" if chg > 0 else ("#3b82f6" if chg < 0 else "#64748b")
+            ar = "▲" if chg > 0 else ("▼" if chg < 0 else "")
+            chg_html = f"<span style='width:64px;text-align:right;color:{cc};font-size:12px;font-weight:600;'>{ar}{abs(chg):.2f}%</span>"
+        rows.append(
+            "<div style='display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;'>"
+            f"<span style='width:18px;color:#94a3b8;font-weight:700;font-size:12px;'>{i+1}</span>"
+            f"<span style='flex:1;min-width:0;font-weight:700;color:#1e293b;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{r['종목명']}</span>"
+            + chg_html +
+            f"<span style='width:92px;text-align:right;color:{ac};font-weight:700;font-size:13px;'>{_su_amt(amt)}</span></div>"
+        )
+    st.markdown("<div style='background:#fff;border:1px solid #e9eef3;border-radius:12px;padding:2px 14px;'>"
+                + "".join(rows) + "</div>", unsafe_allow_html=True)
+
+
+def _render_flow_chips(df, n=10, sort_col="스마트머니", ascending=False):
+    """개미 vs 스마트머니 등에서 한 줄 = 종목 + (외/기/개) 3주체 금액."""
+    if df is None or df.empty:
+        st.info("해당 조건의 종목이 없습니다."); return
+    d = df.sort_values(sort_col, ascending=ascending).head(n).reset_index(drop=True)
+    if d.empty:
+        st.info("해당 조건의 종목이 없습니다."); return
+    def amt_span(label, v):
+        c = "#ef4444" if v > 0 else ("#3b82f6" if v < 0 else "#64748b")
+        return (f"<span style='font-size:11px;color:#94a3b8;'>{label}</span> "
+                f"<span style='font-size:12px;color:{c};font-weight:600;'>{v:+,.0f}</span>")
+    rows = []
+    for i, r in d.iterrows():
+        rows.append(
+            "<div style='padding:8px 0;border-bottom:1px solid #f1f5f9;'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<span style='font-weight:700;color:#1e293b;font-size:13px;'>{i+1}. {r['종목명']}</span></div>"
+            "<div style='display:flex;gap:14px;margin-top:3px;'>"
+            f"{amt_span('외국인', r['외국인'])} {amt_span('기관', r['기관'])} {amt_span('개인', r['개인'])}"
+            "</div></div>"
+        )
+    st.markdown("<div style='background:#fff;border:1px solid #e9eef3;border-radius:12px;padding:2px 14px;'>"
+                + "".join(rows) + "</div>", unsafe_allow_html=True)
+
+
+def _render_handover(today_df, prev_df, n=15):
+    """스마트머니(외인+기관) 기준 어제 순매도 → 오늘 순매수 전환(바닥 신호)."""
+    if today_df is None or today_df.empty or prev_df is None or prev_df.empty:
+        st.info("전일 데이터가 없어 손바뀜을 계산할 수 없어요."); return
+    t = today_df.set_index("티커"); p = prev_df.set_index("티커")
+    common = t.index.intersection(p.index)
+    found = []
+    for tk in common:
+        ts = float(t.loc[tk, "스마트머니"]); ps = float(p.loc[tk, "스마트머니"])
+        if ps < 0 and ts > 0:
+            found.append((str(t.loc[tk, "종목명"]), ts, ps))
+    found.sort(key=lambda x: x[1], reverse=True)
+    if not found:
+        st.info("오늘 '순매도 → 순매수' 전환 종목이 없습니다."); return
+    rows = []
+    for i, (nm, ts, ps) in enumerate(found[:n], 1):
+        rows.append(
+            "<div style='display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f1f5f9;'>"
+            f"<span style='width:18px;color:#94a3b8;font-weight:700;font-size:12px;'>{i}</span>"
+            f"<span style='flex:1;font-weight:700;color:#1e293b;font-size:13px;'>{nm}</span>"
+            "<span style='font-size:12px;color:#94a3b8;'>스마트머니 "
+            f"<span style='color:#3b82f6;'>{ps:+,.0f}</span> → <span style='color:#ef4444;font-weight:700;'>{ts:+,.0f}억</span></span>"
+            "<span style='margin-left:8px;background:#fee2e2;color:#dc2626;border-radius:10px;padding:2px 9px;font-size:11px;font-weight:700;'>전환</span></div>"
+        )
+    st.markdown("<div style='background:#fff;border:1px solid #e9eef3;border-radius:12px;padding:2px 14px;'>"
+                + "".join(rows) + "</div>", unsafe_allow_html=True)
+
+
 @st.cache_data(ttl=86400)
 def get_us_scan_targets(limit=300):
     try:
@@ -7421,6 +7564,7 @@ with st.sidebar:
         " ┣ 🗺️ 시장 주도주 자금 히트맵",
         " ┣ 🕸️ 실시간 섹터 순환매 추적",
         " ┣ 🔥 지금 뜨는 섹터 (미장 테마)",
+        " ┣ 💰 국장 수급 분석 (외국인·기관·개인)",
         " ┣ 📅 핵심 증시 일정 & IPO 달력",
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
         "   ", 
@@ -10336,6 +10480,59 @@ elif selected_menu == "🚨 당일 상/하한가 분석":
             display_lower['거래대금(억)'] = display_lower['거래대금(억)'].apply(lambda x: f"{x:,}")
             st.dataframe(display_lower, use_container_width=True, hide_index=True)
         else: st.info("현재 하한가 종목이 없습니다.")
+
+elif selected_menu == "💰 국장 수급 분석 (외국인·기관·개인)":
+    st.markdown("## 💰 국장 수급 분석 (외국인·기관·개인)")
+    latest, prev = _kr_latest_and_prev_bday()
+    if not latest:
+        st.error("❌ 거래일 정보를 가져오지 못했습니다. 잠시 후 다시 시도해주세요.")
+    else:
+        st.caption(f"📅 기준일 {latest} · 단위: 억원 · 🔴빨강=순매수/상승 · 🔵파랑=순매도/하락")
+        with st.spinner("KRX 투자자별 순매수 데이터 수집 중... (첫 조회는 느릴 수 있어요)"):
+            flows = get_kr_investor_netbuy(latest)
+        if flows is None or flows.empty:
+            st.error("❌ KRX 수급 데이터를 불러오지 못했습니다.\n\n"
+                     "KRX 데이터(pykrx)가 현재 서버 환경에서 차단됐거나 KRX 로그인(KRX_ID/KRX_PW)이 설정되지 않았을 수 있어요. "
+                     "로컬 실행이나 KRX 접근이 가능한 환경에서는 정상 표시됩니다.")
+        else:
+            t_top, t_smart, t_hand = st.tabs(
+                ["🏆 순매수·순매도 TOP", "🧠 개미 vs 스마트머니", "🔄 수급 주체 손바뀜"])
+            with t_top:
+                for emoji, inv in [("🦅", "외국인"), ("🏛️", "기관"), ("🐜", "개인")]:
+                    st.markdown(f"#### {emoji} {inv}")
+                    cb, cs = st.columns(2)
+                    with cb:
+                        st.markdown("**🔴 순매수 TOP10**")
+                        _render_netbuy_list(flows, inv, ascending=False)
+                    with cs:
+                        st.markdown("**🔵 순매도 TOP10**")
+                        _render_netbuy_list(flows, inv, ascending=True)
+                    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+            with t_smart:
+                st.caption("스마트머니 = 외국인+기관 합산. 개미(개인)와 반대로 움직이는 종목을 찾습니다.")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("#### 🧠 스마트머니 매집 (개미는 매도)")
+                    st.caption("외국인+기관 순매수 & 개인 순매도")
+                    _render_flow_chips(flows[(flows["스마트머니"] > 0) & (flows["개인"] < 0)],
+                                       sort_col="스마트머니", ascending=False)
+                with c2:
+                    st.markdown("#### 🐜 개미만 매집 (스마트머니 이탈)")
+                    st.caption("개인 순매수 & 외국인+기관 순매도")
+                    _render_flow_chips(flows[(flows["개인"] > 0) & (flows["스마트머니"] < 0)],
+                                       sort_col="개인", ascending=False)
+                st.markdown("#### 🤝 3주체 동반 순매수")
+                _both = flows[(flows["외국인"] > 0) & (flows["기관"] > 0) & (flows["개인"] > 0)].copy()
+                if not _both.empty:
+                    _both["합계"] = _both["외국인"] + _both["기관"] + _both["개인"]
+                _render_flow_chips(_both, sort_col=("합계" if "합계" in _both.columns else "스마트머니"),
+                                   ascending=False)
+            with t_hand:
+                st.caption("어제 순매도 → 오늘 순매수로 전환된 종목 (스마트머니 기준 · 흔히 '바닥 신호'로 해석)")
+                with st.spinner("전일 데이터와 비교 중..."):
+                    prev_flows = get_kr_investor_netbuy(prev) if prev else pd.DataFrame()
+                _render_handover(flows, prev_flows)
+    st.caption("데이터: KRX(pykrx) · 정보 제공용이며 매수·매도 추천이 아닙니다. 투자 판단과 책임은 본인에게 있습니다.")
 
 elif selected_menu == "🔥 지금 뜨는 섹터 (미장 테마)":
     st.markdown("## 🔥 지금 뜨는 섹터")
