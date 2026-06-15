@@ -3916,7 +3916,7 @@ def render_industry_changes(n=12):
     body = "".join(_row(r) for r in top)
     st.markdown(
         f'<div style="background:#fff;border:1px solid #e9eef3;border-radius:14px;'
-        f'padding:6px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
+        f'padding:2px 14px;box-sizing:border-box;overflow:hidden;">{body}</div>',
         unsafe_allow_html=True,
     )
 
@@ -7816,17 +7816,20 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     # ── ④ 오늘의 자금 흐름: 시총 TOP & 업종 등락 ──
     st.markdown("##### 💰 오늘의 자금 흐름 (주도주·섹터)")
-    mc_col, ind_col = st.columns(2)
-    with mc_col:
+    # 헤더+컨트롤 행과 표 행을 분리 → 라디오 높이에 상관없이 두 표의 시작점이 자동 정렬됨(단차 제거)
+    h_mc, h_ind = st.columns(2)
+    with h_mc:
         st.markdown("**🏆 시가총액 TOP 10**")
         mc_market = st.radio("시장", ["KOSPI", "KOSDAQ"], horizontal=True,
                              label_visibility="collapsed", key="mcap_market_radio")
+    with h_ind:
+        st.markdown("**🔥 업종별 등락률 (강세 순)**")
+
+    t_mc, t_ind = st.columns(2)
+    with t_mc:
         with st.spinner("시가총액 상위 수집 중..."):
             render_marketcap_top(mc_market, 10)
-    with ind_col:
-        st.markdown("**🔥 업종별 등락률 (강세 순)**")
-        # 좌측 시총 컬럼의 라디오 높이만큼 여백 → 두 표의 시작점을 맞춤
-        st.markdown("<div style='height:38px;'></div>", unsafe_allow_html=True)
+    with t_ind:
         with st.spinner("업종별 등락 수집 중..."):
             render_industry_changes(12)
 
