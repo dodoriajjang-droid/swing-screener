@@ -5702,6 +5702,20 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 if chat_state_key not in st.session_state:
                     st.session_state[chat_state_key] = []
                 _tgl = st.toggle if hasattr(st, "toggle") else st.checkbox
+                _chat_on = bool(st.session_state.get(f"chat_tg_{key_suffix}", bool(st.session_state[chat_state_key])))
+                _cpill = ("✅ 켜짐 — 아래에서 대화" if _chat_on else "👇 스위치를 켜세요")
+                _cbg = ("#16a34a" if _chat_on else "#6366f1")
+                st.markdown(
+                    "<div style=\"display:flex;align-items:center;gap:9px;flex-wrap:wrap;"
+                    "background:linear-gradient(90deg,#eef2ff,#faf5ff);border:1px solid #c7d2fe;"
+                    "border-left:5px solid #6366f1;border-radius:11px;padding:10px 14px;margin:2px 0 7px;"
+                    "box-shadow:0 1px 5px rgba(99,102,241,.13);\">"
+                    "<span style=\"font-size:1.2em;\">💬</span>"
+                    "<span style=\"font-weight:800;color:#4338ca;font-size:1.02em;\">전문가 AI 질의응답</span>"
+                    "<span style=\"color:#6366f1;font-size:0.86em;\">이 종목·시황 무엇이든 물어보세요</span>"
+                    "<span style=\"margin-left:auto;background:" + _cbg + ";color:#fff;border-radius:20px;"
+                    "padding:3px 12px;font-size:0.78em;font-weight:800;white-space:nowrap;\">" + _cpill + "</span>"
+                    "</div>", unsafe_allow_html=True)
                 chat_open = _tgl(f"💬 전문가 AI와 ‘{stock_name}’ 질의응답 (주식·시황 Q&A)",
                                  key=f"chat_tg_{key_suffix}",
                                  value=bool(st.session_state[chat_state_key]),
@@ -5790,6 +5804,20 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 # ── 📊 [신규] 매물대 지도 & ⏳ 종목 타임머신 ─────────────────
                 st.markdown("---")
                 _tgl2 = st.toggle if hasattr(st, "toggle") else st.checkbox
+                _vptm_on = bool(st.session_state.get(f"vptm_tg_{key_suffix}", False))
+                _vpill = ("✅ 켜짐 — 아래 차트 확인" if _vptm_on else "👇 스위치를 켜세요")
+                _vbg = ("#16a34a" if _vptm_on else "#d97706")
+                st.markdown(
+                    "<div style=\"display:flex;align-items:center;gap:9px;flex-wrap:wrap;"
+                    "background:linear-gradient(90deg,#fffbeb,#fef9c3);border:1px solid #fde68a;"
+                    "border-left:5px solid #d97706;border-radius:11px;padding:10px 14px;margin:2px 0 7px;"
+                    "box-shadow:0 1px 5px rgba(217,119,6,.13);\">"
+                    "<span style=\"font-size:1.2em;\">📊</span>"
+                    "<span style=\"font-weight:800;color:#b45309;font-size:1.02em;\">매물대 지도 · 종목 타임머신</span>"
+                    "<span style=\"color:#d97706;font-size:0.86em;\">가격대별 거래량 + 과거 유사패턴</span>"
+                    "<span style=\"margin-left:auto;background:" + _vbg + ";color:#fff;border-radius:20px;"
+                    "padding:3px 12px;font-size:0.78em;font-weight:800;white-space:nowrap;\">" + _vpill + "</span>"
+                    "</div>", unsafe_allow_html=True)
                 _vptm_open = _tgl2(f"📊 ‘{stock_name}’ 매물대 지도 · 종목 타임머신 보기",
                                    key=f"vptm_tg_{key_suffix}", value=False,
                                    help="가격대별 거래량(매물대)과, 최근 패턴이 닮았던 과거 구간 이후의 수익률을 봅니다. (일봉 근사·참고용)")
