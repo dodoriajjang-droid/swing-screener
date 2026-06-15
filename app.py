@@ -4134,6 +4134,210 @@ def get_historical_data(ticker_code, days):
     return pd.DataFrame()
 
 # =====================================================================
+# [신규] 매물대 지도 (Volume-by-Price) + 종목 타임머신 (과거 유사패턴)
+#  - 둘 다 일봉 OHLCV(get_historical_data 결과)만으로 계산. 틱 데이터 불필요.
+#  - 카드에서 토글로 '열 때만' 계산 → 평소 렌더 속도에 영향 없음.
+# =====================================================================
+def nb_volume_profile(df, bins=12, current_price=None):
+    """일봉 거래량을 그날 [Low, High] 범위에 겹치는 만큼 비례 배분해 가격대별로 합산."""
+    try:
+        d = df[['High', 'Low', 'Volume']].dropna().copy()
+    except Exception:
+        return None
+    if d.empty:
+        return None
+    lo = float(d['Low'].min()); hi = float(d['High'].max())
+    if hi <= lo:
+        hi = lo * 1.001 + 1e-9
+    edges = np.linspace(lo, hi, bins + 1)
+    vol = np.zeros(bins)
+    H = d['High'].to_numpy(float); L = d['Low'].to_numpy(float); V = d['Volume'].to_numpy(float)
+    for h, l, v in zip(H, L, V):
+        if v <= 0 or h < l:
+            continue
+        if h - l <= 0:
+            idx = min(bins - 1, max(0, int(np.searchsorted(edges, l, "right") - 1)))
+            vol[idx] += v; continue
+        lows = np.maximum(edges[:-1], l); highs = np.minimum(edges[1:], h)
+        overlap = np.clip(highs - lows, 0, None); tot = overlap.sum()
+        if tot > 0:
+            vol += v * (overlap / tot)
+    total = vol.sum()
+    pct = (vol / total * 100) if total > 0 else vol
+    centers = (edges[:-1] + edges[1:]) / 2
+    order = list(range(bins))[::-1]   # 위(고가) → 아래(저가)
+    levels = [{"price_low": float(edges[i]), "price_high": float(edges[i + 1]),
+               "price_mid": float(centers[i]), "pct": float(pct[i])} for i in order]
+    poc_bin = int(np.argmax(vol)); poc_index = order.index(poc_bin)
+    if current_price is None and "Close" in df.columns:
+        try: current_price = float(df["Close"].dropna().iloc[-1])
+        except Exception: current_price = None
+    current_index = None
+    if current_price is not None:
+        cb = min(bins - 1, max(0, int(np.searchsorted(edges, current_price, "right") - 1)))
+        current_index = order.index(cb)
+    return {"levels": levels, "poc_index": poc_index, "current_index": current_index}
+
+
+def nb_time_machine(close, dates=None, window=20, horizons=(5, 20), top_k=10, min_gap=5):
+    """지금의 최근 window일 '모양'과 닮은 과거 구간을 상관계수로 찾아 이후 수익률 집계."""
+    c = np.asarray(close, dtype=float)
+    mask = ~np.isnan(c); c = c[mask]
+    if dates is not None:
+        dates = np.asarray(dates)[mask]
+    n = len(c); Hmax = max(horizons)
+    if n < window + Hmax + 30:
+        return None
+    cur = c[-window:]
+    if np.any(cur <= 0):
+        return None
+    cur_z = cur / cur[0]; cur_z = cur_z - cur_z.mean()
+    cur_norm = np.sqrt((cur_z ** 2).sum())
+    if cur_norm == 0:
+        return None
+    cand_min = window - 1; cand_max = n - 1 - Hmax; exclude_from = n - window - min_gap
+    results = []
+    for t in range(cand_min, cand_max + 1):
+        if t >= exclude_from:
+            continue
+        w = c[t - window + 1: t + 1]
+        if np.any(w <= 0):
+            continue
+        wz = w / w[0]; wz = wz - wz.mean()
+        denom = cur_norm * np.sqrt((wz ** 2).sum())
+        if denom == 0:
+            continue
+        corr = float((cur_z * wz).sum() / denom)
+        sim = (corr + 1) / 2 * 100
+        end_price = c[t]
+        fwd = {h: (c[t + h] / end_price - 1) * 100 for h in horizons}
+        item = {"end_index": int(t), "similarity": sim, "forward": fwd}
+        if dates is not None:
+            item["end_date"] = dates[t]
+        results.append(item)
+    if not results:
+        return None
+    results.sort(key=lambda r: r["similarity"], reverse=True)
+    top = results[:top_k]
+    agg = {}
+    for h in horizons:
+        vals = [r["forward"][h] for r in top]
+        agg[h] = {"avg": float(np.mean(vals)),
+                  "up": int(sum(v > 0 for v in vals)),
+                  "down": int(sum(v <= 0 for v in vals))}
+    return {"matches": top, "aggregate": agg, "window": window,
+            "horizons": list(horizons), "n_candidates": len(results)}
+
+
+def _nb_won(v):
+    """가격 표기: 국내는 원, 미국(소수)도 자연스럽게."""
+    try:
+        v = float(v)
+    except Exception:
+        return str(v)
+    if v >= 1000:
+        return f"₩{v:,.0f}" if v == int(v) or v > 5000 else f"₩{v:,.0f}"
+    return f"${v:,.2f}"
+
+
+def nb_render_volume_profile(df, current_price=None, bins=12):
+    """매물대 지도 렌더 (인라인 스타일 HTML 막대)."""
+    vp = nb_volume_profile(df.tail(120), bins=bins, current_price=current_price)
+    if not vp:
+        st.info("매물대를 계산할 일봉 데이터가 부족해요."); return
+    levels = vp["levels"]
+    mx = max((l["pct"] for l in levels), default=0) or 1
+    st.markdown("#### 🏛️ 매물대 지도 &nbsp;<span style='color:#94a3b8;font-size:0.78em;font-weight:400;'>일봉 근사 · 최근 120일</span>",
+                unsafe_allow_html=True)
+    rows = []
+    for i, lv in enumerate(levels):
+        w = lv["pct"] / mx * 100
+        is_poc = (i == vp["poc_index"]); is_now = (i == vp["current_index"])
+        bar = "#c79a3a" if is_poc else ("#64748b" if is_now else "#cbd5e1")
+        price_style = "font-weight:700;color:#0f172a;" if is_now else "color:#334155;"
+        tag = "<span style='background:#0f172a;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.72em;margin-left:5px;'>현재</span>" if is_now else ""
+        rows.append(
+            "<div style=\"display:flex;align-items:center;gap:8px;margin:3px 0;font-size:0.86rem;\">"
+            "<span style=\"width:96px;text-align:right;font-variant-numeric:tabular-nums;" + price_style + "\">"
+            + _nb_won(lv["price_mid"]) + tag + "</span>"
+            "<span style=\"flex:1;background:#eef2f6;border-radius:6px;height:17px;overflow:hidden;\">"
+            "<span style=\"display:block;width:" + f"{w:.1f}" + "%;height:100%;background:" + bar + ";border-radius:6px;\"></span></span>"
+            "<span style=\"width:50px;text-align:right;color:#475569;font-variant-numeric:tabular-nums;\">"
+            + f"{lv['pct']:.1f}" + "%</span></div>"
+        )
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+    # 자동 인사이트 (POC = 가장 두꺼운 매물대가 지지냐 저항이냐)
+    poc = levels[vp["poc_index"]]
+    msg = f"가장 두꺼운 매물대는 **{_nb_won(poc['price_low'])}~{_nb_won(poc['price_high'])}** 구간(전체의 {poc['pct']:.1f}%)이에요. "
+    if current_price is not None:
+        if poc["price_mid"] < float(current_price):
+            msg += "현재가보다 **아래**라 눌릴 때 **받침(지지)** 역할을 할 가능성이 커요."
+        else:
+            msg += "현재가보다 **위**라 오를 때 **매물벽(저항)** 으로 작용할 수 있어요."
+        ci = vp["current_index"]
+        if ci is not None and ci - 1 >= 0:
+            up = levels[ci - 1]
+            if up["pct"] >= 3:
+                msg += f" 바로 위 {_nb_won(up['price_low'])}~{_nb_won(up['price_high'])}({up['pct']:.1f}%)이 1차 저항이에요."
+    with st.container(border=True):
+        st.markdown(msg)
+    st.caption("일봉 고가~저가에 거래량을 나눠 담은 근사치예요 (틱 데이터 아님) · 구조 참고용이며 매수·매도 권유가 아닙니다.")
+
+
+def nb_render_time_machine(df, window=20, horizons=(5, 20), top_k=10):
+    """종목 타임머신 렌더."""
+    try:
+        close = df["Close"].to_numpy(float); dates = df.index.values
+    except Exception:
+        st.info("타임머신을 계산할 데이터가 부족해요."); return
+    tm = nb_time_machine(close, dates=dates, window=window, horizons=horizons, top_k=top_k)
+    if not tm:
+        st.info(f"타임머신은 최소 {window + max(horizons) + 30}거래일 이상이 필요해요. 상장 기간이 짧은 종목은 표시되지 않아요.")
+        return
+    h0, h1 = tm["horizons"][0], tm["horizons"][-1]
+    a = tm["aggregate"][h0]
+    st.markdown(f"#### ⏳ 종목 타임머신 &nbsp;<span style='color:#94a3b8;font-size:0.78em;font-weight:400;'>최근 {window}일 패턴 · 과거 검색</span>",
+                unsafe_allow_html=True)
+    col_a = "#dc2626" if a["avg"] >= 0 else "#2563eb"
+    dots = "🔴" * a["up"] + "🔵" * a["down"]
+    with st.container(border=True):
+        st.markdown(
+            f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<div>닮은 구간 <b>{len(tm['matches'])}번</b>의 {h0}일 뒤<br>"
+            f"<span style='font-size:0.92em;'>{dots} &nbsp;<span style='color:#dc2626;'>{a['up']}번 상승</span> · <span style='color:#2563eb;'>{a['down']}번 하락</span></span></div>"
+            f"<div style='text-align:right;'><span style='font-size:1.5rem;font-weight:800;color:{col_a};'>{a['avg']:+.2f}%</span><br>"
+            f"<span style='color:#94a3b8;font-size:0.8em;'>평균 수익률</span></div></div>",
+            unsafe_allow_html=True)
+        rows = []
+        msim = max((m["similarity"] for m in tm["matches"]), default=100) or 100
+        for m in tm["matches"][:3]:
+            try:
+                dlabel = pd.to_datetime(str(m["end_date"])).strftime("%Y.%m.%d")
+            except Exception:
+                dlabel = f"#{m['end_index']}"
+            f0, f1 = m["forward"][h0], m["forward"][h1]
+            c0 = "#dc2626" if f0 >= 0 else "#2563eb"; c1 = "#dc2626" if f1 >= 0 else "#2563eb"
+            bw = m["similarity"] / msim * 100
+            rows.append(
+                "<div style=\"display:flex;align-items:center;gap:10px;margin:6px 0;font-size:0.86rem;\">"
+                "<span style=\"width:82px;color:#475569;font-variant-numeric:tabular-nums;\">" + dlabel + "</span>"
+                "<span style=\"flex:1;background:#f1f5f9;border-radius:5px;height:14px;overflow:hidden;\">"
+                "<span style=\"display:block;width:" + f"{bw:.0f}" + "%;height:100%;background:#c79a3a;border-radius:5px;\"></span></span>"
+                "<span style=\"width:40px;text-align:right;color:#475569;\">" + f"{m['similarity']:.0f}" + "%</span>"
+                "<span style=\"width:64px;text-align:right;color:" + c0 + ";font-weight:600;\">" + f"{f0:+.2f}" + "%</span>"
+                "<span style=\"width:64px;text-align:right;color:" + c1 + ";font-weight:600;\">" + f"{f1:+.2f}" + "%</span></div>"
+            )
+        st.markdown("<div style='margin-top:8px;border-top:1px solid #e2e8f0;padding-top:6px;'>"
+                    "<div style='display:flex;gap:10px;font-size:0.74em;color:#94a3b8;'>"
+                    "<span style='width:82px;'>유사 시점</span><span style='flex:1;'>유사도</span>"
+                    f"<span style='width:40px;text-align:right;'></span><span style='width:64px;text-align:right;'>{h0}일 뒤</span>"
+                    f"<span style='width:64px;text-align:right;'>{h1}일 뒤</span></div>" + "".join(rows) + "</div>",
+                    unsafe_allow_html=True)
+    st.caption("이 종목 자신의 과거 가격 패턴 기록이에요 — 예측이 아니라 과거 사실이며, 표본이 적어 참고용입니다. 매수·매도 권유가 아닙니다.")
+
+
+# =====================================================================
 # [v7.0 신규] ① 멀티 타임프레임 — 주봉 추세 판정
 # 일봉 df를 주봉으로 리샘플링 → 주봉 이평선 배열로 큰 추세를 확인.
 # "일봉 타점 + 주봉 상승"이 겹칠 때 가짜 신호가 크게 줄어듭니다.
@@ -5582,6 +5786,23 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 _hist.append({"role": "assistant", "content": _ans})
                                 st.session_state[chat_state_key] = _hist[-20:]   # 최근 10문답만 보존(프롬프트 비대화 방지)
                                 st.rerun()
+
+                # ── 📊 [신규] 매물대 지도 & ⏳ 종목 타임머신 ─────────────────
+                st.markdown("---")
+                _tgl2 = st.toggle if hasattr(st, "toggle") else st.checkbox
+                _vptm_open = _tgl2(f"📊 ‘{stock_name}’ 매물대 지도 · 종목 타임머신 보기",
+                                   key=f"vptm_tg_{key_suffix}", value=False,
+                                   help="가격대별 거래량(매물대)과, 최근 패턴이 닮았던 과거 구간 이후의 수익률을 봅니다. (일봉 근사·참고용)")
+                if _vptm_open:
+                    with st.container(border=True):
+                        with st.spinner("일봉 데이터로 매물대·과거 패턴 계산 중..."):
+                            _hist_df = get_historical_data(ticker_code, 800)
+                        if _hist_df is None or _hist_df.empty or len(_hist_df) < 40:
+                            st.info("이 종목은 매물대/타임머신을 계산할 일봉 데이터가 부족해요 (상장 기간이 짧거나 조회 실패).")
+                        else:
+                            nb_render_volume_profile(_hist_df, current_price=curr)
+                            st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+                            nb_render_time_machine(_hist_df)
 
                 if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
