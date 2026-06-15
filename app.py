@@ -4337,6 +4337,48 @@ def nb_render_time_machine(df, window=20, horizons=(5, 20), top_k=10):
     st.caption("이 종목 자신의 과거 가격 패턴 기록이에요 — 예측이 아니라 과거 사실이며, 표본이 적어 참고용입니다. 매수·매도 권유가 아닙니다.")
 
 
+def nb_render_briefing(briefing_text, ts_label):
+    """AI 모닝 브리핑을 '작은 폰트 + 블루 카드'로 렌더.
+    AI가 돌려준 마크다운의 #/## 헤더가 거대하게 뜨던 문제를 자체 변환으로 해결해
+    제목 16px / 소제목 14px / 본문 13.5px 로 가독성 있게 통일한다."""
+    import re as _re, html as _html
+    out = []; in_ul = False
+    def _inline(s):
+        s = _html.escape(s)
+        s = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+        s = _re.sub(r"(?<!\*)\*(?!\*)([^*]+?)\*(?!\*)", r"<em>\1</em>", s)
+        s = _re.sub(r"`([^`]+?)`", r"<code style='background:#e0e7ff;padding:1px 4px;border-radius:4px;font-size:0.92em;'>\1</code>", s)
+        return s
+    for raw in str(briefing_text).split("\n"):
+        line = raw.rstrip()
+        if not line.strip():
+            if in_ul: out.append("</ul>"); in_ul = False
+            continue
+        mh = _re.match(r"^\s*(#{1,6})\s+(.*)$", line)
+        if mh:
+            if in_ul: out.append("</ul>"); in_ul = False
+            lvl = len(mh.group(1)); txt = _inline(mh.group(2))
+            if lvl <= 2:
+                out.append(f"<div style='font-size:16px;font-weight:700;color:#0f172a;margin:13px 0 5px;'>{txt}</div>")
+            else:
+                out.append(f"<div style='font-size:14px;font-weight:700;color:#1d4ed8;margin:12px 0 4px;'>{txt}</div>")
+            continue
+        mb = _re.match(r"^\s*[-*•]\s+(.*)$", line)
+        if mb:
+            if not in_ul: out.append("<ul style='margin:5px 0;padding-left:18px;'>"); in_ul = True
+            out.append(f"<li style='margin:4px 0;'>{_inline(mb.group(1))}</li>")
+            continue
+        if in_ul: out.append("</ul>"); in_ul = False
+        out.append(f"<p style='margin:5px 0;'>{_inline(line)}</p>")
+    if in_ul: out.append("</ul>")
+    st.markdown(
+        "<div style=\"background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;"
+        "border-radius:12px;padding:14px 17px;font-size:13.5px;line-height:1.65;color:#1e293b;\">"
+        "<div style=\"font-size:12px;color:#2563eb;font-weight:700;margin-bottom:8px;\">"
+        "💡 [" + _html.escape(str(ts_label)) + " KST 기준]</div>"
+        + "".join(out) + "</div>", unsafe_allow_html=True)
+
+
 # =====================================================================
 # [v7.0 신규] ① 멀티 타임프레임 — 주봉 추세 판정
 # 일봉 df를 주봉으로 리샘플링 → 주봉 이평선 배열로 큰 추세를 확인.
@@ -7427,6 +7469,19 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
 
     st.divider()
 
+    # ── [이동] 📰 AI 모닝 브리핑 (간밤 글로벌 바로 아래로 배치) ──
+    st.markdown("##### 📰 AI 모닝 브리핑 (Global → Local)")
+    if api_key_input:
+        with st.spinner("AI가 글로벌 매크로 데이터로 모닝 브리핑을 작성 중입니다..."):
+            top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
+            briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
+            nb_render_briefing(briefing_text, now_kst.strftime('%Y-%m-%d %H:%M'))
+            st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
+    else:
+        st.warning("좌측 사이드바에 API 키를 입력하시면, AI가 작성하는 글로벌→국내 모닝 브리핑을 볼 수 있습니다.")
+
+    st.divider()
+
     # ── ③ 코스피·코스닥 실시간 & 투자자별 수급 ──
     st.markdown("##### 📈 코스피·코스닥 실시간 & 수급 (외국인·기관·개인)")
     with st.spinner("지수·투자자별 수급 수집 중..."):
@@ -7468,19 +7523,6 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
     st.markdown("##### 🚦 내 관심종목 신호 (손절·익절 자동 감시)")
     with st.spinner("관심종목 기술적 점검 중..."):
         render_watchlist_signals()
-
-    st.divider()
-
-    # ── ⑧ AI 모닝 브리핑 ──
-    st.markdown("##### 📰 AI 모닝 브리핑 (Global → Local)")
-    if api_key_input:
-        with st.spinner("AI가 글로벌 매크로 데이터로 모닝 브리핑을 작성 중입니다..."):
-            top_gainers_names = st.session_state.gainers_df['기업명'].tolist()[:5] if not st.session_state.gainers_df.empty else []
-            briefing_text = get_daily_market_briefing(macro_data, top_gainers_names, api_key_input)
-            st.info(f"**[{now_kst.strftime('%Y-%m-%d %H:%M')} KST 기준]**\n\n{briefing_text}", icon="💡")
-            st.caption("※ 본 브리핑은 24시간 단위로 캐시가 갱신됩니다.")
-    else:
-        st.warning("좌측 사이드바에 API 키를 입력하시면, AI가 작성하는 글로벌→국내 모닝 브리핑을 볼 수 있습니다.")
 
     st.divider()
 
