@@ -7,7 +7,8 @@ from io import StringIO
 import yfinance as yf
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
-import google.generativeai as genai
+from google import genai as _genai          # 신규 SDK (google-genai) — 구버전 google-generativeai 폐기 대응
+from google.genai import types as _gtypes
 import urllib.parse
 import re
 import plotly.express as px
@@ -1240,6 +1241,24 @@ def get_stock_research_history(code, stock_name=""):
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
+def _genai_generate(prompt, api_key, *, grounding=False, image=None,
+                    model_name="gemini-3.1-flash-lite"):
+    """신규 google-genai SDK 공통 래퍼. 원시 response 객체를 반환한다.
+    - grounding=True  → 구글 검색(Google Search) 도구 사용 (Gemini 3.x 정식 문법)
+    - image 지정       → 멀티모달(비전) 입력
+    """
+    client = _genai.Client(api_key=api_key)
+    contents = prompt if image is None else [prompt, image]
+    config = None
+    if grounding:
+        config = _gtypes.GenerateContentConfig(
+            tools=[_gtypes.Tool(google_search=_gtypes.GoogleSearch())]
+        )
+    return client.models.generate_content(
+        model=model_name, contents=contents, config=config,
+    )
+
+
 def ask_gemini(prompt, _api_key):
     if not _api_key: return "API 키가 필요합니다."
     try:
@@ -1247,13 +1266,10 @@ def ask_gemini(prompt, _api_key):
         today_str = now_kst.strftime("%Y년 %m월 %d일")
         system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 정확히 {today_str}입니다. 분석 시점은 반드시 오늘을 기준으로 하며, 과거 데이터를 현재 상황으로 오인하여 답변하지 마세요.\n\n"
         
-        genai.configure(api_key=_api_key)
         full_prompt = system_date_instruction + prompt
-        
-        model = genai.GenerativeModel('gemini-3.1-flash-lite')
-        
-        response = model.generate_content(full_prompt)
-        
+
+        response = _genai_generate(full_prompt, _api_key)
+
         if not response.candidates or not response.candidates[0].content.parts:
             reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
             return f"🚨 AI 응답 생성에 실패했습니다. (사유: {reason}). 다시 시도하거나 질문을 수정해주세요."
@@ -1269,9 +1285,7 @@ def ask_gemini_vision(prompt, image_obj, _api_key):
         now_kst = datetime.utcnow() + timedelta(hours=9)
         today_str = now_kst.strftime("%Y년 %m월 %d일")
         system_date_instruction = f"🚨 [시스템 필수 지침]: 오늘 날짜는 {today_str}입니다. 과거 데이터로 답변하지 마세요.\n\n"
-        genai.configure(api_key=_api_key)
-        model = genai.GenerativeModel('gemini-3.1-flash-lite')
-        response = model.generate_content([system_date_instruction + prompt, image_obj])
+        response = _genai_generate(system_date_instruction + prompt, _api_key, image=image_obj)
         return response.text
     except Exception as e: return f"🚨 비전 분석 오류: {str(e)}"
 
@@ -4951,8 +4965,6 @@ def get_granular_themes(stock_name: str, api_key: str) -> list:
         return ["API_KEY_MISSING"]
     
     try:
-        genai.configure(api_key=api_key)
-        
         prompt = f"""
         대상 기업: [{stock_name}]
         이 기업의 핵심 사업 모델과 현재 주식 시장에서 편입되어 있는 구체적인 테마/섹터를 3~5개의 단어로 추출하세요.
@@ -4965,9 +4977,8 @@ def get_granular_themes(stock_name: str, api_key: str) -> list:
         """
         
         # 시스템 통합 모델 버전 적용
-        model = genai.GenerativeModel('gemini-3.1-flash-lite')
-        response = model.generate_content(prompt)
-        
+        response = _genai_generate(prompt, api_key)
+
         text = response.text.strip()
         if text.startswith("```json"):
             text = text[7:-3].strip()
@@ -5560,10 +5571,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
 {_uq}"""
                                 with st.spinner("🧑‍💼 전문가 AI가 데이터와 최신 시황을 확인하며 답변 작성 중..."):
                                     _ans = None
-                                    try:   # 1차: 실시간 검색 그라운딩
-                                        genai.configure(api_key=api_key_str)
-                                        _gm = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
-                                        _gr = _gm.generate_content(_chat_prompt)
+                                    try:   # 1차: 실시간 검색 그라운딩 (Gemini 3.x 정식 google_search 도구)
+                                        _gr = _genai_generate(_chat_prompt, api_key_str, grounding=True)
                                         if _gr.candidates and _gr.candidates[0].content.parts:
                                             _ans = _gr.text
                                     except Exception:
@@ -7393,9 +7402,7 @@ if selected_menu == "🎛️ 홈: 종합 대시보드":
                     grounded_ok = False
                     with st.spinner("구글 검색으로 최신 팩트를 교차 확인하는 중..."):
                         try:
-                            genai.configure(api_key=api_key_input)
-                            model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
-                            response = model.generate_content(sys_prompt)
+                            response = _genai_generate(sys_prompt, api_key_input, grounding=True)
                             if response.candidates and response.candidates[0].content.parts:
                                 reply = response.text
                                 grounded_ok = True
@@ -8764,9 +8771,7 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                     with st.spinner("🔍 AI가 종목별 하락 원인과 테마 전망을 실시간 검색으로 교차 확인 중... (10~20초)"):
                         _ai_out = None
                         try:
-                            genai.configure(api_key=api_key_input)
-                            _g_model = genai.GenerativeModel('gemini-3.1-flash-lite', tools='google_search_retrieval')
-                            _g_res = _g_model.generate_content(_prompt)
+                            _g_res = _genai_generate(_prompt, api_key_input, grounding=True)
                             if _g_res.candidates and _g_res.candidates[0].content.parts:
                                 _ai_out = _g_res.text
                         except Exception:
