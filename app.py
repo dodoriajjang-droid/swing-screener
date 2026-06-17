@@ -5699,7 +5699,7 @@ def analyze_technical_pattern(stock_name, ticker_code, offset_days=0):
         
         return {
             "종목명": stock_name, "티커": ticker_code, "섹터": sector_val, "현재가": current_price, "상태": status,
-            "시장": get_market_label(ticker_code),
+            "시장": get_market_label(ticker_code), "기준일": (analysis_df.index[-1] if len(analysis_df) else None),
             "진입가_가이드": ma20_val, "목표가1": target_1, "목표가2": target_2, "목표가3": target_3, "손절가": ma20_val * 0.97,
             "거래량 급증": "🔥 거래량 터짐" if analysis_df.iloc[-10:]['Volume'].max() > (analysis_df.iloc[-10:]['Vol_MA20'].mean() * 2) else "평이함",
             "RSI": latest['RSI'], "배열상태": align_status, "주봉추세": weekly_trend,
@@ -6025,12 +6025,32 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
 
-        c1, c2, c3, c4 = st.columns(4)
         curr = tech_result['현재가']
-        c1.metric("📌 진입 기준가", fmt_price(tech_result['진입가_가이드']), fmt_price(tech_result['진입가_가이드'] - curr, True) + " (대비)", delta_color="off")
+        # 진입가/현재가 기준일 라벨 (최신 일봉 날짜)
+        _base_dt = tech_result.get('기준일')
+        try:
+            _base_label = pd.to_datetime(_base_dt).strftime('%m/%d') if _base_dt is not None else ''
+        except Exception:
+            _base_label = ''
+        _base_txt = f" ({_base_label} 기준)" if _base_label else ""
+
+        # 현재가 — 크게/가독성 있게 (타임머신 모드는 위 배너에 이미 표시되므로 생략)
+        if not tech_result.get('과거검증'):
+            st.markdown(
+                "<div style='display:flex;align-items:baseline;flex-wrap:wrap;gap:10px;"
+                "background:#f8fafc;border:1px solid #e9eef3;border-radius:12px;padding:10px 16px;margin:4px 0 12px;'>"
+                "<span style='font-size:14px;color:#64748b;font-weight:700;'>현재가</span>"
+                "<span style='font-size:32px;font-weight:800;color:#1e293b;line-height:1;"
+                f"font-family:\"JetBrains Mono\",monospace;'>{fmt_price(curr)}</span>"
+                f"<span style='font-size:13px;color:#94a3b8;'>{_base_txt}</span>"
+                "</div>", unsafe_allow_html=True)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(f"📌 진입 기준가{_base_txt}", fmt_price(tech_result['진입가_가이드']), fmt_price(tech_result['진입가_가이드'] - curr, True) + " (대비)", delta_color="off")
         c2.metric("🎯 1차 (볼밴상단)", fmt_price(tech_result['목표가1']), fmt_price(tech_result['목표가1'] - curr, True), delta_color="normal")
         c3.metric("🚀 2차 (스윙전고)", fmt_price(tech_result['목표가2']), fmt_price(tech_result['목표가2'] - curr, True), delta_color="normal")
         c4.metric("🌌 3차 (오버슈팅)", fmt_price(tech_result['목표가3']), fmt_price(tech_result['목표가3'] - curr, True), delta_color="normal")
+        st.caption(f"ℹ️ 진입 기준가 = 20일 이동평균선 · 현재가·지표는 {_base_label + ' ' if _base_label else ''}일봉 종가 기준 (최대 1시간 캐시)")
         
         st.markdown("---")
         
