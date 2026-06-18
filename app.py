@@ -1388,37 +1388,38 @@ def get_trending_themes_with_ai(api_key):
 @st.cache_data(ttl=3600)
 def get_theme_stocks_with_ai(theme, api_key):
     prompt = f"""당신은 글로벌 테마주 발굴 전문가입니다.
-'{theme}' 테마의 **실제 수혜주만** 엄선하세요. 이 테마의 제품·기술·밸류체인(소재·부품·장비·서비스)에
-직접적인 사업 연관이 있는 종목만 포함합니다.
+'{theme}' 테마의 실제 수혜주를 **한국(KRX)과 미국(US) 양쪽 시장에서 골고루** 발굴하세요.
+이 테마의 제품·기술·밸류체인(소재·부품·장비·서비스)에 직접적인 사업 연관이 있는 종목만 포함합니다.
 
-[가장 중요 — 정확도 규칙]
-1. 테마와 '직접' 관련된 진짜 종목만 넣으세요. 개수를 채우려고 관련 없는 대형주(예: 테슬라, 엔비디아)나
-   엉뚱한 종목을 절대 끼워넣지 마세요. **관련 종목이 적으면 적은 대로** 출력하세요(5개여도 됩니다). 양보다 질.
-2. 한국(KRX)·미국(US) 종목을 '실제로 존재하는 만큼만' 섞으세요. 한쪽 시장에 진짜 수혜주가 없으면 굳이 채우지 마세요.
-3. 종목코드는 정확해야 합니다 — 한국은 정확한 6자리 KRX 코드, 미국은 정확한 실제 티커.
-   코드가 확실치 않거나 상장폐지·비상장 종목이면 그 종목은 빼세요.
-4. 관련도가 높은 순서로, 최대 30개까지만.
+[규칙]
+1. 테마와 '직접' 관련된 진짜 종목만. 개수를 채우려고 관련 없는 대형주(예: 테슬라, 엔비디아)나 엉뚱한 종목을 끼워넣지 마세요.
+2. **반드시 한국 종목과 미국 종목을 둘 다 포함**하세요. 대부분의 글로벌 테마는 양쪽 시장에 실제 수혜주가
+   있으니 미국·글로벌 종목도 적극적으로 찾으세요. (정말로 한쪽 시장에 진짜 관련주가 없을 때만 생략)
+3. 가능하면 한국과 미국 비중을 비슷하게 맞추세요.
+4. 정확한 코드만 — 한국은 정확한 6자리 KRX 코드, 미국은 정확한 실제 티커(예: NVDA). 불확실하거나 비상장이면 제외.
+5. 관련도가 높은 순서로, 최대 30개.
 
 [출력 형식]
-- 반드시 "종목명,종목코드" 형식, 한 줄에 하나씩. (예: 삼성전자,005930 / 엔비디아,NVDA)
-- 번호·부연 설명·마크다운 기호(-, * 등) 절대 금지. 오직 종목 데이터만.
+- "종목명,종목코드" 형식, 한 줄에 하나씩. 미국 종목도 종목명은 자유롭게 쓰되 코드는 영문 티커. (예: 삼성전자,005930 / 엔비디아,NVDA)
+- 번호·부연 설명·마크다운 기호(-, * 등) 금지. 종목명 안에는 쉼표(,)를 쓰지 마세요. 오직 종목 데이터만.
 """
     try:
         res = ask_gemini(prompt, api_key, grounding=True)
-        lines = res.split('\n')
         stocks, seen = [], set()
-        for line in lines:
+        for line in res.split('\n'):
+            line = line.strip()
+            if ',' not in line:
+                continue
             parts = line.split(',')
-            if len(parts) >= 2:
-                name = parts[0].strip().replace("-", "").replace("*", "").replace("•", "").strip()
-                code = parts[1].strip().upper()
-                if not name or len(name) > 20:
-                    continue
-                is_kr = (len(code) == 6 and code.isdigit() and code != "000000")
-                is_us = (code.isascii() and code.isalpha() and 1 <= len(code) <= 5)
-                if (is_kr or is_us) and code not in seen:
-                    seen.add(code)
-                    stocks.append((name, code))
+            code = parts[-1].strip().upper().replace(" ", "")          # 코드는 항상 마지막 토큰
+            name = ",".join(parts[:-1]).strip().lstrip("-*• ").strip()  # 이름에 쉼표가 있어도 보존
+            if not name or len(name) > 40:
+                continue
+            is_kr = (len(code) == 6 and code.isdigit() and code != "000000")
+            is_us = (code.isascii() and code.isalpha() and 1 <= len(code) <= 5)
+            if (is_kr or is_us) and code not in seen:
+                seen.add(code)
+                stocks.append((name, code))
         return stocks[:30]
     except Exception:
         return []
