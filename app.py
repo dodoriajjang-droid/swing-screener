@@ -6320,72 +6320,78 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             ai_res_key = f"ai_res_{ai_btn_key}"
             biz_btn_key = f"biz_btn_{tech_result['티커']}_{key_suffix}"
             biz_res_key = f"biz_res_{biz_btn_key}"
-            
-            with col_ai1:
-                if st.button(f"🤖 차트·수급·재무 정밀 진단 (일봉 6개월)", key=ai_btn_key, use_container_width=True):
-                    st.session_state[ai_res_key] = "loading"
-                    st.session_state[biz_res_key] = None
-                    
-            with col_ai2:
-                if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, use_container_width=True):
-                    st.session_state[biz_res_key] = "loading"
-                    st.session_state[ai_res_key] = None
-                    
-            if st.session_state.get(ai_res_key):
-                if st.session_state[ai_res_key] == "loading":
+
+            # ── 차트·수급·재무 정밀 진단 결과 렌더러 (팝업) ──
+            def _prc_aidiag():
+                if st.session_state.get(ai_res_key) == "loading":
                     with st.spinner("AI가 차트 및 재무 데이터를 바탕으로 종합 분석 중입니다... (약 5~10초 소요)"):
                         if str(tech_result['티커']).isdigit():
                             fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                             fin_text = fin_df.to_string() if fin_df is not None and not fin_df.empty else "재무 데이터 없음"
                             peer_text = peer_df.to_string() if peer_df is not None and not peer_df.empty else "비교 데이터 없음"
-                            prompt = f"""
-                            당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다. '{tech_result['종목명']}' 분석 리포트를 마크다운으로 작성하세요.
-                            [기술적 지표 및 수급]
-                            - 현재가: {fmt_price(curr)}, 20일선: {fmt_price(tech_result['진입가_가이드'])} (상태: {tech_result['상태']})
-                            - RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
-                            - 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
-                            [증권사 목표주가 컨센서스]: {cons}
-                            [최근 재무제표 요약 (단위: 억 원)]
-                            {fin_text[:1500]}
-                            [동일 업종 경쟁사 비교 (PER/PBR 포함)]
-                            {peer_text[:1000]}
-                            1. 📈 **기술적 타점 & 수급 분석**: 현재 진입하기 좋은 자리인지.
-                            2. 🏢 **실적 트렌드 & 밸류에이션**: 고평가/저평가 여부 판단.
-                            3. 🎯 **단기 매매 의견 및 목표가**: (적극매수/분할매수/관망/매수금지 중 택 1).
-                            4. 💡 **최종 투자 코멘트**: 3줄 요약.
-                            """
+                            prompt = f"""당신은 여의도 최고의 퀀트 애널리스트이자 펀드매니저입니다. '{tech_result['종목명']}' 분석 리포트를 마크다운으로 작성하세요.
+[기술적 지표 및 수급]
+- 현재가: {fmt_price(curr)}, 20일선: {fmt_price(tech_result['진입가_가이드'])} (상태: {tech_result['상태']})
+- RSI: {tech_result['RSI']:.1f}, 추세: {tech_result['배열상태']}
+- 수급: 외인 {tech_result['외인수급']}, 기관 {tech_result['기관수급']}
+[증권사 목표주가 컨센서스]: {cons}
+[최근 재무제표 요약 (단위: 억 원)]
+{fin_text[:1500]}
+[동일 업종 경쟁사 비교 (PER/PBR 포함)]
+{peer_text[:1000]}
+1. 📈 **기술적 타점 & 수급 분석**: 현재 진입하기 좋은 자리인지.
+2. 🏢 **실적 트렌드 & 밸류에이션**: 고평가/저평가 여부 판단.
+3. 🎯 **단기 매매 의견 및 목표가**: (적극매수/분할매수/관망/매수금지 중 택 1).
+4. 💡 **최종 투자 코멘트**: 3줄 요약."""
                             st.session_state[ai_res_key] = ask_gemini(prompt, api_key_str)
                         else:
                             prompt = f"전문 트레이더 관점에서 '{tech_result['종목명']}'을(를) 분석해주세요.\n[데이터] 현재가:{fmt_price(curr)}, 20일선:{fmt_price(tech_result['진입가_가이드'])}, RSI:{tech_result['RSI']:.1f}\n1. ⚡ 단기 트레이딩 관점\n2. 🛡️ 스윙/가치 투자 관점\n3. 🎯 종합 요약 (1줄):"
                             st.session_state[ai_res_key] = ask_gemini(prompt, api_key_str)
-                            
                 st.success("✅ AI 기술적 정밀 분석 완료!")
-                st.markdown(st.session_state[ai_res_key])
-                
+                st.markdown(st.session_state.get(ai_res_key, ""))
                 if not is_us:
-                    def _prc_rawdata():
-                        fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
-                        st.write("✅ **증권사 목표가 컨센서스:**", cons)
-                        if fin_df is not None: st.dataframe(fin_df)
-                        if peer_df is not None: st.dataframe(peer_df)
-                    _register_popup(f"rawdata_{key_suffix}", _prc_rawdata)
-                    _popup_button(f"📊 '{tech_result['종목명']}' 로우 데이터(Raw Data) 보기", f"rawdata_{key_suffix}", f"📊 '{tech_result['종목명']}' 로우 데이터 (Raw Data)", key=f"btn_rawdata_{key_suffix}")
-            
-            if st.session_state.get(biz_res_key):
-                if st.session_state[biz_res_key] == "loading":
+                    st.caption("📊 분석에 쓰인 재무·컨센서스 원본은 창을 닫은 뒤 카드의 ‘로우 데이터’ 버튼에서 볼 수 있어요.")
+                if st.button("🔄 다시 분석하기", key=f"re_{ai_btn_key}", use_container_width=True):
+                    st.session_state[ai_res_key] = "loading"
+            _register_popup(f"aidiag_{key_suffix}", _prc_aidiag)
+
+            # ── 기업 심층 분석 결과 렌더러 (팝업) ──
+            def _prc_bizdeep():
+                if st.session_state.get(biz_res_key) == "loading":
                     with st.spinner(f"AI가 '{tech_result['종목명']}'의 방대한 기업 정보와 비즈니스 모델을 분석 중입니다... (약 10초 소요)"):
-                        prompt = f"""
-                        당신은 여의도 최고의 기업 분석 리서치 센터장입니다. '{tech_result['종목명']}' 기업에 대해 심층 분석 리포트를 마크다운으로 작성하세요.
-                        1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익을 창출하는지 초보자도 알기 쉽게 설명.
-                        2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
-                        3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
-                        4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
-                        단순 주가 예측이 아닌 '비즈니스 모델'과 '기업의 본질적인 펀더멘털'에 집중하여 통찰력 있게 작성해 주세요.
-                        """
+                        prompt = f"""당신은 여의도 최고의 기업 분석 리서치 센터장입니다. '{tech_result['종목명']}' 기업에 대해 심층 분석 리포트를 마크다운으로 작성하세요.
+1. 🏭 **무엇을 하는 회사인가? (기업 개요)**: 회사가 구체적으로 어떤 비즈니스 모델을 가지며 어떻게 수익을 창출하는지 초보자도 알기 쉽게 설명.
+2. 📊 **사업 구성 및 밸류체인**: 회사의 핵심 매출 파이프라인(주력 사업 비중)과 시장 내에서의 경쟁력 (독점력, 경제적 해자 등).
+3. 🚀 **향후 전망 및 모멘텀 (Catalyst)**: 회사의 미래 성장 동력, 신사업 확장 가능성, 그리고 투자자가 반드시 주의해야 할 핵심 리스크 요인.
+4. 💡 **한 줄 평**: 이 기업의 본질적인 가치와 투자 매력도에 대한 직관적인 한 줄 요약.
+단순 주가 예측이 아닌 '비즈니스 모델'과 '기업의 본질적인 펀더멘털'에 집중하여 통찰력 있게 작성해 주세요."""
                         st.session_state[biz_res_key] = ask_gemini(prompt, api_key_str)
-                        
                 st.success("✅ AI 비즈니스 심층 분석 완료!")
-                st.markdown(st.session_state[biz_res_key])
+                st.markdown(st.session_state.get(biz_res_key, ""))
+                if st.button("🔄 다시 분석하기", key=f"re_{biz_btn_key}", use_container_width=True):
+                    st.session_state[biz_res_key] = "loading"
+            _register_popup(f"bizdeep_{key_suffix}", _prc_bizdeep)
+
+            with col_ai1:
+                if st.button(f"🤖 차트·수급·재무 정밀 진단 (일봉 6개월)", key=ai_btn_key, use_container_width=True):
+                    if st.session_state.get(ai_res_key) in (None, "loading"):
+                        st.session_state[ai_res_key] = "loading"
+                    _open_popup(f"aidiag_{key_suffix}", "🤖 차트·수급·재무 정밀 진단 (일봉 6개월)")
+            with col_ai2:
+                if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, use_container_width=True):
+                    if st.session_state.get(biz_res_key) in (None, "loading"):
+                        st.session_state[biz_res_key] = "loading"
+                    _open_popup(f"bizdeep_{key_suffix}", "🏢 기업 심층 분석 (비즈니스/전망)")
+
+            # ── 로우 데이터 버튼 (정밀 진단을 한 번 실행한 뒤 카드에 표시; 팝업) ──
+            if not is_us and st.session_state.get(ai_res_key) and st.session_state.get(ai_res_key) != "loading":
+                def _prc_rawdata():
+                    fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
+                    st.write("✅ **증권사 목표가 컨센서스:**", cons)
+                    if fin_df is not None: st.dataframe(fin_df, use_container_width=True)
+                    if peer_df is not None: st.dataframe(peer_df, use_container_width=True)
+                _register_popup(f"rawdata_{key_suffix}", _prc_rawdata)
+                _popup_button(f"📊 '{tech_result['종목명']}' 로우 데이터(Raw Data) 보기", f"rawdata_{key_suffix}", f"📊 '{tech_result['종목명']}' 로우 데이터 (Raw Data)", key=f"btn_rawdata_{key_suffix}")
         
         tf = st.radio("📅 차트 주기 선택", ["30분", "1시간", "4시간", "일봉", "주봉", "1년", "5년", "10년"], horizontal=True, key=f"tf_{key_suffix}", index=3)
         with st.spinner(f"{tf} 차트 데이터 및 피보나치 지표 불러오는 중..."):
@@ -6431,15 +6437,15 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.plotly_chart(fig_vol, use_container_width=True, config={'displayModeBar': False}, key=f"lv_{tech_result['티커']}_{key_suffix}")
 
                 # ── 선택한 차트 주기(tf) 기반 AI 분석 ───────────────────────────
+                # ── 선택한 차트 주기(tf) 기반 AI 분석 (팝업) ───────────────────
                 tf_ai_key = f"tf_ai_{tech_result['티커']}_{tf}_{key_suffix}"
+                tf_pop_name = f"tfai_{tech_result['티커']}_{tf}_{key_suffix}"
                 st.caption(f"💡 아래 버튼은 위에서 선택한 **‘{tf}’ 주기** 차트를 기준으로 AI가 분석합니다. "
                            "(상단 ‘AI 기술적 정밀 분석’은 일봉 기준 — 주기를 바꿔 비교해 보세요.)")
-                if api_key_str and st.button(f"🤖 ‘{tf}’ 주기 AI 차트 분석", key=f"btn_{tf_ai_key}", use_container_width=True):
-                    st.session_state[tf_ai_key] = "loading"
-                if st.session_state.get(tf_ai_key):
-                    if st.session_state[tf_ai_key] == "loading":
+
+                def _prc_tfai():
+                    if st.session_state.get(tf_ai_key) == "loading":
                         with st.spinner(f"AI가 ‘{tf}’ 주기 차트를 분석 중입니다..."):
-                            # long_df에 RSI 계산(주기별)
                             _d = long_df['Close'].diff()
                             _rs = (_d.where(_d > 0, 0.0).rolling(14).mean()) / (-_d.where(_d < 0, 0.0).rolling(14).mean())
                             _rsi_series = 100 - (100 / (1 + _rs))
@@ -6449,7 +6455,6 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             ma20_tf = float(last['MA20']) if pd.notna(last['MA20']) else None
                             bb_tf = float(last['Bollinger_Upper']) if pd.notna(last['Bollinger_Upper']) else None
                             obv_trend = "상승" if long_df['OBV'].iloc[-1] > long_df['OBV'].iloc[-min(5, len(long_df))] else "하락/횡보"
-                            # 최근 캔들 종가 흐름(최대 12개)
                             recent_closes = long_df['Close'].tail(12).round(2).tolist()
                             ma20_str = f"{ma20_tf:,.2f}" if ma20_tf else "계산불가"
                             bb_str = f"{bb_tf:,.2f}" if bb_tf else "계산불가"
@@ -6473,7 +6478,16 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
 3줄 이내의 핵심 위주로, 이 시간 프레임에 맞는 호흡(예: 30분봉은 단타, 주봉은 중장기)으로 해석하세요."""
                             st.session_state[tf_ai_key] = ask_gemini(tf_prompt, api_key_str)
                     st.success(f"✅ ‘{tf}’ 주기 AI 분석 완료")
-                    st.markdown(st.session_state[tf_ai_key])
+                    st.markdown(st.session_state.get(tf_ai_key, ""))
+                    if st.button("🔄 다시 분석하기", key=f"re_btn_{tf_ai_key}", use_container_width=True):
+                        st.session_state[tf_ai_key] = "loading"
+                _register_popup(tf_pop_name, _prc_tfai)
+
+                if api_key_str:
+                    if st.button(f"🤖 ‘{tf}’ 주기 AI 차트 분석", key=f"btn_{tf_ai_key}", use_container_width=True):
+                        if st.session_state.get(tf_ai_key) in (None, "loading"):
+                            st.session_state[tf_ai_key] = "loading"
+                        _open_popup(tf_pop_name, f"🤖 ‘{tf}’ 주기 AI 차트 분석")
 
                 # ── 💬 종목·시황 전문가 AI 질의응답 (팝업 창) ───────────────────
                 st.markdown("---")
