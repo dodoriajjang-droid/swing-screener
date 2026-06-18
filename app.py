@@ -11004,12 +11004,15 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
             if analyze_btn and sel_us_opt != "선택하세요":
                 us_ticker = sel_us_opt.split(" ")[0]
                 with st.spinner(f"📡 '{us_ticker}' 분석 중..."):
-                    res = analyze_technical_pattern(us_ticker, us_ticker)
-                    if res: 
-                        # 🌟 다중 테마 뷰어 출력 (미국 주식) 🌟
-                        render_single_stock_themes(us_ticker, api_key_input)
-                        
-                        draw_stock_card(res, api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
+                    _res_us = analyze_technical_pattern(us_ticker, us_ticker)
+                st.session_state.indiv_result_us = {"res": _res_us, "ticker": us_ticker} if _res_us else None
+                if not _res_us:
+                    st.error("❌ 데이터 로드 실패 — 종목을 확인해 주세요.")
+            # 분석 결과를 세션에 보존 → 질의응답 토글 등 리런에도 카드가 사라지지 않음
+            _ir_us = st.session_state.get("indiv_result_us")
+            if _ir_us and _ir_us.get("res"):
+                render_single_stock_themes(_ir_us["ticker"], api_key_input)
+                draw_stock_card(_ir_us["res"], api_key_str=api_key_input, is_expanded=True, key_suffix="t4_us")
 
 
 elif selected_menu == "👁️ 차트 이미지 AI 비전 분석":
