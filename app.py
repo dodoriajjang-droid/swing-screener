@@ -1259,7 +1259,7 @@ def _genai_generate(prompt, api_key, *, grounding=False, image=None,
     )
 
 
-def ask_gemini(prompt, _api_key):
+def ask_gemini(prompt, _api_key, grounding=False):
     if not _api_key: return "API 키가 필요합니다."
     try:
         now_kst = datetime.utcnow() + timedelta(hours=9)
@@ -1268,7 +1268,7 @@ def ask_gemini(prompt, _api_key):
         
         full_prompt = system_date_instruction + prompt
 
-        response = _genai_generate(full_prompt, _api_key)
+        response = _genai_generate(full_prompt, _api_key, grounding=grounding)
 
         if not response.candidates or not response.candidates[0].content.parts:
             reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
@@ -1387,30 +1387,40 @@ def get_trending_themes_with_ai(api_key):
 # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
 @st.cache_data(ttl=3600)
 def get_theme_stocks_with_ai(theme, api_key):
-    prompt = f"""
-    당신은 글로벌 테마주 발굴 전문가입니다.
-    현재 '{theme}' 테마가 글로벌 주식시장을 주도하고 있습니다.
-    이 테마의 '진짜 수혜주'이자 폭발적인 상승(텐배거)이 기대되는 '핵심 대장주' 30개를 선정해 주세요.
-    [필수 조건]
-    1. 반드시 한국 증시(KRX) 종목 15개와 미국 증시(US) 종목 15개를 섞어서 구성하세요.
-    2. 미국 주식은 한국인이 많이 투자하는 친숙한 티커(예: NVDA, TSLA 등) 위주로 선정하세요.
-    3. 출력 형식은 반드시 "종목명,종목코드" 여야 합니다. (예: 삼성전자,005930 / 엔비디아,NVDA)
-    4. 번호 매기기, 부연 설명, 마크다운 기호(-, * 등)는 절대 쓰지 말고 오직 종목 데이터만 한 줄에 하나씩 출력하세요.
-    """
+    prompt = f"""당신은 글로벌 테마주 발굴 전문가입니다.
+'{theme}' 테마의 **실제 수혜주만** 엄선하세요. 이 테마의 제품·기술·밸류체인(소재·부품·장비·서비스)에
+직접적인 사업 연관이 있는 종목만 포함합니다.
+
+[가장 중요 — 정확도 규칙]
+1. 테마와 '직접' 관련된 진짜 종목만 넣으세요. 개수를 채우려고 관련 없는 대형주(예: 테슬라, 엔비디아)나
+   엉뚱한 종목을 절대 끼워넣지 마세요. **관련 종목이 적으면 적은 대로** 출력하세요(5개여도 됩니다). 양보다 질.
+2. 한국(KRX)·미국(US) 종목을 '실제로 존재하는 만큼만' 섞으세요. 한쪽 시장에 진짜 수혜주가 없으면 굳이 채우지 마세요.
+3. 종목코드는 정확해야 합니다 — 한국은 정확한 6자리 KRX 코드, 미국은 정확한 실제 티커.
+   코드가 확실치 않거나 상장폐지·비상장 종목이면 그 종목은 빼세요.
+4. 관련도가 높은 순서로, 최대 30개까지만.
+
+[출력 형식]
+- 반드시 "종목명,종목코드" 형식, 한 줄에 하나씩. (예: 삼성전자,005930 / 엔비디아,NVDA)
+- 번호·부연 설명·마크다운 기호(-, * 등) 절대 금지. 오직 종목 데이터만.
+"""
     try:
-        res = ask_gemini(prompt, api_key)
+        res = ask_gemini(prompt, api_key, grounding=True)
         lines = res.split('\n')
-        stocks = []
+        stocks, seen = [], set()
         for line in lines:
             parts = line.split(',')
             if len(parts) >= 2:
-                name = parts[0].strip().replace("-", "").replace("*", "").strip()
-                code = parts[1].strip()
-                # 한국 종목(숫자 6자리)이거나 미국 티커(알파벳)인 경우만 허용
-                if (len(code) == 6 and code.isdigit()) or code.isalpha():
+                name = parts[0].strip().replace("-", "").replace("*", "").replace("•", "").strip()
+                code = parts[1].strip().upper()
+                if not name or len(name) > 20:
+                    continue
+                is_kr = (len(code) == 6 and code.isdigit() and code != "000000")
+                is_us = (code.isascii() and code.isalpha() and 1 <= len(code) <= 5)
+                if (is_kr or is_us) and code not in seen:
+                    seen.add(code)
                     stocks.append((name, code))
-        return stocks[:30] # 👈 기존 15에서 30으로 확장
-    except:
+        return stocks[:30]
+    except Exception:
         return []
 
 
