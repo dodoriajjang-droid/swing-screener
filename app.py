@@ -5919,6 +5919,143 @@ def show_trading_guidelines():
         5. 🛑 손절가(20일선 -3%)·목표가를 **사기 전에** 정했는가?
         """)
 
+# =====================================================================
+# [신규] 카드 내 두 기능을 '팝업 창(st.dialog)'으로 — 전문가 AI 질의응답 / 매물대·타임머신
+#   퀀트 비서와 동일 패턴: 버튼 클릭 시 다이얼로그 등록 → 내부 상호작용은 Streamlit이 자동 유지.
+#   채팅은 컨테이너에 즉시 출력(st.rerun 미사용) → 내장 X 버튼으로 정상 닫힘. (구버전은 인라인 폴백)
+# =====================================================================
+def _expert_chat_body():
+    ctx = st.session_state.get("_chat_ctx") or {}
+    stock_name = ctx.get("stock_name", "종목"); ticker_code = ctx.get("ticker_code", "")
+    is_us = ctx.get("is_us", False); sector = ctx.get("sector", ""); tf = ctx.get("tf", "일봉")
+    curr = ctx.get("curr", 0); tech_result = ctx.get("tech_result", {}); api_key_str = ctx.get("api_key_str", "")
+    chat_state_key = f"expert_chat_{ticker_code}"
+    if chat_state_key not in st.session_state:
+        st.session_state[chat_state_key] = []
+
+    def _fp(v):
+        try:
+            val = float(v); return f"${val:,.2f}" if is_us else f"{int(val):,}원"
+        except Exception:
+            return str(v)
+
+    if not api_key_str:
+        st.info("🔑 좌측 사이드바에 Gemini API 키를 입력하면 전문가 질의응답을 사용할 수 있어요.")
+        return
+
+    st.caption(f"‘{stock_name}’ 종목·시황 무엇이든 물어보세요. (시황·뉴스는 실시간 검색으로 확인 후 답변)")
+    if st.session_state[chat_state_key]:
+        if st.button("🗑️ 대화 지우기", key="exp_chat_clr", use_container_width=True):
+            st.session_state[chat_state_key] = []
+
+    _hist = st.session_state[chat_state_key]
+    box = st.container(height=360)
+    if not _hist:
+        box.caption("예시 — “지금 들어가도 돼? 분할매수 전략 짜줘” · “최근 급등/급락 이유?” · “경쟁사 대비 밸류에이션은?”")
+    for _m in _hist[-12:]:
+        box.chat_message("user" if _m["role"] == "user" else "assistant").markdown(_m["content"])
+
+    with st.form(key="exp_chat_form", clear_on_submit=True):
+        _q_col, _b_col = st.columns([5, 1], vertical_alignment="bottom")
+        user_q = _q_col.text_input("질문 입력", placeholder=f"‘{stock_name}’ 종목이나 시황에 대해 무엇이든…",
+                                   label_visibility="collapsed", key="exp_chat_in")
+        chat_sent = _b_col.form_submit_button("💬 전송", use_container_width=True, type="primary")
+
+    if chat_sent and user_q.strip():
+        _uq = user_q.strip()
+        _hist.append({"role": "user", "content": _uq})
+        box.chat_message("user").markdown(_uq)
+        _ai_tp_ctx = tech_result.get("AI목표가")
+        _ctx_txt = f"""[시스템 실측 데이터 — '{stock_name}' 분석 결과, 답변의 1차 근거로 사용할 것]
+- 티커: {ticker_code} ({'미국' if is_us else '국내'}) / 섹터: {sector}
+- 현재가: {_fp(curr)} / 진단: {tech_result.get('상태', '-')} / 이평 배열: {tech_result.get('배열상태', '-')} / 주봉 추세: {tech_result.get('주봉추세', '-')}
+- RSI: {tech_result.get('RSI', '-')} / PER: {tech_result.get('PER', '-')} / PBR: {tech_result.get('PBR', '-')}
+- 타점 가이드: 진입 {_fp(tech_result.get('진입가_가이드', 0))} · 1차 목표 {_fp(tech_result.get('목표가1', 0))} · 2차 {_fp(tech_result.get('목표가2', 0))} · 손절 {_fp(tech_result.get('손절가', 0))}
+- AI 적정주가: {_fp(_ai_tp_ctx) if _ai_tp_ctx else '산출 불가'} / 증권가 컨센서스: {tech_result.get('목표가_컨센서스', '-')}
+- 수급: 외국인 {tech_result.get('외인수급', '-')} / 기관 {tech_result.get('기관수급', '-')}
+- 사용자가 보고 있는 차트 주기: {tf}"""
+        _conv_txt = "\n".join(
+            f"{'사용자' if m['role'] == 'user' else '전문가AI'}: {m['content']}"
+            for m in _hist[-9:-1]) or "(첫 질문)"
+        _chat_prompt = f"""당신은 20년 경력의 주식·시황 전문 애널리스트 AI입니다. 사용자와 '{stock_name}' 종목에 대해 1:1 대화 중입니다.
+
+[답변 원칙]
+1. 아래 [실측 데이터]를 1차 근거로 사용하고, 거기 없는 수치는 절대 지어내지 말 것.
+2. 최신 시황·뉴스·실적·업황이 필요한 질문은 반드시 구글 검색으로 확인 후 답할 것. 확인 불가하면 '확인 불가'라고 명시.
+3. 한국어로 친근하되 전문적으로, 핵심 위주 5~8줄 이내. 매매 관련 질문엔 [의견 + 근거 + 리스크] 구조로.
+4. 직전 대화 맥락을 이어서 답할 것.
+5. 마지막 줄에 '※ 투자 판단의 참고용이며 최종 책임은 투자자 본인에게 있습니다.' 표기.
+
+{_ctx_txt}
+
+[직전 대화]
+{_conv_txt}
+
+[사용자의 새 질문]
+{_uq}"""
+        with st.spinner("🧑‍💼 전문가 AI가 데이터와 최신 시황을 확인하며 답변 작성 중..."):
+            _ans = None
+            try:
+                _gr = _genai_generate(_chat_prompt, api_key_str, grounding=True)
+                if _gr.candidates and _gr.candidates[0].content.parts:
+                    _ans = _gr.text
+            except Exception:
+                _ans = None
+            if not _ans:
+                _ans = ask_gemini(_chat_prompt + "\n\n(검색 불가 상태이니 실측 데이터 기반으로만 답하고, 최신 뉴스성 내용은 '확인 불가'로 표기)", api_key_str)
+        _hist.append({"role": "assistant", "content": _ans})
+        box.chat_message("assistant").markdown(_ans)
+        st.session_state[chat_state_key] = _hist[-20:]
+
+
+def _vptm_body():
+    ctx = st.session_state.get("_vptm_ctx") or {}
+    ticker_code = ctx.get("ticker_code", ""); curr = ctx.get("curr", 0)
+    with st.spinner("일봉 데이터로 매물대·과거 패턴 계산 중..."):
+        _hist_df = get_historical_data(ticker_code, 800)
+    if _hist_df is None or _hist_df.empty or len(_hist_df) < 40:
+        st.info("이 종목은 매물대/타임머신을 계산할 일봉 데이터가 부족해요 (상장 기간이 짧거나 조회 실패).")
+    else:
+        nb_render_volume_profile(_hist_df, current_price=curr)
+        st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+        nb_render_time_machine(_hist_df)
+
+
+if hasattr(st, "dialog"):
+    try:
+        @st.dialog("💬 전문가 AI 질의응답", width="large")
+        def _expert_chat_dialog():
+            _expert_chat_body()
+
+        @st.dialog("📊 매물대 지도 · 종목 타임머신", width="large")
+        def _vptm_dialog():
+            _vptm_body()
+    except TypeError:
+        @st.dialog("💬 전문가 AI 질의응답")
+        def _expert_chat_dialog():
+            _expert_chat_body()
+
+        @st.dialog("📊 매물대 지도 · 종목 타임머신")
+        def _vptm_dialog():
+            _vptm_body()
+
+
+def _open_expert_chat(ctx):
+    st.session_state["_chat_ctx"] = ctx
+    if hasattr(st, "dialog"):
+        _expert_chat_dialog()
+    else:
+        st.session_state["_chat_inline_open"] = True
+
+
+def _open_vptm(ctx):
+    st.session_state["_vptm_ctx"] = ctx
+    if hasattr(st, "dialog"):
+        _vptm_dialog()
+    else:
+        st.session_state["_vptm_inline_open"] = True
+
+
 def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="default"):
 
     # 1. 기본 데이터 추출
@@ -6280,15 +6417,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     st.success(f"✅ ‘{tf}’ 주기 AI 분석 완료")
                     st.markdown(st.session_state[tf_ai_key])
 
-                # ── 💬 [NEW] 종목·시황 전문가 AI 질의응답 ─────────────────────
+                # ── 💬 종목·시황 전문가 AI 질의응답 (팝업 창) ───────────────────
                 st.markdown("---")
-                chat_state_key = f"expert_chat_{ticker_code}"   # 티커 단위 대화 보존 (카드 닫았다 열어도 유지)
-                if chat_state_key not in st.session_state:
-                    st.session_state[chat_state_key] = []
-                _tgl = st.toggle if hasattr(st, "toggle") else st.checkbox
-                _chat_on = bool(st.session_state.get(f"chat_tg_{key_suffix}", bool(st.session_state[chat_state_key])))
-                _cpill = ("✅ 켜짐 — 아래에서 대화" if _chat_on else "👇 스위치를 켜세요")
-                _cbg = ("#16a34a" if _chat_on else "#6366f1")
                 st.markdown(
                     "<div style=\"display:flex;align-items:center;gap:9px;flex-wrap:wrap;"
                     "background:linear-gradient(90deg,#eef2ff,#faf5ff);border:1px solid #c7d2fe;"
@@ -6296,101 +6426,18 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     "box-shadow:0 1px 5px rgba(99,102,241,.13);\">"
                     "<span style=\"font-size:1.2em;\">💬</span>"
                     "<span style=\"font-weight:800;color:#4338ca;font-size:1.02em;\">전문가 AI 질의응답</span>"
-                    "<span style=\"color:#6366f1;font-size:0.86em;\">이 종목·시황 무엇이든 물어보세요</span>"
-                    "<span style=\"margin-left:auto;background:" + _cbg + ";color:#fff;border-radius:20px;"
-                    "padding:3px 12px;font-size:0.78em;font-weight:800;white-space:nowrap;\">" + _cpill + "</span>"
+                    "<span style=\"color:#6366f1;font-size:0.86em;\">이 종목·시황 무엇이든 물어보세요 · 팝업 창</span>"
                     "</div>", unsafe_allow_html=True)
-                chat_open = _tgl(f"💬 전문가 AI와 ‘{stock_name}’ 질의응답 (주식·시황 Q&A)",
-                                 key=f"chat_tg_{key_suffix}",
-                                 value=bool(st.session_state[chat_state_key]),
-                                 help="이 종목의 실측 분석 데이터를 알고 있는 주식·시황 전문가 AI와 자유롭게 대화합니다. 시황/뉴스 질문은 실시간 검색으로 확인 후 답변합니다.")
-                if chat_open:
+                if st.button(f"💬 전문가 AI와 ‘{stock_name}’ 질의응답 열기", key=f"chat_open_{key_suffix}", use_container_width=True):
+                    _open_expert_chat({"stock_name": stock_name, "ticker_code": ticker_code, "is_us": is_us,
+                                       "sector": sector, "tf": tf, "curr": curr, "tech_result": tech_result,
+                                       "api_key_str": api_key_str})
+                if not hasattr(st, "dialog") and st.session_state.get("_chat_inline_open"):
                     with st.container(border=True):
-                        if not api_key_str:
-                            st.info("🔑 좌측 사이드바에 Gemini API 키를 입력하면 전문가 질의응답을 사용할 수 있어요.")
-                        else:
-                            _hist = st.session_state[chat_state_key]
-                            _esc = lambda s: str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                            if not _hist:
-                                st.caption("예시 질문 — “지금 들어가도 돼? 분할매수 전략 짜줘” · “최근 급등/급락 이유가 뭐야?” · "
-                                           "“요즘 시황이 이 종목에 유리해 불리해?” · “경쟁사 대비 밸류에이션은 어때?”")
-                            for _m in _hist[-12:]:
-                                if _m["role"] == "user":
-                                    st.markdown(
-                                        f"<div style='text-align:right; margin:6px 0;'>"
-                                        f"<span style='background:#3b82f6; color:white; padding:8px 12px; "
-                                        f"border-radius:14px 14px 2px 14px; display:inline-block; max-width:85%; text-align:left;'>"
-                                        f"{_esc(_m['content'])}</span></div>", unsafe_allow_html=True)
-                                else:
-                                    st.markdown("<div style='margin:10px 0 2px 0; font-size:0.85em; color:#888;'>🧑‍💼 <b>전문가 AI</b></div>", unsafe_allow_html=True)
-                                    with st.container(border=True):
-                                        st.markdown(_m["content"])
-                            with st.form(key=f"chat_form_{key_suffix}", clear_on_submit=True):
-                                _q_col, _b_col = st.columns([5, 1], vertical_alignment="bottom")
-                                with _q_col:
-                                    user_q = st.text_input("질문 입력", placeholder=f"‘{stock_name}’ 종목이나 시황에 대해 무엇이든 물어보세요… (Enter로 전송)",
-                                                           label_visibility="collapsed", key=f"chat_in_{key_suffix}")
-                                with _b_col:
-                                    chat_sent = st.form_submit_button("💬 전송", use_container_width=True, type="primary")
-                            if _hist:
-                                if st.button("🗑️ 대화 지우기", key=f"chat_clr_{key_suffix}"):
-                                    st.session_state[chat_state_key] = []
-                                    st.rerun()
-                            if chat_sent and user_q.strip():
-                                _uq = user_q.strip()
-                                _hist.append({"role": "user", "content": _uq})
-                                # 종목 컨텍스트(실측 데이터) 주입 — AI가 수치를 지어내지 않도록 근거 제공
-                                def _fp(v):
-                                    try: return fmt_price(v)
-                                    except Exception: return str(v)
-                                _ai_tp_ctx = tech_result.get("AI목표가")
-                                _ctx = f"""[시스템 실측 데이터 — '{stock_name}' 분석 결과, 답변의 1차 근거로 사용할 것]
-- 티커: {ticker_code} ({'미국' if is_us else '국내'}) / 섹터: {sector}
-- 현재가: {_fp(curr)} / 진단: {tech_result.get('상태', '-')} / 이평 배열: {tech_result.get('배열상태', '-')} / 주봉 추세: {tech_result.get('주봉추세', '-')}
-- RSI: {tech_result.get('RSI', '-')} / PER: {tech_result.get('PER', '-')} / PBR: {tech_result.get('PBR', '-')}
-- 타점 가이드: 진입 {_fp(tech_result.get('진입가_가이드', 0))} · 1차 목표 {_fp(tech_result.get('목표가1', 0))} · 2차 {_fp(tech_result.get('목표가2', 0))} · 손절 {_fp(tech_result.get('손절가', 0))}
-- AI 적정주가: {_fp(_ai_tp_ctx) if _ai_tp_ctx else '산출 불가'} / 증권가 컨센서스: {tech_result.get('목표가_컨센서스', '-')}
-- 수급: 외국인 {tech_result.get('외인수급', '-')} / 기관 {tech_result.get('기관수급', '-')}
-- 사용자가 보고 있는 차트 주기: {tf}"""
-                                _conv_txt = "\n".join(
-                                    f"{'사용자' if m['role'] == 'user' else '전문가AI'}: {m['content']}"
-                                    for m in _hist[-9:-1]) or "(첫 질문)"
-                                _chat_prompt = f"""당신은 20년 경력의 주식·시황 전문 애널리스트 AI입니다. 사용자와 '{stock_name}' 종목에 대해 1:1 대화 중입니다.
+                        _expert_chat_body()
 
-[답변 원칙]
-1. 아래 [실측 데이터]를 1차 근거로 사용하고, 거기 없는 수치는 절대 지어내지 말 것.
-2. 최신 시황·뉴스·실적·업황이 필요한 질문은 반드시 구글 검색으로 확인 후 답할 것. 확인 불가하면 '확인 불가'라고 명시.
-3. 한국어로 친근하되 전문적으로, 핵심 위주 5~8줄 이내. 매매 관련 질문엔 [의견 + 근거 + 리스크] 구조로.
-4. 직전 대화 맥락을 이어서 답할 것.
-5. 마지막 줄에 '※ 투자 판단의 참고용이며 최종 책임은 투자자 본인에게 있습니다.' 표기.
-
-{_ctx}
-
-[직전 대화]
-{_conv_txt}
-
-[사용자의 새 질문]
-{_uq}"""
-                                with st.spinner("🧑‍💼 전문가 AI가 데이터와 최신 시황을 확인하며 답변 작성 중..."):
-                                    _ans = None
-                                    try:   # 1차: 실시간 검색 그라운딩 (Gemini 3.x 정식 google_search 도구)
-                                        _gr = _genai_generate(_chat_prompt, api_key_str, grounding=True)
-                                        if _gr.candidates and _gr.candidates[0].content.parts:
-                                            _ans = _gr.text
-                                    except Exception:
-                                        _ans = None
-                                    if not _ans:   # 2차: 일반 모델 폴백
-                                        _ans = ask_gemini(_chat_prompt + "\n\n(검색 불가 상태이니 실측 데이터 기반으로만 답하고, 최신 뉴스성 내용은 '확인 불가'로 표기)", api_key_str)
-                                _hist.append({"role": "assistant", "content": _ans})
-                                st.session_state[chat_state_key] = _hist[-20:]   # 최근 10문답만 보존(프롬프트 비대화 방지)
-                                st.rerun()
-
-                # ── 📊 [신규] 매물대 지도 & ⏳ 종목 타임머신 ─────────────────
+                # ── 📊 매물대 지도 & ⏳ 종목 타임머신 (팝업 창) ─────────────────
                 st.markdown("---")
-                _tgl2 = st.toggle if hasattr(st, "toggle") else st.checkbox
-                _vptm_on = bool(st.session_state.get(f"vptm_tg_{key_suffix}", False))
-                _vpill = ("✅ 켜짐 — 아래 차트 확인" if _vptm_on else "👇 스위치를 켜세요")
-                _vbg = ("#16a34a" if _vptm_on else "#d97706")
                 st.markdown(
                     "<div style=\"display:flex;align-items:center;gap:9px;flex-wrap:wrap;"
                     "background:linear-gradient(90deg,#fffbeb,#fef9c3);border:1px solid #fde68a;"
@@ -6398,23 +6445,13 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     "box-shadow:0 1px 5px rgba(217,119,6,.13);\">"
                     "<span style=\"font-size:1.2em;\">📊</span>"
                     "<span style=\"font-weight:800;color:#b45309;font-size:1.02em;\">매물대 지도 · 종목 타임머신</span>"
-                    "<span style=\"color:#d97706;font-size:0.86em;\">가격대별 거래량 + 과거 유사패턴</span>"
-                    "<span style=\"margin-left:auto;background:" + _vbg + ";color:#fff;border-radius:20px;"
-                    "padding:3px 12px;font-size:0.78em;font-weight:800;white-space:nowrap;\">" + _vpill + "</span>"
+                    "<span style=\"color:#d97706;font-size:0.86em;\">가격대별 거래량 + 과거 유사패턴 · 팝업 창</span>"
                     "</div>", unsafe_allow_html=True)
-                _vptm_open = _tgl2(f"📊 ‘{stock_name}’ 매물대 지도 · 종목 타임머신 보기",
-                                   key=f"vptm_tg_{key_suffix}", value=False,
-                                   help="가격대별 거래량(매물대)과, 최근 패턴이 닮았던 과거 구간 이후의 수익률을 봅니다. (일봉 근사·참고용)")
-                if _vptm_open:
+                if st.button(f"📊 ‘{stock_name}’ 매물대 지도 · 종목 타임머신 열기", key=f"vptm_open_{key_suffix}", use_container_width=True):
+                    _open_vptm({"ticker_code": ticker_code, "curr": curr})
+                if not hasattr(st, "dialog") and st.session_state.get("_vptm_inline_open"):
                     with st.container(border=True):
-                        with st.spinner("일봉 데이터로 매물대·과거 패턴 계산 중..."):
-                            _hist_df = get_historical_data(ticker_code, 800)
-                        if _hist_df is None or _hist_df.empty or len(_hist_df) < 40:
-                            st.info("이 종목은 매물대/타임머신을 계산할 일봉 데이터가 부족해요 (상장 기간이 짧거나 조회 실패).")
-                        else:
-                            nb_render_volume_profile(_hist_df, current_price=curr)
-                            st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
-                            nb_render_time_machine(_hist_df)
+                        _vptm_body()
 
                 if not is_us:
                     st.markdown("#### 📅 일별 시세 및 매매동향 (최근 10일)")
