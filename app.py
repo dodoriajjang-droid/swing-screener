@@ -10307,8 +10307,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                     st.markdown(f"- {_badge}[{title}]({link})" + _meta_html + _exc_html, unsafe_allow_html=True)
                                 else:
                                     st.markdown(f"- {_badge}{title}" + _meta_html + _exc_html, unsafe_allow_html=True)
-                        _register_popup(f"news_{idx}", _prc_news)
-                        _popup_button(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건 보기", f"news_{idx}", f"📰 {r.get('종목명')} 최신 뉴스", key=f"btn_news_{idx}")
+                        _register_popup(f"news_{hz}_{idx}", _prc_news)
+                        _popup_button(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건 보기", f"news_{hz}_{idx}", f"📰 {r.get('종목명')} 최신 뉴스", key=f"btn_news_{hz}_{idx}")
                     elif "_news" in r:
                         st.caption("📰 최근 뉴스를 찾지 못했습니다.")
                     st.markdown("")
