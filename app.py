@@ -4127,6 +4127,56 @@ def _market_flows_html(card, title):
     )
 
 
+# =====================================================================
+# [신규] '눌러서 펼치는' 내용을 팝업 창(st.dialog)으로 보여주는 공용 헬퍼
+#   _popup_button(label, name, title, key): expander 대체 버튼 → 누르면 모달 팝업.
+#   내용은 _register_popup(name, fn)으로 등록된 렌더 함수가 그림. (구버전은 인라인 폴백)
+# =====================================================================
+_POPUP_RENDERERS = {}
+
+def _register_popup(name, fn):
+    _POPUP_RENDERERS[name] = fn
+
+def _run_popup_renderer():
+    _name = st.session_state.get("_popup_name")
+    _title = st.session_state.get("_popup_title")
+    if _title:
+        st.markdown(f"#### {_title}")
+    _fn = _POPUP_RENDERERS.get(_name)
+    if _fn:
+        try:
+            _fn()
+        except Exception as _e:
+            st.error(f"표시 중 오류가 발생했어요: {_e}")
+    else:
+        st.info("표시할 내용을 불러오지 못했어요. 창을 닫고 다시 시도해 주세요.")
+
+if hasattr(st, "dialog"):
+    try:
+        @st.dialog("　", width="large")
+        def _universal_popup():
+            _run_popup_renderer()
+    except TypeError:
+        @st.dialog("　")
+        def _universal_popup():
+            _run_popup_renderer()
+
+def _open_popup(name, title):
+    st.session_state["_popup_name"] = name
+    st.session_state["_popup_title"] = title
+    if hasattr(st, "dialog"):
+        _universal_popup()
+    else:
+        st.session_state["_popup_inline_open"] = True
+
+def _popup_button(label, name, title, key=None, use_container_width=True):
+    if st.button(label, key=key, use_container_width=use_container_width):
+        _open_popup(name, title)
+    if (not hasattr(st, "dialog")) and st.session_state.get("_popup_inline_open") and st.session_state.get("_popup_name") == name:
+        with st.container(border=True):
+            _run_popup_renderer()
+
+
 def render_main_index_panel():
     """[추가] 메인페이지 상단 — 네이버 모바일 스타일 코스피/코스닥 + 오늘의 시장 + 투자자별 순매매."""
     data = get_kr_index_panel()
@@ -4135,8 +4185,10 @@ def render_main_index_panel():
         if st.button("🔄 다시 시도", key="retry_index_panel"):
             get_kr_index_panel.clear()
             st.rerun()
-        with st.expander("🔧 진단: 어떤 응답이 오는지 확인 (펼치기)"):
+        def _prc_diag_index():
             _diag_index_endpoints()
+        _register_popup("diag_index", _prc_diag_index)
+        _popup_button("🔧 진단: 어떤 응답이 오는지 확인", "diag_index", "🔧 진단: 인덱스 응답 확인", key="btn_diag_index")
         return
 
     # 시장 국면(신호등) → '오늘의 시장' 한 줄 요약 + 게이지 위치
@@ -5860,7 +5912,7 @@ def render_single_stock_themes(stock_name: str, api_key: str):
 # 3. UI 렌더링 가이드 및 카드 함수
 # ==========================================
 def show_beginner_guide():
-    with st.expander("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", expanded=False):
+    def _prc_guide_terms():
         st.markdown("""
 ### 1. 📊 차트 상태 — 이동평균선(이평선) 완전 정복
 
@@ -5901,9 +5953,11 @@ def show_beginner_guide():
 
 > 💡 핵심: **좋은 자리(타점) + 거래량/수급**이 겹칠 때가 진짜입니다. 가격만 보지 마세요.
         """)
+    _register_popup("guide_terms", _prc_guide_terms)
+    _popup_button("🐥 [주린이 필독] 주식 용어 & 매매 타점 완벽 가이드", "guide_terms", "🐥 주식 용어 & 매매 타점 가이드", key="btn_guide_terms")
 
 def show_trading_guidelines():
-    with st.expander("🎯 [필독] Jaemini PRO 실전 매매 4STEP 시나리오 (단기 스윙 전략)", expanded=False):
+    def _prc_guide_4step():
         st.markdown("""
         *💡 단기 스윙 전략 가이드*
         * 🅰️ **안전 스윙 (목표 3일~2주):** `✅20일선 눌림목` + `🔥거래량 급증` 
@@ -5918,6 +5972,8 @@ def show_trading_guidelines():
         4. 🩸 **공매도 비중**이 과하지 않은가? (🔴 과열이면 하락 압력 주의)
         5. 🛑 손절가(20일선 -3%)·목표가를 **사기 전에** 정했는가?
         """)
+    _register_popup("guide_4step", _prc_guide_4step)
+    _popup_button("🎯 [필독] 실전 매매 4STEP 시나리오 (단기 스윙)", "guide_4step", "🎯 실전 매매 4STEP 시나리오", key="btn_guide_4step")
 
 # =====================================================================
 # [신규] 카드 내 두 기능을 '팝업 창(st.dialog)'으로 — 전문가 AI 질의응답 / 매물대·타임머신
@@ -6307,11 +6363,13 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 st.markdown(st.session_state[ai_res_key])
                 
                 if not is_us:
-                    with st.expander(f"📊 '{tech_result['종목명']}' 수집된 로우 데이터 (Raw Data) 확인"):
+                    def _prc_rawdata():
                         fin_df, peer_df, cons = get_financial_deep_data(tech_result['티커'])
                         st.write("✅ **증권사 목표가 컨센서스:**", cons)
                         if fin_df is not None: st.dataframe(fin_df)
                         if peer_df is not None: st.dataframe(peer_df)
+                    _register_popup(f"rawdata_{key_suffix}", _prc_rawdata)
+                    _popup_button(f"📊 '{tech_result['종목명']}' 로우 데이터(Raw Data) 보기", f"rawdata_{key_suffix}", f"📊 '{tech_result['종목명']}' 로우 데이터 (Raw Data)", key=f"btn_rawdata_{key_suffix}")
             
             if st.session_state.get(biz_res_key):
                 if st.session_state[biz_res_key] == "loading":
@@ -6516,7 +6574,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                             st.caption("ℹ️ 오늘 **외국인·기관 순매수는 장 마감 후** 거래소가 확정 공개합니다. "
                                        "네이버가 제공하던 장중 '잠정' 실시간 피드는 현재 이 페이지(frgn)에서 내려가 있어, "
                                        "장중 실시간 수급은 표시되지 않습니다. (종가·등락률은 실시간 반영)")
-                            with st.expander("🔍 장중 수급 미표시 원인 진단  (실시간 보강판 rt-v2)", expanded=False):
+                            def _prc_sugupdiag():
                                 dbg = get_intraday_estimate_debug(tech_result['티커'])
                                 if dbg["err"]:
                                     st.write(f"- 요청 오류: `{dbg['err']}`  → 서버에서 네이버 접근 자체가 막혔을 수 있습니다.")
@@ -6533,6 +6591,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                     st.write(f"- '외국계' 포함 행(거래원 추정합 후보): `{dbg.get('foreign_rows', [])}`")
                                 st.caption("summary 목록에 '잠정' 표가 없고 '…날짜별로 정보를 제공' 표만 있으면, 이 페이지에는 장중 잠정 피드가 없는 것입니다(확정·일별만 제공). "
                                            "장중 실시간이 꼭 필요하면 네이버 신형 증권의 내부 API를 잡아야 하며, 방법은 채팅 안내를 참고하세요.")
+                            _register_popup(f"sugupdiag_{key_suffix}", _prc_sugupdiag)
+                            _popup_button("🔍 장중 수급 미표시 원인 진단 보기", f"sugupdiag_{key_suffix}", "🔍 장중 수급 미표시 원인 진단 (rt-v2)", key=f"btn_sugupdiag_{key_suffix}")
                     else: 
                         st.caption("수급 데이터를 제공하지 않는 종목입니다.")
             else: 
@@ -6618,8 +6678,10 @@ def display_sorted_results(results_list, tab_key, api_key=""):
         st.download_button("💾 결과 CSV 저장", _export_df.to_csv(index=False).encode('utf-8-sig'),
                            file_name=f"스캔결과_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv",
                            use_container_width=True, key=f"scan_csv_{tab_key}")
-    with st.expander(f"📑 전체 결과 표로 보기 ({len(sorted_res)}개)", expanded=False):
+    def _prc_fullres():
         st.dataframe(_export_df, use_container_width=True, hide_index=True, height=min(420, 40 + 35 * len(_export_df)))
+    _register_popup(f"fullres_{tab_key}", _prc_fullres)
+    _popup_button(f"📑 전체 결과 표로 보기 ({len(sorted_res)}개)", f"fullres_{tab_key}", f"📑 전체 결과 표 ({len(sorted_res)}개)", key=f"btn_fullres_{tab_key}")
 
     # --- 🌟 다중 테마 뷰어 버튼 (Streamlit Session State 토글 방어막 적용) ---
     btn_state_key = f"multi_theme_show_{tab_key}"
@@ -8492,7 +8554,7 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
     valid_rows = edited_df[(edited_df["종목명"].astype(str).str.strip() != "") & (edited_df["진입단가"] > 0) & (edited_df["보유수량"] > 0)]
 
     st.markdown("### 💧 2. 개별 종목 물타기 시뮬레이터 (선택 사항)")
-    with st.expander("특정 종목의 추가 매수 시 평단가 변화를 계산하려면 여기를 펼쳐주세요."):
+    def _prc_avgcalc():
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         with col_m1:
             sim_opts = ["직접 입력"] + valid_rows["종목명"].tolist() if not valid_rows.empty else ["직접 입력"]
@@ -8517,6 +8579,8 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                     st.info(f"💡 **[{sim_name} 시뮬레이션]** 기존 {orig_qty}주(평단 {orig_price:,}) + 추가 {sim_add_qty}주(단가 {sim_add_price:,}) ➡️ **총 {new_qty}주, 조정 평단가: {new_avg:,}**")
                 else:
                     st.warning("위 포트폴리오 표에 등록된 종목을 선택해야 기존 데이터와 합산하여 정확한 계산이 가능합니다.")
+    _register_popup("avgcalc", _prc_avgcalc)
+    _popup_button("🧮 평단가(물타기) 계산기 열기", "avgcalc", "🧮 평단가(물타기) 계산기", key="btn_avgcalc")
 
     if st.button("📊 계좌 전체 종합 진단 및 AI 리밸런싱", type="primary", use_container_width=True):
         if valid_rows.empty:
@@ -9409,11 +9473,13 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     with c8: st.markdown(metric_card("샤프 지수 (연환산)", f"{sharpe:.2f}", "1 이상이면 양호한 위험 대비 수익"), unsafe_allow_html=True)
                     
                     if trade_records:
-                        with st.expander(f"📜 전체 거래 내역 보기 ({total_trades}건)"):
+                        def _prc_trades():
                             _tr_df = pd.DataFrame(trade_records)
                             _tr_df["수익률(%)"] = _tr_df["수익률(%)"].map(lambda v: round(v, 2))
                             st.dataframe(_tr_df, use_container_width=True, hide_index=True)
                             st.caption("※ 진입가 = 신호 발생일 종가, 청산가 = 마지막 보유일 종가 기준. '(보유중)'은 기간 종료 시점까지 미청산 → 마지막 종가로 평가한 거래입니다.")
+                        _register_popup("trades", _prc_trades)
+                        _popup_button(f"📜 전체 거래 내역 보기 ({total_trades}건)", "trades", f"📜 전체 거래 내역 ({total_trades}건)", key="btn_trades")
                     else:
                         st.info("해당 기간에 전략 조건을 충족한 거래가 없었습니다.")
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
@@ -9446,7 +9512,7 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
     lb = "52주" if lookback == "52주" else "전체"
     st.caption("⏳ 범위가 넓을수록 1~3분 걸릴 수 있어요(종목별 시세 조회). 결과는 캐시되어 재실행이 빠릅니다.")
 
-    with st.expander("📖 지표 설명 (꼭 읽어보세요)", expanded=False):
+    def _prc_indicators():
         st.markdown(
             f"""
 - **낙폭 (고점 대비)** — 선택한 기간({lookback})의 **최고가에서 현재가가 얼마나 떨어졌는지**. 예: -40%면 천장 대비 40% 하락. 값이 클수록(−쪽으로) 많이 빠진 것.
@@ -9463,6 +9529,8 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
 표의 **각 컬럼 머리글을 클릭하면 오름차순/내림차순 정렬**됩니다 (숫자 정렬).
 """
         )
+    _register_popup("indicators", _prc_indicators)
+    _popup_button("📖 지표 설명 보기 (꼭 읽어보세요)", "indicators", "📖 지표 설명", key="btn_indicators")
 
     if st.button("🔎 낙폭 스캔 시작", type="primary", use_container_width=True):
         scope = ("kr" if dd_scope_label.startswith("🇰🇷 국내")
@@ -10073,10 +10141,12 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
         # 하드필터로 제외된 위험 종목 안내
         _excl = st.session_state.get("finder_excluded") or []
         if _excl:
-            with st.expander(f"🛑 리스크 하드필터로 제외된 종목 {len(_excl)}개 (관리·투자경보·거래정지)", expanded=False):
+            def _prc_excluded():
                 st.caption("아래 종목은 상장폐지·거래정지 등 고위험으로 분류돼 후보에서 제외됐습니다.")
                 st.dataframe(pd.DataFrame([{"종목명": n, "사유": rs} for n, rs in _excl]),
                              use_container_width=True, hide_index=True)
+            _register_popup("excluded", _prc_excluded)
+            _popup_button(f"🛑 리스크 하드필터 제외 종목 {len(_excl)}개 보기", "excluded", f"🛑 제외된 종목 {len(_excl)}개", key="btn_excluded")
 
         # 뉴스 수집/판정 진단 (뉴스가 비는 원인 확인)
         _diag = st.session_state.get("finder_news_diag")
@@ -10205,7 +10275,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     # 종목별 최신 뉴스 (기사별 호재/악재 라벨 포함)
                     _news = r.get("_news")
                     if _news:
-                        with st.expander(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건 (기사별 호재/악재)", expanded=False):
+                        def _prc_news(_news=_news):
                             for nws in _news:
                                 meta = " · ".join([x for x in [nws.get("source"), nws.get("date")] if x])
                                 title = nws.get("title", "")
@@ -10223,6 +10293,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                     st.markdown(f"- {_badge}[{title}]({link})" + _meta_html + _exc_html, unsafe_allow_html=True)
                                 else:
                                     st.markdown(f"- {_badge}{title}" + _meta_html + _exc_html, unsafe_allow_html=True)
+                        _register_popup(f"news_{idx}", _prc_news)
+                        _popup_button(f"📰 {r.get('종목명')} 최신 뉴스 {len(_news)}건 보기", f"news_{idx}", f"📰 {r.get('종목명')} 최신 뉴스", key=f"btn_news_{idx}")
                     elif "_news" in r:
                         st.caption("📰 최근 뉴스를 찾지 못했습니다.")
                     st.markdown("")
@@ -10940,10 +11012,12 @@ elif selected_menu == "📰 실시간 특징주 속보 & 리포트":
 
                         # 매수의견 종목 목록 — 'BUY n건'이 어떤 종목인지 바로 확인
                         if buys > 0:
-                            with st.expander(f"🔴 매수의견 종목 {buys}건 보기", expanded=False):
+                            def _prc_buyops():
                                 buy_tbl = today_reports[buy_mask][['종목명', '증권사', '투자의견', '목표가', '제목']].copy()
                                 buy_tbl['목표가'] = buy_tbl['목표가'].apply(lambda x: f"{int(x):,}원" if x and x > 0 else "-")
                                 st.dataframe(buy_tbl, use_container_width=True, hide_index=True)
+                            _register_popup("buyops", _prc_buyops)
+                            _popup_button(f"🔴 매수의견 종목 {buys}건 보기", "buyops", f"🔴 매수의견 종목 {buys}건", key="btn_buyops")
 
                         st.markdown("#### 📈 당일 목표가(TP) 상/하향 랭킹")
                         st.caption("💡 증권사가 직전 리포트 대비 목표가를 올렸으면 🔴상향, 내렸으면 🔵하향. "
@@ -12049,13 +12123,15 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
     # 0원 검출기를 화면 맨 하단으로 깔끔하게 이동 배치
     st.divider()
     st.markdown("### 🚨 시스템 상태 분석기")
-    with st.expander("⚠️ 데이터 통신 지연 종목 확인 (0원 에러 검출기)", expanded=False):
+    def _prc_zeroerr():
         errs = [it for it in etf_data if it.get('price', 0) == 0]
         if errs:
             st.error(f"현재 총 {len(errs)}개 종목의 데이터 수집이 지연되고 있습니다.")
             st.table(pd.DataFrame([{'테마': i['theme'], '종목': i['name'], '코드': i['code']} for i in errs]))
         else: 
             st.success("🎉 현재 시스템상 가격이 0원으로 조회되는 오류 종목이 단 하나도 없습니다! (무결점 상태)")
+    _register_popup("zeroerr", _prc_zeroerr)
+    _popup_button("⚠️ 데이터 통신 지연 종목 확인 (0원 에러 검출기)", "zeroerr", "⚠️ 0원 에러 검출기", key="btn_zeroerr")
 
 # ==========================================
 # [v7.0] 🔮 폴리마켓 예측시장 (금리·경제·정치)
