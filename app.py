@@ -1490,7 +1490,8 @@ def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
         response = ask_gemini(prompt, _api_key)
         raw_list = re.findall(r"['\"]([^'\"]+)['\"]\s*,\s*['\"]([0-9]{6})['\"]", response)
         krx_df = get_krx_stocks()
-        if krx_df.empty: return list(dict.fromkeys(raw_list))[:20]
+        if krx_df.empty:
+            return [(n, c) for n, c in dict.fromkeys(raw_list) if not is_kr_etf_etn(n, c)][:20]
         name_to_code = dict(zip(krx_df['Name'], krx_df['Code']))
         code_to_name = dict(zip(krx_df['Code'], krx_df['Name']))
         validated = []
@@ -1503,6 +1504,7 @@ def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
             if final_name and final_code and final_code not in seen:
                 seen.add(final_code)
                 validated.append((final_name, final_code))
+        validated = [(n, c) for n, c in validated if not is_kr_etf_etn(n, c)]
         return validated[:20]
     except Exception: return []
 
@@ -2214,8 +2216,48 @@ def get_trading_value_kings(limit=50):
     fallback_df['Amount_Ouk'] = 1000
     return fallback_df[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
 
+# ─────────────────────────────────────────────────────────────────────
+# [신규] ETF·ETN·레버리지/인버스/선물 등 '상품' 판별
+#   → 차트 기술분석 대상이 아니므로 스캐너 유니버스(단기스윙·낙폭과대·AI발굴기·장기가치)에서 제외.
+#   브랜드 접두어 + 키워드 + 네이버 ETF 코드목록(클라우드 호환)으로 판정.
+# ─────────────────────────────────────────────────────────────────────
+_KR_ETF_BRANDS = ("KODEX", "TIGER", "KBSTAR", "KINDEX", "KOSEF", "ARIRANG",
+                  "HANARO", "ACE", "SOL", "RISE", "PLUS", "TIMEFOLIO")
+_KR_PRODUCT_KEYWORDS = ("ETF", "ETN", "레버리지", "인버스", "선물")
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _get_kr_etf_codes():
+    """네이버 etfItemList에서 전체 ETF 종목코드 집합(클라우드 호환). 실패 시 빈 set."""
+    try:
+        j = _naver_json("https://finance.naver.com/api/sise/etfItemList.nhn")
+        items = ((j or {}).get("result") or {}).get("etfItemList") or []
+        return {str(it.get("itemcode", "")).zfill(6) for it in items if it.get("itemcode")}
+    except Exception:
+        return set()
+
+
+def is_kr_etf_etn(name, code=""):
+    """국내 ETF·ETN·레버리지/인버스/선물 등 '상품' 여부 (차트 기술분석 비대상 → 스캐너 제외)."""
+    s = str(name or "").upper().replace(" ", "")
+    if s:
+        if any(s.startswith(b) for b in _KR_ETF_BRANDS):
+            return True
+        if any(k in s for k in _KR_PRODUCT_KEYWORDS):
+            return True
+    try:
+        c = str(code or "").strip()
+        if c.isdigit() and c.zfill(6) in _get_kr_etf_codes():
+            return True
+    except Exception:
+        pass
+    return False
+
+
 @st.cache_data(ttl=300)
 def get_scan_targets(limit=50):
+    def _drop_products(lst):
+        return [(n, c) for n, c in lst if not is_kr_etf_etn(n, c)]
     try:
         df_fdr = fdr.StockListing('KRX')
         if not df_fdr.empty:
@@ -2224,12 +2266,12 @@ def get_scan_targets(limit=50):
             if 'Amount' in df_fdr.columns:
                 df_fdr['Amount'] = pd.to_numeric(df_fdr['Amount'].astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
                 df_fdr = df_fdr.sort_values('Amount', ascending=False)
-            targets = df_fdr.head(limit)[['Name', 'Code']].values.tolist()
+            targets = _drop_products(df_fdr.head(limit * 2)[['Name', 'Code']].values.tolist())[:limit]
             if targets: return targets
     except Exception: pass
 
     # 🚨 중복 현상 해결: limit 개수를 채우기 위해 억지로 리스트를 곱하여 복사하는 로직 제거
-    fallback_targets = get_krx_stocks()[['Name', 'Code']].values.tolist()
+    fallback_targets = _drop_products(get_krx_stocks()[['Name', 'Code']].values.tolist())
     if fallback_targets:
         return fallback_targets[:limit] # 준비된 예비 데이터만큼만 중복 없이 반환
     return []
@@ -7664,6 +7706,8 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
         code = str(code).strip()
         name = str(name).strip()
         if not code or not name:
+            return
+        if is_kr_etf_etn(name, code):   # ETF·ETN·상품 제외 (차트 기술분석 비대상)
             return
         if scope == "kr" and not code.isdigit():   # 국내 전용 모드면 미국 티커 제외
             return
