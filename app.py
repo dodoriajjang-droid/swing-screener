@@ -2221,20 +2221,42 @@ def get_trading_value_kings(limit=50):
 #   → 차트 기술분석 대상이 아니므로 스캐너 유니버스(단기스윙·낙폭과대·AI발굴기·장기가치)에서 제외.
 #   브랜드 접두어 + 키워드 + 네이버 ETF 코드목록(클라우드 호환)으로 판정.
 # ─────────────────────────────────────────────────────────────────────
-_KR_ETF_BRANDS = ("KODEX", "TIGER", "KBSTAR", "KINDEX", "KOSEF", "ARIRANG",
-                  "HANARO", "ACE", "SOL", "RISE", "PLUS", "TIMEFOLIO")
-_KR_PRODUCT_KEYWORDS = ("ETF", "ETN", "레버리지", "인버스", "선물")
+_KR_ETF_BRANDS = (
+    "KODEX", "TIGER", "KBSTAR", "RISE", "KINDEX", "ACE", "ARIRANG", "PLUS",
+    "HANARO", "KOSEF", "KIWOOM", "SOL", "TIMEFOLIO", "WOORI", "TREX", "KOACT",
+    "KCGI", "FOCUS", "히어로즈", "마이티",
+)
+_KR_PRODUCT_KEYWORDS = ("ETF", "ETN", "레버리지", "인버스", "선물", "액티브", "커버드콜")
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _get_kr_etf_codes():
-    """네이버 etfItemList에서 전체 ETF 종목코드 집합(클라우드 호환). 실패 시 빈 set."""
-    try:
-        j = _naver_json("https://finance.naver.com/api/sise/etfItemList.nhn")
-        items = ((j or {}).get("result") or {}).get("etfItemList") or []
-        return {str(it.get("itemcode", "")).zfill(6) for it in items if it.get("itemcode")}
-    except Exception:
-        return set()
+    """네이버 etfItemList(+etnItemList) → 전체 ETF/ETN 종목코드 집합(클라우드 호환).
+    Content-Type에 의존하지 않고 직접 파싱. 실패 시 빈 set."""
+    import json as _json
+    codes = set()
+    for url, key in (
+        ("https://finance.naver.com/api/sise/etfItemList.nhn", "etfItemList"),
+        ("https://finance.naver.com/api/sise/etnItemList.nhn", "etnItemList"),
+    ):
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0",
+                                           "Referer": "https://finance.naver.com/sise/etf.naver"},
+                             timeout=7)
+            if r.status_code != 200:
+                continue
+            try:
+                j = r.json()
+            except Exception:
+                j = _json.loads(r.text)
+            items = ((j or {}).get("result") or {}).get(key) or []
+            for it in items:
+                c = str(it.get("itemcode", "")).strip()
+                if c.isdigit():
+                    codes.add(c.zfill(6))
+        except Exception:
+            continue
+    return codes
 
 
 def is_kr_etf_etn(name, code=""):
