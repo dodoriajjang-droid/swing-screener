@@ -6780,8 +6780,7 @@ def display_sorted_results(results_list, tab_key, api_key=""):
     # 3. 최종 결과 카드 출력 — ⚡ 렌더링 부하 방지: 상위 20개만 카드, 나머지는 위 표에서 확인
     _MAX_CARDS = 20
     for i, res in enumerate(sorted_res[:_MAX_CARDS]):
-        if res.get('스캔점수'):
-            st.caption(f"🏆 스캔 점수 **{res['스캔점수']}** ｜ 충족: {res.get('충족조건', '-')}")
+        # (스캔 점수 캡션은 카드 사이마다 반복되어 가독성을 해쳐 제거. 점수/충족조건은 위의 전체 결과 표·CSV에 그대로 있음)
         draw_stock_card(res, api_key_str=api_key, is_expanded=False, key_suffix=f"{tab_key}_{i}")
     if len(sorted_res) > _MAX_CARDS:
         st.info(f"⚡ 화면 성능을 위해 카드형 상세 보기는 상위 {_MAX_CARDS}개까지만 표시했습니다. 나머지 {len(sorted_res) - _MAX_CARDS}개는 위의 '전체 결과 표' 또는 CSV에서 확인하세요. (정렬 방식을 바꾸면 카드에 올라오는 종목도 바뀝니다)")
@@ -6930,7 +6929,7 @@ def get_stock_news(code, name="", limit=5):
     seen = set()
     # ① 모바일 JSON API
     try:
-        data = _naver_json(f"https://m.stock.naver.com/api/news/stock/{code}?pageSize=20&page=1")
+        data = _naver_json(f"https://m.stock.naver.com/api/news/stock/{code}?pageSize=20&page=1", timeout=3.5)
         groups = data if isinstance(data, list) else (
             data.get("newsList") if isinstance(data, dict) else None)
         if groups:
@@ -7006,7 +7005,7 @@ def fetch_article_excerpt(url, max_chars=320):
     if not url or not str(url).startswith("http"):
         return ""
     try:
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=4)
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=3)
         if res.status_code != 200:
             return ""
         enc = (res.encoding or "").lower()
@@ -10054,9 +10053,13 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     progressN = st.progress(0.0)
                     statusN = st.empty()
                     doneN, totalN = 0, len(news_targets)
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
-                        fmap = {ex.submit(get_stock_news, c, code2name.get(c, ""), 4): c for c in news_targets}
-                        for fut in concurrent.futures.as_completed(fmap):
+                    # [속도개선] 워커 확대(6→12) + 전체 시간 상한(deadline). 일부 종목의 뉴스 API가
+                    #            먹통이어도 그 '느린 꼬리'가 수집 전체를 붙잡지 않도록, 22초 안에 못 받은
+                    #            종목은 빈 뉴스로 처리하고 즉시 다음 단계로 넘어간다.
+                    exN = concurrent.futures.ThreadPoolExecutor(max_workers=12)
+                    fmap = {exN.submit(get_stock_news, c, code2name.get(c, ""), 4): c for c in news_targets}
+                    try:
+                        for fut in concurrent.futures.as_completed(fmap, timeout=22):
                             c = fmap[fut]
                             try:
                                 newsmap[c] = fut.result()
@@ -10065,6 +10068,11 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             doneN += 1
                             progressN.progress(min(1.0, doneN / totalN))
                             statusN.text(f"📰 종목별 최신 뉴스 수집 중... ({doneN}/{totalN})")
+                    except concurrent.futures.TimeoutError:
+                        statusN.text(f"📰 뉴스 수집 시간 초과 — 받은 {doneN}/{totalN}건으로 진행합니다.")
+                    for c in news_targets:          # 시간 내 못 받은 종목은 빈 뉴스 처리
+                        newsmap.setdefault(c, [])
+                    exN.shutdown(wait=False)        # 남은 작업은 백그라운드에 두고 UI는 즉시 진행
                     progressN.empty(); statusN.empty()
                     for c in newsmap:
                         if c in by_code:
@@ -10085,9 +10093,12 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         progressE = st.progress(0.0)
                         statusE = st.empty()
                         doneE, totalE = 0, len(link_set)
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                            emap = {ex.submit(fetch_article_excerpt, lk): lk for lk in link_set}
-                            for fut in concurrent.futures.as_completed(emap):
+                        # [속도개선] 본문 발췌도 워커 확대(8→14) + 전체 시간 상한(18초).
+                        #            본문은 호재/악재 '판정 정확도 보강용'이라 일부 누락돼도 분석은 정상 진행된다.
+                        exE = concurrent.futures.ThreadPoolExecutor(max_workers=14)
+                        emap = {exE.submit(fetch_article_excerpt, lk): lk for lk in link_set}
+                        try:
+                            for fut in concurrent.futures.as_completed(emap, timeout=18):
                                 lk = emap[fut]
                                 try:
                                     excerpt_map[lk] = fut.result()
@@ -10096,6 +10107,9 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                 doneE += 1
                                 progressE.progress(min(1.0, doneE / totalE))
                                 statusE.text(f"📄 기사 본문 분석 중... ({doneE}/{totalE})")
+                        except concurrent.futures.TimeoutError:
+                            statusE.text(f"📄 본문 분석 시간 초과 — 받은 {doneE}/{totalE}건으로 진행합니다.")
+                        exE.shutdown(wait=False)
                         progressE.empty(); statusE.empty()
                         # 발췌를 뉴스 항목에 부착 (모바일 API가 준 발췌가 있으면 보존, 본문 추출 성공 시 갱신)
                         for c in newsmap:
