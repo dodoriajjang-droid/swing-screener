@@ -11253,16 +11253,8 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
         do_analyze = False
         if not krx_df.empty:
             opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
-            # [뉴스 이슈 → 영향 분석] 페이지에서 넘겨준 종목이 있으면 셀렉트박스에 1회 자동 주입
-            _dd_tgt = st.session_state.pop("deep_dive_target", None)
-            if isinstance(_dd_tgt, dict) and _dd_tgt.get("code"):
-                _want = f"({_dd_tgt['code']})"
-                for _o in opts:
-                    if _o.endswith(_want):
-                        st.session_state["kr_indiv_select"] = _o
-                        break
             col_s1, col_s2 = st.columns([8, 2])
-            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, key="kr_indiv_select", label_visibility="collapsed")
+            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
             with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
             if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
                 searched_name = kr_query.rsplit(" (", 1)[0]
@@ -12596,7 +12588,7 @@ elif selected_menu == "🗞️ 뉴스 이슈 TOP & 영향 분석":
                     "</div>",
                     unsafe_allow_html=True)
 
-                # 영향받는 종목을 '개별 기업 정밀 진단'으로 바로 보내기
+                # 영향받는 종목을 '이 자리에서' 바로 정밀 진단 (페이지 이동 없이 인라인 표시)
                 _codes_seen, _opts = set(), {}
                 for _im in _impacts:
                     for _t in (_im.get("tickers") or []):
@@ -12604,12 +12596,23 @@ elif selected_menu == "🗞️ 뉴스 이슈 TOP & 영향 분석":
                             _codes_seen.add(_t["code"])
                             _opts[f"{_t['name']} ({_t['code']}) · {_im['sentiment']}"] = (_t["name"], _t["code"])
                 if _opts:
-                    _pick = st.selectbox("🔬 이 이슈의 관련 종목을 정밀 진단으로 보기",
+                    _pick = st.selectbox("🔬 이 이슈의 관련 종목 — 선택하면 바로 아래에 정밀 진단이 표시됩니다",
                                          ["(선택)"] + list(_opts.keys()), key=f"ni_pick_{_rank}")
                     if _pick != "(선택)":
                         _nm, _cd = _opts[_pick]
-                        st.session_state["deep_dive_target"] = {"name": _nm, "code": _cd}
-                        st.caption(f"➡️ 좌측 메뉴 **‘🔬 개별 기업 정밀 진단’** 으로 이동하면 {_nm}({_cd})가 자동 선택되어 바로 분석됩니다.")
+                        with st.container(border=True):
+                            st.markdown(f"#### 🔬 {_nm} ({_cd}) 정밀 진단")
+                            with st.spinner(f"📡 '{_nm}' 타점·수급 분석 중..."):
+                                _res_ni = analyze_technical_pattern(_nm, _cd)
+                            if _res_ni:
+                                try:
+                                    render_single_stock_themes(_nm, api_key_input)
+                                except Exception:
+                                    pass
+                                draw_stock_card(_res_ni, api_key_str=api_key_input,
+                                                is_expanded=True, key_suffix=f"ni_{_rank}_{_cd}")
+                            else:
+                                st.error(f"❌ '{_nm}({_cd})' 데이터를 불러오지 못했어요. 종목코드를 확인해 주세요.")
             st.divider()
 
         st.caption("※ AI가 실시간 검색으로 생성한 분석으로, 부정확하거나 지연될 수 있습니다. "
