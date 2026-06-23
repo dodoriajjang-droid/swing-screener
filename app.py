@@ -7347,6 +7347,94 @@ def get_theme_politics_radar(_api_key, news_titles=None, poly_lines=None):
     return fallback
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def get_news_issue_impact(_api_key, news_titles, top_n=3):
+    """[뉴스 이슈 → 영향 관계] 실시간 헤드라인 + 구글 검색 그라운딩으로 '오늘의 핵심 증시 이슈
+    TOP N'을 선별·요약하고, 각 이슈가 어떤 업종/종목에 호재(긍정)·악재(부정)·중립으로
+    작용하는지 '영향 관계'를 JSON으로 생성한다.
+    반환: {"issues":[{rank,title,summary,points[],sources[],
+                     impacts[{target,kind,sentiment,reason,tickers[{name,code}]}]}],
+           "generated_at":"HH:MM"}"""
+    now_kst = datetime.utcnow() + timedelta(hours=9)
+    fallback = {"issues": [], "generated_at": now_kst.strftime("%H:%M")}
+    if not _api_key:
+        return fallback
+    head_block = "\n".join(f"- {t}" for t in (news_titles or [])[:25]) or "(헤드라인 없음)"
+    prompt = (
+        "너는 한국 주식시장 전략가다. 지금 한국 증시에서 가장 영향력 있는 핵심 뉴스 이슈를 선별하고, "
+        "각 이슈가 어떤 업종/종목에 호재(긍정)·악재(부정)·중립으로 작용하는지 '영향 관계'를 정리하라.\n"
+        "반드시 '구글 검색'으로 오늘 시점의 최신 보도를 직접 확인한 뒤 작성하라.\n\n"
+        f"[참고용 실시간 증시 헤드라인]\n{head_block}\n\n"
+        f"아래 JSON만 출력하라(설명·마크다운·코드펜스 금지). 이슈는 영향력 큰 순으로 정확히 {int(top_n)}개:\n"
+        '{"issues":[{'
+        '"title":"이슈 제목(12자 내외 핵심 명사구)",'
+        '"summary":"무슨 일인지 + 증시에 왜 중요한지 2~3문장. \'~해요\' 체로 부드럽게.",'
+        '"points":["주목할 포인트 1","2","3"],'
+        '"sources":["실제 참고한 언론사명1","언론사명2"],'
+        '"impacts":[{"target":"영향받는 업종 또는 테마/종목","kind":"섹터|종목|자산",'
+        '"sentiment":"긍정|부정|중립","reason":"왜 그렇게 영향받는지 한 문장",'
+        '"tickers":[{"name":"대표 종목명","code":"6자리 코드(모르면 빈 문자열)"}]}]'
+        '}]}\n'
+        "규칙: 1) impacts 는 이슈당 2~5개, 호재와 악재를 균형 있게 포함. "
+        "2) tickers 는 각 영향마다 1~3개 한국 상장 대표주, code 는 6자리 숫자를 정확히(불확실하면 빈 문자열). "
+        "3) sources 는 실제 검색에서 확인한 매체명만(과장 금지). "
+        "4) 정치·정책·수급·실적·매크로 등 '증시에 직접 영향 주는' 이슈만. 연예/스포츠 등 비증시 이슈 제외."
+    )
+    try:
+        raw = ask_gemini(prompt, _api_key, grounding=True)
+        txt = (raw or "").strip().replace("```json", "").replace("```", "").strip()
+        m = re.search(r"\{.*\}", txt, re.DOTALL)
+        if m:
+            txt = m.group(0)
+        data = json.loads(txt)
+        issues_in = data.get("issues") if isinstance(data, dict) else None
+        if not isinstance(issues_in, list):
+            return fallback
+        _SENT_OK = {"긍정", "부정", "중립"}
+        clean_issues = []
+        for i, it in enumerate(issues_in[:int(top_n)]):
+            if not isinstance(it, dict):
+                continue
+            title = str(it.get("title", "")).strip()[:40]
+            if not title:
+                continue
+            impacts = []
+            for im in (it.get("impacts") or [])[:6]:
+                if not isinstance(im, dict):
+                    continue
+                tgt = str(im.get("target", "")).strip()[:24]
+                if not tgt:
+                    continue
+                sent = str(im.get("sentiment", "")).strip()
+                sent = sent if sent in _SENT_OK else "중립"
+                tks = []
+                for tk in (im.get("tickers") or [])[:3]:
+                    if isinstance(tk, dict):
+                        nm = str(tk.get("name", "")).strip()[:20]
+                        cd = re.sub(r"\D", "", str(tk.get("code", "")))[:6]
+                        if nm:
+                            tks.append({"name": nm, "code": cd})
+                impacts.append({
+                    "target": tgt,
+                    "kind": (str(im.get("kind", "섹터")).strip()[:6] or "섹터"),
+                    "sentiment": sent,
+                    "reason": str(im.get("reason", "")).strip()[:120],
+                    "tickers": tks,
+                })
+            srcs = [str(s).strip()[:24] for s in (it.get("sources") or []) if str(s).strip()][:12]
+            clean_issues.append({
+                "rank": i + 1,
+                "title": title,
+                "summary": str(it.get("summary", "")).strip()[:400],
+                "points": [str(p).strip()[:120] for p in (it.get("points") or []) if str(p).strip()][:5],
+                "sources": srcs,
+                "impacts": impacts,
+            })
+        return {"issues": clean_issues, "generated_at": now_kst.strftime("%H:%M")}
+    except Exception:
+        return fallback
+
+
 # ---------- 점수화 보조 ----------
 def _f_num(x):
     try:
@@ -7895,6 +7983,7 @@ with st.sidebar:
         " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
         "   ", 
         "📂 [ 트레이딩 & 시장 경보 ]",
+        " ┣ 🗞️ 뉴스 이슈 TOP & 영향 분석",
         " ┣ 🚨 통합 경보 센터 (뉴스·차트·일정)",
         " ┣ 🔥 간밤의 미국 급등주 & 수혜주",
         " ┣ 🚨 당일 상/하한가 분석",
@@ -11164,8 +11253,16 @@ elif selected_menu == "🔬 개별 기업 정밀 진단 (AI 비전)":
         do_analyze = False
         if not krx_df.empty:
             opts = ["🔍 분석할 국내 종목을 검색/선택하세요"] + (krx_df['Name'].astype(str) + " (" + krx_df['Code'].astype(str) + ")").tolist()
+            # [뉴스 이슈 → 영향 분석] 페이지에서 넘겨준 종목이 있으면 셀렉트박스에 1회 자동 주입
+            _dd_tgt = st.session_state.pop("deep_dive_target", None)
+            if isinstance(_dd_tgt, dict) and _dd_tgt.get("code"):
+                _want = f"({_dd_tgt['code']})"
+                for _o in opts:
+                    if _o.endswith(_want):
+                        st.session_state["kr_indiv_select"] = _o
+                        break
             col_s1, col_s2 = st.columns([8, 2])
-            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, label_visibility="collapsed")
+            with col_s1: kr_query = st.selectbox("👇 종목명/코드 검색:", opts, key="kr_indiv_select", label_visibility="collapsed")
             with col_s2: kr_search_btn = st.button("📊 분석 시작", use_container_width=True)
             if kr_query != "🔍 분석할 국내 종목을 검색/선택하세요" and (kr_query or kr_search_btn):
                 searched_name = kr_query.rsplit(" (", 1)[0]
@@ -12381,6 +12478,142 @@ elif selected_menu == "🔮 폴리마켓 예측시장 (금리·경제·정치)":
                         st.markdown(ask_gemini(ai_prompt, api_key_input))
 
             st.caption("※ 예측시장 확률은 실시간 베팅으로 계속 변동하며, 미래를 보장하지 않습니다. 투자 판단의 참고용 선행지표로만 활용하세요.")
+
+
+# ==========================================
+# 🗞️ 뉴스 이슈 TOP & 영향 분석
+#   오늘의 핵심 증시 이슈를 AI(구글검색 그라운딩)로 선별·요약 → 영향받는 섹터/종목을
+#   호재(긍정)·악재(부정)·중립으로 분기해 '영향 관계도'로 시각화.
+# ==========================================
+elif selected_menu == "🗞️ 뉴스 이슈 TOP & 영향 분석":
+    st.markdown("## 🗞️ 오늘의 뉴스 이슈 TOP & 영향 분석  "
+                "<span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)
+    st.caption("지금 증시를 움직이는 핵심 뉴스 이슈를 AI가 선별·요약하고, 각 이슈가 어떤 업종·종목에 "
+               "호재/악재로 작용하는지 '영향 관계도'로 보여줍니다. (구글 검색 그라운딩 · 무료)")
+
+    if "news_issue_data" not in st.session_state:
+        st.session_state.news_issue_data = None
+
+    ctop1, ctop2, ctop3 = st.columns([1, 1, 1])
+    ni_topn = ctop1.selectbox("표시할 이슈 수", [3, 5], index=0, key="ni_topn")
+    ni_run = ctop2.button("🔎 오늘의 이슈 분석", type="primary", use_container_width=True, key="ni_run")
+    if ctop3.button("🔄 새로고침(캐시 비우기)", use_container_width=True, key="ni_refresh"):
+        try:
+            get_news_issue_impact.clear()
+        except Exception:
+            pass
+        st.session_state.news_issue_data = None
+        st.rerun()
+
+    if ni_run:
+        if not api_key_input:
+            st.warning("⚠️ AI 분석을 위해 좌측 사이드바에 Gemini API 키가 필요합니다.")
+        else:
+            with st.spinner("실시간 증시 헤드라인 수집 중..."):
+                try:
+                    _ni_titles = tuple(a["title"] for a in (get_latest_naver_news() or []))[:25]
+                except Exception:
+                    _ni_titles = tuple()
+            with st.spinner("AI가 핵심 이슈와 영향 관계를 분석 중입니다... (구글 검색 → 최초 1회 다소 소요)"):
+                st.session_state.news_issue_data = get_news_issue_impact(api_key_input, _ni_titles, ni_topn)
+
+    _ni_data = st.session_state.get("news_issue_data")
+    if not _ni_data or not _ni_data.get("issues"):
+        st.info("위 **‘🔎 오늘의 이슈 분석’** 버튼을 누르면, 지금 증시를 움직이는 핵심 뉴스 이슈와 그 파급 효과를 분석해 드려요.")
+    else:
+        # 긍정=빨강(호재), 부정=파랑(악재), 중립=회색 — 한국 증시 색 관례
+        _SENT_STYLE = {
+            "긍정": ("#e11d48", "rgba(225,29,72,0.07)", "📈", "수혜"),
+            "부정": ("#2563eb", "rgba(37,99,235,0.07)", "📉", "타격"),
+            "중립": ("#64748b", "rgba(100,116,139,0.07)", "⚖️", "중립"),
+        }
+        _gen = _ni_data.get("generated_at", "")
+        for _iss in _ni_data["issues"]:
+            _rank = _iss.get("rank", 1)
+            _src_n = len(_iss.get("sources") or [])
+
+            # ── 이슈 헤더 카드 ──
+            st.markdown(
+                f"<div style='font-size:13px;font-weight:800;color:#6366f1;margin-bottom:2px;'>뉴스 이슈 {_rank}위</div>"
+                f"<div style='font-size:24px;font-weight:800;color:#0f172a;line-height:1.25;margin-bottom:10px;'>{_iss['title']}</div>",
+                unsafe_allow_html=True)
+            if _iss.get("summary"):
+                st.markdown(
+                    f"<div style='border-left:4px solid #cbd5e1;padding:2px 0 2px 14px;color:#334155;"
+                    f"font-size:15.5px;line-height:1.7;margin-bottom:6px;'>{_iss['summary']}</div>",
+                    unsafe_allow_html=True)
+            if _iss.get("points"):
+                with st.expander("📌 주목할 포인트"):
+                    for _p in _iss["points"]:
+                        st.markdown(f"- {_p}")
+            _meta = []
+            if _src_n:
+                _meta.append(f"📰 {_src_n}개 출처")
+            if _gen:
+                _meta.append(f"🕒 {_gen} 기준")
+            if _iss.get("sources"):
+                _meta.append("· " + ", ".join(_iss["sources"][:6]))
+            if _meta:
+                st.caption("   ".join(_meta))
+
+            # ── 영향 관계도 ──
+            st.markdown("<div style='font-size:17px;font-weight:800;color:#0f172a;margin:14px 0 4px;'>"
+                        "어떤 영향을 줄까?</div>", unsafe_allow_html=True)
+            _impacts = _iss.get("impacts") or []
+            if not _impacts:
+                st.caption("영향 관계 데이터가 없습니다.")
+            else:
+                _order = {"긍정": 0, "중립": 1, "부정": 2}
+                _impacts = sorted(_impacts, key=lambda x: _order.get(x["sentiment"], 1))
+                _chips = []
+                for _im in _impacts:
+                    _color, _bg, _emo, _tag = _SENT_STYLE.get(_im["sentiment"], _SENT_STYLE["중립"])
+                    _tk_html = ""
+                    if _im.get("tickers"):
+                        _tk_html = "".join(
+                            "<span style='display:inline-block;font-size:11px;color:#475569;background:#f1f5f9;"
+                            "border-radius:5px;padding:1px 7px;margin:4px 5px 0 0;'>"
+                            + _t["name"] + (f" · {_t['code']}" if _t.get("code") else "") + "</span>"
+                            for _t in _im["tickers"]
+                        )
+                    _chips.append(
+                        f"<div style='border:1px solid {_color}33;border-left:4px solid {_color};background:{_bg};"
+                        f"border-radius:12px;padding:10px 14px;margin:8px 0;'>"
+                        f"<div><span style='font-weight:800;color:#0f172a;font-size:15px;'>{_emo} {_im['target']}</span>"
+                        f"<span style='font-size:11.5px;font-weight:800;color:#fff;background:{_color};"
+                        f"border-radius:6px;padding:1px 8px;margin-left:9px;'>{_im['sentiment']}</span>"
+                        f"<span style='font-size:11px;color:#94a3b8;margin-left:7px;'>{_im['kind']} · {_tag}</span></div>"
+                        f"<div style='font-size:13px;color:#475569;line-height:1.5;margin-top:4px;'>{_im['reason']}</div>"
+                        + (f"<div style='margin-top:4px;'>{_tk_html}</div>" if _tk_html else "")
+                        + "</div>"
+                    )
+                st.markdown(
+                    "<div style='display:flex;gap:14px;align-items:stretch;'>"
+                    "<div style='flex:0 0 132px;display:flex;align-items:center;justify-content:center;text-align:center;"
+                    "background:linear-gradient(135deg,#eef2ff,#e0e7ff);border:1px solid #c7d2fe;border-radius:14px;"
+                    f"padding:12px;font-weight:800;color:#3730a3;font-size:14px;line-height:1.35;'>{_iss['title']}</div>"
+                    "<div style='flex:1;min-width:0;'>" + "".join(_chips) + "</div>"
+                    "</div>",
+                    unsafe_allow_html=True)
+
+                # 영향받는 종목을 '개별 기업 정밀 진단'으로 바로 보내기
+                _codes_seen, _opts = set(), {}
+                for _im in _impacts:
+                    for _t in (_im.get("tickers") or []):
+                        if _t.get("code") and _t["code"] not in _codes_seen:
+                            _codes_seen.add(_t["code"])
+                            _opts[f"{_t['name']} ({_t['code']}) · {_im['sentiment']}"] = (_t["name"], _t["code"])
+                if _opts:
+                    _pick = st.selectbox("🔬 이 이슈의 관련 종목을 정밀 진단으로 보기",
+                                         ["(선택)"] + list(_opts.keys()), key=f"ni_pick_{_rank}")
+                    if _pick != "(선택)":
+                        _nm, _cd = _opts[_pick]
+                        st.session_state["deep_dive_target"] = {"name": _nm, "code": _cd}
+                        st.caption(f"➡️ 좌측 메뉴 **‘🔬 개별 기업 정밀 진단’** 으로 이동하면 {_nm}({_cd})가 자동 선택되어 바로 분석됩니다.")
+            st.divider()
+
+        st.caption("※ AI가 실시간 검색으로 생성한 분석으로, 부정확하거나 지연될 수 있습니다. "
+                   "호재/악재·영향 판단은 참고용이며, 최종 투자 판단과 책임은 투자자 본인에게 있습니다.")
 
 
 # ==========================================
