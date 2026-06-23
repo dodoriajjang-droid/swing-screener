@@ -12494,7 +12494,7 @@ elif selected_menu == "🗞️ 뉴스 이슈 TOP & 영향 분석":
     if "news_issue_data" not in st.session_state:
         st.session_state.news_issue_data = None
 
-    ctop1, ctop2, ctop3 = st.columns([1, 1, 1])
+    ctop1, ctop2, ctop3 = st.columns([1, 1, 1], vertical_alignment="bottom")
     ni_topn = ctop1.selectbox("표시할 이슈 수", [3, 5], index=0, key="ni_topn")
     ni_run = ctop2.button("🔎 오늘의 이슈 분석", type="primary", use_container_width=True, key="ni_run")
     if ctop3.button("🔄 새로고침(캐시 비우기)", use_container_width=True, key="ni_refresh"):
