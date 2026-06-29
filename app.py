@@ -83,6 +83,53 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 .stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
 th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+
+/* ── 카드 내 '팝업/분석 실행' 버튼 강조 (가독성 포인트) ──────────────
+   기본 회색 외곽선 버튼이 잘 안 보여서, 각 카드 헤더 색과 맞춘
+   그라데이션 + 흰 글씨 + 그림자 + hover 효과로 또렷하게 만든다.
+   (key 기반 .st-key-* 클래스를 사용 — Streamlit 1.39+) */
+[class*="st-key-ai_btn_"] button,
+[class*="st-key-biz_btn_"] button,
+[class*="st-key-btn_tf_ai_"] button,
+[class*="st-key-chat_open_"] button,
+[class*="st-key-vptm_open_"] button {
+    color:#fff !important;
+    font-weight:800 !important;
+    border:none !important;
+    border-radius:10px !important;
+    padding:0.62rem 0.9rem !important;
+    letter-spacing:.2px;
+    text-shadow:0 1px 2px rgba(0,0,0,.18);
+    transition:transform .12s ease, filter .12s ease, box-shadow .12s ease !important;
+}
+[class*="st-key-ai_btn_"] button p,
+[class*="st-key-biz_btn_"] button p,
+[class*="st-key-btn_tf_ai_"] button p,
+[class*="st-key-chat_open_"] button p,
+[class*="st-key-vptm_open_"] button p { color:#fff !important; font-weight:800 !important; }
+
+/* 1) 차트·수급·재무 정밀 진단 → 블루 */
+[class*="st-key-ai_btn_"] button   { background:linear-gradient(135deg,#3b82f6,#1d4ed8) !important; box-shadow:0 3px 10px rgba(37,99,235,.32) !important; }
+/* 2) 기업 심층 분석 → 에메랄드 */
+[class*="st-key-biz_btn_"] button  { background:linear-gradient(135deg,#10b981,#047857) !important; box-shadow:0 3px 10px rgba(5,150,105,.32) !important; }
+/* 3) 주기별 AI 차트 분석 → 바이올렛 */
+[class*="st-key-btn_tf_ai_"] button{ background:linear-gradient(135deg,#8b5cf6,#6d28d9) !important; box-shadow:0 3px 10px rgba(124,58,237,.32) !important; }
+/* 4) 전문가 AI 질의응답 → 인디고 (카드 헤더와 동일 계열) */
+[class*="st-key-chat_open_"] button{ background:linear-gradient(135deg,#6366f1,#4338ca) !important; box-shadow:0 3px 10px rgba(67,56,202,.32) !important; }
+/* 5) 매물대 지도·종목 타임머신 → 앰버 (카드 헤더와 동일 계열) */
+[class*="st-key-vptm_open_"] button{ background:linear-gradient(135deg,#f59e0b,#d97706) !important; box-shadow:0 3px 10px rgba(217,119,6,.34) !important; }
+
+/* 공통 hover / active */
+[class*="st-key-ai_btn_"] button:hover,
+[class*="st-key-biz_btn_"] button:hover,
+[class*="st-key-btn_tf_ai_"] button:hover,
+[class*="st-key-chat_open_"] button:hover,
+[class*="st-key-vptm_open_"] button:hover { transform:translateY(-1px); filter:brightness(1.06); }
+[class*="st-key-ai_btn_"] button:active,
+[class*="st-key-biz_btn_"] button:active,
+[class*="st-key-btn_tf_ai_"] button:active,
+[class*="st-key-chat_open_"] button:active,
+[class*="st-key-vptm_open_"] button:active { transform:translateY(0); filter:brightness(.96); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -6249,7 +6296,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
     detail_str = f"(진단: {status} ｜ 상세 진단: {align_status} ｜ 주봉: {weekly_short} ｜ 외인: {forgn_disp} ｜ 기관: {inst_disp} ｜ RSI: {rsi_display})"
     market_label = tech_result.get('시장', '')
     price_with_market = f"{fmt_price(curr)} ({market_label})" if market_label else fmt_price(curr)
-    card_title = f"{stock_name} / {core_theme} / {sector} / {price_with_market} / {detail_str}"
+    card_title = f"{stock_name} / {core_theme} / {sector} / 현재가: {price_with_market} / {detail_str}"
 
     # 5. 펼침막 생성 (하단 지표 삭제)
     with st.expander(card_title, expanded=is_expanded):
@@ -6437,12 +6484,12 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             _register_popup(f"bizdeep_{key_suffix}", _prc_bizdeep)
 
             with col_ai1:
-                if st.button(f"🤖 차트·수급·재무 정밀 진단 (일봉 6개월)", key=ai_btn_key, use_container_width=True):
+                if st.button(f"🤖 차트·수급·재무 정밀 진단 (일봉 6개월)", key=ai_btn_key, type="primary", use_container_width=True):
                     if st.session_state.get(ai_res_key) in (None, "loading"):
                         st.session_state[ai_res_key] = "loading"
                     _open_popup(f"aidiag_{key_suffix}", "🤖 차트·수급·재무 정밀 진단 (일봉 6개월)")
             with col_ai2:
-                if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, use_container_width=True):
+                if st.button(f"🏢 기업 심층 분석 (비즈니스/전망)", key=biz_btn_key, type="primary", use_container_width=True):
                     if st.session_state.get(biz_res_key) in (None, "loading"):
                         st.session_state[biz_res_key] = "loading"
                     _open_popup(f"bizdeep_{key_suffix}", "🏢 기업 심층 분석 (비즈니스/전망)")
@@ -6548,7 +6595,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 _register_popup(tf_pop_name, _prc_tfai)
 
                 if api_key_str:
-                    if st.button(f"🤖 ‘{tf}’ 주기 AI 차트 분석", key=f"btn_{tf_ai_key}", use_container_width=True):
+                    if st.button(f"🤖 ‘{tf}’ 주기 AI 차트 분석", key=f"btn_{tf_ai_key}", type="primary", use_container_width=True):
                         if st.session_state.get(tf_ai_key) in (None, "loading"):
                             st.session_state[tf_ai_key] = "loading"
                         _open_popup(tf_pop_name, f"🤖 ‘{tf}’ 주기 AI 차트 분석")
@@ -6564,7 +6611,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     "<span style=\"font-weight:800;color:#4338ca;font-size:1.02em;\">전문가 AI 질의응답</span>"
                     "<span style=\"color:#6366f1;font-size:0.86em;\">이 종목·시황 무엇이든 물어보세요 · 팝업 창</span>"
                     "</div>", unsafe_allow_html=True)
-                if st.button(f"💬 전문가 AI와 ‘{stock_name}’ 질의응답 열기", key=f"chat_open_{key_suffix}", use_container_width=True):
+                if st.button(f"💬 전문가 AI와 ‘{stock_name}’ 질의응답 열기", key=f"chat_open_{key_suffix}", type="primary", use_container_width=True):
                     _open_expert_chat({"stock_name": stock_name, "ticker_code": ticker_code, "is_us": is_us,
                                        "sector": sector, "tf": tf, "curr": curr, "tech_result": tech_result,
                                        "api_key_str": api_key_str})
@@ -6583,7 +6630,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     "<span style=\"font-weight:800;color:#b45309;font-size:1.02em;\">매물대 지도 · 종목 타임머신</span>"
                     "<span style=\"color:#d97706;font-size:0.86em;\">가격대별 거래량 + 과거 유사패턴 · 팝업 창</span>"
                     "</div>", unsafe_allow_html=True)
-                if st.button(f"📊 ‘{stock_name}’ 매물대 지도 · 종목 타임머신 열기", key=f"vptm_open_{key_suffix}", use_container_width=True):
+                if st.button(f"📊 ‘{stock_name}’ 매물대 지도 · 종목 타임머신 열기", key=f"vptm_open_{key_suffix}", type="primary", use_container_width=True):
                     _open_vptm({"ticker_code": ticker_code, "curr": curr})
                 if not hasattr(st, "dialog") and st.session_state.get("_vptm_inline_open"):
                     with st.container(border=True):
