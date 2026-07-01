@@ -6723,12 +6723,198 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             else: 
                 st.error("데이터를 불러오지 못했습니다.")
                  
-def display_sorted_results(results_list, tab_key, api_key=""):
+# ============================================================
+# 🏆 테마 대장주 랭킹 — 검색한 테마의 '대장주'와 그 뒤 순위를 산출/표시
+#   대장주 점수 = 거래대금(0.45) + 시가총액(0.25) + 20일 모멘텀(0.20) + 자금유입강도(0.10)
+#   * 통화가 다르므로(원/달러) 반드시 '시장(KR/US)별'로 나눠 각 시장 안에서 백분위 랭킹.
+#   * analyze_technical_pattern() 결과 dict의 기존 필드만 사용 — 추가 네트워크 호출 0건.
+# ============================================================
+_LEADER_MED = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+def _leader_num(x):
+    """float 변환. 실패·비유한(NaN/inf)이면 None."""
+    try:
+        v = float(x)
+        return v if np.isfinite(v) else None
+    except Exception:
+        return None
+
+def _leader_metrics(res):
+    """한 종목의 대장주 판정용 원자료 추출(통화는 원본 그대로: KR=원, US=달러)."""
+    price = _leader_num(res.get('현재가'))
+    sh = _leader_num(res.get('Shares'))                 # 상장주식수(백만주 단위)
+    cap = price * sh * 1_000_000 if (price and sh) else None   # 시가총액 = 현재가 × 주식수
+    return {
+        'cap': cap,
+        'amt': _leader_num(res.get('평균거래대금20일')),  # 20일 평균 거래대금
+        'mom': _leader_num(res.get('수익률20일')),        # 최근 20일 수익률(%)
+        'mfi': _leader_num(res.get('MFI')),               # 자금흐름지수
+        'surge': '🔥' in str(res.get('거래량 급증', '')),  # 거래량 급증 여부
+    }
+
+def _leader_pctl(vals):
+    """None 제외, 최저=0 ~ 최고=1 백분위(동점은 평균 순위). 유효값 1개 이하면 전부 0.5(중립)."""
+    valid = [v for v in vals if v is not None]
+    n = len(valid)
+    if n <= 1:
+        return [0.5] * len(vals)
+    srt = sorted(valid)
+    rank_of, i = {}, 0
+    while i < n:                       # 동점 구간은 평균 순위로 묶는다
+        j = i
+        while j + 1 < n and srt[j + 1] == srt[i]:
+            j += 1
+        rank_of[srt[i]] = (i + j) / 2.0
+        i = j + 1
+    return [0.5 if v is None else rank_of[v] / (n - 1) for v in vals]
+
+def _theme_leader_ranking(rows):
+    """종목 리스트를 시장(KR/US)별로 나눠 '대장주 점수' 내림차순 랭킹.
+    반환: {'KR': [row..], 'US': [row..]} — 각 row는 표시에 필요한 값만 담은 경량 dict(원본 미변경)."""
+    groups = {'KR': [], 'US': []}
+    for r in rows:
+        mkt = 'US' if not str(r.get('티커', '')).isdigit() else 'KR'
+        groups[mkt].append(r)
+
+    ranked = {'KR': [], 'US': []}
+    for mkt, items in groups.items():
+        if not items:
+            continue
+        met = [_leader_metrics(r) for r in items]
+        p_amt = _leader_pctl([m['amt'] for m in met])
+        p_cap = _leader_pctl([m['cap'] for m in met])
+        p_mom = _leader_pctl([m['mom'] for m in met])
+        out = []
+        for r, m, pa, pc, pm in zip(items, met, p_amt, p_cap, p_mom):
+            heat = (0.5 if m['surge'] else 0.0)
+            if m['mfi'] is not None:
+                heat += max(0.0, min(1.0, m['mfi'] / 100.0)) * 0.5   # 0~1
+            score = 100.0 * (0.45 * pa + 0.25 * pc + 0.20 * pm + 0.10 * heat)
+            out.append({
+                'name': str(r.get('종목명', '?')), 'ticker': str(r.get('티커', '')),
+                'is_us': (mkt == 'US'), 'price': _leader_num(r.get('현재가')),
+                'mom': m['mom'], 'amt': m['amt'], 'cap': m['cap'], 'surge': m['surge'],
+                'score': round(score, 1),
+            })
+        out.sort(key=lambda x: x['score'], reverse=True)
+        for rk, row in enumerate(out, 1):
+            row['rank'] = rk
+        ranked[mkt] = out
+    return ranked
+
+def _leader_fmt_price(v, is_us):
+    if v is None:
+        return "—"
+    return f"${v:,.2f}" if is_us else f"{v:,.0f}원"
+
+def _leader_fmt_big(v, is_us):
+    """거래대금/시가총액 큰 금액 표기(시장별 통화·단위)."""
+    if v is None or v <= 0:
+        return "—"
+    if is_us:
+        if v >= 1e9: return f"${v/1e9:,.2f}B"
+        if v >= 1e6: return f"${v/1e6:,.0f}M"
+        return f"${v:,.0f}"
+    if v >= 1e12: return f"{v/1e12:,.1f}조"
+    if v >= 1e8:  return f"{v/1e8:,.0f}억"
+    return f"{v:,.0f}원"
+
+def _leader_fmt_mom(v):
+    if v is None:
+        return "—", "#64748b"
+    color = "#e11d48" if v > 0 else ("#2563eb" if v < 0 else "#64748b")  # 한국 관례: 상승=빨강
+    return f"{v:+.1f}%", color
+
+def _leader_callout_html(top, label):
+    is_us = top['is_us']
+    mom_txt, mom_col = _leader_fmt_mom(top['mom'])
+    return (
+        "<div style='border:1px solid #fcd34d;background:linear-gradient(135deg,#fffbeb,#fef3c7);"
+        "border-radius:14px;padding:14px 16px;margin:6px 0 10px;'>"
+        f"<div style='font-size:12px;font-weight:800;color:#b45309;letter-spacing:.3px;'>🥇 {label} 대장주</div>"
+        f"<div style='font-size:21px;font-weight:800;color:#0f172a;margin:2px 0 6px;'>{top['name']} "
+        f"<span style='font-size:13px;color:#94a3b8;font-weight:600;'>{top['ticker']}</span></div>"
+        "<div style='font-size:13px;color:#334155;line-height:1.7;'>"
+        f"현재가 <b>{_leader_fmt_price(top['price'], is_us)}</b> &nbsp;·&nbsp; "
+        f"20일 <b style='color:{mom_col};'>{mom_txt}</b> &nbsp;·&nbsp; "
+        f"거래대금 <b>{_leader_fmt_big(top['amt'], is_us)}</b> &nbsp;·&nbsp; "
+        f"시총 <b>{_leader_fmt_big(top['cap'], is_us)}</b> &nbsp;·&nbsp; "
+        f"대장주 점수 <b style='color:#b45309;'>{top['score']:.1f}</b></div>"
+        "</div>"
+    )
+
+def _leaders_table_html(rows):
+    head = (
+        "<table style='width:100%;border-collapse:collapse;font-size:13px;'>"
+        "<thead><tr style='background:rgba(100,116,139,0.08);'>"
+        "<th style='padding:7px 8px;text-align:center;'>순위</th>"
+        "<th style='padding:7px 8px;text-align:left;'>종목명</th>"
+        "<th style='padding:7px 8px;text-align:right;'>현재가</th>"
+        "<th style='padding:7px 8px;text-align:right;'>20일 모멘텀</th>"
+        "<th style='padding:7px 8px;text-align:right;'>거래대금(20일 평균)</th>"
+        "<th style='padding:7px 8px;text-align:right;'>시가총액</th>"
+        "<th style='padding:7px 8px;text-align:left;'>대장주 점수</th>"
+        "</tr></thead><tbody>"
+    )
+    body = []
+    for row in rows:
+        is_us = row['is_us']
+        medal = _LEADER_MED.get(row['rank'], f"<b>{row['rank']}</b>")
+        mom_txt, mom_col = _leader_fmt_mom(row['mom'])
+        surge_tag = " 🔥" if row['surge'] else ""
+        row_bg = "background:rgba(245,158,11,0.10);" if row['rank'] == 1 else ""
+        bar_w = max(2.0, min(100.0, row['score']))
+        score_cell = (
+            "<div style='display:flex;align-items:center;gap:6px;'>"
+            "<div style='flex:1;height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;min-width:56px;'>"
+            f"<div style='width:{bar_w:.0f}%;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);'></div></div>"
+            f"<span style='font-weight:700;color:#b45309;min-width:36px;text-align:right;'>{row['score']:.1f}</span></div>"
+        )
+        body.append(
+            f"<tr style='border-bottom:1px solid #eef2f7;{row_bg}'>"
+            f"<td style='padding:7px 8px;text-align:center;font-size:15px;'>{medal}</td>"
+            f"<td style='padding:7px 8px;'><b>{row['name']}</b> "
+            f"<span style='color:#94a3b8;font-size:11px;'>{row['ticker']}</span>{surge_tag}</td>"
+            f"<td style='padding:7px 8px;text-align:right;'>{_leader_fmt_price(row['price'], is_us)}</td>"
+            f"<td style='padding:7px 8px;text-align:right;color:{mom_col};font-weight:700;'>{mom_txt}</td>"
+            f"<td style='padding:7px 8px;text-align:right;'>{_leader_fmt_big(row['amt'], is_us)}</td>"
+            f"<td style='padding:7px 8px;text-align:right;'>{_leader_fmt_big(row['cap'], is_us)}</td>"
+            f"<td style='padding:7px 8px;min-width:150px;'>{score_cell}</td>"
+            "</tr>"
+        )
+    return head + "".join(body) + "</tbody></table>"
+
+def render_theme_leaders(results_list, tab_key):
+    """검색한 테마의 대장주(1위)와 그 뒤 순위를 시장별로 표시."""
+    ranked = _theme_leader_ranking(results_list)
+    present = [(k, lab) for k, lab in [("KR", "🇰🇷 국내"), ("US", "🇺🇸 미국")] if ranked.get(k)]
+    if not present:
+        return
+    st.markdown("### 🏆 테마 대장주 랭킹")
+    st.caption("💡 **대장주 점수** = 거래대금(45%) · 시가총액(25%) · 20일 모멘텀(20%) · 자금 유입 강도(10%)를 "
+               "각 시장 안에서 종합한 값입니다. 돈이 몰리고 대표성이 큰(=테마를 주도하는) 종목일수록 높습니다.")
+    blocks = st.columns(len(present)) if len(present) == 2 else [st.container()]
+    for col, (mkt, lab) in zip(blocks, present):
+        rows = ranked[mkt]
+        with col:
+            st.markdown(f"**{lab} 대장주 순위 · {len(rows)}종목**")
+            st.markdown(_leader_callout_html(rows[0], lab), unsafe_allow_html=True)
+            st.markdown(_leaders_table_html(rows), unsafe_allow_html=True)
+    st.caption("※ 대장주 판단은 시세·거래대금·모멘텀 기반의 참고 지표이며, 투자 권유가 아닙니다. "
+               "시가총액은 상장주식수 데이터가 있는 종목만 표시됩니다.")
+    st.divider()
+
+
+def display_sorted_results(results_list, tab_key, api_key="", show_leader_rank=False):
     if not results_list:
         st.info("조건에 부합하는 종목이 없습니다.")
         return
         
     st.success(f"🎯 총 {len(results_list)}개 종목 포착 완료!")
+
+    # [추가] 테마 대장주 랭킹 — 메가트렌드/국민성장펀드 등 '테마 대장주 발굴' 탭에서만 표시
+    if show_leader_rank:
+        render_theme_leaders(results_list, tab_key)
     
     _has_score = any(('_score' in r) for r in results_list)
     
@@ -10760,7 +10946,7 @@ elif selected_menu == "⚡ 메가트렌드 & 테마 대장주":
             if st.session_state.deep_tech_results is not None:
                 if st.session_state.get('deep_tech_brief'):
                     st.info(f"**💡 글로벌 AI 퀀트 인사이트:**\n{st.session_state.deep_tech_brief}")
-                display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input)
+                display_sorted_results(st.session_state.deep_tech_results, tab_key="t5", api_key=api_key_input, show_leader_rank=True)
 
 elif selected_menu == "🇰🇷 국민성장펀드 12대 산업 수혜주":
     st.markdown("## 🇰🇷 국민성장펀드 12대 산업 수혜주")
@@ -10823,7 +11009,7 @@ elif selected_menu == "🇰🇷 국민성장펀드 12대 산업 수혜주":
         if st.session_state.gf_results is not None:
             st.info(f"💡 **{st.session_state.gf_sector_query}** 분야의 국민성장펀드 정책 수혜 기대 종목입니다. "
                     "(아래에서 RSI·수급 기준 정렬 가능)")
-            display_sorted_results(st.session_state.gf_results, tab_key="gf", api_key=api_key_input)
+            display_sorted_results(st.session_state.gf_results, tab_key="gf", api_key=api_key_input, show_leader_rank=True)
 
 elif selected_menu == "🔥 간밤의 미국 급등주 & 수혜주":
     st.markdown("## 🔥 간밤의 미국 급등주 & 수혜주")
