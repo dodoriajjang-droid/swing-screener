@@ -8039,6 +8039,81 @@ def get_index_ret20():
     return out
 
 
+# ── [발굴기 표시 보조] 손익비(R:R) · 필터/정렬 · 내보내기 유틸 ──────────────
+def _finder_rr(r):
+    """현재가 진입 기준 손익비(R:R)와 상/하방 %.
+    R:R = (목표가1 − 현재가) ÷ (현재가 − 손절가). 반환 {rr, up, dn, tag} | None."""
+    cur = _f_num(r.get("현재가")); tgt = _f_num(r.get("목표가1")); stop = _f_num(r.get("손절가"))
+    if not (cur and tgt and stop) or cur <= 0:
+        return None
+    dn = (cur - stop) / cur * 100.0        # 손절까지 하방 %
+    up = (tgt - cur) / cur * 100.0         # 1차 목표까지 상방 %
+    risk = cur - stop
+    rr = ((tgt - cur) / risk) if risk > 0 else None
+    tag = ("손절선 이탈" if risk <= 0 else ("목표 도달(과열)" if up <= 0 else None))
+    return {"rr": rr, "up": up, "dn": dn, "tag": tag}
+
+def _finder_hide(r, hide_bad_news, hide_risk, hide_illiq):
+    """필터 토글에 따라 이 종목을 숨길지 여부."""
+    flags = r.get("_risk_flags") or []
+    if hide_bad_news and r.get("_news_label") == "악재" and not r.get("_news_auto_neutral"):
+        return True
+    if hide_illiq and any("💧" in f for f in flags):
+        return True
+    if hide_risk:
+        if r.get("_dilution"):
+            return True
+        if any(("🩸" in f) or ("⚠️" in f) for f in flags):
+            return True
+        lvl = (r.get("_risk") or {}).get("level")
+        if isinstance(lvl, (list, tuple)) and lvl and "🔴" in str(lvl[0]):
+            return True
+    return False
+
+def _finder_sort_val(r, mode):
+    """정렬 기준값(내림차순 사용). 값이 없으면 맨 뒤로 밀리도록 매우 작은 값."""
+    if mode.startswith("기대수익"):
+        v = r.get("_upside");                 return v if v is not None else -1e9
+    if mode.startswith("손익비"):
+        v = (_finder_rr(r) or {}).get("rr");  return v if v is not None else -1e9
+    if "모멘텀" in mode:
+        v = _f_num(r.get("수익률20일"));       return v if v is not None else -1e9
+    return r.get("_top", 0)                    # 기본: 기간 적합도 점수
+
+def _finder_export_df(buckets):
+    """단기/중기/장기 버킷 → 내보내기용 DataFrame(분석 전체)."""
+    rows = []
+    for hz in ("단기", "중기", "장기"):
+        for rk, r in enumerate(buckets.get(hz, []), 1):
+            _rr = _finder_rr(r) or {}
+            _cons = r.get("_consensus") or {}
+            _lvl = (r.get("_risk") or {}).get("level")
+            _risk_txt = ((_lvl[0] if isinstance(_lvl, (list, tuple)) and _lvl else "")
+                         + " " + " ".join(r.get("_risk_flags") or [])).strip()
+            rows.append({
+                "기간분류": hz, "순위": rk,
+                "등급": re.sub(r"[🟢🟡⚪]", "", str(r.get("_grade") or "")).strip(),
+                "적합도점수": r.get("_top"), "종목명": r.get("종목명"), "티커": r.get("티커"),
+                "시장": r.get("시장", ""), "테마/섹터": (r.get("_theme") or r.get("섹터") or ""),
+                "현재가": round(_f_num(r.get("현재가")) or 0, 2),
+                "RSI": (round(_f_num(r.get("RSI")), 1) if _f_num(r.get("RSI")) is not None else None),
+                "20일수익률(%)": _f_num(r.get("수익률20일")),
+                "52주고점대비(%)": _f_num(r.get("고점대비52주")),
+                "기대수익_컨센(%)": (round(r.get("_upside"), 1) if r.get("_upside") is not None else None),
+                "목표가리비전": _cons.get("revision_dir", ""),
+                "손익비(R:R)": (round(_rr.get("rr"), 2) if _rr.get("rr") is not None else None),
+                "진입가": round(_f_num(r.get("진입가_가이드")) or 0, 2),
+                "목표가1": round(_f_num(r.get("목표가1")) or 0, 2),
+                "목표가2": round(_f_num(r.get("목표가2")) or 0, 2),
+                "목표가3": round(_f_num(r.get("목표가3")) or 0, 2),
+                "손절가": round(_f_num(r.get("손절가")) or 0, 2),
+                "공매도/신용": _risk_txt,
+                "뉴스판정": r.get("_news_label", ""),
+                "핵심근거": " · ".join(r.get("_reasons") or []),
+            })
+    return pd.DataFrame(rows)
+
+
 def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_n, want_long):
     """후보 풀 구성: ① 시총 상위 기술 유니버스 ② 테마 리더(사용자키워드+AI레이더) ③ 가치 후보.
     반환: dict  code -> {"name":str, "theme":str|None, "src":set}"""
@@ -10160,7 +10235,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
     # 세션 상태 초기화
     for _k, _v in [("finder_results", None), ("finder_mood", None),
                    ("finder_radar", None), ("finder_brief", None), ("finder_meta", None),
-                   ("finder_excluded", None), ("finder_macro", None), ("finder_news_diag", None)]:
+                   ("finder_excluded", None), ("finder_macro", None), ("finder_news_diag", None),
+                   ("finder_new_codes", None), ("finder_prev_codes", None)]:
         if _k not in st.session_state:
             st.session_state[_k] = _v
 
@@ -10492,6 +10568,11 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                             r["_reasons"] = reasons
 
                 st.session_state.finder_results = enriched
+                # [신규 종목 추적] 직전 검색에 없던 티커 = 이번 검색의 신규 진입
+                _cur_codes = {r.get("티커") for r in enriched if r.get("티커")}
+                _prev_codes = st.session_state.get("finder_prev_codes")
+                st.session_state["finder_new_codes"] = (_cur_codes - _prev_codes) if _prev_codes else set()
+                st.session_state["finder_prev_codes"] = _cur_codes
                 st.session_state.finder_mood = mood
                 st.session_state.finder_radar = radar
                 st.session_state.finder_meta = (scope, depth, theme_focus, len(enriched), news_n)
@@ -10575,6 +10656,73 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
             else:
                 st.caption(f"📰 뉴스 진단: 대상 {_t}종목 · 기사 {_na}건 수집 · {_wn}종목에 부착 · AI 판정 {_lb}종목")
 
+        # ── [발굴기 확장] 결과 내보내기 · 신규 종목 · 필터/정렬 ─────────────
+        _all_buckets = {hz: list(buckets[hz]) for hz in buckets}   # 필터 전 전체(내보내기·신규 판정용)
+
+        # (1) 결과 내보내기 (CSV·엑셀) — 화면 필터와 무관하게 분석된 전체 종목 저장
+        _exp_df = _finder_export_df(_all_buckets)
+        if not _exp_df.empty:
+            _xlsx_bytes = None
+            try:
+                import io as _io
+                _buf = _io.BytesIO()
+                with pd.ExcelWriter(_buf, engine="openpyxl") as _xw:
+                    for _hz in ("단기", "중기", "장기"):
+                        _dfh = _exp_df[_exp_df["기간분류"] == _hz].drop(columns=["기간분류"])
+                        (_dfh if not _dfh.empty else pd.DataFrame({"안내": ["해당 종목 없음"]})).to_excel(_xw, sheet_name=_hz, index=False)
+                _xlsx_bytes = _buf.getvalue()
+            except Exception:
+                _xlsx_bytes = None
+            _stamp = datetime.now().strftime("%Y%m%d_%H%M")
+            _ec1, _ec2, _ec3 = st.columns([1, 1, 2.6], vertical_alignment="center")
+            _ec1.download_button("💾 CSV 내보내기", _exp_df.to_csv(index=False).encode("utf-8-sig"),
+                                 file_name=f"통합발굴_{_stamp}.csv", mime="text/csv",
+                                 use_container_width=True, key="finder_csv")
+            if _xlsx_bytes:
+                _ec2.download_button("📊 엑셀(xlsx)", _xlsx_bytes, file_name=f"통합발굴_{_stamp}.xlsx",
+                                     mime="application/vnd.openpyxlformats-officedocument.spreadsheetml.sheet",
+                                     use_container_width=True, key="finder_xlsx")
+            else:
+                _ec2.caption("엑셀 엔진 미설치 → CSV 이용")
+            _ec3.caption(f"📋 분석된 전체 {len(_exp_df)}종목 저장(엑셀은 단기·중기·장기 시트 분리). 아래 화면 필터와 무관하게 전량 내보냅니다.")
+
+        # (2) 직전 검색 대비 신규 진입 종목
+        _new_codes = st.session_state.get("finder_new_codes") or set()
+        if _new_codes:
+            _new_names = list(dict.fromkeys(
+                r.get("종목명") for hz in _all_buckets for r in _all_buckets[hz] if r.get("티커") in _new_codes))
+            if _new_names:
+                _shown = ", ".join(_new_names[:12])
+                _more = f" 외 {len(_new_names) - 12}개" if len(_new_names) > 12 else ""
+                st.success(f"🆕 **직전 검색 대비 신규 진입 {len(_new_names)}종목** — {_shown}{_more}  "
+                           "*(같은 조건으로 다시 돌릴수록 정확합니다)*")
+
+        # (3) 결과 필터 · 정렬
+        with st.container(border=True):
+            _fc_a, _fc_b = st.columns([2, 3])
+            with _fc_a:
+                _sort_mode = st.selectbox("⬇️ 정렬 기준",
+                                          ["적합도 점수", "기대수익(컨센)", "손익비(R:R)", "20일 모멘텀"], key="finder_sort")
+            with _fc_b:
+                _cb1, _cb2, _cb3 = st.columns(3)
+                _hide_bad = _cb1.checkbox("🔴 악재 숨기기", key="finder_hide_bad")
+                _hide_risk = _cb2.checkbox("🩸 고위험 숨기기", key="finder_hide_risk",
+                                           help="공매도 과다·신용 과다·증자/CB·리스크 적색 종목 제외")
+                _hide_illiq = _cb3.checkbox("💧 저유동성 숨기기", key="finder_hide_illiq")
+            _min_score = st.slider("최소 적합도 점수", 0, 80, 0, 5, key="finder_min_score")
+
+        # 필터·정렬 적용 → 이후 탭/카드는 이 결과를 사용
+        _filtered = {}
+        for _hz in buckets:
+            _lst = [r for r in buckets[_hz]
+                    if (r.get("_top", 0) or 0) >= _min_score and not _finder_hide(r, _hide_bad, _hide_risk, _hide_illiq)]
+            _lst.sort(key=lambda r: _finder_sort_val(r, _sort_mode), reverse=True)
+            _filtered[_hz] = _lst
+        _removed = sum(len(buckets[h]) for h in buckets) - sum(len(_filtered[h]) for h in _filtered)
+        if _removed > 0:
+            st.caption(f"🔎 필터로 {_removed}종목 숨김 · 정렬 기준: {_sort_mode}")
+        buckets = _filtered
+
         # 기간 포커스에 따라 기본 탭 순서 조정
         order = ["단기", "중기", "장기"]
         if "단기" in horizon_focus: order = ["단기", "중기", "장기"]
@@ -10620,29 +10768,45 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     _theme_cell = str(_theme_cell)
                     if len(_theme_cell) > 14:
                         _theme_cell = _theme_cell[:14] + "…"
+                    _rr = _finder_rr(r)
+                    if _rr and _rr.get("rr") is not None:
+                        _rr_cell = f"{_rr['rr']:.1f}배 (▲{_rr['up']:.0f}%/▼{_rr['dn']:.0f}%)"
+                    elif _rr and _rr.get("tag"):
+                        _rr_cell = _rr["tag"]
+                    else:
+                        _rr_cell = "—"
+                    _nm_cell = ("🆕 " if r.get("티커") in _new_codes else "") + str(r.get("종목명") or "")
                     rows.append({
                         "순위": rk, "등급": r["_grade"], f"{hz}점수": r["_top"],
-                        "종목명": r.get("종목명"), "시장": r.get("시장", ""),
+                        "종목명": _nm_cell, "시장": r.get("시장", ""),
                         "테마/섹터": _theme_cell,
                         "현재가": (f"${r['현재가']:,.2f}" if not str(r.get('티커','')).isdigit() else f"{int(r.get('현재가',0)):,}원"),
                         "RSI": (f"{r['RSI']:.0f}" if _f_num(r.get('RSI')) is not None else "-"),
+                        "손익비(R:R)": _rr_cell,
                         "컨센서스": _cons_cell,
                         "공매도/신용": risk_cell,
                         "뉴스(AI)": news_cell,
                         "핵심근거": " · ".join(r.get("_reasons", [])) or "-",
                     })
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-                st.caption("🔼/🔽 목표가 상·하향 · +%는 컨센서스 목표가 기대수익(괴리율) · 🔻증자=유상증자/CB 감지 · 🩸공매도/⚠️신용 = 하방 리스크 (모두 점수 반영). 컨센서스·공매도·신용은 국내 종목만 제공.")
+                st.caption("⚖️ 손익비(R:R) = 현재가 진입 시 1차목표까지 상방(▲) ÷ 손절까지 하방(▼), 클수록 유리 · 🆕=직전 검색 대비 신규 진입 · "
+                           "🔼/🔽 목표가 상·하향 · +%는 컨센서스 기대수익(괴리율) · 🔻증자=유상증자/CB · 🩸공매도/⚠️신용=하방 리스크 (모두 점수 반영). 컨센서스·공매도·신용은 국내만 제공.")
                 st.markdown("##### 📈 상세 카드 (상위 8종목)")
                 for idx, r in enumerate(picks[:8]):
+                    _new_badge = "🆕 " if r.get("티커") in _new_codes else ""
                     st.markdown(
-                        f"**{idx+1}. {r.get('종목명')}** · {r['_grade']} · {hz} 적합도 **{r['_top']:.0f}점**  "
+                        f"**{idx+1}. {_new_badge}{r.get('종목명')}** · {r['_grade']} · {hz} 적합도 **{r['_top']:.0f}점**  "
                         + (f"· 🏷️ {r['_theme']}" if r.get("_theme") else "")
                     )
                     if r.get("_reasons"):
                         st.caption("근거: " + " · ".join(r["_reasons"]))
-                    # 컨센서스 + 매크로 틸트 + 증자리스크 한 줄
+                    # 손익비(R:R) + 컨센서스 + 매크로 틸트 + 증자리스크 한 줄
                     _cparts = []
+                    _rr = _finder_rr(r)
+                    if _rr and _rr.get("rr") is not None:
+                        _cparts.append(f"⚖️ 손익비 {_rr['rr']:.1f}배 (▲{_rr['up']:.0f}% / ▼{_rr['dn']:.0f}%)")
+                    elif _rr and _rr.get("tag"):
+                        _cparts.append(f"⚖️ {_rr['tag']}")
                     _cons = r.get("_consensus") or {}
                     _up = r.get("_upside")
                     if _up is not None:
