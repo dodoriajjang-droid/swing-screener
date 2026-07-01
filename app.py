@@ -9707,12 +9707,46 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
         show_trading_guidelines()
         
         scan_market = st.radio("시장 선택 (스캐너)", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
+        _is_kr_scan = scan_market.startswith("🇰🇷")
+
+        # 체크박스 기본값(프리셋으로 일괄 세팅하기 위해 key + session_state 사용)
+        for _k, _dv in [("sc_golden", False), ("sc_pullback", True), ("sc_rsi", False),
+                        ("sc_vol", False), ("sc_twin", False), ("sc_pension", False),
+                        ("sc_weekly", False), ("sc_high52", False), ("sc_mfi", False)]:
+            st.session_state.setdefault(_k, _dv)
+
+        # ⚡ 조건 프리셋 원클릭 (on_click 콜백은 위젯 생성 전에 실행돼 안전하게 상태를 세팅)
+        def _apply_scan_preset(on_keys):
+            for _k in ["sc_golden", "sc_pullback", "sc_rsi", "sc_vol", "sc_twin",
+                       "sc_pension", "sc_weekly", "sc_high52", "sc_mfi"]:
+                st.session_state[_k] = (_k in on_keys)
+        st.caption("⚡ **빠른 프리셋** — 한 번에 조건 세팅:")
+        _pc1, _pc2, _pc3, _pc4 = st.columns(4)
+        _pc1.button("🚀 돌파형", use_container_width=True, help="정배열/골든 + 52주 신고가권 + 거래량 급증 + 자금유입",
+                    on_click=_apply_scan_preset, args=(["sc_golden", "sc_high52", "sc_vol", "sc_mfi"],))
+        _pc2.button("📉 낙폭 반등형", use_container_width=True, help="RSI 과매도 + 20일선 눌림목",
+                    on_click=_apply_scan_preset, args=(["sc_rsi", "sc_pullback"],))
+        _pc3.button("🐋 세력주형", use_container_width=True, help="외인·기관 쌍끌이 + 거래량 급증 + 기관 연속매수",
+                    on_click=_apply_scan_preset, args=(["sc_twin", "sc_vol", "sc_pension"],))
+        _pc4.button("♻️ 조건 초기화", use_container_width=True, on_click=_apply_scan_preset, args=([],))
+
         col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-        with col_c1: cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입"); cond_pullback = st.checkbox("✅ 20일선 눌림목 (타점 근접)", value=True)
-        with col_c2: cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (낙폭과대)"); cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 의심)")
-        with col_c3: cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수")
-        with col_c4: cond_pension = st.checkbox("👴 기관 3일 연속 순매수"); cond_weekly = st.checkbox("📅 주봉도 상승 추세만 (멀티TF)")
-        
+        with col_c1:
+            cond_golden = st.checkbox("✨ 골든크로스 / 정배열 초입", key="sc_golden")
+            cond_pullback = st.checkbox("✅ 20일선 눌림목 (타점 근접)", key="sc_pullback")
+        with col_c2:
+            cond_rsi_bottom = st.checkbox("🔵 RSI 30 이하 (낙폭과대)", key="sc_rsi")
+            cond_vol_spike = st.checkbox("🔥 최근 거래량 급증 (세력 의심)", key="sc_vol")
+        with col_c3:
+            cond_twin_buy = st.checkbox("🐋 외인/기관 쌍끌이 순매수", key="sc_twin")
+            cond_high52 = st.checkbox("🚀 52주 신고가권 (주도주)", key="sc_high52",
+                                      help="현재가가 52주 최고가 대비 -3% 이내 (신고가 돌파 모멘텀)")
+        with col_c4:
+            cond_pension = st.checkbox("👴 기관 3일 연속 순매수", key="sc_pension")
+            cond_weekly = st.checkbox("📅 주봉도 상승 추세만 (멀티TF)", key="sc_weekly")
+            cond_mfi = st.checkbox("💰 MFI 자금 유입 (55~80)", key="sc_mfi",
+                                   help="거래량 가중 자금흐름지표(MFI) 55~80 — 과열 전 건강한 매집 구간")
+
         _sc_col1, _sc_col2 = st.columns([2.2, 1.8])
         with _sc_col1:
             scan_mode = st.radio("🔬 검색 방식", ["🎯 조건 필터 (체크한 조건 전부 충족)", "🏆 점수 랭킹 (충족 개수로 정렬·1개 이상)"],
@@ -9720,6 +9754,28 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                                  help="조건 필터: AND 방식 — 깐깐하지만 결과가 0개일 수 있음.\n점수 랭킹: 체크한 조건 중 몇 개를 충족하는지 점수화해 많이 충족한 순으로 보여줌 — 장이 안 좋은 날에도 상대적 상위 종목 발굴 가능.")
         with _sc_col2:
             scan_limit = st.selectbox("스캔할 상위 종목 수", [50, 100, 200, 300], index=3)
+
+        # 💧 유동성·가격·과열 하드필터 (선택한 조건과 별개로 항상 적용, 0 = 미적용)
+        with st.container(border=True):
+            st.caption("💧 **유동성·가격 필터** — 실제로 사고팔 수 있는 종목만 남깁니다 (0=미적용):")
+            _fl1, _fl2, _fl3 = st.columns(3)
+            if _is_kr_scan:
+                with _fl1:
+                    _min_amt_disp = st.number_input("최소 거래대금 (억)", 0, 100000, 0, 10,
+                                                    help="20일 평균 거래대금 하한. 저유동성·동전주 제외 (예: 30억)")
+                with _fl2:
+                    _min_price = st.number_input("최소 주가 (원)", 0, 2000000, 0, 100, help="동전주 제외")
+                _min_amt_raw = _min_amt_disp * 1e8
+            else:
+                with _fl1:
+                    _min_amt_disp = st.number_input("최소 거래대금 ($M)", 0.0, 200000.0, 0.0, 5.0,
+                                                    help="20일 평균 거래대금 하한(백만달러). 저유동성 제외")
+                with _fl2:
+                    _min_price = st.number_input("최소 주가 ($)", 0.0, 100000.0, 0.0, 1.0, help="페니주 제외")
+                _min_amt_raw = _min_amt_disp * 1e6
+            with _fl3:
+                _excl_overext = st.checkbox("🚫 과이격(추격) 종목 제외", value=False,
+                                            help="20일선 대비 +15% 이상 벌어진 과열 종목 제외 (추격매수 방지)")
         
         # 📋 체크박스 → (라벨, 판정함수) 레지스트리로 일원화 (필터/점수 모드 공용)
         scan_checks = []
@@ -9730,6 +9786,8 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
         if cond_twin_buy: scan_checks.append(("🐋 쌍끌이 매수", lambda r: ("+" in str(r.get('기관수급', ''))) and ("+" in str(r.get('외인수급', '')))))
         if cond_pension: scan_checks.append(("👴 기관 3일 연속", lambda r: r.get('연기금연속순매수', 0) >= 3))
         if cond_weekly: scan_checks.append(("📅 주봉 상승", lambda r: "상승추세" in str(r.get('주봉추세', ''))))
+        if cond_high52: scan_checks.append(("🚀 52주 신고가권", lambda r: (_f_num(r.get('고점대비52주')) is not None and _f_num(r.get('고점대비52주')) >= -3)))
+        if cond_mfi: scan_checks.append(("💰 MFI 자금유입", lambda r: (_f_num(r.get('MFI')) is not None and 55 <= _f_num(r.get('MFI')) <= 80)))
         
         if st.button("🚀 쾌속 병렬 스캔 시작", type="primary", use_container_width=True):
             if not scan_checks:
@@ -9751,6 +9809,16 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                             time.sleep(0.1) 
                             res = analyze_technical_pattern(name, code, offset_days=0)
                             if not res: return None
+                            # 💧 유동성·가격·과열 하드필터 (선택 조건과 별개로 우선 적용)
+                            if _min_amt_raw > 0:
+                                _a = _f_num(res.get('평균거래대금20일'))
+                                if _a is None or _a < _min_amt_raw: return None
+                            if _min_price > 0:
+                                _p = _f_num(res.get('현재가'))
+                                if _p is None or _p < _min_price: return None
+                            if _excl_overext:
+                                _g = _f_num(res.get('이격도20'))
+                                if _g is not None and _g >= 15: return None
                             passed = []
                             for _lbl, _fn in scan_checks:
                                 try:
@@ -9779,6 +9847,11 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                             "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
                             "market": scan_market, "mode": "점수 랭킹" if _is_score_mode else "조건 필터",
                             "conds": " · ".join(lbl for lbl, _ in scan_checks), "limit": scan_limit,
+                            "filters": (" · ".join([f for f in [
+                                (f"거래대금≥{_min_amt_disp}{'억' if _is_kr_scan else '$M'}" if _min_amt_disp else ""),
+                                (f"주가≥{_min_price}{'원' if _is_kr_scan else '$'}" if _min_price else ""),
+                                ("과이격 제외" if _excl_overext else ""),
+                            ] if f]) or "없음"),
                         }
                         st.rerun()
         if st.session_state.scan_results is not None:
@@ -9786,7 +9859,7 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
             _info_col, _clear_col = st.columns([5, 1], vertical_alignment="center")
             with _info_col:
                 if _meta:
-                    st.caption(f"🕒 스캔 시각: **{_meta.get('time','-')}** ｜ {_meta.get('market','')} 상위 {_meta.get('limit','')}개 ｜ 방식: {_meta.get('mode','')} ｜ 조건: {_meta.get('conds','')}")
+                    st.caption(f"🕒 스캔 시각: **{_meta.get('time','-')}** ｜ {_meta.get('market','')} 상위 {_meta.get('limit','')}개 ｜ 방식: {_meta.get('mode','')} ｜ 조건: {_meta.get('conds','')} ｜ 필터: {_meta.get('filters','없음')}")
             with _clear_col:
                 if st.button("🗑️ 결과 지우기", key="scan_clear_btn", use_container_width=True):
                     st.session_state.scan_results = None
@@ -9828,6 +9901,20 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
             bt_cost_pct = st.number_input("💸 왕복 거래비용 (%)", min_value=0.0, max_value=2.0, value=0.25, step=0.05,
                                           help="수수료+거래세+슬리피지를 합친 왕복(매수+매도) 비용. 국내 일반계좌 기준 약 0.2~0.4%, 미국 주식은 0.05~0.2% 수준을 권장합니다. 0으로 두면 비용 미반영(기존 방식).")
 
+        # 🛡️ [개선] 손절·익절·보유상한 청산 규칙 (0 = 미적용 → 기존 신호 청산만)
+        _bt_e1, _bt_e2, _bt_e3 = st.columns(3)
+        with _bt_e1:
+            bt_stop = st.number_input("🛑 손절 (%)", min_value=0.0, max_value=50.0, value=0.0, step=0.5,
+                                      help="진입가 대비 이만큼 하락하면 청산. 0=미적용(신호로만 청산). 앱 권장 손절은 20일선 -3% 수준.")
+        with _bt_e2:
+            bt_target = st.number_input("🎯 익절 (%)", min_value=0.0, max_value=200.0, value=0.0, step=1.0,
+                                        help="진입가 대비 이만큼 상승하면 청산. 0=미적용.")
+        with _bt_e3:
+            bt_maxhold = st.number_input("📆 최대 보유일", min_value=0, max_value=250, value=0, step=1,
+                                         help="진입 후 이 영업일수를 넘기면 강제 청산. 0=미적용.")
+        st.caption("💡 손절·익절·보유상한은 신호 청산보다 **우선** 적용됩니다. 셋 다 0이면 기존처럼 ‘신호 On=진입 / Off=청산’만 검증합니다. "
+                   "일봉 종가 기준이라 장중 터치는 반영하지 않습니다(보수적 측정).")
+
         if t_code and st.button("▶️ 시뮬레이션 돌리기", type="primary"):
             with st.spinner("과거 1년 데이터 백테스팅 중..."):
                 bt_df = get_historical_data(t_code, 365)
@@ -9850,48 +9937,79 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     elif strategy_sel == "볼린저밴드 하단 매수": bt_df.loc[bt_df['Close'] < bt_df['Bollinger_Lower'], 'Signal'] = 1
                     elif strategy_sel == "MACD 교차": bt_df.loc[bt_df['MACD'] > bt_df['Signal_Line'], 'Signal'] = 1
 
-                    bt_df['Position'] = bt_df['Signal'].shift(1).fillna(0)
                     bt_df['Daily_Return'] = bt_df['Close'].pct_change()
-                    bt_df['Trade_Mark'] = bt_df['Position'].diff().fillna(0)
-                    
-                    # 💸 [개선] 왕복 거래비용 반영: 진입/청산이 발생한 날마다 편도 비용 차감
+
+                    # 🛡️ [개선] 손절·익절·보유상한 청산을 반영한 이벤트 기반 시뮬레이션.
+                    #   진입: 관망(flat) 중 신호 발생일 종가 매수 → 다음날부터 수익 귀속(기존과 동일)
+                    #   청산 우선순위: 손절 → 익절 → 보유상한 → 신호종료.
+                    #   손절/익절/보유상한 청산 후에는 신호가 한 번 꺼졌다 다시 켜져야 재진입(휩쏘 방지).
+                    #   신호종료 청산이면 즉시 재진입 가능(기존 동작과 동일).
+                    _sig = bt_df['Signal'].fillna(0).values
+                    _closes = bt_df['Close'].values
+                    _dates = bt_df.index
+                    _n = len(_closes)
+                    _stop_f = (bt_stop / 100.0) if bt_stop > 0 else None
+                    _tgt_f = (bt_target / 100.0) if bt_target > 0 else None
+                    _maxh = int(bt_maxhold) if bt_maxhold > 0 else None
                     _oneway_cost = (bt_cost_pct / 2.0) / 100.0
+                    _rt_cost = bt_cost_pct / 100.0
+
+                    _pos = np.zeros(_n)
+                    trade_records = []
+                    _armed = True
+                    _entry_i = None
+                    _idx = 0
+                    while _idx < _n:
+                        if _entry_i is None:                       # 관망 상태
+                            if _armed and _sig[_idx] == 1:
+                                _entry_i = _idx                    # 신호일 종가 매수
+                            elif _sig[_idx] == 0:
+                                _armed = True
+                            _idx += 1
+                            continue
+                        _entry_px = _closes[_entry_i]
+                        _exit_i, _reason = None, None
+                        _j = _entry_i + 1
+                        while _j < _n:
+                            _pos[_j] = 1                           # 보유일 표시
+                            _chg = _closes[_j] / _entry_px - 1.0
+                            if _stop_f is not None and _chg <= -_stop_f:
+                                _exit_i, _reason = _j, "손절"; break
+                            if _tgt_f is not None and _chg >= _tgt_f:
+                                _exit_i, _reason = _j, "익절"; break
+                            if _maxh is not None and (_j - _entry_i) >= _maxh:
+                                _exit_i, _reason = _j, "보유상한"; break
+                            if _sig[_j] == 0:
+                                _exit_i, _reason = _j, "신호종료"; break
+                            _j += 1
+                        if _exit_i is None:                        # 기간 끝까지 보유 중
+                            _exit_i, _reason, _open_trade = _n - 1, "보유중", True
+                        else:
+                            _open_trade = False
+                        _ret = (_closes[_exit_i] / _entry_px - 1.0) - _rt_cost
+                        trade_records.append({
+                            "진입일": _dates[_entry_i].strftime("%y/%m/%d"),
+                            "청산일": _dates[_exit_i].strftime("%y/%m/%d") + (" (보유중)" if _open_trade else ""),
+                            "청산사유": _reason,
+                            "보유일": max((_dates[_exit_i] - _dates[_entry_i]).days, 1),
+                            "수익률(%)": _ret * 100.0,
+                        })
+                        _armed = (_reason == "신호종료")           # 신호종료면 즉시 재진입 가능
+                        _entry_i = None
+                        _idx = _exit_i + 1
+
+                    bt_df['Position'] = _pos
+                    bt_df['Trade_Mark'] = bt_df['Position'].diff().fillna(0)
+                    # 💸 왕복 거래비용: 진입/청산 발생일마다 편도 비용 차감
                     bt_df['Strategy_Return'] = (bt_df['Position'] * bt_df['Daily_Return']) - (bt_df['Trade_Mark'].abs() * _oneway_cost)
                     bt_df['Cumulative_Market'] = (1 + bt_df['Daily_Return']).cumprod()
                     bt_df['Cumulative_Strategy'] = (1 + bt_df['Strategy_Return']).cumprod()
-                    
+
                     bt_df['Cum_Max'] = bt_df['Cumulative_Strategy'].cummax()
                     bt_df['Drawdown'] = (bt_df['Cumulative_Strategy'] - bt_df['Cum_Max']) / bt_df['Cum_Max']
                     mdd = bt_df['Drawdown'].min() * 100
-                    
-                    # 📈 [개선] '거래일 승률'(기존, 왜곡) → '거래(매수→매도) 단위' 통계로 교체
-                    _pos = bt_df['Position'].values
-                    _closes = bt_df['Close'].values
-                    _dates = bt_df.index
-                    _rt_cost = bt_cost_pct / 100.0
-                    trade_records = []
-                    _i = 1
-                    while _i < len(_pos):
-                        if _pos[_i] == 1 and _pos[_i - 1] == 0:
-                            _entry_i = _i - 1   # Position이 t일에 1 = (t-1)일 종가 매수로 t일 수익률부터 귀속
-                            _j = _i
-                            while _j < len(_pos) and _pos[_j] == 1:
-                                _j += 1
-                            if _j < len(_pos):   # 청산 완료: 마지막 보유일 = j-1
-                                _exit_i, _open_trade = _j - 1, False
-                            else:                # 기간 끝까지 보유 중 → 마지막 종가로 평가
-                                _exit_i, _open_trade = len(_pos) - 1, True
-                            _ret = (_closes[_exit_i] / _closes[_entry_i] - 1.0) - _rt_cost
-                            trade_records.append({
-                                "진입일": _dates[_entry_i].strftime("%y/%m/%d"),
-                                "청산일": _dates[_exit_i].strftime("%y/%m/%d") + (" (보유중)" if _open_trade else ""),
-                                "보유일": max((_dates[_exit_i] - _dates[_entry_i]).days, 1),
-                                "수익률(%)": _ret * 100.0,
-                            })
-                            _i = _j
-                        else:
-                            _i += 1
-                    
+
+                    # 📈 '매수→매도' 거래 단위 통계
                     total_trades = len(trade_records)
                     _wins = [t for t in trade_records if t["수익률(%)"] > 0]
                     _losses = [t for t in trade_records if t["수익률(%)"] <= 0]
@@ -9902,10 +10020,20 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     _gross_loss = abs(sum(t["수익률(%)"] for t in _losses))
                     profit_factor = (_gross_win / _gross_loss) if _gross_loss > 0 else (float('inf') if _gross_win > 0 else 0.0)
                     avg_hold = (sum(t["보유일"] for t in trade_records) / total_trades) if total_trades > 0 else 0.0
-                    
+
                     # 📐 샤프지수 (연환산, 무위험수익률 0 가정)
                     _sr_std = bt_df['Strategy_Return'].std()
                     sharpe = (bt_df['Strategy_Return'].mean() / _sr_std * (252 ** 0.5)) if _sr_std and _sr_std > 0 else 0.0
+                    # 🎲 기대값(회당 평균) · 평균 손익비(Payoff) · 시장 노출도 · CAGR
+                    expectancy = (sum(t["수익률(%)"] for t in trade_records) / total_trades) if total_trades > 0 else 0.0
+                    payoff = (avg_win / abs(avg_loss)) if avg_loss < 0 else (float('inf') if avg_win > 0 else 0.0)
+                    exposure = (float(_pos.sum()) / _n * 100.0) if _n > 0 else 0.0
+                    _cum_final = float(bt_df['Cumulative_Strategy'].iloc[-1])
+                    _years = _n / 252.0
+                    cagr = ((_cum_final ** (1.0 / _years) - 1.0) * 100.0) if (_cum_final > 0 and _years > 0) else 0.0
+                    _exit_counts = {}
+                    for _t in trade_records:
+                        _exit_counts[_t["청산사유"]] = _exit_counts.get(_t["청산사유"], 0) + 1
                     
                     fig = go.Figure()
                     x_axis = bt_df.index
@@ -9947,13 +10075,32 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     with c6: st.markdown(metric_card("평균 손실 거래", f"{avg_loss:.2f}%", "손실 거래의 평균 손실률", is_green=(avg_loss<0)), unsafe_allow_html=True)
                     with c7: st.markdown(metric_card("평균 보유 기간", f"{avg_hold:.1f}일", "거래당 평균 보유일"), unsafe_allow_html=True)
                     with c8: st.markdown(metric_card("샤프 지수 (연환산)", f"{sharpe:.2f}", "1 이상이면 양호한 위험 대비 수익"), unsafe_allow_html=True)
-                    
+
+                    c9, c10, c11, c12 = st.columns(4)
+                    with c9: st.markdown(metric_card("기대값 (회당)", f"{expectancy:+.2f}%", "거래 1회 평균 손익(비용 후)", is_red=(expectancy>0), is_green=(expectancy<0)), unsafe_allow_html=True)
+                    with c10: st.markdown(metric_card("CAGR (연환산)", f"{cagr:+.2f}%", "전략 연환산 복리 수익률", is_red=(cagr>0), is_green=(cagr<0)), unsafe_allow_html=True)
+                    with c11: st.markdown(metric_card("평균 손익비", "∞" if payoff == float('inf') else f"{payoff:.2f}", "평균수익 ÷ 평균손실 (Payoff)", is_red=(payoff>=1 and payoff!=float('inf')) or payoff==float('inf')), unsafe_allow_html=True)
+                    with c12: st.markdown(metric_card("시장 노출도", f"{exposure:.0f}%", "전체 기간 중 실제 보유일 비중"), unsafe_allow_html=True)
+
+                    if _exit_counts:
+                        _ec_txt = " · ".join(f"{k} {v}건" for k, v in sorted(_exit_counts.items(), key=lambda x: -x[1]))
+                        _rule_txt = " · ".join([x for x in [
+                            (f"손절 {bt_stop:.1f}%" if bt_stop > 0 else ""),
+                            (f"익절 {bt_target:.1f}%" if bt_target > 0 else ""),
+                            (f"보유상한 {int(bt_maxhold)}일" if bt_maxhold > 0 else ""),
+                        ] if x])
+                        if _rule_txt:
+                            st.caption(f"🚪 청산 사유 분포: {_ec_txt}  ｜  적용 규칙: {_rule_txt}")
+                        else:
+                            st.caption(f"🚪 청산 사유 분포: {_ec_txt}  (손절·익절 미적용 — 신호 청산만)")
+
                     if trade_records:
                         def _prc_trades():
                             _tr_df = pd.DataFrame(trade_records)
                             _tr_df["수익률(%)"] = _tr_df["수익률(%)"].map(lambda v: round(v, 2))
                             st.dataframe(_tr_df, use_container_width=True, hide_index=True)
-                            st.caption("※ 진입가 = 신호 발생일 종가, 청산가 = 마지막 보유일 종가 기준. '(보유중)'은 기간 종료 시점까지 미청산 → 마지막 종가로 평가한 거래입니다.")
+                            st.caption("※ 진입가 = 신호 발생일 종가, 청산가 = 청산일 종가(손절·익절도 일봉 종가 기준). "
+                                       "'청산사유'로 손절/익절/보유상한/신호종료를 구분합니다. '(보유중)'은 기간 종료까지 미청산 → 마지막 종가로 평가한 거래입니다.")
                         _register_popup("trades", _prc_trades)
                         _popup_button(f"📜 전체 거래 내역 보기 ({total_trades}건)", "trades", f"📜 전체 거래 내역 ({total_trades}건)", key="btn_trades")
                     else:
