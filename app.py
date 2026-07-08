@@ -8432,6 +8432,83 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
     return pool
 
 
+# ── 📌 [발굴기 확장] 픽 히스토리 & 성과 추적 (발굴기 적중률 검증) ──────────
+FINDER_HISTORY_FILE = "finder_history.json"
+
+def _finder_history_load():
+    """저장된 발굴기 검색 히스토리 로드. 실패/없음 → []."""
+    if os.path.exists(FINDER_HISTORY_FILE):
+        try:
+            with open(FINDER_HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def finder_history_append(enriched, scope_label, depth, theme_focus, top_n=5, keep_runs=30):
+    """이번 검색의 기간별 상위 top_n 픽(이름·코드·가격·점수)을 로컬 JSON에 기록.
+    최근 keep_runs회만 유지. 성과 추적('그때 픽이 지금 얼마?')의 기준 데이터."""
+    buckets = {"단기": [], "중기": [], "장기": []}
+    for r in (enriched or []):
+        hz = r.get("_horizon")
+        if hz in buckets:
+            buckets[hz].append(r)
+    picks = []
+    for hz in ("단기", "중기", "장기"):
+        for r in sorted(buckets[hz], key=lambda x: x.get("_top", 0), reverse=True)[:top_n]:
+            cur = _f_num(r.get("현재가"))
+            if not r.get("티커") or not cur:
+                continue
+            picks.append({"hz": hz, "name": str(r.get("종목명") or ""), "code": str(r.get("티커")),
+                          "price": round(cur, 4), "score": r.get("_top"),
+                          "grade": re.sub(r"[🟢🟡⚪]", "", str(r.get("_grade") or "")).strip()})
+    if not picks:
+        return
+    runs = _finder_history_load()
+    runs.append({"ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                 "scope": str(scope_label), "depth": str(depth),
+                 "theme": str(theme_focus or "").strip(), "picks": picks})
+    try:
+        with open(FINDER_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(runs[-keep_runs:], f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def finder_history_perf(run):
+    """저장된 검색 1회의 픽별 '픽 당시 가격 → 최근 종가' 수익률 계산 (병렬, 1시간 캐시 시세 사용).
+    반환: rows(list[dict]) — 기간/종목/픽가격/현재가/수익률."""
+    picks = (run or {}).get("picks") or []
+    codes = list(dict.fromkeys(p["code"] for p in picks))
+
+    def _last_close(code):
+        try:
+            df = get_historical_data(code, 5)
+            if df is not None and not df.empty:
+                return code, float(df['Close'].iloc[-1])
+        except Exception:
+            pass
+        return code, None
+
+    last = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        for code, px in ex.map(_last_close, codes):
+            last[code] = px
+    rows = []
+    for p in picks:
+        cur = last.get(p["code"])
+        base = p.get("price")
+        ret = (round((cur / base - 1) * 100, 2) if (cur and base and base > 0) else None)
+        is_kr = str(p["code"]).isdigit()
+        fmt = (lambda v: (f"{v:,.0f}원" if is_kr else f"${v:,.2f}") if v else "-")
+        rows.append({"기간": p["hz"], "종목명": p["name"], "티커": p["code"],
+                     "점수": p.get("score"), "픽 당시": fmt(base), "현재": fmt(cur),
+                     "수익률(%)": ret})
+    return rows
+
+
 def get_finder_briefing(_api_key, mood, radar, bucket_tops):
     """시장분위기 + 테마 + 기간별 상위픽을 묶어 '오늘의 통합 전략 브리핑' 생성."""
     if not _api_key:
@@ -11028,6 +11105,12 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     st.session_state.finder_brief = get_finder_briefing(
                         api_key_input, mood, radar, buckets_tmp)
 
+                # 8) 📌 픽 히스토리 기록 (기간별 상위 5 — 성과 추적용, 실패해도 검색엔 영향 없음)
+                try:
+                    finder_history_append(enriched, scope_label, depth, theme_focus)
+                except Exception:
+                    pass
+
     # ── 결과 렌더 ──
     radar = st.session_state.get("finder_radar")
     if radar and radar.get("themes"):
@@ -11145,6 +11228,14 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                            help="공매도 과다·신용 과다·증자/CB·리스크 적색 종목 제외")
                 _hide_illiq = _cb3.checkbox("💧 저유동성 숨기기", key="finder_hide_illiq")
             _min_score = st.slider("최소 적합도 점수", 0, 80, 0, 5, key="finder_min_score")
+            # 💰 포지션 사이징 가이드 — 예산 입력 시 국내 종목 상세 카드에 '제안 투입금·수량' 표시
+            _ps1, _ps2 = st.columns([2, 1])
+            _budget_man = _ps1.number_input("💰 투자 예산 (만원 — 0이면 포지션 가이드 끄기)",
+                                            0, 1_000_000, 0, 100, key="finder_budget")
+            _risk_pct = _ps2.select_slider("1회 매매 허용 손실(%)", options=[0.5, 1.0, 1.5, 2.0, 3.0],
+                                           value=1.0, key="finder_risk_pct",
+                                           help="한 종목이 손절가에 닿았을 때 감수할 '예산 대비' 최대 손실. "
+                                                "제안 투입금 = 예산 × 허용손실% ÷ 손절까지 하방% (변동성 큰 종목일수록 적게 투입)")
 
         # 필터·정렬 적용 → 이후 탭/카드는 이 결과를 사용
         _filtered = {}
@@ -11157,6 +11248,20 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
         if _removed > 0:
             st.caption(f"🔎 필터로 {_removed}종목 숨김 · 정렬 기준: {_sort_mode}")
         buckets = _filtered
+
+        # 🧩 상위 픽 섹터 집중도 점검 (분산 경고 — 한 테마 쏠림이면 알림)
+        _top_all = [r for _hzc in ("단기", "중기", "장기") for r in buckets[_hzc][:8]]
+        _sec_cnt = {}
+        for r in _top_all:
+            _s = str(r.get("_theme") or r.get("섹터") or "").strip()
+            if _s and _s != "-":
+                _sec_cnt[_s] = _sec_cnt.get(_s, 0) + 1
+        if _sec_cnt:
+            _tot = sum(_sec_cnt.values())
+            _mx_s, _mx_c = max(_sec_cnt.items(), key=lambda kv: kv[1])
+            if _tot >= 6 and _mx_c / _tot >= 0.4:
+                st.warning(f"🧩 **분산 점검**: 상위 픽 {_tot}개 중 {_mx_c}개({_mx_c / _tot * 100:.0f}%)가 "
+                           f"'{_mx_s}'에 집중돼 있어요. 한 테마 쏠림은 조정 시 동반 하락 위험이 커서 분산을 권합니다.")
 
         # 기간 포커스에 따라 기본 탭 순서 조정
         order = ["단기", "중기", "장기"]
@@ -11233,8 +11338,10 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         f"**{idx+1}. {_new_badge}{r.get('종목명')}** · {r['_grade']} · {hz} 적합도 **{r['_top']:.0f}점**  "
                         + (f"· 🏷️ {r['_theme']}" if r.get("_theme") else "")
                     )
-                    if r.get("_reasons"):
-                        st.caption("근거: " + " · ".join(r["_reasons"]))
+                    _sc3 = r.get("_scores") or {}
+                    _prof = (" ｜ 📐 " + " · ".join(f"{_k} {_v:.0f}" for _k, _v in _sc3.items())) if _sc3 else ""
+                    if r.get("_reasons") or _prof:
+                        st.caption(("근거: " + " · ".join(r["_reasons"]) if r.get("_reasons") else "기간별 점수") + _prof)
                     # 손익비(R:R) + 컨센서스 + 매크로 틸트 + 증자리스크 한 줄
                     _cparts = []
                     _rr = _finder_rr(r)
@@ -11257,6 +11364,22 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                         _cparts.append("🔻 증자/CB 희석 리스크")
                     if _cparts:
                         st.caption(" ｜ ".join(_cparts))
+                    # 💰 포지션 사이징 제안 (예산 입력 시 · 원화 계산이라 국내 종목만)
+                    if _budget_man > 0 and str(r.get("티커", "")).isdigit():
+                        _rr_ps = _finder_rr(r)
+                        _dn_ps = (_rr_ps or {}).get("dn")
+                        _cur_ps = _f_num(r.get("현재가"))
+                        if _dn_ps and _dn_ps > 0 and _cur_ps and _cur_ps > 0:
+                            _budget_w = _budget_man * 10000.0
+                            _pos_w = _budget_w * (_risk_pct / 100.0) / (_dn_ps / 100.0)
+                            _capped = _pos_w > _budget_w
+                            _pos_w = min(_pos_w, _budget_w)
+                            _qty = int(_pos_w // _cur_ps)
+                            if _qty >= 1:
+                                _eff_risk = (_dn_ps if _capped else _risk_pct)
+                                st.caption(f"💰 포지션 가이드: **약 {_pos_w / 10000:,.0f}만원 ({_qty:,}주)** — "
+                                           f"손절(▼{_dn_ps:.1f}%) 시 예산의 {_eff_risk:.1f}% 손실로 제한"
+                                           + (" · ⚠️ 손절폭이 좁아 예산 100% 상한 적용" if _capped else ""))
                     # 공매도/신용 리스크 한 줄
                     _rk = r.get("_risk") or {}
                     if _rk:
@@ -11315,6 +11438,57 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     st.markdown("")
     else:
         st.info("위에서 조건을 고르고 **‘통합 검색 시작’**을 누르면, 시장 분위기·테마·차트·펀더멘털을 종합해 기간별 투자 후보를 찾아드립니다.")
+
+    # ── 📌 과거 픽 성과 추적 (발굴기 적중률 검증 — 검색 결과와 무관하게 항상 표시) ──
+    _hist_runs = _finder_history_load()
+    if _hist_runs:
+        with st.expander(f"📌 과거 픽 성과 추적 — 저장된 검색 {len(_hist_runs)}회 (최근 30회 보관)", expanded=False):
+            st.caption("검색할 때마다 기간별 상위 5픽이 자동 저장됩니다. 과거 실행을 골라 **'그때 픽이 지금 얼마인지'** 검증해 보세요. "
+                       "발굴기의 실제 적중률을 확인하는 게 목적이에요.")
+            _labels = []
+            _runs_desc = list(reversed(_hist_runs))
+            for _run in _runs_desc:
+                _th = f" · 🎯{_run['theme']}" if _run.get("theme") else ""
+                _labels.append(f"{_run['ts']} · {_run.get('scope', '')}{_th} · 픽 {len(_run.get('picks') or [])}개")
+            _sel = st.selectbox("검증할 과거 검색", _labels, key="finder_hist_sel")
+            _run_pick = _runs_desc[_labels.index(_sel)]
+            _hc1, _hc2 = st.columns([2, 1])
+            if _hc1.button("📈 이 검색의 픽 성과 계산", type="primary", use_container_width=True, key="finder_hist_calc"):
+                with st.spinner("픽 당시 가격 대비 최근 종가 수익률 계산 중..."):
+                    st.session_state["finder_hist_perf"] = (_run_pick["ts"], finder_history_perf(_run_pick))
+            if _hc2.button("🗑️ 히스토리 전체 삭제", use_container_width=True, key="finder_hist_clear"):
+                try:
+                    os.remove(FINDER_HISTORY_FILE)
+                except Exception:
+                    pass
+                st.session_state.pop("finder_hist_perf", None)
+                st.rerun()
+            _perf = st.session_state.get("finder_hist_perf")
+            if _perf and _perf[0] == _run_pick.get("ts"):
+                _pdf = pd.DataFrame(_perf[1])
+                if not _pdf.empty:
+                    _rets = pd.to_numeric(_pdf["수익률(%)"], errors="coerce").dropna()
+                    _sm1, _sm2, _sm3 = st.columns(3)
+                    _sm1.metric("평균 수익률", f"{_rets.mean():+.2f}%" if len(_rets) else "-")
+                    _sm2.metric("승률 (상승 픽)", f"{(_rets > 0).mean() * 100:.0f}%" if len(_rets) else "-",
+                                f"{int((_rets > 0).sum())}/{len(_rets)} 종목", delta_color="off")
+                    _sm3.metric("최고 / 최저", f"{_rets.max():+.1f}% / {_rets.min():+.1f}%" if len(_rets) else "-")
+
+                    def _ret_css(v):
+                        try:
+                            v = float(v)
+                        except (TypeError, ValueError):
+                            return ""
+                        if v > 0:
+                            return "color:#e03131;font-weight:600"
+                        if v < 0:
+                            return "color:#1971c2;font-weight:600"
+                        return ""
+                    _psty = _pdf.style
+                    _psty = (_psty.map if hasattr(_psty, "map") else _psty.applymap)(_ret_css, subset=["수익률(%)"])
+                    st.dataframe(_psty, use_container_width=True, hide_index=True)
+                    st.caption("※ 수익률 = 픽 저장 당시 현재가 → 최근 종가 (배당·수수료 미반영, 시세 1시간 캐시). "
+                               "특정 날짜 픽의 성과가 좋았다면 그날과 비슷한 시장 국면에서 발굴기 신뢰도가 높다는 뜻이에요.")
 
 
 elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
