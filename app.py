@@ -454,6 +454,65 @@ def get_nps_us_portfolio():
     #   (정밀해 보이는 더미 수치가 실제 포트폴리오로 오인될 위험이 커서 제거. 화면에서 "데이터 없음" 경고.)
     return pd.DataFrame(columns=["종목명", "티커", "포트폴리오 비중", "보유주식수", "가치(달러)", "비고"])
 
+# ==========================================
+# 🔍 [NEW] 국민연금 지분율 — 단일 종목 실시간 검색
+# ==========================================
+@st.cache_data(ttl=86400)
+def get_krx_name_code_list():
+    """종목명 검색용 KRX 전체 상장사 (코드·종목명) 목록. 실패 시 빈 DF 반환."""
+    try:
+        df = fdr.StockListing('KRX')
+        if df is not None and not df.empty and 'Code' in df.columns and 'Name' in df.columns:
+            out = df[['Code', 'Name']].dropna().copy()
+            out['Code'] = out['Code'].astype(str).str.zfill(6)
+            out['Name'] = out['Name'].astype(str)
+            return out.reset_index(drop=True)
+    except Exception:
+        pass
+    return pd.DataFrame(columns=['Code', 'Name'])
+
+@st.cache_data(ttl=1800)
+def search_nps_holding(code, name=""):
+    """단일 종목의 국민연금 지분율을 FnGuide 주요주주 현황에서 실시간 조회.
+    반환:
+      {"종목명","티커","지분율"(float),"주주표기"} : 국민연금 지분 확인됨
+      {"종목명","티커","지분율": None, "주주표기": ""} : 페이지는 열렸으나 국민연금 미표기(지분 없음 또는 5% 미만 가능성)
+      None : 요청 자체 실패(서버 차단/타임아웃)"""
+    try:
+        url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{code}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        res = requests.get(url, headers=headers, timeout=7)
+        if res.status_code != 200:
+            return None
+        tables = pd.read_html(StringIO(res.text))
+        for df in tables:
+            # 주주 관련 테이블만 대상 (컬럼명에 '주주' 포함)
+            if not any('주주' in str(c) for c in df.columns):
+                continue
+            # '국민연금' 표기 행을 모든 컬럼에서 탐색 (기존 fetch_nps보다 레이아웃 변형에 강함)
+            row_mask = df.apply(lambda r: r.astype(str).str.contains('국민연금', na=False).any(), axis=1)
+            match = df[row_mask]
+            if match.empty:
+                continue
+            pct_col = [c for c in df.columns if any(k in str(c) for k in ('지분', '보유', '비율'))]
+            if not pct_col:
+                continue
+            val = str(match[pct_col[-1]].iloc[0]).replace('%', '').strip()
+            try:
+                pct = float(val)
+            except ValueError:
+                continue
+            disp = ""
+            for c in df.columns:
+                cell = str(match[c].iloc[0])
+                if '국민연금' in cell:
+                    disp = cell.strip()
+                    break
+            return {"종목명": name or code, "티커": code, "지분율": pct, "주주표기": disp}
+        return {"종목명": name or code, "티커": code, "지분율": None, "주주표기": ""}
+    except Exception:
+        return None
+
 @st.cache_data(ttl=1800)
 def get_us_sector_etfs():
     # [v7.0] 하드코딩 더미 → yfinance 실데이터로 교체 (전일 종가 대비 등락률)
@@ -11072,10 +11131,72 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
     st.markdown("## 🏛️ 국민연금 5% 대량보유 픽")
     st.write("국민연금이 대량 보유한 국내/해외 핵심 기업 포트폴리오를 실시간 스크래핑하여 추적합니다.")
 
+    # 🔍 [NEW] 실시간 종목 검색 — 고정 리스트에 없는 종목도 국민연금 지분율을 즉시 조회
+    st.markdown("#### 🔍 종목 실시간 검색")
+    st.caption("종목명 또는 6자리 코드를 입력하면 해당 종목의 국민연금 지분율을 실시간 조회합니다. "
+               "아래 고정 리스트에 없는 코스피/코스닥 종목도 검색 가능합니다. (출처: FnGuide 주요주주 현황)")
+    nps_sc1, nps_sc2 = st.columns([7, 3])
+    nps_q = nps_sc1.text_input("종목명 또는 6자리 코드", placeholder="예: 삼성전자 / 005930 / 에코프로",
+                               key="nps_search_q", label_visibility="collapsed")
+    _nps_target = None  # (종목명, 코드)
+    if nps_q and nps_q.strip():
+        _qs = nps_q.strip()
+        _listing = get_krx_name_code_list()
+        if re.fullmatch(r"\d{6}", _qs):
+            _nm = _qs
+            if not _listing.empty:
+                _hit = _listing[_listing['Code'] == _qs]
+                if not _hit.empty:
+                    _nm = _hit['Name'].iloc[0]
+            _nps_target = (_nm, _qs)
+        elif _listing.empty:
+            st.warning("⚠️ 종목 목록을 불러오지 못했습니다 (FDR 응답 없음). 6자리 종목코드로 검색해 주세요.")
+        else:
+            _exact = _listing[_listing['Name'].str.lower() == _qs.lower()]
+            _cand = _exact if not _exact.empty else _listing[_listing['Name'].str.contains(re.escape(_qs), case=False, na=False)]
+            if _cand.empty:
+                st.warning(f"'{_qs}' 검색 결과가 없습니다. 종목명 철자 또는 6자리 코드를 확인해 주세요.")
+            elif len(_cand) == 1:
+                _nps_target = (_cand['Name'].iloc[0], _cand['Code'].iloc[0])
+            else:
+                _cand = _cand.head(20)
+                _pick = st.selectbox(f"검색 결과 {len(_cand)}건 — 종목을 선택하세요 (최대 20건 표시)",
+                                     [f"{r.Name} ({r.Code})" for r in _cand.itertuples()], key="nps_search_pick")
+                _pm = re.search(r"\((\d{6})\)$", _pick)
+                if _pm:
+                    _nps_target = (_pick[:_pick.rfind("(")].strip(), _pm.group(1))
+    if nps_sc2.button("📡 지분율 조회", type="primary", use_container_width=True,
+                      key="nps_search_btn", disabled=_nps_target is None) and _nps_target:
+        with st.spinner(f"{_nps_target[0]} 국민연금 지분율 실시간 조회 중..."):
+            _sr = search_nps_holding(_nps_target[1], _nps_target[0])
+        st.session_state.nps_search_result = {"r": _sr, "name": _nps_target[0], "code": _nps_target[1],
+                                              "t": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    _saved = st.session_state.get("nps_search_result")
+    if _saved:
+        _sr, _snm, _scd = _saved["r"], _saved["name"], _saved["code"]
+        if _sr is None:
+            st.error(f"❌ {_snm}({_scd}) 조회 실패 — FnGuide 응답 없음/차단. 잠시 후 다시 시도해 주세요.")
+        elif _sr["지분율"] is None:
+            st.info(f"ℹ️ **{_snm}({_scd})** — FnGuide 주요주주 현황에서 국민연금이 확인되지 않습니다. "
+                    "주요주주 표는 대체로 5% 이상 주주 위주로 표시되므로, 국민연금 지분이 없거나 5% 미만일 가능성이 큽니다. "
+                    "정확한 내역은 DART 대량보유 공시를 확인하세요.")
+        else:
+            _pct = _sr["지분율"]
+            st.markdown(f"##### 📌 {_snm} ({_scd})")
+            _rm1, _rm2, _rm3 = st.columns(3)
+            _rm1.metric("국민연금 지분율", f"{_pct:.2f}%", help=f"FnGuide 주주 표기: {_sr['주주표기']}")
+            _rm2.metric("5% 대량보유 공시 대상", "✅ 해당 (5%↑)" if _pct >= 5.0 else "➖ 미해당 (5% 미만)")
+            _rm3.metric("조회 시각", _saved["t"])
+            st.caption(f"🔗 원본 확인: [FnGuide 지분현황](https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{_scd}) · "
+                       "[DART 전자공시](https://dart.fss.or.kr)에서 '국민연금공단' 검색 시 대량보유 보고서 원문 확인 가능")
+    st.divider()
+
     col_btn1, col_btn2 = st.columns([2, 8])
     if col_btn1.button("🔄 실시간 스크래핑 시도", type="primary", use_container_width=True):
         get_nps_holdings.clear()
         get_nps_us_portfolio.clear()
+        search_nps_holding.clear()
+        st.session_state.pop("nps_search_result", None)
         st.rerun()
         
     with st.spinner("국민연금 보유현황을 실시간으로 파싱 중입니다. (서버 차단 시 표시되지 않을 수 있습니다)"):
@@ -11090,7 +11211,15 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
             st.warning("⚠️ 국민연금 국내 지분 데이터를 실시간으로 불러오지 못했습니다 (FnGuide 응답 없음/차단). "
                        "부정확한 캐시를 보여주지 않기 위해 표시를 생략합니다 — 잠시 후 새로고침해 주세요.")
         else:
-            st.dataframe(nps_kr_df, use_container_width=True, hide_index=True)
+            _f_kr = st.text_input("🔎 표 내 검색 (종목명/티커)", key="nps_kr_tbl_filter",
+                                  placeholder="예: 삼성 / 005930 — 입력 즉시 필터링")
+            _vdf_kr = nps_kr_df
+            if _f_kr and _f_kr.strip():
+                _mask_kr = nps_kr_df.astype(str).apply(
+                    lambda c: c.str.contains(re.escape(_f_kr.strip()), case=False, na=False)).any(axis=1)
+                _vdf_kr = nps_kr_df[_mask_kr]
+                st.caption(f"검색 결과: {len(_vdf_kr)}건 / 전체 {len(nps_kr_df)}건")
+            st.dataframe(_vdf_kr, use_container_width=True, hide_index=True)
          
     with tab_nps2:
         st.write("*(WhaleWisdom 등 미국 SEC 13F 공시 트래커를 기반으로 파싱된 국민연금 미국 주식 포트폴리오입니다.)*")
@@ -11098,7 +11227,15 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
             st.warning("⚠️ 국민연금 미국 13F 데이터를 실시간으로 불러오지 못했습니다 (Dataroma 응답 없음/차단). "
                        "부정확한 캐시를 보여주지 않기 위해 표시를 생략합니다 — 잠시 후 새로고침해 주세요.")
         else:
-            st.dataframe(nps_us_df, use_container_width=True, hide_index=True)
+            _f_us = st.text_input("🔎 표 내 검색 (종목명/티커)", key="nps_us_tbl_filter",
+                                  placeholder="예: NVDA / Apple — 입력 즉시 필터링")
+            _vdf_us = nps_us_df
+            if _f_us and _f_us.strip():
+                _mask_us = nps_us_df.astype(str).apply(
+                    lambda c: c.str.contains(re.escape(_f_us.strip()), case=False, na=False)).any(axis=1)
+                _vdf_us = nps_us_df[_mask_us]
+                st.caption(f"검색 결과: {len(_vdf_us)}건 / 전체 {len(nps_us_df)}건")
+            st.dataframe(_vdf_us, use_container_width=True, hide_index=True)
         
     with tab_nps3:
         st.markdown("### 🌟 황금 콤보 전략")
