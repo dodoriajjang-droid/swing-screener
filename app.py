@@ -391,27 +391,19 @@ def get_us_etf_summary(us_etfs):
     return pd.DataFrame(us_data)
 
 @st.cache_data(ttl=86400)
-def get_nps_holdings():
+def get_nps_holdings(dart_key=""):
     targets = [('삼성전자', '005930'), ('SK하이닉스', '000660'), ('LG에너지솔루션', '373220'), ('삼성바이오로직스', '207940'), ('현대차', '005380'), ('기아', '000270'), ('셀트리온', '068270'), ('POSCO홀딩스', '005490'), ('NAVER', '035420'), ('KB금융', '105560'), ('신한지주', '055550'), ('삼성물산', '028260'), ('현대모비스', '012330'), ('LG화학', '051910'), ('카카오', '035720'), ('삼성SDI', '006400'), ('하나금융지주', '086790'), ('메리츠금융지주', '138040'), ('한국전력', '015760'), ('HMM', '011200'), ('KT&G', '033780'), ('우리금융지주', '316140'), ('기업은행', '024110')]
     nps_data = []
-    
+    # DART 키가 있으면 corp_code 매핑을 스레딩 전에 1회만 구축 (스레드별 중복 다운로드 방지)
+    corp_map = get_dart_corp_map(dart_key) if dart_key else None
+
     def fetch_nps(target):
         name, code = target
         try:
-            url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{code}"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            res = requests.get(url, headers=headers, timeout=5)
-            tables = pd.read_html(StringIO(res.text))
-            for df in tables:
-                if '주주구분' in df.columns or '주주명' in df.columns:
-                    col = '주주명' if '주주명' in df.columns else '주주구분'
-                    match = df[df[col].astype(str).str.contains('국민연금', na=False)]
-                    if not match.empty:
-                        pct_col = [c for c in df.columns if '지분' in c or '보유' in c or '비율' in c]
-                        if pct_col:
-                            val = str(match[pct_col[-1]].iloc[0]).replace('%','').strip()
-                            if float(val) >= 4.0: 
-                                return {"종목명": name, "티커": code, "보유비중": f"{float(val):.2f}%", "비고": "FnGuide 실시간"}
+            # [v-우회] FnGuide 차단 대응: DART(키 보유 시) → FnGuide → WiseReport 체인으로 조회
+            r, src = _fetch_nps_stake_multi(code, dart_key=dart_key, corp_map=corp_map)
+            if r and r["지분율"] is not None and r["지분율"] >= 4.0:
+                return {"종목명": name, "티커": code, "보유비중": f"{r['지분율']:.2f}%", "비고": f"{src} 실시간"}
         except Exception: pass
         return None
         
@@ -456,7 +448,148 @@ def get_nps_us_portfolio():
 
 # ==========================================
 # 🔍 [NEW] 국민연금 지분율 — 단일 종목 실시간 검색
+#   소스 체인: DART 오픈API(키 보유 시) → FnGuide → WiseReport
+#   (FnGuide가 클라우드 IP를 차단해도 WiseReport/DART로 우회)
 # ==========================================
+_NPS_SCRAPE_HEADERS_BASE = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
+}
+NPS_STAKE_SOURCES = [
+    ("FnGuide", "https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{code}", "https://comp.fnguide.com/"),
+    ("WiseReport", "https://comp.wisereport.co.kr/company/c1070001.aspx?cmp_cd={code}", "https://comp.wisereport.co.kr/"),
+]
+
+def _extract_nps_stake_from_html(html_text):
+    """주주 테이블 HTML에서 국민연금 지분율(%)·표기명 추출.
+    반환: {"지분율": float, "주주표기": str} / {"지분율": None, ...}(정상 페이지·국민연금 미표기) / None(파싱 불가)"""
+    try:
+        tables = pd.read_html(StringIO(html_text))
+    except Exception:
+        return None
+    parsed_any = False
+    for df in tables:
+        if not any('주주' in str(c) for c in df.columns):
+            continue
+        parsed_any = True
+        row_mask = df.apply(lambda r: r.astype(str).str.contains('국민연금', na=False).any(), axis=1)
+        match = df[row_mask]
+        if match.empty:
+            continue
+        # 지분율 컬럼 선택: '변동지분'·'보유주식수' 같은 함정 컬럼 제외 (WiseReport 대응)
+        pct_cols = [c for c in df.columns
+                    if any(k in str(c) for k in ('지분', '비율', '보유'))
+                    and '변동' not in str(c) and '주식수' not in str(c)]
+        if not pct_cols:
+            continue
+        val = str(match[pct_cols[-1]].iloc[0]).replace('%', '').replace(',', '').strip()
+        try:
+            pct = float(val)
+        except ValueError:
+            continue
+        disp = ""
+        for c in df.columns:
+            cell = str(match[c].iloc[0])
+            if '국민연금' in cell:
+                disp = cell.strip()
+                break
+        return {"지분율": pct, "주주표기": disp}
+    return {"지분율": None, "주주표기": ""} if parsed_any else None
+
+@st.cache_data(ttl=86400)
+def get_dart_corp_map(dart_key):
+    """DART 고유번호(corp_code) ↔ 종목코드 매핑. corpCode.xml(zip) 다운로드 후 파싱. 실패 시 빈 dict."""
+    if not dart_key:
+        return {}
+    try:
+        import zipfile
+        import io as _io
+        import xml.etree.ElementTree as _ET
+        r = requests.get("https://opendart.fss.or.kr/api/corpCode.xml",
+                         params={"crtfc_key": dart_key}, timeout=15)
+        if r.status_code != 200 or not r.content[:2] == b'PK':   # zip 시그니처 확인 (오류 시 XML 에러문 반환됨)
+            return {}
+        with zipfile.ZipFile(_io.BytesIO(r.content)) as zf:
+            with zf.open(zf.namelist()[0]) as f:
+                tree = _ET.parse(f)
+        cmap = {}
+        for el in tree.getroot().iter('list'):
+            stk = (el.findtext('stock_code') or '').strip()
+            if stk:
+                cmap[stk.zfill(6)] = (el.findtext('corp_code') or '').strip()
+        return cmap
+    except Exception:
+        return {}
+
+def _fetch_nps_stake_dart(code, dart_key, corp_map=None):
+    """DART 오픈API 대량보유 상황보고(majorstock)에서 국민연금 최신 보고 지분율 조회.
+    반환: {"지분율","주주표기","기준일"} / {"지분율": None}(보고 없음) / None(호출 실패·키 오류)"""
+    try:
+        cmap = corp_map if corp_map is not None else get_dart_corp_map(dart_key)
+        corp_code = cmap.get(str(code).zfill(6))
+        if not corp_code:
+            return None
+        r = requests.get("https://opendart.fss.or.kr/api/majorstock.json",
+                         params={"crtfc_key": dart_key, "corp_code": corp_code}, timeout=7)
+        j = r.json()
+        if j.get("status") == "013":   # 조회된 데이터 없음 (대량보유 보고 자체가 없는 회사)
+            return {"지분율": None, "주주표기": "", "기준일": ""}
+        if j.get("status") != "000":
+            return None
+        rows = [x for x in j.get("list", []) if '국민연금' in str(x.get("repror", ""))]
+        if not rows:
+            return {"지분율": None, "주주표기": "", "기준일": ""}
+        rows.sort(key=lambda x: str(x.get("rcept_no", "")), reverse=True)   # 최신 보고 우선
+        top = rows[0]
+        pct = float(str(top.get("stkrt", "")).replace(",", "").strip())
+        return {"지분율": pct, "주주표기": str(top.get("repror", "")).strip(),
+                "기준일": str(top.get("rcept_dt", "")).strip()}
+    except Exception:
+        return None
+
+def _fetch_nps_stake_multi(code, dart_key="", corp_map=None):
+    """소스 체인 순회. 반환: (결과 dict, 소스명) 또는 (None, None).
+    지분율이 확인되면 즉시 반환, '미표기'는 다른 소스도 확인 후 판단."""
+    none_result, none_src = None, None
+    if dart_key:
+        r = _fetch_nps_stake_dart(code, dart_key, corp_map)
+        if r is not None:
+            if r["지분율"] is not None:
+                return r, "DART 공시"
+            none_result, none_src = r, "DART 공시"
+    for src_name, url_tpl, referer in NPS_STAKE_SOURCES:
+        try:
+            headers = dict(_NPS_SCRAPE_HEADERS_BASE, Referer=referer)
+            res = requests.get(url_tpl.format(code=code), headers=headers, timeout=7)
+            if res.status_code != 200:
+                continue
+            parsed = _extract_nps_stake_from_html(res.text)
+            if parsed is None:
+                continue
+            if parsed["지분율"] is not None:
+                return parsed, src_name
+            if none_result is None:
+                none_result, none_src = parsed, src_name
+        except Exception:
+            continue
+    if none_result is not None:
+        return none_result, none_src
+    return None, None
+
+@st.cache_data(ttl=1800)
+def search_nps_holding(code, name="", dart_key=""):
+    """단일 종목의 국민연금 지분율을 실시간 조회 (DART → FnGuide → WiseReport 체인).
+    반환:
+      {"종목명","티커","지분율"(float),"주주표기","출처","기준일"} : 지분 확인됨
+      {"종목명","티커","지분율": None, "출처": 응답한 소스} : 소스는 응답했으나 국민연금 미표기(지분 없음 또는 5% 미만 가능성)
+      None : 모든 소스 요청 실패(차단/타임아웃)"""
+    r, src = _fetch_nps_stake_multi(code, dart_key=dart_key)
+    if r is None:
+        return None
+    return {"종목명": name or code, "티커": code, "지분율": r["지분율"],
+            "주주표기": r.get("주주표기", ""), "출처": src, "기준일": r.get("기준일", "")}
+
 @st.cache_data(ttl=86400)
 def get_krx_name_code_list():
     """종목명 검색용 KRX 전체 상장사 (코드·종목명) 목록. 실패 시 빈 DF 반환."""
@@ -471,47 +604,6 @@ def get_krx_name_code_list():
         pass
     return pd.DataFrame(columns=['Code', 'Name'])
 
-@st.cache_data(ttl=1800)
-def search_nps_holding(code, name=""):
-    """단일 종목의 국민연금 지분율을 FnGuide 주요주주 현황에서 실시간 조회.
-    반환:
-      {"종목명","티커","지분율"(float),"주주표기"} : 국민연금 지분 확인됨
-      {"종목명","티커","지분율": None, "주주표기": ""} : 페이지는 열렸으나 국민연금 미표기(지분 없음 또는 5% 미만 가능성)
-      None : 요청 자체 실패(서버 차단/타임아웃)"""
-    try:
-        url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{code}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        res = requests.get(url, headers=headers, timeout=7)
-        if res.status_code != 200:
-            return None
-        tables = pd.read_html(StringIO(res.text))
-        for df in tables:
-            # 주주 관련 테이블만 대상 (컬럼명에 '주주' 포함)
-            if not any('주주' in str(c) for c in df.columns):
-                continue
-            # '국민연금' 표기 행을 모든 컬럼에서 탐색 (기존 fetch_nps보다 레이아웃 변형에 강함)
-            row_mask = df.apply(lambda r: r.astype(str).str.contains('국민연금', na=False).any(), axis=1)
-            match = df[row_mask]
-            if match.empty:
-                continue
-            pct_col = [c for c in df.columns if any(k in str(c) for k in ('지분', '보유', '비율'))]
-            if not pct_col:
-                continue
-            val = str(match[pct_col[-1]].iloc[0]).replace('%', '').strip()
-            try:
-                pct = float(val)
-            except ValueError:
-                continue
-            disp = ""
-            for c in df.columns:
-                cell = str(match[c].iloc[0])
-                if '국민연금' in cell:
-                    disp = cell.strip()
-                    break
-            return {"종목명": name or code, "티커": code, "지분율": pct, "주주표기": disp}
-        return {"종목명": name or code, "티커": code, "지분율": None, "주주표기": ""}
-    except Exception:
-        return None
 
 @st.cache_data(ttl=1800)
 def get_us_sector_etfs():
@@ -11131,10 +11223,20 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
     st.markdown("## 🏛️ 국민연금 5% 대량보유 픽")
     st.write("국민연금이 대량 보유한 국내/해외 핵심 기업 포트폴리오를 실시간 스크래핑하여 추적합니다.")
 
+    # 🔑 [NEW] DART 오픈API 키 (선택) — FnGuide/WiseReport가 모두 차단될 때 공식 DART 공시로 조회
+    with st.expander("🔑 DART 오픈API 키 설정 (선택 — 차단 우회용 공식 소스)"):
+        st.caption("무료 발급: [opendart.fss.or.kr](https://opendart.fss.or.kr) → 인증키 신청 (일 20,000건 한도). "
+                   "키를 입력하면 금융감독원 공식 '대량보유 상황보고' API를 최우선 소스로 사용합니다. "
+                   "키는 이 세션에만 유지되며 파일로 저장되지 않습니다.")
+        st.text_input("DART API 인증키 (40자)", type="password", key="dart_api_key",
+                      placeholder="발급받은 인증키를 붙여넣으세요")
+    _dart_key = (st.session_state.get("dart_api_key") or "").strip()
+
     # 🔍 [NEW] 실시간 종목 검색 — 고정 리스트에 없는 종목도 국민연금 지분율을 즉시 조회
     st.markdown("#### 🔍 종목 실시간 검색")
     st.caption("종목명 또는 6자리 코드를 입력하면 해당 종목의 국민연금 지분율을 실시간 조회합니다. "
-               "아래 고정 리스트에 없는 코스피/코스닥 종목도 검색 가능합니다. (출처: FnGuide 주요주주 현황)")
+               "아래 고정 리스트에 없는 코스피/코스닥 종목도 검색 가능합니다. "
+               "(소스 체인: DART 공시(키 보유 시) → FnGuide → WiseReport 순으로 자동 우회)")
     nps_sc1, nps_sc2 = st.columns([7, 3])
     nps_q = nps_sc1.text_input("종목명 또는 6자리 코드", placeholder="예: 삼성전자 / 005930 / 에코프로",
                                key="nps_search_q", label_visibility="collapsed")
@@ -11167,27 +11269,32 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
                     _nps_target = (_pick[:_pick.rfind("(")].strip(), _pm.group(1))
     if nps_sc2.button("📡 지분율 조회", type="primary", use_container_width=True,
                       key="nps_search_btn", disabled=_nps_target is None) and _nps_target:
-        with st.spinner(f"{_nps_target[0]} 국민연금 지분율 실시간 조회 중..."):
-            _sr = search_nps_holding(_nps_target[1], _nps_target[0])
+        with st.spinner(f"{_nps_target[0]} 국민연금 지분율 실시간 조회 중... (DART→FnGuide→WiseReport)"):
+            _sr = search_nps_holding(_nps_target[1], _nps_target[0], _dart_key)
         st.session_state.nps_search_result = {"r": _sr, "name": _nps_target[0], "code": _nps_target[1],
                                               "t": datetime.now().strftime("%Y-%m-%d %H:%M")}
     _saved = st.session_state.get("nps_search_result")
     if _saved:
         _sr, _snm, _scd = _saved["r"], _saved["name"], _saved["code"]
         if _sr is None:
-            st.error(f"❌ {_snm}({_scd}) 조회 실패 — FnGuide 응답 없음/차단. 잠시 후 다시 시도해 주세요.")
+            st.error(f"❌ {_snm}({_scd}) 조회 실패 — FnGuide·WiseReport 모두 응답 없음/차단. "
+                     "위 '🔑 DART 오픈API 키'를 설정하면 공식 공시 API로 우회 조회할 수 있습니다.")
         elif _sr["지분율"] is None:
-            st.info(f"ℹ️ **{_snm}({_scd})** — FnGuide 주요주주 현황에서 국민연금이 확인되지 않습니다. "
-                    "주요주주 표는 대체로 5% 이상 주주 위주로 표시되므로, 국민연금 지분이 없거나 5% 미만일 가능성이 큽니다. "
-                    "정확한 내역은 DART 대량보유 공시를 확인하세요.")
+            _src_txt = f" (확인 소스: {_sr['출처']})" if _sr.get("출처") else ""
+            st.info(f"ℹ️ **{_snm}({_scd})** — 주요주주/대량보유 내역에서 국민연금이 확인되지 않습니다{_src_txt}. "
+                    "지분이 없거나 5% 미만(공시 의무 미발생)일 가능성이 큽니다.")
         else:
             _pct = _sr["지분율"]
             st.markdown(f"##### 📌 {_snm} ({_scd})")
             _rm1, _rm2, _rm3 = st.columns(3)
-            _rm1.metric("국민연금 지분율", f"{_pct:.2f}%", help=f"FnGuide 주주 표기: {_sr['주주표기']}")
+            _rm1.metric("국민연금 지분율", f"{_pct:.2f}%", help=f"표기: {_sr['주주표기']}")
             _rm2.metric("5% 대량보유 공시 대상", "✅ 해당 (5%↑)" if _pct >= 5.0 else "➖ 미해당 (5% 미만)")
-            _rm3.metric("조회 시각", _saved["t"])
+            _src_lbl = _sr.get("출처") or "-"
+            if _sr.get("기준일"):
+                _src_lbl += f" · 보고일 {_sr['기준일']}"
+            _rm3.metric("데이터 출처", _src_lbl, help=f"조회 시각: {_saved['t']}")
             st.caption(f"🔗 원본 확인: [FnGuide 지분현황](https://comp.fnguide.com/SVO2/ASP/SVD_Invest.asp?pGB=1&gicode=A{_scd}) · "
+                       f"[WiseReport 지분현황](https://comp.wisereport.co.kr/company/c1070001.aspx?cmp_cd={_scd}) · "
                        "[DART 전자공시](https://dart.fss.or.kr)에서 '국민연금공단' 검색 시 대량보유 보고서 원문 확인 가능")
     st.divider()
 
@@ -11196,19 +11303,21 @@ elif selected_menu == "🏛️ 국민연금 5% 대량보유 픽":
         get_nps_holdings.clear()
         get_nps_us_portfolio.clear()
         search_nps_holding.clear()
+        get_dart_corp_map.clear()
         st.session_state.pop("nps_search_result", None)
         st.rerun()
         
     with st.spinner("국민연금 보유현황을 실시간으로 파싱 중입니다. (서버 차단 시 표시되지 않을 수 있습니다)"):
-        nps_kr_df = get_nps_holdings()
+        nps_kr_df = get_nps_holdings(_dart_key)
         nps_us_df = get_nps_us_portfolio()
     
     tab_nps1, tab_nps2, tab_nps3 = st.tabs(["🇰🇷 한국 주식 5% 이상 보유 현황", "🇺🇸 미국 주식 핵심 포트폴리오 (13F)", "🌟 황금 콤보 스캐너 (장기 가치 + 단기 수급)"])
     
     with tab_nps1:
-        st.write("*(에프앤가이드(FnGuide)를 통해 코스피/코스닥 주요 기업의 국민연금 지분율을 추출한 데이터입니다.)*")
+        st.write("*(주요 기업의 국민연금 지분율을 DART 공시(키 보유 시)·FnGuide·WiseReport 체인으로 추출한 데이터입니다. '비고'에서 종목별 실제 소스를 확인할 수 있습니다.)*")
         if nps_kr_df is None or nps_kr_df.empty:
-            st.warning("⚠️ 국민연금 국내 지분 데이터를 실시간으로 불러오지 못했습니다 (FnGuide 응답 없음/차단). "
+            st.warning("⚠️ 국민연금 국내 지분 데이터를 실시간으로 불러오지 못했습니다 (FnGuide·WiseReport 모두 응답 없음/차단). "
+                       "상단 '🔑 DART 오픈API 키'를 설정하면 공식 공시 API로 우회 조회할 수 있습니다. "
                        "부정확한 캐시를 보여주지 않기 위해 표시를 생략합니다 — 잠시 후 새로고침해 주세요.")
         else:
             _f_kr = st.text_input("🔎 표 내 검색 (종목명/티커)", key="nps_kr_tbl_filter",
