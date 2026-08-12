@@ -48,7 +48,7 @@ def bootstrap():
   /* 화면 색 — 한국 증시 관행: 빨강=상승, 파랑=하락 */
   --jm-ink:      #0f172a;   /* 본문 최다크 */
   --jm-ink-2:    #334155;   /* 보조 텍스트 */
-  --jm-muted:    #64748b;   /* 설명·캡션 */
+  --jm-muted:    #4b5768;   /* 설명·캡션 — #64748b 는 대비 4.25:1 로 AA(4.5) 미달이었다 */
   --jm-faint:    #94a3b8;   /* 라벨·단위 */
   --jm-rule:     #e2e8f0;   /* 구분선 */
   --jm-rule-soft:#eef2f6;
@@ -175,14 +175,55 @@ section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button[kind="primary
     content: ""; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 2px;
     border-radius: 2px; background: rgba(255,255,255,.55);
 }
+/* ⚠️ 버튼 안의 라벨은 Streamlit 이 자식 div 에 justify-content:center 를 걸어
+   가운데로 몰아 놓는다. 버튼에만 flex-start 를 줘도 소용이 없어, 자식까지 지정한다.
+   (이걸 놓쳐서 메뉴가 가운데 정렬로 보였다 — 목록으로 안 읽힌다) */
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button > div {
+    justify-content: flex-start !important; width: 100% !important; gap: 9px !important;
+}
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button p {
+    font-size: 14px !important; font-weight: 600 !important; text-align: left !important;
+}
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button[kind="primary"] p {
+    font-weight: 700 !important;
+}
 /* 메뉴 타일 사이 간격을 좁혀 목록처럼 읽히게 */
-section[data-testid="stSidebar"] [class*="st-key-navbtn__"] { margin-bottom: -8px; }
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] { margin-bottom: -6px; }
 
-/* 분류 세그먼트 — 메뉴 타일보다 한 단계 조용하게
-   (Streamlit 의 segmented_control 은 data-testid="stButtonGroup" 으로 렌더된다) */
+/* 분류 세그먼트
+   Streamlit 기본 강조색(빨강)이 그대로 남아 '빨간 글자 + 옅은 빨간 배경'이 되면서
+   대비가 1.00:1 까지 떨어졌다(사실상 안 보임). 무채색 체계로 되돌리고 글씨도 키운다. */
 section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button {
-    font-size: 11.5px !important; font-weight: 700 !important; padding: 3px 9px !important;
+    font-size: 12.5px !important; font-weight: 700 !important; padding: 5px 10px !important;
     min-height: 0 !important;
+    background: #fff !important; color: var(--jm-ink-2) !important;
+    border: 1px solid var(--jm-rule) !important;
+}
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button:hover {
+    color: var(--jm-ink) !important; border-color: #c9d0da !important;
+}
+/* 선택 상태는 일반 규칙보다 선택자 특이도가 높아야 이긴다.
+   (button 을 빼먹었더니 일반 규칙이 이겨서 선택된 분류가 나머지와 똑같이 보였다) */
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"]
+button[data-testid="stBaseButton-segmented_controlActive"] {
+    background: #1b2129 !important; border-color: #1b2129 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"]
+button[data-testid="stBaseButton-segmented_controlActive"],
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"]
+button[data-testid="stBaseButton-segmented_controlActive"] p,
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"]
+button[data-testid="stBaseButton-segmented_controlActive"] div {
+    color: #fff !important;
+}
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button p,
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button div {
+    color: inherit !important; font-size: 12.5px !important;
+}
+
+/* 사이드바 캡션 — 부제와 '분류 · 개수'가 너무 흐렸다 */
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+    color: var(--jm-muted) !important; font-size: 12.5px !important;
 }
 
 </style>
