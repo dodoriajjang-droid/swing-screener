@@ -126,52 +126,65 @@ table, .stDataFrame { font-family: 'JetBrains Mono', ui-monospace, monospace !im
 section[data-testid="stSidebar"] label { line-height: 1.5; }
 section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { margin-top: 0.2rem; }
 
-/* ── 카드 내 '팝업/분석 실행' 버튼 강조 (가독성 포인트) ──────────────
-   기본 회색 외곽선 버튼이 잘 안 보여서, 각 카드 헤더 색과 맞춘
-   그라데이션 + 흰 글씨 + 그림자 + hover 효과로 또렷하게 만든다.
-   (key 기반 .st-key-* 클래스를 사용 — Streamlit 1.39+) */
-[class*="st-key-ai_btn_"] button,
-[class*="st-key-biz_btn_"] button,
-[class*="st-key-btn_tf_ai_"] button,
-[class*="st-key-chat_open_"] button,
-[class*="st-key-vptm_open_"] button {
-    color:#fff !important;
-    font-weight:800 !important;
-    border:none !important;
-    border-radius:10px !important;
-    padding:0.62rem 0.9rem !important;
-    letter-spacing:.2px;
-    text-shadow:0 1px 2px rgba(0,0,0,.18);
-    transition:transform .12s ease, filter .12s ease, box-shadow .12s ease !important;
+/* ── 버튼 ─────────────────────────────────────────────────────────
+   [v7.3] 예전에는 버튼마다 다른 그라데이션(블루·에메랄드·바이올렛·인디고·앰버)을
+   깔았다. 다섯 개가 서로 다른 색으로 동등하게 소리치니 색이 의미를 잃고 장식이 됐고,
+   정작 중요한 가격·등락률이 가장 조용해졌다.
+   지금은 색을 등락(빨강 상승 / 파랑 하락)에만 남기고, 버튼은 무채색으로 둔다.
+   한 화면에서 주인공은 primary 하나뿐이다. */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.005em;
+    transition: background .12s ease, border-color .12s ease, color .12s ease !important;
 }
-[class*="st-key-ai_btn_"] button p,
-[class*="st-key-biz_btn_"] button p,
-[class*="st-key-btn_tf_ai_"] button p,
-[class*="st-key-chat_open_"] button p,
-[class*="st-key-vptm_open_"] button p { color:#fff !important; font-weight:800 !important; }
+/* 보조 버튼 — 조용한 외곽선 */
+.stButton > button[kind="secondary"], .stDownloadButton > button {
+    background: #fff !important; color: var(--jm-ink-2) !important;
+    border: 1px solid var(--jm-rule) !important;
+}
+.stButton > button[kind="secondary"]:hover, .stDownloadButton > button:hover {
+    border-color: #c9d0da !important; color: var(--jm-ink) !important; background: var(--jm-surface) !important;
+}
+/* 주 버튼 — 진한 무채색. 화면당 하나가 원칙 */
+.stButton > button[kind="primary"], .stFormSubmitButton > button {
+    background: #1b2129 !important; color: #fff !important; border: 1px solid #1b2129 !important;
+}
+.stButton > button[kind="primary"]:hover, .stFormSubmitButton > button:hover {
+    background: #2b333e !important; border-color: #2b333e !important;
+}
 
-/* 1) 차트·수급·재무 정밀 진단 → 블루 */
-[class*="st-key-ai_btn_"] button   { background:linear-gradient(135deg,#3b82f6,#1d4ed8) !important; box-shadow:0 3px 10px rgba(37,99,235,.32) !important; }
-/* 2) 기업 심층 분석 → 에메랄드 */
-[class*="st-key-biz_btn_"] button  { background:linear-gradient(135deg,#10b981,#047857) !important; box-shadow:0 3px 10px rgba(5,150,105,.32) !important; }
-/* 3) 주기별 AI 차트 분석 → 바이올렛 */
-[class*="st-key-btn_tf_ai_"] button{ background:linear-gradient(135deg,#8b5cf6,#6d28d9) !important; box-shadow:0 3px 10px rgba(124,58,237,.32) !important; }
-/* 4) 전문가 AI 질의응답 → 인디고 (카드 헤더와 동일 계열) */
-[class*="st-key-chat_open_"] button{ background:linear-gradient(135deg,#6366f1,#4338ca) !important; box-shadow:0 3px 10px rgba(67,56,202,.32) !important; }
-/* 5) 매물대 지도·종목 타임머신 → 앰버 (카드 헤더와 동일 계열) */
-[class*="st-key-vptm_open_"] button{ background:linear-gradient(135deg,#f59e0b,#d97706) !important; box-shadow:0 3px 10px rgba(217,119,6,.34) !important; }
+/* 사이드바 메뉴 타일 — 선택은 배경 + 좌측 바로 보여준다(라디오 점 없이)
+   .st-key-<key> 로 범위를 좁혀, 같은 사이드바의 새로고침 버튼 등은 건드리지 않는다 */
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button {
+    text-align: left !important; justify-content: flex-start !important;
+    padding: 7px 11px !important; font-size: 13.5px !important; font-weight: 600 !important;
+    border-radius: 8px !important; position: relative; min-height: 0 !important;
+}
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button[kind="tertiary"] {
+    color: var(--jm-ink-2) !important; background: transparent !important; border: none !important;
+}
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button[kind="tertiary"]:hover {
+    background: rgba(15,23,42,.05) !important; color: var(--jm-ink) !important;
+}
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button[kind="primary"] {
+    background: #1b2129 !important; color: #fff !important; font-weight: 700 !important;
+    border: none !important;
+}
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] button[kind="primary"]::before {
+    content: ""; position: absolute; left: 3px; top: 8px; bottom: 8px; width: 2px;
+    border-radius: 2px; background: rgba(255,255,255,.55);
+}
+/* 메뉴 타일 사이 간격을 좁혀 목록처럼 읽히게 */
+section[data-testid="stSidebar"] [class*="st-key-navbtn__"] { margin-bottom: -8px; }
 
-/* 공통 hover / active */
-[class*="st-key-ai_btn_"] button:hover,
-[class*="st-key-biz_btn_"] button:hover,
-[class*="st-key-btn_tf_ai_"] button:hover,
-[class*="st-key-chat_open_"] button:hover,
-[class*="st-key-vptm_open_"] button:hover { transform:translateY(-1px); filter:brightness(1.06); }
-[class*="st-key-ai_btn_"] button:active,
-[class*="st-key-biz_btn_"] button:active,
-[class*="st-key-btn_tf_ai_"] button:active,
-[class*="st-key-chat_open_"] button:active,
-[class*="st-key-vptm_open_"] button:active { transform:translateY(0); filter:brightness(.96); }
+/* 분류 세그먼트 — 메뉴 타일보다 한 단계 조용하게
+   (Streamlit 의 segmented_control 은 data-testid="stButtonGroup" 으로 렌더된다) */
+section[data-testid="stSidebar"] [data-testid="stButtonGroup"] button {
+    font-size: 11.5px !important; font-weight: 700 !important; padding: 3px 9px !important;
+    min-height: 0 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -219,6 +232,7 @@ _EXPORTED = [
     "EXPLAIN_GROUPS",
     "explain_score",
     "render_score_why",
+    "ICON_OF_MENU",
     "MENU_TREE",
     "MENU_CATEGORIES",
     "MENUS_BY_CATEGORY",

@@ -22,21 +22,34 @@ bootstrap()             # CSS 주입 + 세션 상태 초기화 — 매 실행마
 # 4. 사이드바 메뉴 
 # ==========================================
 with st.sidebar:
-    st.title("📈 Jaemini PRO v7.0")
-    st.markdown("풀옵션 단기 스윙 & 퀀트 추적 시스템")
-    st.caption("🆕 v7.0: 주봉 멀티타임프레임 · 시장 국면 신호등 · 공매도/빚투 리스크")
+    # [v7.3] 브랜드 — 이모지 제목 대신 아이콘 + 버전 배지.
+    #   '🆕' 같은 이모지는 Windows 기본 폰트에 없어 두부(□)로 깨진다.
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:8px;padding:2px 0 10px;">'
+        '<span style="font-size:20px;line-height:1;">'
+        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#1B2129" '
+        'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M3 17l5-6 4 3 5-8"/><path d="M17 6h4v4"/></svg></span>'
+        '<span style="font-weight:800;font-size:16px;letter-spacing:-.01em;color:#12161C;">Jaemini PRO</span>'
+        '<span style="font-family:ui-monospace,monospace;font-size:10.5px;color:#79828F;'
+        'border:1px solid #E4E8EE;border-radius:4px;padding:1px 5px;">v7.0</span>'
+        '</div>', unsafe_allow_html=True)
+    st.caption("단기 스윙 & 퀀트 추적 시스템")
 
-    # 실시간 현재 날짜·시간 (KST) — 브라우저에서 초 단위로 갱신, 모든 페이지에서 표시
+    # 실시간 현재 날짜·시간 (KST) — 브라우저에서 초 단위로 갱신
+    # [v7.3] 사이드바에서 혼자 다크였던 카드를 주변과 같은 재질로 맞췄다.
     components.html(
         """
         <div id="kst-clock" style="
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #1e293b, #334155);
-            color: #e2e8f0; border: 1px solid #475569; border-radius: 10px;
-            padding: 10px 12px; text-align: center; margin: 2px 0 8px 0;">
-            <div style="font-size: 12px; color:#94a3b8; letter-spacing:0.5px;">🇰🇷 한국 시간 (KST)</div>
-            <div id="kst-date" style="font-size: 15px; font-weight:600; margin-top:3px;">--</div>
-            <div id="kst-time" style="font-size: 22px; font-weight:700; font-variant-numeric: tabular-nums; color:#f8fafc;">--:--:--</div>
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                         'Malgun Gothic', sans-serif;
+            background: #F6F7F9; color: #12161C; border: 1px solid #E4E8EE;
+            border-radius: 9px; padding: 8px 11px; margin: 4px 0 10px 0;">
+            <div id="kst-date" style="font-family: ui-monospace, monospace; font-size: 10.5px;
+                 letter-spacing:.08em; color:#79828F;">--</div>
+            <div id="kst-time" style="font-family: ui-monospace, monospace; font-size: 20px;
+                 font-weight:700; letter-spacing:-.02em; font-variant-numeric: tabular-nums;
+                 margin-top:1px;">--:--:--</div>
         </div>
         <script>
         function updateKST() {
@@ -53,14 +66,14 @@ with st.sidebar:
             const s = String(kst.getSeconds()).padStart(2,'0');
             const de = document.getElementById('kst-date');
             const te = document.getElementById('kst-time');
-            if (de) de.textContent = `${y}.${mo}.${d} (${dow})`;
+            if (de) de.textContent = `KST · ${y}.${mo}.${d} (${dow})`;
             if (te) te.textContent = `${h}:${mi}:${s}`;
         }
         updateKST();
         setInterval(updateKST, 1000);
         </script>
         """,
-        height=92,
+        height=74,
     )
 
     # =================================================================
@@ -75,20 +88,34 @@ with st.sidebar:
     #
     # 메뉴 목록의 원천은 core_constants.MENU_TREE 한 곳이다.
     # =================================================================
+    # [v7.3] 분류는 세그먼트 컨트롤, 메뉴는 아이콘 타일.
+    #   라디오는 '점 + 이모지 + 텍스트' 세 요소가 한 줄에서 경쟁했고,
+    #   분류와 메뉴가 같은 생김새라 위계가 없었다. 세그먼트는 '여기서 고르면
+    #   아래 목록이 바뀐다'는 성격이 형태로 드러나고, 타일은 선택을 배경으로
+    #   보여줘 점이 필요 없다. 아이콘은 Streamlit 이 이미 싣고 있는 세트라
+    #   플랫폼마다 다르게 그려지거나 깨지지 않는다.
     if "nav_category" not in st.session_state:
         st.session_state.nav_category = MENU_CATEGORIES[0]
 
-    st.radio("분류", MENU_CATEGORIES, key="nav_category", label_visibility="collapsed")
-    _cat = st.session_state.nav_category
+    st.segmented_control("분류", MENU_CATEGORIES, key="nav_category",
+                         label_visibility="collapsed", default=st.session_state.nav_category)
+    _cat = st.session_state.nav_category or MENU_CATEGORIES[0]
     _menus = MENUS_BY_CATEGORY[_cat]
 
-    # 카테고리마다 마지막에 보던 메뉴를 각자 기억한다(키가 카테고리별로 다름)
+    # 카테고리마다 마지막에 보던 메뉴를 각자 기억한다
     _menu_key = f"nav_menu__{_cat}"
-    if _menu_key not in st.session_state:
+    if st.session_state.get(_menu_key) not in _menus:
         st.session_state[_menu_key] = _menus[0]
+    selected_menu = st.session_state[_menu_key]
 
-    st.caption(f"**{_cat}** · {len(_menus)}개")
-    selected_menu = st.radio("메뉴", _menus, key=_menu_key, label_visibility="collapsed")
+    st.caption(f"{_cat} · {len(_menus)}")
+    for _m in _menus:
+        _active = (_m == selected_menu)
+        if st.button(_m, key=f"navbtn__{_cat}__{_m}", icon=f":material/{ICON_OF_MENU[_m]}:",
+                     use_container_width=True,
+                     type=("primary" if _active else "tertiary")):
+            st.session_state[_menu_key] = _m
+            st.rerun()
     clean_menu = selected_menu
 
     # [추가] 메뉴(페이지) 전환 감지 — 메뉴를 '새로 눌렀을 때'만 1회 동작시키기 위함.

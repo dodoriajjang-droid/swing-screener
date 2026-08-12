@@ -87,7 +87,7 @@ AUTOREFRESH_MS = 300000  # 5분. 갱신 주기를 바꾸려면 이 값만 조정
 # =====================================================================
 # 메뉴 구조 — 단일 원천
 # =====================================================================
-# (카테고리, [(메뉴 라벨, views/ 모듈명, 5분 자동갱신 여부)])
+# (카테고리, [(메뉴 라벨, views/ 모듈명, 5분 자동갱신 여부, Material 아이콘)])
 #
 # 사이드바 표시·페이지 라우팅·자동갱신 대상이 전부 이 하나에서 파생된다.
 # 예전에는 같은 문자열이 app.py 의 menu_options / VIEW_MODULES /
@@ -97,62 +97,66 @@ AUTOREFRESH_MS = 300000  # 5분. 갱신 주기를 바꾸려면 이 값만 조정
 # 라벨 규칙
 #   - 버전·상태 표기(v6.0, 테스트)는 넣지 않는다. 쓰는 사람에게 의미가 없고
 #     '(테스트)'는 기능을 못 믿게 만든다.
-#   - 이모지는 메뉴마다 겹치지 않게. 아이콘이 같으면 아이콘으로 찾을 수 없다.
+#   - 라벨에는 이모지를 넣지 않는다. 아이콘 세트가 그 역할을 하고, 이모지는 깨진다.
 #   - 내부 구현(TOP 300)이나 조건(-30%↓)은 라벨이 아니라 화면 안에서 설명한다.
 MENU_TREE = [
     # 카테고리와 첫 메뉴에 '홈'이 겹쳐 같은 화면처럼 보인다는 지적을 받아 이름을 나눴다.
     # (카테고리는 눌러도 페이지가 바뀌지 않고 아래 메뉴 목록만 바뀐다)
     ("내 자산", [
-        ("🎛️ 종합 대시보드",                "home_dashboard",    True),
-        ("💼 내 계좌 & 포트폴리오 진단",      "portfolio",         False),
-        ("⭐ 내 관심종목 모니터링",           "watchlist",         True),
+        ("종합 대시보드", "home_dashboard", True, "dashboard"),
+        ("내 계좌 & 포트폴리오 진단", "portfolio", False, "account_balance_wallet"),
+        ("내 관심종목 모니터링", "watchlist", True, "star"),
     ]),
     ("종목 발굴", [
         # [통합] 개별 기업 정밀 진단 + 적정 주가 계산기 + 증권사 목표가 컨센서스.
         #   셋 다 '같은 종목의 다른 면'인데 입구가 따로여서, 한 종목을 보려면
         #   세 화면에서 세 번 검색해야 했다. 지금은 한 번 고르고 탭으로 바꿔 본다.
-        ("🔬 종목 상세",                    "stock_detail",      False),
-        ("🧭 AI 종목 발굴",                 "ai_finder",         False),
+        ("종목 상세", "stock_detail", False, "query_stats"),
+        ("AI 종목 발굴", "ai_finder", False, "auto_awesome"),
         # [통합] 단기 스윙 · 장기 가치 · 낙폭 반등 → 프리셋 세 개
         #   셋 다 '조건으로 거르고 같은 결과 카드로 보여주는' 같은 일이었다.
-        ("🔎 종목 스크리너",                 "screener",          False),
-        ("🏛️ 국민연금 5% 대량보유 픽",       "nps_picks",         False),
-        ("⚡ 메가트렌드 & 테마 대장주",       "theme_leaders",     False),
-        ("🇰🇷 국민성장펀드 12대 산업 수혜주",  "growth_fund",       False),
-        ("📋 코스피·코스닥 종목 리스트",      "stock_list",        False),
+        ("종목 스크리너", "screener", False, "filter_alt"),
+        ("국민연금 5% 대량보유 픽", "nps_picks", False, "account_balance"),
+        ("메가트렌드 & 테마 대장주", "theme_leaders", False, "bolt"),
+        ("국민성장펀드 12대 산업 수혜주", "growth_fund", False, "factory"),
+        ("코스피·코스닥 종목 리스트", "stock_list", False, "format_list_bulleted"),
     ]),
     ("시장 흐름", [
-        ("🌍 글로벌 매크로",                "macro",             False),
+        ("글로벌 매크로", "macro", False, "public"),
         # [통합] 히트맵(오늘) · 뜨는 섹터(최근) · 순환매(중기) → 기간만 다른 같은 질문
-        ("💸 자금 흐름",                    "money_flow",        True),
-        ("🐋 국장 수급 분석",               "investor_flows",    False),
-        ("📅 핵심 증시 일정 & IPO 달력",     "calendar_ipo",      False),
-        ("🔮 폴리마켓 예측시장",             "polymarket",        False),
+        ("자금 흐름", "money_flow", True, "moving"),
+        ("국장 수급 분석", "investor_flows", False, "groups"),
+        ("핵심 증시 일정 & IPO 달력", "calendar_ipo", False, "calendar_month"),
+        ("폴리마켓 예측시장", "polymarket", False, "insights"),
     ]),
     ("뉴스 · 경보", [
         # [통합] 이슈 분석 + 속보·리포트·AI 데일리 → 안쪽 탭을 한 층으로 펼침
-        ("📰 뉴스",                        "news",              True),
+        ("뉴스", "news", True, "newspaper"),
         # [통합] 통합 경보 센터 + 거래량 경보 + 상/하한가 → 경보는 한 곳으로
-        ("🚨 경보 센터",                    "alerts",            True),
-        ("🌅 간밤의 미국 급등주 & 수혜주",    "us_overnight",      False),
+        ("경보 센터", "alerts", True, "notifications_active"),
+        ("간밤의 미국 급등주 & 수혜주", "us_overnight", False, "wb_twilight"),
     ]),
     ("분석 도구", [
-        ("👴 노후 준비 시뮬레이터",          "retirement_sim",    False),
-        ("📊 국내외 핵심 ETF 분석",          "etf_analysis",      False),
-        ("💰 고배당주",                     "dividend_pipeline", False),
+        ("노후 준비 시뮬레이터", "retirement_sim", False, "savings"),
+        ("국내외 핵심 ETF 분석", "etf_analysis", False, "donut_large"),
+        ("고배당주", "dividend_pipeline", False, "payments"),
         # [분리] 스윙 스캐너의 두 번째 탭이었다. 후보를 찾는 일과 전략을 검증하는 일은
         #   목적도 쓰는 시점도 달라 별도 메뉴로 뺐다.
-        ("🧪 전략 백테스트",                 "backtest",          False),
+        ("전략 백테스트", "backtest", False, "science"),
         # 🎯 증권사 목표가 컨센서스 · ⚖️ 적정 주가 계산기 → '🔬 종목 상세' 탭으로 통합
-        ("👁️ 차트 이미지 AI 비전 분석",      "chart_vision",      False),
+        ("차트 이미지 AI 비전 분석", "chart_vision", False, "image_search"),
     ]),
 ]
 
 MENU_CATEGORIES = [c for c, _ in MENU_TREE]
-MENUS_BY_CATEGORY = {c: [label for label, _, _ in items] for c, items in MENU_TREE}
-VIEW_MODULES = {label: f"views.{mod}" for _, items in MENU_TREE for label, mod, _ in items}
-LIVE_REFRESH_PAGES = {label for _, items in MENU_TREE for label, _, live in items if live}
-CATEGORY_OF_MENU = {label: c for c, items in MENU_TREE for label, _, _ in items}
+MENUS_BY_CATEGORY = {c: [label for label, _, _, _ in items] for c, items in MENU_TREE}
+VIEW_MODULES = {label: f"views.{mod}" for _, items in MENU_TREE for label, mod, _, _ in items}
+LIVE_REFRESH_PAGES = {label for _, items in MENU_TREE for label, _, live, _ in items if live}
+CATEGORY_OF_MENU = {label: c for c, items in MENU_TREE for label, _, _, _ in items}
+# 메뉴 → Material Symbols 아이콘 이름. 이모지 대신 쓰는 이유:
+#   이모지는 OS/브라우저마다 다르게 그려지고 크기·정렬이 제각각이며, 실제로 깨진다
+#   (🆕 가 Windows 에서 두부 □ 로 보였다). 이 세트는 Streamlit 이 이미 싣고 있다.
+ICON_OF_MENU = {label: icon for _, items in MENU_TREE for label, _, _, icon in items}
 
 # ⚠️ `now = datetime.now()` 를 여기 두면 안 된다.
 #    모듈은 프로세스당 한 번만 실행되므로 그 값은 '서버가 뜬 시각'에 얼어붙는다.
@@ -425,6 +429,7 @@ _EXPORTED = [
     "HAS_PYPDF",
     "KR_THEME_MAP",
     "LIVE_REFRESH_PAGES",
+    "ICON_OF_MENU",
     "MENU_TREE",
     "MENU_CATEGORIES",
     "MENUS_BY_CATEGORY",
