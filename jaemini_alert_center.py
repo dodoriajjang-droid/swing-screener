@@ -599,7 +599,7 @@ def render_grade_forecast_calendar(get_economic_events, get_kr_index_panel=None)
         0: ("안정", "#2e7d32", "#f0fdf4"),
         1: ("관심", "#b88300", "#fffbeb"),
         2: ("주의", "#c2410c", "#fff7ed"),
-        3: ("경계", "#c62828", "#fef2f2"),
+        3: ("경계", "#b91c1c", "#fef2f2"),
     }
     DOTS = {0: "🟢", 1: "🟡", 2: "🟠", 3: "🔴"}
 
@@ -1203,7 +1203,7 @@ def render_alert_center(deps: dict):
                 idx_pts, idx_worst, idx_parts = 0, 0.0, []
         total_red = cnt["news_bad"] + cnt["chart_bear"] + cnt["evt_month"] + cnt["cat_risk"] + idx_pts
         if total_red >= EVT_BASELINE + 6:     # 기본 부하 + 추가 위험 다수
-            level_txt, level_color = "🔴 경계 (위험 신호 다수)", "#c62828"
+            level_txt, level_color = "🔴 경계 (위험 신호 다수)", "#b91c1c"
         elif total_red >= EVT_BASELINE + 3:
             level_txt, level_color = "🟠 주의", "#e65100"
         elif total_red >= EVT_BASELINE + 1:
@@ -1221,7 +1221,7 @@ def render_alert_center(deps: dict):
         # 오늘 지수 등락 + 급락 반영분 표시(왜 등급이 올랐는지 투명하게)
         if idx_parts:
             idx_txt = " · ".join(f"{nm} {sp:+.2f}%" for nm, sp in idx_parts)
-            note_c = "#c62828" if idx_pts >= 4 else ("#e65100" if idx_pts >= 2 else "#64748b")
+            note_c = "#b91c1c" if idx_pts >= 4 else ("#e65100" if idx_pts >= 2 else "#64748b")
             extra = f" → 시장 급락 위험 <b>+{idx_pts}</b> 반영" if idx_pts > 0 else ""
             st.markdown(
                 f"<div style='font-size:12.5px;color:{note_c};font-weight:700;margin:-2px 0 8px;'>"

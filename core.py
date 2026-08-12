@@ -38,8 +38,79 @@ def bootstrap():
     st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-.stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
-th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !important; }
+
+/* =====================================================================
+   [v7.3] 타이포 · 간격 · 색 토큰
+   구조를 정리한 뒤의 시각 정리. 색은 이미 대부분 같은 램프(slate/blue/red)를
+   쓰고 있어 새로 칠하기보다 '기준'을 세우고 리듬을 맞추는 데 집중한다.
+   ===================================================================== */
+:root {
+  /* 화면 색 — 한국 증시 관행: 빨강=상승, 파랑=하락 */
+  --jm-ink:      #0f172a;   /* 본문 최다크 */
+  --jm-ink-2:    #334155;   /* 보조 텍스트 */
+  --jm-muted:    #64748b;   /* 설명·캡션 */
+  --jm-faint:    #94a3b8;   /* 라벨·단위 */
+  --jm-rule:     #e2e8f0;   /* 구분선 */
+  --jm-rule-soft:#eef2f6;
+  --jm-surface:  #f8fafc;   /* 옅은 배경 */
+  --jm-up:       #dc2626;   /* 상승·순매수 */
+  --jm-down:     #2563eb;   /* 하락·순매도 */
+  --jm-accent:   #1d4ed8;   /* 강조·링크 */
+  --jm-warn:     #b45309;
+}
+
+/* 한글 가독성 — 시스템에 있는 한글 폰트를 우선 잡는다.
+   (웹폰트를 추가로 받지 않아 첫 화면이 늦어지지 않는다) */
+html, body, [class*="st-"], .stMarkdown, button, input, select, textarea {
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+}
+
+/* 숫자는 자리를 맞춰 세로로 읽히게 — 표·지표에서 특히 중요 */
+.stMetric, .stMetric *, table, .stDataFrame, [data-testid="stMetricValue"],
+[data-testid="stMetricDelta"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-testid="stMetricValue"] {
+  font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+  letter-spacing: -0.01em;
+}
+[data-testid="stMetricLabel"] { color: var(--jm-muted) !important; font-size: 0.82rem !important; }
+[data-testid="stMetricDelta"] { font-size: 0.82rem !important; }
+
+/* 제목 위계 — 한글은 라틴만큼 자간을 좁히면 답답해져 -0.01em 선에서 멈춘다 */
+.stMarkdown h2 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em;
+                 margin: 0.2rem 0 0.5rem; color: var(--jm-ink); }
+.stMarkdown h3 { font-size: 1.2rem;  font-weight: 700; letter-spacing: -0.005em;
+                 margin: 1.1rem 0 0.4rem; color: var(--jm-ink); }
+.stMarkdown h4 { font-size: 1.02rem; font-weight: 700; margin: 0.9rem 0 0.35rem; }
+.stMarkdown h5 { font-size: 0.95rem; font-weight: 800; margin: 0.8rem 0 0.3rem;
+                 color: var(--jm-ink-2); }
+
+/* 섹션 리듬 — 구분선이 너무 진하고 촘촘해 화면이 잘려 보이던 것을 완화 */
+hr, [data-testid="stDivider"] { margin: 1.15rem 0 !important; border-color: var(--jm-rule) !important; }
+
+/* 캡션·도움말 — 본문과 대비를 확실히 해 '설명'임이 드러나게 */
+[data-testid="stCaptionContainer"], .stCaption { color: var(--jm-muted) !important; line-height: 1.6; }
+
+/* 접기(expander) — 지금은 접힌 그룹이 많아졌으므로 헤더가 눌러야 할 것처럼 보여야 한다 */
+[data-testid="stExpander"] details { border: 1px solid var(--jm-rule) !important;
+                                     border-radius: 10px !important; background: #fff; }
+[data-testid="stExpander"] summary { font-weight: 700 !important; color: var(--jm-ink-2) !important; }
+[data-testid="stExpander"] summary:hover { color: var(--jm-accent) !important; }
+
+/* 탭 — 통합으로 탭이 늘었으니 현재 위치가 분명해야 한다 */
+.stTabs [data-baseweb="tab"] { font-weight: 700; color: var(--jm-muted); }
+.stTabs [aria-selected="true"] { color: var(--jm-accent) !important; }
+
+/* 표 — 머리행을 눌러 앉히고 본문과 분리 */
+th { font-weight: 700 !important; background-color: var(--jm-surface) !important;
+     color: var(--jm-ink-2) !important; }
+table, .stDataFrame { font-family: 'JetBrains Mono', ui-monospace, monospace !important; }
+
+/* 사이드바 — 2단 메뉴가 되면서 항목 간격이 중요해졌다 */
+section[data-testid="stSidebar"] label { line-height: 1.5; }
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { margin-top: 0.2rem; }
 
 /* ── 카드 내 '팝업/분석 실행' 버튼 강조 (가독성 포인트) ──────────────
    기본 회색 외곽선 버튼이 잘 안 보여서, 각 카드 헤더 색과 맞춘

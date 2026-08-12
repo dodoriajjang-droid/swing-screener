@@ -182,7 +182,7 @@ def style_volume_table(df, kind="surge"):
 
     def color_updown(v):
         if pd.isna(v): return ''
-        if v > 0: return 'color:#e74c3c;font-weight:700;'   # 빨강=상승(한국식)
+        if v > 0: return 'color:#dc2626;font-weight:700;'   # 빨강=상승(한국식)
         if v < 0: return 'color:#2e86de;font-weight:700;'   # 파랑=하락
         return 'color:gray;'
 
@@ -211,7 +211,7 @@ def style_us_volume_table(df, kind="surge"):
         return None
     def color_updown(v):
         if pd.isna(v): return ''
-        if v > 0: return 'color:#e74c3c;font-weight:700;'
+        if v > 0: return 'color:#dc2626;font-weight:700;'
         if v < 0: return 'color:#2e86de;font-weight:700;'
         return 'color:gray;'
     sty = df.style.format({"현재가": "${:,.2f}", "등락률": "{:+.2f}%", "거래량 배율": "{:.1f}×"})
@@ -306,7 +306,7 @@ def style_warning_table(df, kind="mgmt"):
 
     def color_updown(v):
         if pd.isna(v): return ''
-        if v > 0: return 'color:#e74c3c;font-weight:700;'
+        if v > 0: return 'color:#dc2626;font-weight:700;'
         if v < 0: return 'color:#2e86de;font-weight:700;'
         return 'color:gray;'
 
@@ -348,7 +348,7 @@ def style_report_table(df, kind="up"):
 
     def color_updown(v):
         if pd.isna(v): return ''
-        if v > 0.05: return 'color:#e74c3c;font-weight:700;'
+        if v > 0.05: return 'color:#dc2626;font-weight:700;'
         if v < -0.05: return 'color:#2e86de;font-weight:700;'
         return 'color:gray;'
 
@@ -383,7 +383,7 @@ def style_sector_etf_table(df):
 
     def color_updown(v):
         if pd.isna(v): return ''
-        if v > 0: return 'color:#e74c3c;font-weight:700;'
+        if v > 0: return 'color:#dc2626;font-weight:700;'
         if v < 0: return 'color:#2e86de;font-weight:700;'
         return 'color:gray;'
 
@@ -414,7 +414,7 @@ def style_us_gainers_table(df):
     def color_str(s):
         s = str(s)
         if s.startswith('+') or (s.startswith('$') is False and '+' in s):
-            return 'color:#e74c3c;font-weight:700;'
+            return 'color:#dc2626;font-weight:700;'
         if s.startswith('-'):
             return 'color:#2e86de;font-weight:700;'
         return ''

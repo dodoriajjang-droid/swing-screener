@@ -65,7 +65,7 @@ def render(ctx):
             ".cal-cell { background: white; min-height: 120px; padding: 5px; display: flex; flex-direction: column; }",
             ".cal-cell.today { background: #f0f8ff; border: 2px solid #1f77b4; }",
             ".cal-num { font-weight: bold; margin-bottom: 5px; font-size: 15px; }",
-            ".evt-us-red { background: #ffebee; color: #c62828; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #c62828; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
+            ".evt-us-red { background: #ffebee; color: #b91c1c; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #b91c1c; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             ".evt-us-warn { background: #fff3e0; color: #e65100; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #e65100; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             ".evt-us-green { background: #e8f5e9; color: #2e7d32; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #2e7d32; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
             ".evt-kr-red { background: #fce4ec; color: #b71c1c; font-size: 11px; padding: 3px; margin-bottom: 2px; border-left: 3px solid #b71c1c; border-radius: 2px; font-weight: bold; line-height: 1.2; letter-spacing: -0.5px; }",
@@ -117,7 +117,7 @@ def render(ctx):
             "<span style='background:#fff8e1;color:#ff6f00;padding:2px 6px;border-radius:3px;'>📊 물가(CPI·PCE)</span> "
             "<span style='background:#e0f7fa;color:#006064;padding:2px 6px;border-radius:3px;'>👷 경기(고용·PMI·소매판매·수출입)</span> "
             "<span style='background:#fce4ec;color:#880e4f;padding:2px 6px;border-radius:3px;'>🏦 한은 금통위</span> "
-            "<span style='background:#ffebee;color:#c62828;padding:2px 6px;border-radius:3px;'>🔴 옵션만기</span> "
+            "<span style='background:#ffebee;color:#b91c1c;padding:2px 6px;border-radius:3px;'>🔴 옵션만기</span> "
             "<span style='background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:3px;'>🔹 위클리만기</span>"
             "</div>",
             unsafe_allow_html=True,
