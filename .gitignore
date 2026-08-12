@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# 환경변수 / 자격증명
+.env
+.env.*
+*.pem
+*.key
+
+# 로그 / 캐시
+*.log
+.cache/
+.ipynb_checkpoints/
+
+# 에디터 / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
