@@ -122,13 +122,22 @@ with st.sidebar:
     
     st.header("🧠 AI 엔진 연결 상태")
     api_key_input = ""
-    if "GEMINI_API_KEY" in st.secrets:
-        val = st.secrets["GEMINI_API_KEY"]
-        api_key_input = str(val) if isinstance(val, str) else str(list(val.values())[0])
+    # [v7.2 버그수정] secrets.toml 이 없으면 `in st.secrets` 자체가
+    # StreamlitSecretNotFoundError 를 던져 앱 전체가 죽었다(로컬 실행 시 항상).
+    # 클라우드에는 secrets 가 설정돼 있어 드러나지 않던 문제.
+    _secret_key = None
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            _secret_key = st.secrets["GEMINI_API_KEY"]
+    except Exception as _dg_e:
+        _diag_note("st.secrets", _dg_e, detail="secrets.toml 없음 — 키 직접 입력으로 전환")
+
+    if _secret_key is not None:
+        api_key_input = str(_secret_key) if isinstance(_secret_key, str) else str(list(_secret_key.values())[0])
         st.success("✅ 시스템 연동 완료")
     else:
         api_key_input = st.text_input("Gemini API Key를 입력하세요", type="password")
-        if api_key_input: 
+        if api_key_input:
             api_key_input = str(api_key_input)
             st.success("✅ 시스템 연동 완료")
             
