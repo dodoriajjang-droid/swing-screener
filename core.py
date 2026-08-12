@@ -61,9 +61,23 @@ def bootstrap():
 
 /* 한글 가독성 — 시스템에 있는 한글 폰트를 우선 잡는다.
    (웹폰트를 추가로 받지 않아 첫 화면이 늦어지지 않는다) */
-html, body, [class*="st-"], .stMarkdown, button, input, select, textarea {
+html, body, .stMarkdown, .stMarkdown *, button, input, select, textarea,
+[data-testid="stWidgetLabel"], [data-testid="stMetricLabel"],
+[data-testid="stCaptionContainer"], [data-testid="stExpander"] summary {
   font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
                "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+}
+
+/* ⚠️ 아이콘에는 위 폰트를 적용하면 안 된다.
+   Streamlit 의 접기 화살표 등은 'Material Symbols' 리거처 — 아이콘 '이름'을
+   글자로 써 두고 아이콘 폰트가 그림으로 바꿔주는 방식이다. 폰트를 덮어쓰면
+   'keyboard_arrow_right' 라는 글자가 그대로 보인다.
+   (처음에 [class*="st-"] 로 싹 지정했다가 실제로 이 증상이 났다 — 2026-08-12 수정) */
+[data-testid="stIconMaterial"], .material-icons, .material-symbols-rounded,
+[class*="material-symbols"], [class*="material-icons"],
+[data-testid="stExpander"] summary svg, [data-testid="stExpander"] summary span[class*="icon"] {
+  font-family: 'Material Symbols Rounded', 'Material Symbols Outlined',
+               'Material Icons', sans-serif !important;
 }
 
 /* 숫자는 자리를 맞춰 세로로 읽히게 — 표·지표에서 특히 중요 */
