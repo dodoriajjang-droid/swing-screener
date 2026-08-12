@@ -1242,9 +1242,26 @@ def render_watchlist_signals():
         st.info("⭐ '내 관심종목' 탭에서 종목을 추가하면, 여기서 손절·익절 도달 여부를 자동으로 감시합니다.")
         return
     # level: 0 손절위험 / 1 익절도달 / 2 홀딩 / 3 조회불가
+    # [속도개선] 관심종목을 하나씩 순차 조회하던 것을 병렬로 바꿨다.
+    #   analyze_technical_pattern 은 종목당 시세·수급·펀더멘털을 모두 받아와 수 초가 걸려,
+    #   10종목이면 홈 화면 마지막에서 30초 넘게 멈춰 있었다.
+    #   ex.map 은 입력 순서를 유지하므로 기존 정렬 동작은 그대로다.
+    def _wl_one(item):
+        try:
+            return item, analyze_technical_pattern(item["종목명"], item["티커"])
+        except Exception as e:
+            _diag_note("render_watchlist_signals", e, detail=str(item.get("종목명", "")))
+            return item, None
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as _ex:
+            _pairs = list(_ex.map(_wl_one, wl))
+    except Exception as e:
+        _diag_note("render_watchlist_signals", e)
+        _pairs = [(it, None) for it in wl]
+
     alerts = []
-    for item in wl:
-        res = analyze_technical_pattern(item["종목명"], item["티커"])
+    for item, res in _pairs:
         if not res:
             alerts.append((3, item["종목명"], "데이터 조회 지연"))
             continue
@@ -1291,19 +1308,31 @@ def render_multi_theme_dataframe(df: pd.DataFrame, api_key: str):
         progress_text = "AI가 종목별 세부 업종/테마를 스캐닝 중입니다..."
         progress_bar = st.progress(0, text=progress_text)
         
-        theme_lists = []
-        total_rows = len(display_df)
-        
-        for i, row in display_df.iterrows():
-            stock_name = row['종목명']
-            themes = get_granular_themes(stock_name, api_key)
-            theme_lists.append(themes)
-            
-            time.sleep(0.5) 
-            
-            percent_complete = int(((i + 1) / total_rows) * 100)
-            progress_bar.progress(percent_complete, text=f"{progress_text} ({stock_name} 완료)")
-            
+        # [속도개선] 행마다 AI를 순차 호출하고 0.5초씩 쉬던 것을 병렬 호출로 교체.
+        #   20행이면 대기만 10초 + 순차 호출 시간이 더해져 1분을 넘기기도 했다.
+        #   get_granular_themes 는 24시간 캐시라 같은 종목은 다시 호출되지 않는다.
+        #   워커를 4개로 묶은 건 Gemini 무료 등급의 분당 요청 한도를 넘기지 않기 위해서다.
+        # [버그수정] 진행률을 DataFrame 인덱스(i)로 계산해, 인덱스가 행 개수보다 크면
+        #   100을 넘겨 st.progress 가 예외를 던졌다. 완료 개수를 세는 방식으로 바꿨다.
+        _names = display_df['종목명'].astype(str).tolist()
+        total_rows = max(1, len(_names))
+        theme_lists = [[] for _ in _names]
+        _done = 0
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as _ex:
+                _futs = {_ex.submit(get_granular_themes, n, api_key): i for i, n in enumerate(_names)}
+                for _fut in concurrent.futures.as_completed(_futs):
+                    _i = _futs[_fut]
+                    try:
+                        theme_lists[_i] = _fut.result()
+                    except Exception as _dg_e:
+                        _diag_note("render_multi_theme_dataframe", _dg_e, detail=_names[_i])
+                    _done += 1
+                    progress_bar.progress(min(100, int(_done / total_rows * 100)),
+                                          text=f"{progress_text} ({_done}/{len(_names)})")
+        except Exception as _dg_e:
+            _diag_note("render_multi_theme_dataframe", _dg_e)
+
         display_df['업종/테마'] = theme_lists
         progress_bar.empty()
         

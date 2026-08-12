@@ -42,8 +42,10 @@ def render(ctx):
     #   섹션을 그리면서 하나씩 순차 호출하면 실측 21.3초가 걸렸다.
     #   먼저 병렬로 캐시를 데워두면 10.2초로 줄고, 이후 각 섹션은 캐시 적중이라 즉시 그려진다.
     #   (캐시가 이미 살아 있으면 이 호출 자체가 0초에 가깝다)
+    #   관심종목이 있으면 마지막 '관심종목 신호' 섹션이 종목 마스터(15초)를 필요로 하므로
+    #   그것까지 같이 데워 화면 끝에서 따로 기다리지 않게 한다.
     with st.spinner("시장 데이터 수집 중... (캐시가 비어 있을 때만 오래 걸립니다)"):
-        prefetch_home_data()
+        prefetch_home_data(include_krx=bool(st.session_state.get("watchlist")))
 
     macro_data = get_macro_indicators()
     fg_data = get_fear_and_greed()

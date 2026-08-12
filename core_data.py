@@ -1482,8 +1482,12 @@ def ensure_us_gainers():
     return df
 
 
-def prefetch_home_data(max_workers=8):
+def prefetch_home_data(max_workers=8, include_krx=False):
     """홈 대시보드가 쓰는 수집 함수들을 미리 병렬 실행해 캐시를 데운다.
+
+    include_krx: 관심종목 신호 섹션이 쓰는 get_krx_stocks(실측 15초)까지 함께 데운다.
+                 관심종목이 없으면 그 섹션이 아무것도 조회하지 않으므로 기본은 끈다.
+                 켜면 화면 마지막에서 15초를 따로 기다리는 대신 앞의 수집과 겹쳐 처리된다.
 
     홈은 섹션을 위에서 아래로 그리면서 데이터 함수를 하나씩 순차 호출한다.
     각 함수는 서로 의존하지 않는 별개의 네트워크 요청이라 기다릴 이유가 없다.
@@ -1507,6 +1511,8 @@ def prefetch_home_data(max_workers=8):
         ("get_index_spark_KOSPI", lambda: get_index_spark("KOSPI", 30)),
         ("get_index_spark_KOSDAQ", lambda: get_index_spark("KOSDAQ", 30)),
     ]
+    if include_krx:
+        jobs.append(("get_krx_stocks", get_krx_stocks))
 
     def _run(job):
         name, fn = job
