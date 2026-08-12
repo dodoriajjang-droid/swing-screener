@@ -20,6 +20,14 @@ env/
 .cache/
 .ipynb_checkpoints/
 
+# 로컬 백업 (같은 내용이 git 이력에 이미 있어 저장소에 또 담지 않는다)
+backup/
+
+# 사용자 상태 파일 (개인 데이터 — 관심종목·재료일정·발굴기 이력)
+watchlist.json
+catalysts.json
+finder_history.json
+
 # 에디터 / OS
 .vscode/
 .idea/

@@ -24,28 +24,18 @@ from core_render import *
 
 
 # =====================================================================
-# 전역 부트스트랩 — import 시 1회 실행 (분리 전 app.py 상단에서 하던 일)
+# 전역 부트스트랩 — app.py 가 **매 실행마다** 호출한다.
+#
+# ⚠️ 모듈 최상위에 두면 안 된다.
+#    파이썬은 모듈을 프로세스당 한 번만 실행하지만, st.session_state 는
+#    접속(세션)마다 비어 있고 CSS 도 실행마다 다시 주입해야 한다.
+#    최상위에 두면 '서버가 뜬 뒤 첫 접속'에만 적용되고, 그 뒤 접속한 사람은
+#    세션 키가 없어 AttributeError 로 페이지가 죽는다.
+#    (분할 직후 배포판에서 gainers_df 로 실제 발생한 문제 — 2026-08-12 수정)
 # =====================================================================
-# -*- coding: utf-8 -*-
-"""
-📚 Jaemini PRO 코어 라이브러리
-=====================================================================
-app.py 가 13,000줄을 넘어가면서 "무엇이 바뀌었는지" 를 커밋 로그로도, 눈으로도
-추적할 수 없게 되어 분리했다. 이 파일은 **데이터 수집·분석·점수·렌더 함수**와
-앱 전역 설정(페이지 설정·CSS·세션 초기화)을 담는다.
-
-  core.py   ← 함수 라이브러리 + 전역 설정   (이 파일)
-  app.py    ← 사이드바 + 페이지 라우팅      (진입점)
-  views/    ← 메뉴별 페이지                 (2단계 분할)
-
-app.py 는 `from core import *` 로 이 파일의 모든 이름을 그대로 승계한다.
-따라서 기존 코드의 호출 관계는 하나도 바뀌지 않는다.
-
-주의: 이 파일을 import 하는 즉시 st.set_page_config() 등 전역 설정이 실행된다.
-      (분리 전 app.py 최상단에서 실행되던 것과 동일한 순서)
-"""
-
-st.markdown("""
+def bootstrap():
+    """CSS 주입 + 세션 상태 초기화. 실행(rerun)마다 호출해야 한다."""
+    st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 .stMetricValue, .stMetricDelta, table, .stDataFrame { font-family: 'JetBrains Mono', monospace !important; }
@@ -100,37 +90,38 @@ th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !i
 </style>
 """, unsafe_allow_html=True)
 
-# 세션 상태 초기화
-for key in ['seen_links', 'seen_titles', 'news_data']:
-    if key not in st.session_state: st.session_state[key] = set() if 'seen' in key else []
-if 'watchlist' not in st.session_state: st.session_state.watchlist = load_watchlist()
-if 'quick_analyze_news' not in st.session_state: st.session_state.quick_analyze_news = None
-if 'scan_results' not in st.session_state: st.session_state.scan_results = None
-if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
-if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요!\n여의도 퀀트 비서입니다. 오늘 시장 매크로 상황이나 투자 전략에 대해 무엇이든 물어보세요."}]
+    # 세션 상태 초기화
+    _now = datetime.now()      # 모듈 로드 시각이 아니라 '이번 실행' 시각을 쓴다
+    for key in ['seen_links', 'seen_titles', 'news_data']:
+        if key not in st.session_state: st.session_state[key] = set() if 'seen' in key else []
+    if 'watchlist' not in st.session_state: st.session_state.watchlist = load_watchlist()
+    if 'quick_analyze_news' not in st.session_state: st.session_state.quick_analyze_news = None
+    if 'scan_results' not in st.session_state: st.session_state.scan_results = None
+    if 'value_scan_results' not in st.session_state: st.session_state.value_scan_results = None
+    if 'v4_chat_history' not in st.session_state: st.session_state.v4_chat_history = [{"role": "assistant", "content": "안녕하세요!\n여의도 퀀트 비서입니다. 오늘 시장 매크로 상황이나 투자 전략에 대해 무엇이든 물어보세요."}]
 
-if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
-if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
-if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input = ""
-if 'deep_tech_brief' not in st.session_state: st.session_state.deep_tech_brief = None
+    if 'deep_tech_query' not in st.session_state: st.session_state.deep_tech_query = None
+    if 'deep_tech_results' not in st.session_state: st.session_state.deep_tech_results = None
+    if 'deep_tech_input' not in st.session_state: st.session_state.deep_tech_input = ""
+    if 'deep_tech_brief' not in st.session_state: st.session_state.deep_tech_brief = None
 
-# [추가] 국민성장펀드 스캐너 상태
-if 'gf_sector_query' not in st.session_state: st.session_state.gf_sector_query = None
-if 'gf_results' not in st.session_state: st.session_state.gf_results = None
-if 'smart_cal_year' not in st.session_state: st.session_state.smart_cal_year = now.year
-if 'smart_cal_month' not in st.session_state: st.session_state.smart_cal_month = now.month
+    # [추가] 국민성장펀드 스캐너 상태
+    if 'gf_sector_query' not in st.session_state: st.session_state.gf_sector_query = None
+    if 'gf_results' not in st.session_state: st.session_state.gf_results = None
+    if 'smart_cal_year' not in st.session_state: st.session_state.smart_cal_year = _now.year
+    if 'smart_cal_month' not in st.session_state: st.session_state.smart_cal_month = _now.month
 
-if 'dcf_target_ticker' not in st.session_state: st.session_state.dcf_target_ticker = "AAPL"
-if 'dcf_target_price' not in st.session_state: st.session_state.dcf_target_price = 150.0
-if 'dcf_target_fcf' not in st.session_state: st.session_state.dcf_target_fcf = 1000.0
-if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shares = 100.0
+    if 'dcf_target_ticker' not in st.session_state: st.session_state.dcf_target_ticker = "AAPL"
+    if 'dcf_target_price' not in st.session_state: st.session_state.dcf_target_price = 150.0
+    if 'dcf_target_fcf' not in st.session_state: st.session_state.dcf_target_fcf = 1000.0
+    if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shares = 100.0
 
-
-if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state.gainers_df.columns:
-    df, ex_rate, fetch_time = get_us_top_gainers()
-    st.session_state.gainers_df = df
-    st.session_state.ex_rate = ex_rate
-    st.session_state.us_fetch_time = fetch_time
+    # 미국 급등주 스냅샷 — 세션마다 한 번씩 채운다(홈 대시보드가 바로 참조한다)
+    if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state.gainers_df.columns:
+        df, ex_rate, fetch_time = get_us_top_gainers()
+        st.session_state.gainers_df = df
+        st.session_state.ex_rate = ex_rate
+        st.session_state.us_fetch_time = fetch_time
 
 
 # =====================================================================
@@ -138,6 +129,7 @@ if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state
 #   조건부 바인딩(PyPDF2 등)이 있어 실제 존재하는 이름만 내보낸다.
 # =====================================================================
 _EXPORTED = [
+    "bootstrap",          # 매 실행마다 app.py 가 호출하는 부트스트랩
     "AUTOREFRESH_MS",
     "BeautifulSoup",
     "FINDER_HISTORY_FILE",

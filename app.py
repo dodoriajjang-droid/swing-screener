@@ -4,9 +4,19 @@
 
 함수 라이브러리는 core.py 에 있다. `from core import *` 로 전부 승계하므로
 아래 라우팅 코드는 분리 전과 동일한 이름들을 그대로 쓴다.
+
+이 파일은 Streamlit 이 **매 실행(rerun)마다** 처음부터 다시 돌린다.
+반면 core 는 모듈이라 프로세스당 한 번만 실행된다. 그래서 실행마다 필요한 일
+(페이지 설정·CSS·세션 초기화)은 반드시 여기서 호출한다.
 """
-from core import *      # 데이터·분석·점수·렌더 함수 + 전역 설정 (import 시 페이지 설정 실행)
+# set_page_config 는 그 실행의 첫 st 명령이어야 하므로 import 보다 먼저 부른다.
+import streamlit as st
+st.set_page_config(page_title="Jaemini PRO 터미널 v7.0", layout="wide", page_icon="📈")
+
+from core import *      # 데이터·분석·점수·렌더 함수 (프로세스당 1회 로드)
 import core             # 모듈 자체 참조가 필요할 때
+
+bootstrap()             # CSS 주입 + 세션 상태 초기화 — 매 실행마다 필요
 
 # ==========================================
 # 4. 사이드바 메뉴 

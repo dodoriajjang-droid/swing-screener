@@ -1,12 +1,16 @@
-# Jaemini PRO — Nomura dark research theme
-# 이 파일을 app.py 와 같은 폴더의 `.streamlit/config.toml` 경로에 두세요.
-# (st.dataframe 그리드, 셀렉트박스 드롭다운, 토글 색 등 CSS가 닿지 않는
-#  내부 위젯 색상은 이 테마 설정이 담당합니다)
+# Jaemini PRO — 라이트(흰 배경) 테마
+#
+# 배경
+#   이 파일은 원래 `confog.toml` 이라는 오타 파일명이라 Streamlit 이 읽지 못했고,
+#   앱은 줄곧 Streamlit 기본 라이트 테마(흰 배경)로 동작했다.
+#   2026-08-12 에 파일명을 고치자 안에 들어 있던 다크 테마가 처음으로 적용돼
+#   화면이 검게 바뀌었고, 원래 쓰던 흰 배경으로 되돌린 것이 아래 설정이다.
+#
+#   base 를 명시해 두면 보는 사람의 브라우저/시스템이 다크 모드여도 흰 배경으로 고정된다.
+#   (설정 파일이 아예 없으면 뷰어 설정에 따라 어둡게 보일 수 있다)
+#
+#   다크 테마로 돌리고 싶으면 git 이력에 원본 팔레트가 남아 있다:
+#     git show a7d755e:.streamlit/confog.toml
 
 [theme]
-base = "dark"
-primaryColor = "#00E676"            # 브랜드 그린 (선택/포커스/토글)
-backgroundColor = "#0A0A0A"         # 페이지 — 피치 블랙
-secondaryBackgroundColor = "#141414" # 입력창·데이터프레임 헤더
-textColor = "#E8E8E8"
-font = "monospace"
+base = "light"
