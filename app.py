@@ -63,65 +63,33 @@ with st.sidebar:
         height=92,
     )
 
-    menu_options = [
-        "📂 [ 홈 & 자산 관리 ]",
-        " ┣ 🎛️ 홈: 종합 대시보드",
-        " ┣ 💼 내 계좌 & 포트폴리오 진단",
-        " ┗ ⭐ 내 관심종목 모니터링",
-        " ", 
-        "📂 [ 퀀트 스캐너 & 종목 발굴 ]",
-        " ┣ 🔬 개별 기업 정밀 진단 (AI 비전)",
-        " ┣ 🧭 AI 통합 투자 발굴기 (테스트)",
-        " ┣ 🚀 단기 스윙 퀀트 스캐너",
-        " ┣ 💎 장기 우량주 & 가치주 발굴",
-        " ┣ 📉 낙폭과대 스캐너 (고점대비 -30%↓)",
-        " ┣ 🏛️ 국민연금 5% 대량보유 픽",
-        " ┣ ⚡ 메가트렌드 & 테마 대장주",
-        " ┣ 🇰🇷 국민성장펀드 12대 산업 수혜주",
-        " ┗ 📋 코스피·코스닥 종목 리스트",
-        "  ", 
-        "📂 [ 시장 흐름 & 매크로 ]",
-        " ┣ 🌍 글로벌 매크로 & AI 분석 (v6.0)",
-        " ┣ 🗺️ 시장 주도주 자금 히트맵",
-        " ┣ 🕸️ 실시간 섹터 순환매 추적",
-        " ┣ 🔥 지금 뜨는 섹터 (국장·미장)",
-        " ┣ 💰 국장 수급 분석 (외국인·기관·개인)",
-        " ┣ 📅 핵심 증시 일정 & IPO 달력",
-        " ┗ 🔮 폴리마켓 예측시장 (금리·경제·정치)",
-        "   ", 
-        "📂 [ 트레이딩 & 시장 경보 ]",
-        " ┣ 🗞️ 뉴스 이슈 TOP & 영향 분석",
-        " ┣ 🚨 통합 경보 센터 (뉴스·차트·일정)",
-        " ┣ 🔥 간밤의 미국 급등주 & 수혜주",
-        " ┣ 🚨 당일 상/하한가 분석",
-        " ┣ 🚦 거래량 급증 & 시장 경보",
-        " ┗ 📰 실시간 특징주 속보 & 리포트",
-        "    ", 
-        "📂 [ 심층 분석 & 도구 ]",
-        " ┣ 👴 노후 준비 ETF 시뮬레이터 (v2.0)",
-        " ┣ 📊 국내외 핵심 ETF 분석",
-        " ┣ 💰 고배당주 파이프라인 (TOP 300)",
-        " ┣ 🎯 증권사 목표가 컨센서스",
-        " ┣ ⚖️ 적정 주가 계산기 (버핏 모델)",
-        " ┗ 👁️ 차트 이미지 AI 비전 분석",
-    ]
+    # =================================================================
+    # 메뉴 — 카테고리 선택 → 그 안의 메뉴 선택 (2단)
+    #
+    # 이전에는 라디오 하나에 40개 선택지를 넣고, 그중 카테고리 헤더 5개와
+    # 빈 구분선 4개는 눌러도 페이지가 열리지 않고 경고만 띄웠다.
+    # 라디오는 '고르면 그게 선택된다'는 약속을 가진 컨트롤이라, 눌렀는데
+    # 아무 일도 없으면 쓰는 사람이 자기가 잘못 눌렀다고 느낀다.
+    # 지금은 선택지가 전부 실제로 이동하는 항목이고, 한 번에 보이는 개수도
+    # 31개에서 카테고리별 3~9개로 줄었다.
+    #
+    # 메뉴 목록의 원천은 core_constants.MENU_TREE 한 곳이다.
+    # =================================================================
+    if "nav_category" not in st.session_state:
+        st.session_state.nav_category = MENU_CATEGORIES[0]
 
-    if "main_menu_radio" not in st.session_state:
-        st.session_state.main_menu_radio = " ┣ 🎛️ 홈: 종합 대시보드"
+    st.radio("분류", MENU_CATEGORIES, key="nav_category", label_visibility="collapsed")
+    _cat = st.session_state.nav_category
+    _menus = MENUS_BY_CATEGORY[_cat]
 
-    selected_display_menu = st.radio("📌 메뉴 이동", menu_options, key="main_menu_radio", label_visibility="collapsed")
+    # 카테고리마다 마지막에 보던 메뉴를 각자 기억한다(키가 카테고리별로 다름)
+    _menu_key = f"nav_menu__{_cat}"
+    if _menu_key not in st.session_state:
+        st.session_state[_menu_key] = _menus[0]
 
-    if selected_display_menu.startswith(" ┣ ") or selected_display_menu.startswith(" ┗ "):
-        pure_menu_name = selected_display_menu[3:] 
-    elif selected_display_menu.strip() == "":
-        st.sidebar.warning("☝️ 구분선입니다. 위아래의 실제 메뉴를 선택해주세요.")
-        pure_menu_name = "None"
-    else:
-        st.sidebar.info("☝️ [카테고리]를 누르셨습니다. 아래 하위 메뉴(┣, ┗)를 클릭해주세요.")
-        pure_menu_name = "None"
-        
-    selected_menu = pure_menu_name
-    clean_menu = pure_menu_name
+    st.caption(f"**{_cat}** · {len(_menus)}개")
+    selected_menu = st.radio("메뉴", _menus, key=_menu_key, label_visibility="collapsed")
+    clean_menu = selected_menu
 
     # [추가] 메뉴(페이지) 전환 감지 — 메뉴를 '새로 눌렀을 때'만 1회 동작시키기 위함.
     #  (자동 새로고침/챗봇 입력 등 일반적인 rerun 때는 False 가 되어 화면이 튀지 않음)
@@ -194,40 +162,9 @@ if selected_menu in LIVE_REFRESH_PAGES:
 #   · 각 페이지는 views/ 아래 개별 파일 (분리 전에는 전부 app.py 안에 있었다)
 #   · 지연 import 라서 안 쓰는 페이지는 아예 로드되지 않는다 (초기 구동 단축)
 # =====================================================================
-VIEW_MODULES = {
-    '🎛️ 홈: 종합 대시보드': "views.home_dashboard",
-    '💼 내 계좌 & 포트폴리오 진단': "views.portfolio",
-    '⭐ 내 관심종목 모니터링': "views.watchlist",
-    '🌍 글로벌 매크로 & AI 분석 (v6.0)': "views.macro",
-    '🗺️ 시장 주도주 자금 히트맵': "views.money_heatmap",
-    '🕸️ 실시간 섹터 순환매 추적': "views.sector_rotation",
-    '📅 핵심 증시 일정 & IPO 달력': "views.calendar_ipo",
-    '📋 코스피·코스닥 종목 리스트': "views.stock_list",
-    '🚀 단기 스윙 퀀트 스캐너': "views.swing_scanner",
-    '📉 낙폭과대 스캐너 (고점대비 -30%↓)': "views.drawdown_scanner",
-    '🧭 AI 통합 투자 발굴기 (테스트)': "views.ai_finder",
-    '🏛️ 국민연금 5% 대량보유 픽': "views.nps_picks",
-    '💎 장기 우량주 & 가치주 발굴': "views.value_finder",
-    '⚡ 메가트렌드 & 테마 대장주': "views.theme_leaders",
-    '🇰🇷 국민성장펀드 12대 산업 수혜주': "views.growth_fund",
-    '🔥 간밤의 미국 급등주 & 수혜주': "views.us_overnight",
-    '🚨 당일 상/하한가 분석': "views.limit_moves",
-    '💰 국장 수급 분석 (외국인·기관·개인)': "views.investor_flows",
-    '🔥 지금 뜨는 섹터 (국장·미장)': "views.hot_sectors",
-    '🚦 거래량 급증 & 시장 경보': "views.volume_alerts",
-    '📰 실시간 특징주 속보 & 리포트': "views.news_flash",
-    '🔬 개별 기업 정밀 진단 (AI 비전)': "views.company_deep_dive",
-    '👁️ 차트 이미지 AI 비전 분석': "views.chart_vision",
-    '📊 국내외 핵심 ETF 분석': "views.etf_analysis",
-    '💰 고배당주 파이프라인 (TOP 300)': "views.dividend_pipeline",
-    '🎯 증권사 목표가 컨센서스': "views.consensus",
-    '⚖️ 적정 주가 계산기 (버핏 모델)': "views.fair_value",
-    '👴 노후 준비 ETF 시뮬레이터 (v2.0)': "views.retirement_sim",
-    '🔮 폴리마켓 예측시장 (금리·경제·정치)': "views.polymarket",
-    '🗞️ 뉴스 이슈 TOP & 영향 분석': "views.news_impact",
-    '🚨 통합 경보 센터 (뉴스·차트·일정)': "views.alert_center_page",
-}
-
+# 메뉴 → 페이지 모듈 매핑은 core_constants.MENU_TREE 에서 파생된다(VIEW_MODULES).
+# 예전에는 이 목록이 사이드바 메뉴 문자열과 따로 관리돼, 라벨을 고치면
+# 라우팅이 조용히 끊겨 빈 화면이 떴다.
 _ctx = {
     '_nav_changed': _nav_changed,
     'api_key_input': api_key_input,

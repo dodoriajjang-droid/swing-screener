@@ -10,7 +10,8 @@ def render(ctx):
     _nav_changed = ctx['_nav_changed']
     api_key_input = ctx['api_key_input']
 
-    st.subheader("💰 고배당주 파이프라인 (TOP 300)")
+    st.subheader("💰 고배당주 파이프라인")
+    st.caption("거래대금 상위 300종목을 대상으로 배당수익률을 계산합니다.")
     st.caption("🗓️ **배당주기**는 최근 12개월간 '실제 배당 지급 내역'으로 추정합니다 — 월·분기·반기·연배당. "
                "괄호 안 숫자는 배당이 들어온 '월'입니다 (예: 분기배당(3·6·9·12월)). "
                "한국거래소(pykrx) 공식데이터로 잡힌 종목은 지급일 정보가 없어 통상값인 '연 1회(추정)'로 표기되며, "

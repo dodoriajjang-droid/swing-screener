@@ -10,7 +10,7 @@ def render(ctx):
     _nav_changed = ctx['_nav_changed']
     api_key_input = ctx['api_key_input']
 
-    st.markdown("## 🌍 글로벌 매크로 & AI 분석 (v6.0)")
+    st.markdown("## 🌍 글로벌 매크로 & AI 분석")
     st.write("기관 프랍 트레이더 수준의 거시경제 분석, AI 어닝 리포트 해독, 포트폴리오 최적화 등 하이엔드 기능을 제공합니다.")
     v6_t1, v6_t2, v6_t3, v6_t4, v6_t5 = st.tabs(["🌍 1. 글로벌 매크로 관제소", "💼 2. 스마트머니 & 밸류업 추적", "🧠 3. AI PDF 리포트 해독", "🏆 4. 마코위츠 포트폴리오 최적화", "⚡ 5. 체결강도 & 틱(Tick) 분석"])
     

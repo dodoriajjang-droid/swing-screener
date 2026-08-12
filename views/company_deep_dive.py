@@ -10,8 +10,8 @@ def render(ctx):
     _nav_changed = ctx['_nav_changed']
     api_key_input = ctx['api_key_input']
 
-    st.markdown("## 🔬 개별 기업 정밀 진단 (AI 비전)")
-    st.caption("👁️ 차트 이미지(캡처) AI 비전 분석은 사이드바 **[심층 분석 & 도구] → 👁️ 차트 이미지 AI 비전 분석** 메뉴로 이동했습니다.")
+    st.markdown("## 🔬 개별 기업 정밀 진단")
+    st.caption("👁️ 차트 이미지(캡처) AI 비전 분석은 사이드바 **[분석 도구] → 👁️ 차트 이미지 AI 비전 분석** 메뉴에 있습니다.")
     market_choice = st.radio("시장 선택", ["🇰🇷 국내 주식", "🇺🇸 미국 주식"], horizontal=True)
     if market_choice == "🇰🇷 국내 주식":
         krx_df = get_krx_stocks()

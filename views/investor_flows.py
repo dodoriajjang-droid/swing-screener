@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""💰 국장 수급 분석 (외국인·기관·개인)
+"""🐋 국장 수급 분석 (외국인·기관·개인)
 
 app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에서 가져온다.
 """
@@ -10,7 +10,7 @@ def render(ctx):
     _nav_changed = ctx['_nav_changed']
     api_key_input = ctx['api_key_input']
 
-    st.markdown("## 💰 국장 수급 분석 (외국인·기관·개인)")
+    st.markdown("## 🐋 국장 수급 분석 (외국인·기관·개인)")
     st.caption("최근 거래일 기준 · 거래대금 상위 종목 스캔 · 단위: 억원 · 🔴빨강=순매수/상승 · 🔵파랑=순매도/하락")
     with st.spinner("네이버 투자자별 순매수 데이터 수집 중... (첫 조회는 십수 초, 이후 30분 캐시)"):
         flows = get_kr_investor_flows()

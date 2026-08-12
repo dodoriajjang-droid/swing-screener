@@ -136,7 +136,7 @@ def render(ctx):
             render_trending_sectors(_sec_us, limit=5)
         else:
             st.caption("미장 섹터 데이터를 일시적으로 불러오지 못했어요.")
-    st.caption("전체 테마는 좌측 **‘🔥 지금 뜨는 섹터 (국장·미장)’** 메뉴에서 확인하세요.")
+    st.caption("전체 테마는 좌측 **‘🔥 지금 뜨는 섹터’** 메뉴에서 확인하세요.")
 
     st.divider()
 

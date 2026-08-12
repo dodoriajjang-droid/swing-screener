@@ -82,16 +82,72 @@ WATCHLIST_FILE = app_state.FILES["watchlist"]   # 하위 호환용 (경로 참�
 #        불필요한 rerun + 짧은 TTL 캐시 만료로 인한 재요청이 발생.
 #  변경: 아래 LIVE_REFRESH_PAGES 에 속한 페이지에서만 호출(실제 호출은 메인 로직에서 selected_menu 확정 후).
 AUTOREFRESH_MS = 300000  # 5분. 갱신 주기를 바꾸려면 이 값만 조정하면 된다.
-LIVE_REFRESH_PAGES = {
-    "🚨 통합 경보 센터 (뉴스·차트·일정)",
-    "🎛️ 홈: 종합 대시보드",
-    "⭐ 내 관심종목 모니터링",
-    "🗺️ 시장 주도주 자금 히트맵",
-    "🕸️ 실시간 섹터 순환매 추적",
-    "🚨 당일 상/하한가 분석",
-    "🚦 거래량 급증 & 시장 경보",
-    "📰 실시간 특징주 속보 & 리포트",
-}
+
+
+# =====================================================================
+# 메뉴 구조 — 단일 원천
+# =====================================================================
+# (카테고리, [(메뉴 라벨, views/ 모듈명, 5분 자동갱신 여부)])
+#
+# 사이드바 표시·페이지 라우팅·자동갱신 대상이 전부 이 하나에서 파생된다.
+# 예전에는 같은 문자열이 app.py 의 menu_options / VIEW_MODULES /
+# LIVE_REFRESH_PAGES 세 곳에 흩어져 있어서, 메뉴 이름을 바꾸면 라우팅이
+# 조용히 끊기거나(빈 화면) 자동갱신이 사라졌다.
+#
+# 라벨 규칙
+#   - 버전·상태 표기(v6.0, 테스트)는 넣지 않는다. 쓰는 사람에게 의미가 없고
+#     '(테스트)'는 기능을 못 믿게 만든다.
+#   - 이모지는 메뉴마다 겹치지 않게. 아이콘이 같으면 아이콘으로 찾을 수 없다.
+#   - 내부 구현(TOP 300)이나 조건(-30%↓)은 라벨이 아니라 화면 안에서 설명한다.
+MENU_TREE = [
+    ("홈 · 내 자산", [
+        ("🎛️ 홈: 종합 대시보드",            "home_dashboard",    True),
+        ("💼 내 계좌 & 포트폴리오 진단",      "portfolio",         False),
+        ("⭐ 내 관심종목 모니터링",           "watchlist",         True),
+    ]),
+    ("종목 발굴", [
+        ("🔬 개별 기업 정밀 진단",           "company_deep_dive", False),
+        ("🧭 AI 종목 발굴",                 "ai_finder",         False),
+        ("🚀 단기 스윙 퀀트 스캐너",          "swing_scanner",     False),
+        ("💎 장기 우량주 & 가치주 발굴",      "value_finder",      False),
+        ("📉 낙폭과대 스캐너",               "drawdown_scanner",  False),
+        ("🏛️ 국민연금 5% 대량보유 픽",       "nps_picks",         False),
+        ("⚡ 메가트렌드 & 테마 대장주",       "theme_leaders",     False),
+        ("🇰🇷 국민성장펀드 12대 산업 수혜주",  "growth_fund",       False),
+        ("📋 코스피·코스닥 종목 리스트",      "stock_list",        False),
+    ]),
+    ("시장 흐름", [
+        ("🌍 글로벌 매크로",                "macro",             False),
+        ("🗺️ 시장 주도주 자금 히트맵",       "money_heatmap",     True),
+        ("🕸️ 실시간 섹터 순환매 추적",       "sector_rotation",   True),
+        ("🔥 지금 뜨는 섹터",               "hot_sectors",       False),
+        ("🐋 국장 수급 분석",               "investor_flows",    False),
+        ("📅 핵심 증시 일정 & IPO 달력",     "calendar_ipo",      False),
+        ("🔮 폴리마켓 예측시장",             "polymarket",        False),
+    ]),
+    ("뉴스 · 경보", [
+        ("🗞️ 뉴스 이슈 TOP & 영향 분석",     "news_impact",       False),
+        ("🚨 통합 경보 센터",               "alert_center_page", True),
+        ("🌅 간밤의 미국 급등주 & 수혜주",    "us_overnight",      False),
+        ("🔺 당일 상/하한가 분석",           "limit_moves",       True),
+        ("🚦 거래량 급증 & 시장 경보",        "volume_alerts",     True),
+        ("📰 실시간 특징주 속보 & 리포트",     "news_flash",        True),
+    ]),
+    ("분석 도구", [
+        ("👴 노후 준비 시뮬레이터",          "retirement_sim",    False),
+        ("📊 국내외 핵심 ETF 분석",          "etf_analysis",      False),
+        ("💰 고배당주",                     "dividend_pipeline", False),
+        ("🎯 증권사 목표가 컨센서스",         "consensus",         False),
+        ("⚖️ 적정 주가 계산기 (버핏 모델)",   "fair_value",        False),
+        ("👁️ 차트 이미지 AI 비전 분석",      "chart_vision",      False),
+    ]),
+]
+
+MENU_CATEGORIES = [c for c, _ in MENU_TREE]
+MENUS_BY_CATEGORY = {c: [label for label, _, _ in items] for c, items in MENU_TREE}
+VIEW_MODULES = {label: f"views.{mod}" for _, items in MENU_TREE for label, mod, _ in items}
+LIVE_REFRESH_PAGES = {label for _, items in MENU_TREE for label, _, live in items if live}
+CATEGORY_OF_MENU = {label: c for c, items in MENU_TREE for label, _, _ in items}
 
 # ⚠️ `now = datetime.now()` 를 여기 두면 안 된다.
 #    모듈은 프로세스당 한 번만 실행되므로 그 값은 '서버가 뜬 시각'에 얼어붙는다.
@@ -364,6 +420,11 @@ _EXPORTED = [
     "HAS_PYPDF",
     "KR_THEME_MAP",
     "LIVE_REFRESH_PAGES",
+    "MENU_TREE",
+    "MENU_CATEGORIES",
+    "MENUS_BY_CATEGORY",
+    "VIEW_MODULES",
+    "CATEGORY_OF_MENU",
     "NAVER_API_HDRS",
     "NPS_STAKE_SOURCES",
     "PIL",

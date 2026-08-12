@@ -10,7 +10,7 @@ def render(ctx):
     _nav_changed = ctx['_nav_changed']
     api_key_input = ctx['api_key_input']
 
-    st.markdown("## 👴 노후 준비 ETF 시뮬레이터 (v2.0)")
+    st.markdown("## 👴 노후 준비 ETF 시뮬레이터")
     st.write("절세 계좌(연금저축/IRP/ISA) 활용법과 테마별 ETF 조합을 통해 은퇴 후 현금흐름을 설계합니다.")
 
     # --- 1. 절세 계좌 자동 배분 계산기 ---

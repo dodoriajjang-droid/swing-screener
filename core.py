@@ -130,6 +130,12 @@ _EXPORTED = [
     "bootstrap",          # 매 실행마다 app.py 가 호출하는 부트스트랩
     "ensure_us_gainers",  # 미국 급등주 스냅샷 지연 로딩
     "prefetch_home_data", # 홈 대시보드 데이터 병렬 프리페치
+    # 메뉴 구조 (core_constants.MENU_TREE 에서 파생) — 사이드바·라우팅이 쓴다
+    "MENU_TREE",
+    "MENU_CATEGORIES",
+    "MENUS_BY_CATEGORY",
+    "VIEW_MODULES",
+    "CATEGORY_OF_MENU",
     "AUTOREFRESH_MS",
     "BeautifulSoup",
     "FINDER_HISTORY_FILE",
