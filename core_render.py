@@ -2555,6 +2555,26 @@ def render_global_quant_button():
             _quant_assistant_body()
 
 
+def render_score_why(why, horizon=None, total=None):
+    """explain_score 결과를 접이식으로 표시. 값이 없으면 아무것도 그리지 않는다."""
+    if not why:
+        return
+    head = "이 점수의 근거"
+    if horizon and total is not None:
+        head = f"이 점수의 근거 — {horizon} {total}점"
+    with st.expander(f"❓ {head}", expanded=False):
+        for label, pts in why:
+            color = "#b3261e" if pts > 0 else "#1a4fa0"   # 국내 관행: 빨강=상승 요인
+            sign = "+" if pts > 0 else ""
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;padding:3px 0;"
+                f"border-bottom:1px solid #eef1f5;'><span>{label}</span>"
+                f"<b style='color:{color};font-variant-numeric:tabular-nums;'>{sign}{pts}</b></div>",
+                unsafe_allow_html=True)
+        st.caption("각 항목은 '그 요인이 없었다면 몇 점이었을까'를 되짚어 계산한 **근사치**입니다. "
+                   "점수는 단계마다 0~100으로 잘리기 때문에 합계가 총점과 정확히 같지는 않습니다. "
+                   "가중치는 `scoring_weights.py` 에 있고, **🧪 전략 백테스트**에서 검증할 수 있습니다.")
+
 # `from core_render import *` 로 넘어갈 이름 (언더스코어 포함, 자동 생성)
 _EXPORTED = [
     "_expert_chat_body",
@@ -2601,6 +2621,7 @@ _EXPORTED = [
     "render_overnight_banner",
     "render_overnight_tape",
     "render_regime_hero",
+    "render_score_why",
     "render_sentiment_strip",
     "render_single_stock_themes",
     "render_theme_leaders",

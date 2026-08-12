@@ -131,6 +131,9 @@ _EXPORTED = [
     "ensure_us_gainers",  # 미국 급등주 스냅샷 지연 로딩
     "prefetch_home_data", # 홈 대시보드 데이터 병렬 프리페치
     # 메뉴 구조 (core_constants.MENU_TREE 에서 파생) — 사이드바·라우팅이 쓴다
+    "EXPLAIN_GROUPS",
+    "explain_score",
+    "render_score_why",
     "MENU_TREE",
     "MENU_CATEGORIES",
     "MENUS_BY_CATEGORY",

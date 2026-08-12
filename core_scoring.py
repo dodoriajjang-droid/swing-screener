@@ -335,6 +335,82 @@ def macro_regime_notes(macro):
     return out
 
 
+# =====================================================================
+# 점수 근거 설명 — "이 점수는 어디서 왔나"
+# =====================================================================
+# 화면에는 '91.6점'이라는 숫자만 보이고, 그게 무엇 때문에 나온 값인지
+# 확인할 방법이 없었다. 가중치를 scoring_weights.py 로 분리해 둔 덕분에
+# 이제 역산할 수 있다: 한 묶음의 가중치를 0으로 만들고 다시 계산해,
+# 원래 점수와의 차이를 그 묶음의 기여도로 본다.
+#
+# 주의: 각 단계에서 0~100 으로 자르기(_clip) 때문에 기여도의 합이 총점과
+#       정확히 같지는 않다. 화면에서도 '근사치'라고 밝힌다.
+EXPLAIN_GROUPS = {
+    "추세·이평 배열": ["S_ALIGN_PERFECT", "S_ALIGN_GOLDEN", "S_ALIGN_DEAD",
+                  "M_ALIGN_PERFECT", "M_ALIGN_GOLDEN", "M_WEEKLY_UP",
+                  "L_TREND_OK", "L_TREND_BAD"],
+    "매수 타점": ["S_NEAR_ENTRY", "S_OVER_EXT", "S_BROKE"],
+    "거래량 급증": ["S_VOL_SPIKE"],
+    "수급(외인·기관)": ["S_FLOW_BOTH", "S_FLOW_ONE", "S_PENSION_STREAK", "M_FLOW"],
+    "RSI·모멘텀": ["S_RSI_SWEET", "S_RSI_OK", "S_RSI_HOT", "S_RSI_COLD",
+                "S_MOM3_CAP", "S_MOM3_NEG", "M_MOM_BOTH_UP", "M_MOM3_OVERHEAT", "M_MOM6_WEAK"],
+    "밸류(PER·PBR)": ["M_PER_OK", "M_PER_HIGH", "M_PBR_OK",
+                    "L_PER_DEEP", "L_PER_GOOD", "L_PER_FAIR", "L_PER_HIGH",
+                    "L_PBR_DEEP", "L_PBR_GOOD", "L_PBR_FAIR"],
+    "퀄리티(ROE·배당·부채)": ["M_ROE_OK", "L_ROE_HIGH", "L_ROE_OK", "L_DIV_HIGH",
+                        "L_DIV_OK", "L_DEBT_LOW", "L_DEBT_HIGH", "L_OFFHIGH"],
+    "주도 테마": ["S_THEME", "M_THEME", "L_THEME"],
+    "시장 국면": ["S_RISKON_MULT", "M_RISKON_MULT", "L_RISKON_MULT", "L_RISKOFF_MULT"],
+    "공매도·신용 리스크": ["R_SHORTBAL_HI_S", "R_SHORTBAL_HI_M", "R_SHORTBAL_HI_L",
+                    "R_SHORTBAL_MID_S", "R_SHORTBAL_MID_M", "R_SHORTBAL_MID_L",
+                    "R_SHORTVOL_HI_S", "R_SHORTVOL_HI_M", "R_SHORTVOL_MID_S",
+                    "R_SHORTVOL_MID_M", "R_SHORT_TREND_S", "R_SHORT_TREND_M",
+                    "R_CREDIT_HI_S", "R_CREDIT_HI_M", "R_CREDIT_HI_L",
+                    "R_CREDIT_MID_S", "R_CREDIT_MID_M"],
+    "뉴스 호·악재": ["N_SENT_S", "N_SENT_M", "N_SENT_L"],
+    "증권사 컨센서스": ["C_UPSIDE_BIG_S", "C_UPSIDE_BIG_M", "C_UPSIDE_BIG_L",
+                  "C_UPSIDE_MID_S", "C_UPSIDE_MID_M", "C_UPSIDE_MID_L",
+                  "C_UPSIDE_NEG_S", "C_UPSIDE_NEG_M", "C_UPSIDE_NEG_L",
+                  "C_REV_UP_S", "C_REV_UP_M", "C_REV_DOWN_S", "C_REV_DOWN_M", "C_REPORTS_M"],
+    "상대강도·신고가": ["X_RS_STRONG_S", "X_RS_STRONG_M", "X_RS_OK_S", "X_RS_WEAK_S",
+                  "X_RS_WEAK_M", "X_HIGH52_NEAR_S", "X_HIGH52_NEAR_M", "X_HIGH52_OK_M"],
+    "과열·유동성": ["X_MFI_IN_M", "X_MFI_HOT_S", "X_MFI_COLD_S", "X_GAP20_S", "X_VOL20_S",
+                "X_LIQ_BAD_S", "X_LIQ_BAD_M", "X_LIQ_BAD_L", "X_LIQ_THIN_S", "X_LIQ_THIN_M"],
+    "증자·희석": ["D_DILUTION_S", "D_DILUTION_M", "D_DILUTION_L"],
+    "매크로 섹터 틸트": ["T_TILT_S_MULT", "T_TILT_M_MULT", "T_TILT_L_MULT"],
+}
+
+
+def explain_score(tech, vm, mood, min_points=0.5, top_n=6, **kwargs):
+    """점수를 구성한 요인별 기여도를 큰 순서로 반환.
+
+    반환: [(요인 이름, 점수차), ...] — 선택된 기간(단기/중기/장기) 기준.
+    계산: 해당 요인의 가중치만 0으로 두고 다시 계산해, 원래 점수와의 차이를 본다.
+    """
+    try:
+        base = score_one(tech, vm, mood, **kwargs)
+    except Exception as e:
+        _diag_note("explain_score", e)
+        return []
+    horizon = base[1]
+    base_pt = base[0][horizon]
+
+    out = []
+    for label, keys in EXPLAIN_GROUPS.items():
+        try:
+            zeroed = make_weights({k: 0.0 for k in keys})
+            alt = score_one(tech, vm, mood, weights=zeroed, **kwargs)
+            delta = base_pt - alt[0][horizon]
+        except Exception as e:
+            _diag_note(f"explain_score[{label}]", e)
+            continue
+        if abs(delta) >= min_points:
+            out.append((label, round(delta, 1)))
+    out.sort(key=lambda x: -abs(x[1]))
+    return out[:top_n]
+
+
+
 def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
               sector_tilt=0.0, consensus=None, dilution=False, weights=None):
     """한 종목의 단기/중기/장기 적합도(0~100) 산출 + 자동 분류 + 사유.
@@ -826,6 +902,8 @@ _EXPORTED = [
     "macro_regime_notes",
     "macro_tilt_for",
     "match_sector_heat",
+    "EXPLAIN_GROUPS",
+    "explain_score",
     "score_one",
     "value_passes",
 ]

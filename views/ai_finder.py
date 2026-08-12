@@ -203,6 +203,10 @@ def render(ctx):
                     r["_theme"] = th_name
                     r["_risk"] = rmap.get(code)
                     r["_risk_flags"] = risk_flags
+                    # [신뢰] 점수의 근거를 숫자로 — 화면에서 '왜 이 점수인지' 펼쳐 볼 수 있게
+                    r["_why"] = explain_score(
+                        tech, vmap.get(code), mood, theme_hit=th, risk=rmap.get(code),
+                        sector_tilt=tilt_pts, consensus=cons)
                     r["_tilt"] = tilt_pts
                     r["_tilt_notes"] = tilt_notes
                     r["_consensus"] = cons
@@ -350,6 +354,11 @@ def render(ctx):
                             r["_top"] = top
                             r["_grade"] = grade
                             r["_reasons"] = reasons
+                            # 뉴스·희석까지 반영된 최종 점수의 근거로 갱신
+                            r["_why"] = explain_score(
+                                techs[c], vmap.get(c), mood, theme_hit=(th_name is not None),
+                                risk=rmap.get(c), news_sent=info.get("score"),
+                                sector_tilt=_tilt_pts, consensus=cmap.get(c), dilution=_dil)
 
                 st.session_state.finder_results = enriched
                 # [신규 종목 추적] 직전 검색에 없던 티커 = 이번 검색의 신규 진입
@@ -615,6 +624,7 @@ def render(ctx):
                     _prof = (" ｜ 📐 " + " · ".join(f"{_k} {_v:.0f}" for _k, _v in _sc3.items())) if _sc3 else ""
                     if r.get("_reasons") or _prof:
                         st.caption(("근거: " + " · ".join(r["_reasons"]) if r.get("_reasons") else "기간별 점수") + _prof)
+                    render_score_why(r.get("_why"), hz, f"{r['_top']:.0f}")
                     # 손익비(R:R) + 컨센서스 + 매크로 틸트 + 증자리스크 한 줄
                     _cparts = []
                     _rr = _finder_rr(r)
