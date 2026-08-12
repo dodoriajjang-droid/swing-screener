@@ -12,9 +12,9 @@ from core import *
 #   호재(긍정)·악재(부정)·중립으로 분기해 '영향 관계도'로 시각화.
 # ==========================================
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def panel(ctx):
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
     st.markdown("## 🗞️ 오늘의 뉴스 이슈 TOP & 영향 분석  "
                 "<span style='font-size:0.5em;color:#94a3b8;'>BETA</span>", unsafe_allow_html=True)

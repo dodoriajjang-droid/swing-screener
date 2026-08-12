@@ -6,11 +6,11 @@ app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에�
 from core import *
 
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def scan_panel(ctx):
+    """💎 장기 가치 — 위험 성향 → 세부 전략 → 멀티팩터 검증"""
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
-    st.markdown("## 💎 장기 우량주 & 가치주 발굴")
     st.caption("위험 성향(안전·중립·공격)을 고르고 세부 전략을 선택하면 → AI 후보 발굴 → 멀티팩터 검증(PER·PBR·배당·ROE·부채·성장·모멘텀) → 차트 타점까지 한 번에.")
 
     tier = st.radio("🎚️ 위험 성향", list(VALUE_STRATEGIES.keys()), horizontal=True)

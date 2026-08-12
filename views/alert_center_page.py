@@ -11,9 +11,9 @@ from core import *
 #   - jaemini_alert_center.py 의 함수에 기존 앱 함수들을 '주입'해서 렌더
 # ==========================================
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def panel(ctx):
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
     alert_center.render_alert_center({
         "analyze_technical_pattern": analyze_technical_pattern,

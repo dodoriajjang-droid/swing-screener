@@ -6,11 +6,10 @@ app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에�
 from core import *
 
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def panel(ctx):
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
-    st.subheader("🗺️ 시장 주도주 자금 히트맵")
     st.write("거래대금이 터진 종목들 중 기관 매수세가 동반된 종목을 파악합니다. (녹색: 상승 / 붉은색: 하락)")
     heatmap_limit = st.radio("🔥 히트맵 표시 종목 수 선택 (개)", [30, 50, 100], index=1, horizontal=True)
     

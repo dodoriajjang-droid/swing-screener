@@ -6,11 +6,11 @@ app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에�
 from core import *
 
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def scan_panel(ctx):
+    """📉 낙폭 반등 — 고점 대비 낙폭이 큰 종목 추출"""
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
-    st.markdown("## 📉 낙폭과대 스캐너")
     st.caption("고점 대비 크게 하락한 종목만 추려냅니다. 낙폭과대 반등(역추세) 후보 발굴용 — "
                "**'떨어진 데는 이유가 있을 수 있으니'** 펀더멘털·뉴스를 반드시 함께 확인하세요.")
 

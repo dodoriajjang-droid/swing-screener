@@ -6,11 +6,10 @@ app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에�
 from core import *
 
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def panel(ctx):
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
-    st.markdown("## 🔥 지금 뜨는 섹터")
     st.caption("대표 종목 평균 등락률 순 · 🔴빨강=상승 / 🔵파랑=하락")
 
     def _render_sector_market(market, spinner_msg):

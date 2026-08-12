@@ -111,9 +111,9 @@ MENU_TREE = [
         #   세 화면에서 세 번 검색해야 했다. 지금은 한 번 고르고 탭으로 바꿔 본다.
         ("🔬 종목 상세",                    "stock_detail",      False),
         ("🧭 AI 종목 발굴",                 "ai_finder",         False),
-        ("🚀 단기 스윙 퀀트 스캐너",          "swing_scanner",     False),
-        ("💎 장기 우량주 & 가치주 발굴",      "value_finder",      False),
-        ("📉 낙폭과대 스캐너",               "drawdown_scanner",  False),
+        # [통합] 단기 스윙 · 장기 가치 · 낙폭 반등 → 프리셋 세 개
+        #   셋 다 '조건으로 거르고 같은 결과 카드로 보여주는' 같은 일이었다.
+        ("🔎 종목 스크리너",                 "screener",          False),
         ("🏛️ 국민연금 5% 대량보유 픽",       "nps_picks",         False),
         ("⚡ 메가트렌드 & 테마 대장주",       "theme_leaders",     False),
         ("🇰🇷 국민성장펀드 12대 산업 수혜주",  "growth_fund",       False),
@@ -121,25 +121,26 @@ MENU_TREE = [
     ]),
     ("시장 흐름", [
         ("🌍 글로벌 매크로",                "macro",             False),
-        ("🗺️ 시장 주도주 자금 히트맵",       "money_heatmap",     True),
-        ("🕸️ 실시간 섹터 순환매 추적",       "sector_rotation",   True),
-        ("🔥 지금 뜨는 섹터",               "hot_sectors",       False),
+        # [통합] 히트맵(오늘) · 뜨는 섹터(최근) · 순환매(중기) → 기간만 다른 같은 질문
+        ("💸 자금 흐름",                    "money_flow",        True),
         ("🐋 국장 수급 분석",               "investor_flows",    False),
         ("📅 핵심 증시 일정 & IPO 달력",     "calendar_ipo",      False),
         ("🔮 폴리마켓 예측시장",             "polymarket",        False),
     ]),
     ("뉴스 · 경보", [
-        ("🗞️ 뉴스 이슈 TOP & 영향 분석",     "news_impact",       False),
-        ("🚨 통합 경보 센터",               "alert_center_page", True),
+        # [통합] 이슈 분석 + 속보·리포트·AI 데일리 → 안쪽 탭을 한 층으로 펼침
+        ("📰 뉴스",                        "news",              True),
+        # [통합] 통합 경보 센터 + 거래량 경보 + 상/하한가 → 경보는 한 곳으로
+        ("🚨 경보 센터",                    "alerts",            True),
         ("🌅 간밤의 미국 급등주 & 수혜주",    "us_overnight",      False),
-        ("🔺 당일 상/하한가 분석",           "limit_moves",       True),
-        ("🚦 거래량 급증 & 시장 경보",        "volume_alerts",     True),
-        ("📰 실시간 특징주 속보 & 리포트",     "news_flash",        True),
     ]),
     ("분석 도구", [
         ("👴 노후 준비 시뮬레이터",          "retirement_sim",    False),
         ("📊 국내외 핵심 ETF 분석",          "etf_analysis",      False),
         ("💰 고배당주",                     "dividend_pipeline", False),
+        # [분리] 스윙 스캐너의 두 번째 탭이었다. 후보를 찾는 일과 전략을 검증하는 일은
+        #   목적도 쓰는 시점도 달라 별도 메뉴로 뺐다.
+        ("🧪 전략 백테스트",                 "backtest",          False),
         # 🎯 증권사 목표가 컨센서스 · ⚖️ 적정 주가 계산기 → '🔬 종목 상세' 탭으로 통합
         ("👁️ 차트 이미지 AI 비전 분석",      "chart_vision",      False),
     ]),

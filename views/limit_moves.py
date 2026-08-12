@@ -6,11 +6,10 @@ app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에�
 from core import *
 
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def panel(ctx):
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
-    st.subheader("🔺 당일 상/하한가 분석")
     with st.spinner("데이터 수집 중..."): upper_df, lower_df = get_limit_stocks()
     if api_key_input and not upper_df.empty:
         if st.button("🤖 AI 상한가 테마 즉시 분석", type="primary", use_container_width=True):

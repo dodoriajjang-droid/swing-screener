@@ -6,11 +6,10 @@ app.py 라우팅에서 분리된 페이지. 함수 라이브러리는 core 에�
 from core import *
 
 
-def render(ctx):
-    _nav_changed = ctx['_nav_changed']
-    api_key_input = ctx['api_key_input']
+def panel(ctx):
+    _nav_changed = ctx.get('_nav_changed', False)
+    api_key_input = ctx.get('api_key_input', "")
 
-    st.markdown("## 🕸️ 실시간 섹터 순환매 추적")
     st.write("국내 대표 섹터 ETF의 기간별 수익률을 실측해, **강세 섹터(자금 유입 추정)**와 **약세 섹터(자금 이탈 추정)**를 한눈에 보여줍니다.")
 
     period_sk = st.radio("분석 기간", ["1개월", "3개월", "6개월"], horizontal=True)
