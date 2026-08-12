@@ -23,6 +23,7 @@ import calendar
 import PIL.Image
 import traceback
 import jaemini_alert_center as alert_center  # [v7.1] 통합 경보 센터 모듈
+from scoring_weights import DEFAULT_WEIGHTS as SCORE_W, make_weights, tunable_keys  # [v7.2] 점수 가중치 상수 분리
 
 try:
     import PyPDF2
@@ -8032,10 +8033,14 @@ def macro_regime_notes(macro):
 
 
 def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
-              sector_tilt=0.0, consensus=None, dilution=False):
+              sector_tilt=0.0, consensus=None, dilution=False, weights=None):
     """한 종목의 단기/중기/장기 적합도(0~100) 산출 + 자동 분류 + 사유.
     공매도/신용(빚투) 리스크가 있으면 감점(단기>중기>장기 순). AI 뉴스 판정(news_sent:-2~2)도
-    점수에 반영(단기에 가장 크게). 반환: (scores, horizon, top, grade, reasons, risk_flags)"""
+    점수에 반영(단기에 가장 크게). 반환: (scores, horizon, top, grade, reasons, risk_flags)
+
+    weights: scoring_weights.DEFAULT_WEIGHTS 형태의 dict. None이면 기본값.
+             백테스트에서 가중치를 바꿔가며 검증할 때 주입한다."""
+    W = weights if weights is not None else SCORE_W
     al = _align_flags(tech)
     rsi = _f_num(tech.get("RSI"))
     vol_spike = "터짐" in str(tech.get("거래량 급증", ""))
@@ -8065,75 +8070,75 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
 
     # ===== 단기(스윙/모멘텀) =====
     s = 0.0
-    if al["정배열"]: s += 25; r_s.append("정배열")
-    elif al["골든"]: s += 20; r_s.append("골든크로스")
-    elif al["역배열"]: s -= 18
-    if vol_spike: s += 16; r_s.append("거래량 급증")
-    if near_entry: s += 14; r_s.append("매수타점 근접")
-    elif over_ext: s += 2
-    elif broke: s -= 10
-    if f_pos and i_pos: s += 18; r_s.append("외인·기관 쌍끌이")
-    elif f_pos or i_pos: s += 8; r_s.append("수급 유입")
-    if pension >= 3: s += 7; r_s.append(f"기관 {pension}일 연속매수")
+    if al["정배열"]: s += W["S_ALIGN_PERFECT"]; r_s.append("정배열")
+    elif al["골든"]: s += W["S_ALIGN_GOLDEN"]; r_s.append("골든크로스")
+    elif al["역배열"]: s += W["S_ALIGN_DEAD"]
+    if vol_spike: s += W["S_VOL_SPIKE"]; r_s.append("거래량 급증")
+    if near_entry: s += W["S_NEAR_ENTRY"]; r_s.append("매수타점 근접")
+    elif over_ext: s += W["S_OVER_EXT"]
+    elif broke: s += W["S_BROKE"]
+    if f_pos and i_pos: s += W["S_FLOW_BOTH"]; r_s.append("외인·기관 쌍끌이")
+    elif f_pos or i_pos: s += W["S_FLOW_ONE"]; r_s.append("수급 유입")
+    if pension >= W["S_PENSION_DAYS_TH"]: s += W["S_PENSION_STREAK"]; r_s.append(f"기관 {pension}일 연속매수")
     if rsi is not None:
-        if 50 <= rsi <= 68: s += 10
-        elif 40 <= rsi < 50 or 68 < rsi <= 78: s += 5
-        elif rsi > 82: s -= 8
-        elif rsi < 28: s -= 3
+        if W["S_RSI_SWEET_LO_TH"] <= rsi <= W["S_RSI_SWEET_HI_TH"]: s += W["S_RSI_SWEET"]
+        elif W["S_RSI_OK_LO_TH"] <= rsi < W["S_RSI_SWEET_LO_TH"] or W["S_RSI_SWEET_HI_TH"] < rsi <= W["S_RSI_OK_HI_TH"]: s += W["S_RSI_OK"]
+        elif rsi > W["S_RSI_HOT_TH"]: s += W["S_RSI_HOT"]
+        elif rsi < W["S_RSI_COLD_TH"]: s += W["S_RSI_COLD"]
     if mom3 is not None:
-        s += min(8.0, mom3 / 5.0) if mom3 > 0 else -5.0
-    s += 8.0 * max(0.0, mood["risk_on"])      # 위험선호일 때 단기 가산
-    if theme_hit: s += 8; r_s.append("주도 테마")
+        s += min(W["S_MOM3_CAP"], mom3 / W["S_MOM3_DIV"]) if mom3 > 0 else W["S_MOM3_NEG"]
+    s += W["S_RISKON_MULT"] * max(0.0, mood["risk_on"])      # 위험선호일 때 단기 가산
+    if theme_hit: s += W["S_THEME"]; r_s.append("주도 테마")
     short = _clip(s)
 
     # ===== 중기(추세+테마+합리적 밸류) =====
     m = 0.0
-    if weekly_up: m += 25; r_m.append("주봉 상승추세")
-    if al["정배열"]: m += 12; r_m.append("정배열 유지")
-    elif al["골든"]: m += 8
+    if weekly_up: m += W["M_WEEKLY_UP"]; r_m.append("주봉 상승추세")
+    if al["정배열"]: m += W["M_ALIGN_PERFECT"]; r_m.append("정배열 유지")
+    elif al["골든"]: m += W["M_ALIGN_GOLDEN"]
     if mom6 is not None and mom3 is not None:
         if mom6 > 0 and mom3 > 0:
-            m += 18; r_m.append("3·6개월 동반 상승")
-            if mom3 > 60: m -= 8                 # 단기 과열 감점
-        elif mom6 < -15:
-            m -= 8
-    if theme_hit: m += 20; r_m.append("주도 테마 편입")
+            m += W["M_MOM_BOTH_UP"]; r_m.append("3·6개월 동반 상승")
+            if mom3 > W["M_MOM3_OVERHEAT_TH"]: m += W["M_MOM3_OVERHEAT"]   # 단기 과열 감점
+        elif mom6 < W["M_MOM6_WEAK_TH"]:
+            m += W["M_MOM6_WEAK"]
+    if theme_hit: m += W["M_THEME"]; r_m.append("주도 테마 편입")
     if per is not None:
-        if 0 < per <= 25: m += 8
-        elif per > 40: m -= 3
-    if pbr is not None and pbr <= 4: m += 5
-    if f_pos or i_pos: m += 8; r_m.append("수급 우호")
-    if roe is not None and roe >= 8: m += 6
-    m += 4.0 * mood["risk_on"]
+        if 0 < per <= W["M_PER_OK_TH"]: m += W["M_PER_OK"]
+        elif per > W["M_PER_HIGH_TH"]: m += W["M_PER_HIGH"]
+    if pbr is not None and pbr <= W["M_PBR_OK_TH"]: m += W["M_PBR_OK"]
+    if f_pos or i_pos: m += W["M_FLOW"]; r_m.append("수급 우호")
+    if roe is not None and roe >= W["M_ROE_OK_TH"]: m += W["M_ROE_OK"]
+    m += W["M_RISKON_MULT"] * mood["risk_on"]
     mid = _clip(m)
 
     # ===== 장기(가치+퀄리티+인컴) =====
     l = 0.0
     if per is not None:
-        if 0 < per <= 10: l += 25; r_l.append(f"저PER {per:.0f}")
-        elif per <= 15: l += 18; r_l.append(f"PER {per:.0f}")
-        elif per <= 25: l += 8
-        elif per > 40: l -= 5
+        if 0 < per <= W["L_PER_DEEP_TH"]: l += W["L_PER_DEEP"]; r_l.append(f"저PER {per:.0f}")
+        elif per <= W["L_PER_GOOD_TH"]: l += W["L_PER_GOOD"]; r_l.append(f"PER {per:.0f}")
+        elif per <= W["L_PER_FAIR_TH"]: l += W["L_PER_FAIR"]
+        elif per > W["L_PER_HIGH_TH"]: l += W["L_PER_HIGH"]
     if pbr is not None:
-        if pbr <= 1.0: l += 20; r_l.append(f"저PBR {pbr:.2f}")
-        elif pbr <= 1.5: l += 12; r_l.append(f"PBR {pbr:.2f}")
-        elif pbr <= 3: l += 5
+        if pbr <= W["L_PBR_DEEP_TH"]: l += W["L_PBR_DEEP"]; r_l.append(f"저PBR {pbr:.2f}")
+        elif pbr <= W["L_PBR_GOOD_TH"]: l += W["L_PBR_GOOD"]; r_l.append(f"PBR {pbr:.2f}")
+        elif pbr <= W["L_PBR_FAIR_TH"]: l += W["L_PBR_FAIR"]
     if roe is not None:
-        if roe >= 15: l += 18; r_l.append(f"고ROE {roe:.0f}%")
-        elif roe >= 10: l += 10; r_l.append(f"ROE {roe:.0f}%")
+        if roe >= W["L_ROE_HIGH_TH"]: l += W["L_ROE_HIGH"]; r_l.append(f"고ROE {roe:.0f}%")
+        elif roe >= W["L_ROE_OK_TH"]: l += W["L_ROE_OK"]; r_l.append(f"ROE {roe:.0f}%")
     if div is not None:
-        if div >= 4: l += 12; r_l.append(f"고배당 {div:.1f}%")
-        elif div >= 2: l += 7; r_l.append(f"배당 {div:.1f}%")
+        if div >= W["L_DIV_HIGH_TH"]: l += W["L_DIV_HIGH"]; r_l.append(f"고배당 {div:.1f}%")
+        elif div >= W["L_DIV_OK_TH"]: l += W["L_DIV_OK"]; r_l.append(f"배당 {div:.1f}%")
     if debt is not None:
-        if debt <= 100: l += 8
-        elif debt > 180: l -= 5
-    if off_high is not None and off_high <= -30 and not al["역배열"]:
-        l += 10; r_l.append("고점대비 낙폭(저평가)")
-    if weekly_up or al["정배열"]: l += 8
-    elif al["역배열"]: l -= 10
-    if theme_hit: l += 5
-    l -= 6.0 * max(0.0, mood["risk_on"])      # 위험선호↑ → 장기 가치 매력 상대적↓
-    l += 6.0 * max(0.0, -mood["risk_on"])     # 위험회피 구간 → 장기 가산
+        if debt <= W["L_DEBT_LOW_TH"]: l += W["L_DEBT_LOW"]
+        elif debt > W["L_DEBT_HIGH_TH"]: l += W["L_DEBT_HIGH"]
+    if off_high is not None and off_high <= W["L_OFFHIGH_TH"] and not al["역배열"]:
+        l += W["L_OFFHIGH"]; r_l.append("고점대비 낙폭(저평가)")
+    if weekly_up or al["정배열"]: l += W["L_TREND_OK"]
+    elif al["역배열"]: l += W["L_TREND_BAD"]
+    if theme_hit: l += W["L_THEME"]
+    l += W["L_RISKON_MULT"] * max(0.0, mood["risk_on"])      # 위험선호↑ → 장기 가치 매력 상대적↓
+    l += W["L_RISKOFF_MULT"] * max(0.0, -mood["risk_on"])    # 위험회피 구간 → 장기 가산
     longs = _clip(l)
 
     # ===== 공매도 / 신용(빚투) 리스크 감점 =====
@@ -8145,19 +8150,27 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
         svr = risk.get("short_vol_ratio")      # 당일 공매도 거래 비중(%)
         cr = risk.get("credit_ratio")          # 신용잔고율(%)
         if sbr is not None:
-            if sbr >= 3.0: ps += 12; pm += 8; pl += 4; risk_flags.append(f"🩸공매도잔고 {sbr:.1f}%")
-            elif sbr >= 1.5: ps += 6; pm += 4; pl += 2
+            if sbr >= W["R_SHORTBAL_HI_TH"]:
+                ps += W["R_SHORTBAL_HI_S"]; pm += W["R_SHORTBAL_HI_M"]; pl += W["R_SHORTBAL_HI_L"]
+                risk_flags.append(f"🩸공매도잔고 {sbr:.1f}%")
+            elif sbr >= W["R_SHORTBAL_MID_TH"]:
+                ps += W["R_SHORTBAL_MID_S"]; pm += W["R_SHORTBAL_MID_M"]; pl += W["R_SHORTBAL_MID_L"]
         if svr is not None:
-            if svr >= 20: ps += 10; pm += 5; risk_flags.append(f"🩸당일공매도 {svr:.0f}%")
-            elif svr >= 10: ps += 5; pm += 2
+            if svr >= W["R_SHORTVOL_HI_TH"]:
+                ps += W["R_SHORTVOL_HI_S"]; pm += W["R_SHORTVOL_HI_M"]; risk_flags.append(f"🩸당일공매도 {svr:.0f}%")
+            elif svr >= W["R_SHORTVOL_MID_TH"]:
+                ps += W["R_SHORTVOL_MID_S"]; pm += W["R_SHORTVOL_MID_M"]
         # 공매도 추세 증가 = 추가 하방
         if str(risk.get("short_vol_trend", "")).startswith("📈") or str(risk.get("short_bal_trend", "")).startswith("📈"):
-            ps += 4; pm += 2
+            ps += W["R_SHORT_TREND_S"]; pm += W["R_SHORT_TREND_M"]
             if "🩸공매도↑" not in risk_flags:
                 risk_flags.append("🩸공매도↑")
         if cr is not None:
-            if cr >= 10: ps += 8; pm += 5; pl += 2; risk_flags.append(f"⚠️신용잔고 {cr:.1f}%")
-            elif cr >= 5: ps += 4; pm += 2
+            if cr >= W["R_CREDIT_HI_TH"]:
+                ps += W["R_CREDIT_HI_S"]; pm += W["R_CREDIT_HI_M"]; pl += W["R_CREDIT_HI_L"]
+                risk_flags.append(f"⚠️신용잔고 {cr:.1f}%")
+            elif cr >= W["R_CREDIT_MID_TH"]:
+                ps += W["R_CREDIT_MID_S"]; pm += W["R_CREDIT_MID_M"]
         short = _clip(short - ps)
         mid = _clip(mid - pm)
         longs = _clip(longs - pl)
@@ -8169,9 +8182,9 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
         except Exception:
             ns = 0
         if ns != 0:
-            short = _clip(short + ns * 6)
-            mid = _clip(mid + ns * 3)
-            longs = _clip(longs + ns * 1)
+            short = _clip(short + ns * W["N_SENT_S"])
+            mid = _clip(mid + ns * W["N_SENT_M"])
+            longs = _clip(longs + ns * W["N_SENT_L"])
 
     # ===== 컨센서스 리비전 (목표가 괴리 + 상/하향) =====
     target = _f_num(tech.get("목표가_컨센서스"))
@@ -8179,37 +8192,39 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
     upside = ((target / cur) - 1) * 100 if (target and cur and cur > 0) else None
     cs = ms = ls = 0.0
     if upside is not None:
-        if upside >= 30:
-            ms += 10; ls += 8; cs += 6; r_m.append(f"기대수익 +{upside:.0f}%"); r_l.append(f"목표가 괴리 +{upside:.0f}%")
-        elif upside >= 15:
-            ms += 6; ls += 5; cs += 3; r_m.append(f"기대수익 +{upside:.0f}%")
+        if upside >= W["C_UPSIDE_BIG_TH"]:
+            ms += W["C_UPSIDE_BIG_M"]; ls += W["C_UPSIDE_BIG_L"]; cs += W["C_UPSIDE_BIG_S"]
+            r_m.append(f"기대수익 +{upside:.0f}%"); r_l.append(f"목표가 괴리 +{upside:.0f}%")
+        elif upside >= W["C_UPSIDE_MID_TH"]:
+            ms += W["C_UPSIDE_MID_M"]; ls += W["C_UPSIDE_MID_L"]; cs += W["C_UPSIDE_MID_S"]
+            r_m.append(f"기대수익 +{upside:.0f}%")
         elif upside < 0:
-            ms -= 4; ls -= 4; cs -= 3   # 주가가 컨센 목표가 위 → 과열
+            ms += W["C_UPSIDE_NEG_M"]; ls += W["C_UPSIDE_NEG_L"]; cs += W["C_UPSIDE_NEG_S"]   # 주가가 컨센 목표가 위 → 과열
     if isinstance(consensus, dict):
         rev = consensus.get("revision_dir")
         if rev == "상향":
-            cs += 6; ms += 5; r_s.append("목표가 상향"); r_m.append("목표가 상향")
+            cs += W["C_REV_UP_S"]; ms += W["C_REV_UP_M"]; r_s.append("목표가 상향"); r_m.append("목표가 상향")
         elif rev == "하향":
-            cs -= 6; ms -= 4
-        if (consensus.get("report_count_30d") or 0) >= 2:
-            ms += 2
+            cs += W["C_REV_DOWN_S"]; ms += W["C_REV_DOWN_M"]
+        if (consensus.get("report_count_30d") or 0) >= W["C_REPORTS_TH"]:
+            ms += W["C_REPORTS_M"]
     short = _clip(short + cs); mid = _clip(mid + ms); longs = _clip(longs + ls)
 
     # ===== 매크로 → 섹터 틸트 (단기·중기 위주) =====
     if sector_tilt:
-        short = _clip(short + sector_tilt)
-        mid = _clip(mid + sector_tilt * 0.7)
-        longs = _clip(longs + sector_tilt * 0.2)
-        if sector_tilt >= 4:
+        short = _clip(short + sector_tilt * W["T_TILT_S_MULT"])
+        mid = _clip(mid + sector_tilt * W["T_TILT_M_MULT"])
+        longs = _clip(longs + sector_tilt * W["T_TILT_L_MULT"])
+        if sector_tilt >= W["T_TILT_NOTE_TH"]:
             r_s.append("매크로 순풍(섹터)")
-        elif sector_tilt <= -4:
+        elif sector_tilt <= -W["T_TILT_NOTE_TH"]:
             r_s.append("매크로 역풍(섹터)")
 
     # ===== 증자/CB 희석 리스크 (뉴스 감지 시) =====
     if dilution:
-        short = _clip(short - 14)
-        mid = _clip(mid - 8)
-        longs = _clip(longs - 6)
+        short = _clip(short + W["D_DILUTION_S"])
+        mid = _clip(mid + W["D_DILUTION_M"])
+        longs = _clip(longs + W["D_DILUTION_L"])
 
     # ===== [전문가 보강] 시장 상대강도(RS)·52주 신고가·MFI·이격/유동성/변동성 =====
     is_kr = str(tech.get("티커", "")).isdigit()
@@ -8218,57 +8233,57 @@ def score_one(tech, vm, mood, theme_hit=False, risk=None, news_sent=None,
     _sret = _f_num(tech.get("수익률20일"))
     rs20 = (_sret - _iret) if (_sret is not None and _iret is not None) else None
     if rs20 is not None:                      # 시장 대비 20일 초과수익(%p) — 오닐式 상대강도
-        if rs20 >= 7:
-            short = _clip(short + 8); mid = _clip(mid + 5)
+        if rs20 >= W["X_RS_STRONG_TH"]:
+            short = _clip(short + W["X_RS_STRONG_S"]); mid = _clip(mid + W["X_RS_STRONG_M"])
             r_s.append(f"시장대비 강세 RS +{rs20:.0f}%p"); r_m.append(f"상대강도 우위 +{rs20:.0f}%p")
-        elif rs20 >= 3:
-            short = _clip(short + 4)
-        elif rs20 <= -7:
-            short = _clip(short - 7); mid = _clip(mid - 4)
+        elif rs20 >= W["X_RS_OK_TH"]:
+            short = _clip(short + W["X_RS_OK_S"])
+        elif rs20 <= W["X_RS_WEAK_TH"]:
+            short = _clip(short + W["X_RS_WEAK_S"]); mid = _clip(mid + W["X_RS_WEAK_M"])
     off52 = _f_num(tech.get("고점대비52주"))
     if off52 is not None:                     # 신고가 근접 = 주도주 모멘텀
-        if off52 >= -3:
-            short = _clip(short + 7); mid = _clip(mid + 7)
+        if off52 >= W["X_HIGH52_NEAR_TH"]:
+            short = _clip(short + W["X_HIGH52_NEAR_S"]); mid = _clip(mid + W["X_HIGH52_NEAR_M"])
             r_s.append("52주 신고가권"); r_m.append("52주 신고가권(주도주)")
-        elif off52 >= -10:
-            mid = _clip(mid + 4)
+        elif off52 >= W["X_HIGH52_OK_TH"]:
+            mid = _clip(mid + W["X_HIGH52_OK_M"])
     mfi = _f_num(tech.get("MFI"))
     if mfi is not None:                       # 거래량 가중 자금흐름
-        if 55 <= mfi <= 80:
-            mid = _clip(mid + 4); r_m.append(f"자금 유입(MFI {mfi:.0f})")
-        elif mfi > 85:
-            short = _clip(short - 5); risk_flags.append(f"🌡️MFI 과열 {mfi:.0f}")
-        elif mfi < 20:
-            short = _clip(short - 2)
+        if W["X_MFI_IN_LO_TH"] <= mfi <= W["X_MFI_IN_HI_TH"]:
+            mid = _clip(mid + W["X_MFI_IN_M"]); r_m.append(f"자금 유입(MFI {mfi:.0f})")
+        elif mfi > W["X_MFI_HOT_TH"]:
+            short = _clip(short + W["X_MFI_HOT_S"]); risk_flags.append(f"🌡️MFI 과열 {mfi:.0f}")
+        elif mfi < W["X_MFI_COLD_TH"]:
+            short = _clip(short + W["X_MFI_COLD_S"])
     gap20 = _f_num(tech.get("이격도20"))
-    if gap20 is not None and gap20 >= 18:     # 20일선 과이격 = 추격매수 위험
-        short = _clip(short - 8); risk_flags.append(f"🌡️20일선 이격 +{gap20:.0f}%")
+    if gap20 is not None and gap20 >= W["X_GAP20_TH"]:     # 20일선 과이격 = 추격매수 위험
+        short = _clip(short + W["X_GAP20_S"]); risk_flags.append(f"🌡️20일선 이격 +{gap20:.0f}%")
     vol20 = _f_num(tech.get("변동성20일"))
-    if vol20 is not None and vol20 >= 4.5:    # 일변동성 과대
-        short = _clip(short - 4); risk_flags.append(f"🎢고변동성 {vol20:.1f}%/일")
+    if vol20 is not None and vol20 >= W["X_VOL20_TH"]:     # 일변동성 과대
+        short = _clip(short + W["X_VOL20_S"]); risk_flags.append(f"🎢고변동성 {vol20:.1f}%/일")
     amt20 = _f_num(tech.get("평균거래대금20일"))
     if is_kr and amt20 is not None:           # 유동성 필터(국내): 20일 평균 거래대금
         _eok = amt20 / 1e8
-        if _eok < 10:
-            short = _clip(short - 12); mid = _clip(mid - 8); longs = _clip(longs - 4)
+        if _eok < W["X_LIQ_BAD_TH"]:
+            short = _clip(short + W["X_LIQ_BAD_S"]); mid = _clip(mid + W["X_LIQ_BAD_M"]); longs = _clip(longs + W["X_LIQ_BAD_L"])
             risk_flags.append(f"💧유동성 부족({_eok:.0f}억/일)")
-        elif _eok < 30:
-            short = _clip(short - 5); mid = _clip(mid - 3)
+        elif _eok < W["X_LIQ_THIN_TH"]:
+            short = _clip(short + W["X_LIQ_THIN_S"]); mid = _clip(mid + W["X_LIQ_THIN_M"])
 
     scores = {"단기": round(short, 1), "중기": round(mid, 1), "장기": round(longs, 1)}
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     horizon = ranked[0][0]
     # 근소차(≤6점)는 시장 분위기로 타이브레이크
-    if len(ranked) >= 2 and (ranked[0][1] - ranked[1][1]) <= 6:
-        if mood["risk_on"] >= 0.3: pref = ["단기", "중기", "장기"]
-        elif mood["risk_on"] <= -0.3: pref = ["장기", "중기", "단기"]
+    if len(ranked) >= 2 and (ranked[0][1] - ranked[1][1]) <= W["G_TIE_GAP_TH"]:
+        if mood["risk_on"] >= W["G_RISKON_HI_TH"]: pref = ["단기", "중기", "장기"]
+        elif mood["risk_on"] <= W["G_RISKON_LO_TH"]: pref = ["장기", "중기", "단기"]
         else: pref = ["중기", "단기", "장기"]
         cand = [k for k, _ in ranked[:2]]
         horizon = min(cand, key=lambda k: pref.index(k))
     top = scores[horizon]
-    reasons = {"단기": r_s, "중기": r_m, "장기": r_l}[horizon][:4]
-    if top >= 70: grade = "🟢 강력"
-    elif top >= 50: grade = "🟡 양호"
+    reasons = {"단기": r_s, "중기": r_m, "장기": r_l}[horizon][:W["G_REASON_MAX"]]
+    if top >= W["G_STRONG_TH"]: grade = "🟢 강력"
+    elif top >= W["G_GOOD_TH"]: grade = "🟡 양호"
     else: grade = "⚪ 약함"
     return scores, horizon, round(top, 1), grade, reasons, risk_flags
 
@@ -10471,6 +10486,175 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                     else:
                         st.info("해당 기간에 전략 조건을 충족한 거래가 없었습니다.")
                 else: st.error("❌ 데이터를 가져오지 못했습니다.")
+
+        # =====================================================================
+        # 🧪 [v7.2] 점수 엔진 검증 (스코어 백테스트)
+        #   위 시뮬레이터는 '이평선/RSI 같은 단일 전략'을 검증한다.
+        #   여기서는 앱 전반이 쓰는 score_one() 점수 자체가 실제 수익률과
+        #   관계가 있는지를 검증한다. 과거 시점(offset_days)의 기술적 상태로
+        #   점수를 매기고, 그 이후 실제 수익률과 대조한다.
+        # =====================================================================
+        st.divider()
+        with st.expander("🧪 점수 엔진 검증 — 이 앱의 '점수'가 실제 수익률과 관계있는지 확인", expanded=False):
+            st.caption(
+                "발굴기·스캐너가 쓰는 **score_one() 점수**를 과거 시점 기준으로 매긴 뒤, 그 이후 실제 주가 수익률과 대조합니다. "
+                "점수가 높은 그룹의 평균 수익률이 낮은 그룹보다 높게 나와야 점수 엔진이 의미가 있습니다. "
+                "가중치는 `scoring_weights.py` 에서 조정할 수 있고, 아래에서 값을 바꿔 즉시 재검증할 수 있습니다."
+            )
+
+            _sb1, _sb2, _sb3 = st.columns(3)
+            with _sb1:
+                sb_market = st.radio("시장", ["🇰🇷 국내", "🇺🇸 미국"], horizontal=True, key="sb_market")
+            with _sb2:
+                sb_offset = st.selectbox("검증 시점 (며칠 전 기준으로 점수를 매길지)", [20, 40, 60, 90], index=1,
+                                         key="sb_offset",
+                                         help="예: 40 → 40영업일 전 시점의 차트 상태로 점수를 매기고, 그 이후 오늘까지의 실제 수익률과 비교합니다.")
+            with _sb3:
+                sb_n = st.selectbox("표본 종목 수", [30, 50, 100, 200], index=1, key="sb_n",
+                                    help="많을수록 통계가 안정되지만 그만큼 오래 걸립니다(종목당 약 0.3~1초).")
+
+            sb_lookahead = st.checkbox(
+                "수급·밸류·컨센서스도 점수에 포함 (⚠️ 룩어헤드 있음)", value=False, key="sb_lookahead",
+                help="수급·PER/PBR·목표가는 '지금' 값만 조회할 수 있어 과거 시점 점수에 넣으면 미래 정보가 섞입니다(룩어헤드 편향). "
+                     "기본값(끔)은 순수 기술적 지표만으로 점수를 매겨 편향 없이 검증합니다.")
+
+            _w_json = st.text_area(
+                "가중치 덮어쓰기 (JSON, 비우면 기본값)", value="", height=68, key="sb_weights",
+                placeholder='예: {"S_ALIGN_PERFECT": 30, "S_VOL_SPIKE": 10}',
+                help="scoring_weights.py 의 DEFAULT_WEIGHTS 키만 사용할 수 있습니다. 값을 바꿔 돌려보면서 어떤 가중치가 성과를 개선하는지 확인하세요.")
+
+            if st.button("🧪 점수 엔진 검증 실행", type="primary", use_container_width=True, key="sb_run"):
+                _w_over = None
+                _w_err = None
+                if _w_json.strip():
+                    try:
+                        _w_over = make_weights(json.loads(_w_json))
+                    except Exception as e:
+                        _w_err = f"{type(e).__name__}: {e}"
+                if _w_err:
+                    st.error(f"❌ 가중치 JSON 오류 — {_w_err}\n\n사용 가능한 키는 {len(tunable_keys())}개입니다. scoring_weights.py 를 참고하세요.")
+                else:
+                    _sb_targets = get_scan_targets(sb_n) if sb_market == "🇰🇷 국내" else get_us_scan_targets(sb_n)
+                    if not _sb_targets:
+                        st.error("❌ 종목 리스트를 불러오지 못했습니다.")
+                    else:
+                        # 과거 시점 점수에 '지금 값'이 섞이지 않도록 제거할 필드
+                        _LEAK_KEYS = ("외인수급", "기관수급", "개인수급", "장중잠정수급",
+                                      "기관연속순매수", "외인연속순매수", "연기금추정순매수", "연기금연속순매수",
+                                      "PER", "PBR", "목표가_컨센서스", "AI목표가")
+                        _sb_mood = {"risk_on": 0.0, "_idx20": None}   # 과거 시장 분위기는 복원 불가 → 중립 고정
+
+                        def _sb_one(target):
+                            name, code = target
+                            time.sleep(0.1)
+                            res = analyze_technical_pattern(name, code, offset_days=int(sb_offset))
+                            if not res:
+                                return None
+                            fwd = _f_num(res.get("수익률"))
+                            if fwd is None:
+                                return None
+                            tech = dict(res)
+                            if not sb_lookahead:
+                                for k in _LEAK_KEYS:
+                                    tech.pop(k, None)
+                            try:
+                                sc, hz, top, grade, _rs, _rf = score_one(
+                                    tech, None, _sb_mood, weights=_w_over)
+                            except Exception:
+                                return None
+                            return {"종목명": name, "코드": code, "점수": top, "구간": hz, "등급": grade,
+                                    "단기": sc["단기"], "중기": sc["중기"], "장기": sc["장기"],
+                                    f"이후 {sb_offset}일 수익률(%)": round(fwd, 2)}
+
+                        _sb_rows, _done = [], 0
+                        _pb, _stat = st.progress(0), st.empty()
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+                            for fut in concurrent.futures.as_completed(
+                                    {ex.submit(_sb_one, t): t for t in _sb_targets}):
+                                r = fut.result()
+                                _done += 1
+                                if r: _sb_rows.append(r)
+                                _pb.progress(_done / len(_sb_targets))
+                                _stat.text(f"🧪 검증 중... ({_done}/{len(_sb_targets)}) — {len(_sb_rows)}개 유효")
+                        _pb.empty(); _stat.empty()
+                        st.session_state["sb_result"] = {
+                            "rows": _sb_rows, "offset": int(sb_offset), "market": sb_market,
+                            "n_req": len(_sb_targets), "lookahead": bool(sb_lookahead),
+                            "weights": ("사용자 지정" if _w_over else "기본값"),
+                            "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        }
+
+            _sb_res = st.session_state.get("sb_result")
+            if _sb_res and _sb_res["rows"]:
+                _off = _sb_res["offset"]
+                _rcol = f"이후 {_off}일 수익률(%)"
+                sb_df = pd.DataFrame(_sb_res["rows"])
+                if _rcol not in sb_df.columns:      # 이전 실행 결과(다른 기간)와 컬럼명이 다를 때
+                    _rcol = [c for c in sb_df.columns if c.startswith("이후 ")][0]
+
+                st.caption(f"📌 {_sb_res['time']} · {_sb_res['market']} · 요청 {_sb_res['n_req']}종목 중 "
+                           f"**{len(sb_df)}종목 유효** · 가중치 {_sb_res['weights']} · "
+                           f"{'⚠️ 룩어헤드 포함' if _sb_res['lookahead'] else '✅ 기술적 지표만(편향 없음)'}")
+
+                # --- 순위상관 (Spearman): 점수 순위와 수익률 순위가 같이 움직이는가 ---
+                _s = sb_df["점수"].rank()
+                _r = sb_df[_rcol].rank()
+                _rho = float(np.corrcoef(_s, _r)[0, 1]) if len(sb_df) > 2 and _s.std() > 0 and _r.std() > 0 else float("nan")
+
+                # --- 점수 구간별 성과 ---
+                _bins = [0, 40, 50, 60, 70, 100.01]
+                _labels = ["~40 (약함)", "40~50", "50~60", "60~70", "70~ (강력)"]
+                sb_df["_구간"] = pd.cut(sb_df["점수"], bins=_bins, labels=_labels, right=False)
+                _agg = sb_df.groupby("_구간", observed=False).agg(
+                    종목수=(_rcol, "size"),
+                    평균수익률=(_rcol, "mean"),
+                    중앙값=(_rcol, "median"),
+                    승률=(_rcol, lambda s: (s > 0).mean() * 100 if len(s) else np.nan),
+                ).reset_index().rename(columns={"_구간": "점수구간"})
+                _agg = _agg[_agg["종목수"] > 0]
+                for _c in ("평균수익률", "중앙값", "승률"):
+                    _agg[_c] = _agg[_c].astype(float).round(2)
+
+                _m1, _m2, _m3 = st.columns(3)
+                _hi = sb_df[sb_df["점수"] >= 60][_rcol]
+                _lo = sb_df[sb_df["점수"] < 50][_rcol]
+                _spread = (_hi.mean() - _lo.mean()) if (len(_hi) and len(_lo)) else float("nan")
+                with _m1:
+                    st.metric("순위상관 (Spearman ρ)", "N/A" if _rho != _rho else f"{_rho:+.3f}",
+                              help="점수 순위와 이후 수익률 순위의 상관. +0.1~0.2만 되어도 실무적으로 의미 있는 신호로 봅니다. 0 근처면 점수가 무의미하다는 뜻입니다.")
+                with _m2:
+                    st.metric("고점수(60↑) − 저점수(50↓) 수익률 차", "N/A" if _spread != _spread else f"{_spread:+.2f}%p",
+                              help="점수 엔진이 실제로 잘 고르는지 보여주는 가장 직관적인 수치. 음수면 점수가 거꾸로 작동하고 있다는 뜻입니다.")
+                with _m3:
+                    st.metric("전체 평균 수익률", f"{sb_df[_rcol].mean():+.2f}%",
+                              help="표본 전체 평균. 개별 구간 성과는 이 값과 비교해서 봐야 합니다(시장 전체가 오른 기간일 수 있음).")
+
+                st.dataframe(_agg, use_container_width=True, hide_index=True)
+
+                try:
+                    _fig_sb = px.bar(_agg, x="점수구간", y="평균수익률", text="평균수익률",
+                                     color="평균수익률", color_continuous_scale=["#dc2626", "#94a3b8", "#16a34a"],
+                                     title=f"점수 구간별 이후 {_off}영업일 평균 수익률")
+                    _fig_sb.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+                    _fig_sb.update_layout(height=330, showlegend=False, coloraxis_showscale=False,
+                                          margin=dict(t=50, b=10))
+                    st.plotly_chart(_fig_sb, use_container_width=True)
+                except Exception as e:
+                    _diag_note("score_backtest_chart", e)
+
+                with st.expander(f"📋 종목별 상세 ({len(sb_df)}건)"):
+                    st.dataframe(sb_df.drop(columns=["_구간"]).sort_values("점수", ascending=False),
+                                 use_container_width=True, hide_index=True)
+
+                st.info(
+                    "**해석 주의**\n"
+                    f"- 표본 {len(sb_df)}종목·단일 기간({_off}영업일) 결과라 그대로 일반화하면 안 됩니다. 기간과 표본을 바꿔가며 반복 검증하세요.\n"
+                    "- 검증 시점 이후 상장폐지·거래정지된 종목은 애초에 리스트에 없어 **생존 편향**이 있습니다.\n"
+                    "- 표본은 '현재 거래대금 상위' 종목이라, 그 사이 거래대금이 늘어난 종목이 과대 대표됩니다.\n"
+                    "- 시장 전체가 오른 기간이면 모든 구간이 플러스로 나옵니다. **구간 간 차이**를 보세요."
+                )
+            elif _sb_res:
+                st.warning("유효한 결과가 없습니다. 표본 수를 늘리거나 검증 시점을 짧게 잡아보세요.")
 
 elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
     st.markdown("## 📉 낙폭과대 스캐너")
