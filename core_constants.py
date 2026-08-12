@@ -106,7 +106,10 @@ MENU_TREE = [
         ("⭐ 내 관심종목 모니터링",           "watchlist",         True),
     ]),
     ("종목 발굴", [
-        ("🔬 개별 기업 정밀 진단",           "company_deep_dive", False),
+        # [통합] 개별 기업 정밀 진단 + 적정 주가 계산기 + 증권사 목표가 컨센서스.
+        #   셋 다 '같은 종목의 다른 면'인데 입구가 따로여서, 한 종목을 보려면
+        #   세 화면에서 세 번 검색해야 했다. 지금은 한 번 고르고 탭으로 바꿔 본다.
+        ("🔬 종목 상세",                    "stock_detail",      False),
         ("🧭 AI 종목 발굴",                 "ai_finder",         False),
         ("🚀 단기 스윙 퀀트 스캐너",          "swing_scanner",     False),
         ("💎 장기 우량주 & 가치주 발굴",      "value_finder",      False),
@@ -137,8 +140,7 @@ MENU_TREE = [
         ("👴 노후 준비 시뮬레이터",          "retirement_sim",    False),
         ("📊 국내외 핵심 ETF 분석",          "etf_analysis",      False),
         ("💰 고배당주",                     "dividend_pipeline", False),
-        ("🎯 증권사 목표가 컨센서스",         "consensus",         False),
-        ("⚖️ 적정 주가 계산기 (버핏 모델)",   "fair_value",        False),
+        # 🎯 증권사 목표가 컨센서스 · ⚖️ 적정 주가 계산기 → '🔬 종목 상세' 탭으로 통합
         ("👁️ 차트 이미지 AI 비전 분석",      "chart_vision",      False),
     ]),
 ]
