@@ -37,7 +37,12 @@ def bootstrap():
     """CSS 주입 + 세션 상태 초기화. 실행(rerun)마다 호출해야 한다."""
     st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+/* 본문·숫자 모두 Pretendard 한 벌로 통일한다.
+   - JetBrains Mono 는 각지고 기계적이라 '딱딱하다'는 인상의 원인이었다.
+   - Pretendard 는 획 끝이 둥글고 자간이 여유로운 한글 UI 서체이면서
+     tabular figures(고정폭 숫자)를 지원해, 표·지표의 자릿수 정렬을 유지한다.
+   - dynamic-subset 은 화면에 실제로 쓰인 글자만 내려받아 한글 웹폰트인데도 가볍다. */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css');
 
 /* =====================================================================
    [v7.3] 타이포 · 간격 · 색 토큰
@@ -64,9 +69,11 @@ def bootstrap():
 html, body, .stMarkdown, .stMarkdown *, button, input, select, textarea,
 [data-testid="stWidgetLabel"], [data-testid="stMetricLabel"],
 [data-testid="stCaptionContainer"], [data-testid="stExpander"] summary {
-  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
-               "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+               "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif;
+  letter-spacing: -0.002em;   /* 한글은 과하게 좁히면 답답해진다 — 아주 살짝만 */
 }
+body, .stMarkdown p, .stMarkdown li { line-height: 1.72; }
 
 /* ⚠️ 아이콘에는 위 폰트를 적용하면 안 된다.
    Streamlit 의 접기 화살표 등은 'Material Symbols' 리거처 — 아이콘 '이름'을
@@ -86,16 +93,17 @@ html, body, .stMarkdown, .stMarkdown *, button, input, select, textarea,
   font-variant-numeric: tabular-nums;
 }
 [data-testid="stMetricValue"] {
-  font-family: 'JetBrains Mono', ui-monospace, monospace !important;
-  letter-spacing: -0.01em;
+  /* 숫자도 같은 서체로 — 고정폭 숫자(tabular-nums)라 자릿수는 그대로 맞는다 */
+  font-family: "Pretendard Variable", Pretendard, -apple-system, "Malgun Gothic", sans-serif !important;
+  font-weight: 700; letter-spacing: -0.005em;
 }
 [data-testid="stMetricLabel"] { color: var(--jm-muted) !important; font-size: 0.82rem !important; }
 [data-testid="stMetricDelta"] { font-size: 0.82rem !important; }
 
 /* 제목 위계 — 한글은 라틴만큼 자간을 좁히면 답답해져 -0.01em 선에서 멈춘다 */
-.stMarkdown h2 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em;
+.stMarkdown h2 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.006em;
                  margin: 0.2rem 0 0.5rem; color: var(--jm-ink); }
-.stMarkdown h3 { font-size: 1.2rem;  font-weight: 700; letter-spacing: -0.005em;
+.stMarkdown h3 { font-size: 1.2rem;  font-weight: 700; letter-spacing: -0.003em;
                  margin: 1.1rem 0 0.4rem; color: var(--jm-ink); }
 .stMarkdown h4 { font-size: 1.02rem; font-weight: 700; margin: 0.9rem 0 0.35rem; }
 .stMarkdown h5 { font-size: 0.95rem; font-weight: 800; margin: 0.8rem 0 0.3rem;
@@ -120,7 +128,9 @@ hr, [data-testid="stDivider"] { margin: 1.15rem 0 !important; border-color: var(
 /* 표 — 머리행을 눌러 앉히고 본문과 분리 */
 th { font-weight: 700 !important; background-color: var(--jm-surface) !important;
      color: var(--jm-ink-2) !important; }
-table, .stDataFrame { font-family: 'JetBrains Mono', ui-monospace, monospace !important; }
+table, .stDataFrame {
+  font-family: "Pretendard Variable", Pretendard, -apple-system, "Malgun Gothic", sans-serif !important;
+}
 
 /* 사이드바 — 2단 메뉴가 되면서 항목 간격이 중요해졌다 */
 section[data-testid="stSidebar"] label { line-height: 1.5; }

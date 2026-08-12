@@ -839,14 +839,18 @@ def nb_render_volume_profile(df, current_price=None, bins=12):
         is_poc = (i == vp["poc_index"]); is_now = (i == vp["current_index"])
         bar = "#c79a3a" if is_poc else ("#64748b" if is_now else "#cbd5e1")
         price_style = "font-weight:700;color:#0f172a;" if is_now else "color:#334155;"
-        tag = "<span style='background:#0f172a;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.72em;margin-left:5px;'>현재</span>" if is_now else ""
+        tag = "<span style='background:#0f172a;color:#fff;border-radius:10px;padding:1px 7px;font-size:0.72em;white-space:nowrap;'>현재</span>" if is_now else ""
+        # [정렬수정] 가격과 '현재' 배지를 한 칸에 넣으면 배지가 붙는 줄만 칸 너비가 달라져
+        #   막대 시작점이 어긋난다. 칸을 나누고 각 칸에 고정 폭(flex:0 0)을 줘서
+        #   배지가 있든 없든 모든 줄의 막대가 같은 x 에서 시작하게 한다.
         rows.append(
             "<div style=\"display:flex;align-items:center;gap:8px;margin:3px 0;font-size:0.86rem;\">"
-            "<span style=\"width:96px;text-align:right;font-variant-numeric:tabular-nums;" + price_style + "\">"
-            + _nb_won(lv["price_mid"]) + tag + "</span>"
-            "<span style=\"flex:1;background:#eef2f6;border-radius:6px;height:17px;overflow:hidden;\">"
+            "<span style=\"flex:0 0 88px;min-width:0;text-align:right;font-variant-numeric:tabular-nums;"
+            + price_style + "\">" + _nb_won(lv["price_mid"]) + "</span>"
+            "<span style=\"flex:0 0 38px;min-width:0;text-align:left;\">" + tag + "</span>"
+            "<span style=\"flex:1 1 auto;min-width:0;background:#eef2f6;border-radius:6px;height:17px;overflow:hidden;\">"
             "<span style=\"display:block;width:" + f"{w:.1f}" + "%;height:100%;background:" + bar + ";border-radius:6px;\"></span></span>"
-            "<span style=\"width:50px;text-align:right;color:#475569;font-variant-numeric:tabular-nums;\">"
+            "<span style=\"flex:0 0 48px;min-width:0;text-align:right;color:#475569;font-variant-numeric:tabular-nums;\">"
             + f"{lv['pct']:.1f}" + "%</span></div>"
         )
     st.markdown("".join(rows), unsafe_allow_html=True)
@@ -1690,7 +1694,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             bg_color = "rgba(255, 75, 75, 0.1)" if pnl > 0 else "rgba(31, 119, 180, 0.1)"
             st.markdown(f"""<div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid {color};">
                 <h3 style="margin:0; color: {color};">⏰ 타임머신 검증 결과</h3>
-                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b style="font-family:'JetBrains Mono',monospace;">{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b style="font-family:'JetBrains Mono',monospace;">{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color}; font-family:'JetBrains Mono',monospace;">({pnl:+.2f}%)</span></p>
+                <p style="margin:5px 0 0 0; font-size: 16px;">스캔 당시 가격 <b style="font-variant-numeric:tabular-nums;">{fmt_price(tech_result['현재가'])}</b> ➡️ 오늘 현재 가격 <b style="font-variant-numeric:tabular-nums;">{fmt_price(tech_result['오늘현재가'])}</b> <span style="font-size: 20px; font-weight: bold; color: {color}; font-variant-numeric:tabular-nums;">({pnl:+.2f}%)</span></p>
             </div>""", unsafe_allow_html=True)
             
         col_btn1, col_btn3 = st.columns([8, 2])
@@ -1739,7 +1743,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                 "background:#f8fafc;border:1px solid #e9eef3;border-radius:12px;padding:10px 16px;margin:4px 0 12px;'>"
                 "<span style='font-size:14px;color:#64748b;font-weight:700;'>현재가</span>"
                 "<span style='font-size:32px;font-weight:800;color:#1e293b;line-height:1;"
-                f"font-family:\"JetBrains Mono\",monospace;'>{fmt_price(curr)}</span>"
+                f"font-variant-numeric:tabular-nums;'>{fmt_price(curr)}</span>"
                 f"<span style='font-size:13px;color:#94a3b8;'>{_base_txt}</span>"
                 "</div>", unsafe_allow_html=True)
 

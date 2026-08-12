@@ -31,7 +31,7 @@ with st.sidebar:
         'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
         '<path d="M3 17l5-6 4 3 5-8"/><path d="M17 6h4v4"/></svg></span>'
         '<span style="font-weight:800;font-size:16px;letter-spacing:-.01em;color:#12161C;">Jaemini PRO</span>'
-        '<span style="font-family:ui-monospace,monospace;font-size:10.5px;color:#79828F;'
+        '<span style="font-variant-numeric:tabular-nums;font-size:10.5px;color:#79828F;'
         'border:1px solid #E4E8EE;border-radius:4px;padding:1px 5px;">v7.0</span>'
         '</div>', unsafe_allow_html=True)
     st.caption("단기 스윙 & 퀀트 추적 시스템")
@@ -40,14 +40,17 @@ with st.sidebar:
     # [v7.3] 사이드바에서 혼자 다크였던 카드를 주변과 같은 재질로 맞췄다.
     components.html(
         """
+        <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css');
+        </style>
         <div id="kst-clock" style="
-            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                         'Malgun Gothic', sans-serif;
+            font-family: 'Pretendard Variable', Pretendard, -apple-system,
+                         BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
             background: #F6F7F9; color: #12161C; border: 1px solid #E4E8EE;
             border-radius: 9px; padding: 8px 11px; margin: 4px 0 10px 0;">
-            <div id="kst-date" style="font-family: ui-monospace, monospace; font-size: 10.5px;
+            <div id="kst-date" style="font-variant-numeric: tabular-nums; font-size: 10.5px;
                  letter-spacing:.08em; color:#79828F;">--</div>
-            <div id="kst-time" style="font-family: ui-monospace, monospace; font-size: 20px;
+            <div id="kst-time" style="font-variant-numeric: tabular-nums; font-size: 20px;
                  font-weight:700; letter-spacing:-.02em; font-variant-numeric: tabular-nums;
                  margin-top:1px;">--:--:--</div>
         </div>
