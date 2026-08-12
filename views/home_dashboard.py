@@ -57,12 +57,22 @@ def render(ctx):
           <span style="font-size:25px;font-weight:900;color:#0f172a;letter-spacing:-1px;">🖥️ 여의도 모닝 데스크</span>
           <span style="font-size:13px;color:#94a3b8;font-weight:600;">{now_kst.strftime('%Y.%m.%d')} ({['월','화','수','목','금','토','일'][now_kst.weekday()]}) {now_kst.strftime('%H:%M')} KST · 5분 자동 갱신</span>
         </div>
-        <div style="font-size:13px;color:#64748b;margin-bottom:14px;">간밤 글로벌 → 오늘의 국면 → 지수·수급 → 자금 흐름 → 심리 → 일정 → 내 종목 순으로, 매매에 필요한 핵심만 모았습니다.</div>
+        <div style="font-size:13px;color:#64748b;margin-bottom:14px;">내 종목 → 오늘의 국면 → 간밤 글로벌 → 지수·수급 → 자금 흐름 → 섹터 순으로, 지금 확인해야 할 것부터 배치했습니다.</div>
         """,
         unsafe_allow_html=True,
     )
 
-    # ── ① 오늘의 시장 국면 (결정 배너) ──
+    # ── ① 내 관심종목 신호 (가장 개인적이고 당장 행동해야 하는 정보) ──
+    # [재배치] 예전에는 이 블록이 맨 아래였다. 손절선을 이탈한 보유 종목이 있어도
+    #   그걸 보려면 아홉 블록을 스크롤해야 했다. 대시보드의 첫 화면은
+    #   '시장이 어떤가'보다 '내가 지금 뭘 해야 하나'가 먼저다.
+    st.markdown("##### 🚦 내 관심종목 신호 (손절·익절 자동 감시)")
+    with st.spinner("관심종목 기술적 점검 중..."):
+        render_watchlist_signals()
+
+    st.divider()
+
+    # ── ② 오늘의 시장 국면 (결정 배너) ──
     with st.spinner("시장 국면 분석 중..."):
         render_regime_hero()
 
@@ -146,19 +156,12 @@ def render(ctx):
 
     st.divider()
 
-    # ── ⑤ 투자 심리 (VIX + 공포·탐욕) ──
-    st.markdown("##### 🧭 투자 심리 (변동성·투자자 심리)")
-    render_sentiment_strip(fg_data, macro_data)
+    # ── ⑦ 참고 지표 — 매일 볼 필요는 없어 접어 둔다 ──
+    #    액션이 필요한 정보(내 종목·국면)를 위로 올린 만큼, 배경 정보는 기본 접기로
+    #    스크롤을 줄인다. 펼침 상태는 Streamlit 이 세션 동안 기억한다.
+    with st.expander("🧭 투자 심리 (변동성·투자자 심리)", expanded=False):
+        render_sentiment_strip(fg_data, macro_data)
 
-    st.divider()
+    with st.expander("🗓️ 향후 1개월 핵심 일정 (중앙은행·물가·경기·수급)", expanded=False):
+        render_week_catalysts()
 
-    # ── ⑥ 향후 1개월 핵심 매크로 일정 ──
-    st.markdown("##### 🗓️ 향후 1개월 핵심 일정 (중앙은행·물가·경기·수급)")
-    render_week_catalysts()
-
-    st.divider()
-
-    # ── ⑦ 내 관심종목 신호 (액션) ──
-    st.markdown("##### 🚦 내 관심종목 신호 (손절·익절 자동 감시)")
-    with st.spinner("관심종목 기술적 점검 중..."):
-        render_watchlist_signals()
