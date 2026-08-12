@@ -21,6 +21,10 @@ from datetime import datetime, date, timedelta
 import streamlit as st
 import pandas as pd
 
+import diagnostics as diag   # [v7.2] 수집 실패 진단 — 조용히 삼키던 예외를 기록
+import app_state             # [v7.2] 재료 일정 세션 저장 + 백업/복원
+_diag_note = diag.note
+
 try:
     import numpy as np
 except Exception:  # numpy 없어도 동작은 하도록
@@ -64,26 +68,16 @@ GOOD_NORMAL = [
 #    watchlist.json 과 동일한 방식으로 catalysts.json 에 저장합니다.
 #    레코드: {"종목명","티커","재료","예정일(YYYY-MM-DD)","메모"}
 # ==========================================================================
-CATALYST_FILE = "catalysts.json"
+CATALYST_FILE = app_state.FILES["catalysts"]   # 하위 호환용
 
 
 def load_catalysts():
-    if os.path.exists(CATALYST_FILE):
-        try:
-            with open(CATALYST_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, list) else []
-        except Exception:
-            return []
-    return []
+    """[v7.2] 세션 우선 저장. 기존 catalysts.json 이 있으면 그대로 읽어와 이어 쓴다."""
+    return app_state.load("catalysts", [])
 
 
 def save_catalysts(items):
-    try:
-        with open(CATALYST_FILE, "w", encoding="utf-8") as f:
-            json.dump(items, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        st.error(f"재료 일정 저장 실패: {e}")
+    app_state.save("catalysts", items)
 
 
 # ==========================================================================
@@ -139,7 +133,8 @@ def _safe_float(x):
         if v != v:  # NaN
             return None
         return v
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_safe_float", _dg_e)
         return None
 
 
@@ -211,7 +206,8 @@ def days_until(date_str) -> int:
     try:
         d = date.fromisoformat(str(date_str).strip())
         return (d - date.today()).days
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("days_until", _dg_e)
         return None
 
 
@@ -274,7 +270,8 @@ def _nth_weekday(year, month, weekday, n):
     day = 1 + offset + (n - 1) * 7
     try:
         return date(year, month, day)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_nth_weekday", _dg_e)
         return None
 
 
@@ -303,7 +300,8 @@ def scan_upcoming_events(get_economic_events, within_days=10) -> list:
             for day_num, items in ev.items():
                 try:
                     edate = date(yy, mm, int(day_num))
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("scan_upcoming_events", _dg_e)
                     continue
                 dleft = (edate - today).days
                 if 0 <= dleft <= within_days:
@@ -424,7 +422,8 @@ def _fetch_zq_implied_rate(symbols_tuple):
     """ZQ 선물 후보 심볼들을 순서대로 시도 → '내재 월평균금리(=100−종가)' 반환. 모두 실패 시 None."""
     try:
         import yfinance as yf
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_fetch_zq_implied_rate", _dg_e)
         return None
     for sym in symbols_tuple:
         try:
@@ -437,7 +436,8 @@ def _fetch_zq_implied_rate(symbols_tuple):
             px = float(closes.iloc[-1])
             if 90.0 <= px <= 100.5:            # 정상 가격대(금리 0~10% 수준)만 채택
                 return 100.0 - px
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_fetch_zq_implied_rate", _dg_e)
             continue
     return None
 
@@ -468,7 +468,8 @@ def _fed_live_stance(meeting_date):
         if certainty <= 0.62:
             return "high"                    # 접전(≈35~65%) → 서프라이즈↑
         return "normal"
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_fed_live_stance", _dg_e)
         return None
 
 
@@ -804,7 +805,8 @@ def render_alert_center(deps: dict):
             try:
                 if hasattr(get_latest_naver_news, "clear"):
                     get_latest_naver_news.clear()
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("render_alert_center", _dg_e)
                 pass
             st.rerun()
 
@@ -1095,9 +1097,8 @@ def render_alert_center(deps: dict):
                    "D-day가 다가올 때 **선반영分 차익실현·호재 소멸 급락** 위험을 경보합니다. "
                    "('소문에 사서 뉴스에 판다' 패턴 감시)")
 
-        if "ac_catalysts" not in st.session_state:
-            st.session_state.ac_catalysts = load_catalysts()
-        catalysts = st.session_state.ac_catalysts
+        catalysts = load_catalysts()           # [v7.2] 세션 저장소에서 로드(없으면 파일 seed)
+        app_state.render_backup_ui("catalysts", "재료 일정")
 
         with st.expander("➕ 재료 일정 등록 / 관리", expanded=not catalysts):
             f = st.columns([1.4, 1, 1.6, 1.2])
@@ -1114,8 +1115,7 @@ def render_alert_center(deps: dict):
                         "예정일": in_date.isoformat(),
                         "메모": "",
                     })
-                    st.session_state.ac_catalysts = catalysts
-                    save_catalysts(catalysts)
+                    save_catalysts(catalysts)      # 세션 + (가능하면) 파일 동시 저장
                     st.success(f"'{in_name.strip()}' 재료 일정 등록 완료")
                     st.rerun()
                 else:
@@ -1162,7 +1162,6 @@ def render_alert_center(deps: dict):
                                     else (f"D+{abs(dleft)}" if isinstance(dleft, int) else "—"))))
                     if cc[3].button("🗑️", key=f"ac_cat_del_{i}", help="삭제"):
                         catalysts.pop(i)
-                        st.session_state.ac_catalysts = catalysts
                         save_catalysts(catalysts)
                         st.rerun()
 

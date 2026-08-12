@@ -24,6 +24,12 @@ import PIL.Image
 import traceback
 import jaemini_alert_center as alert_center  # [v7.1] 통합 경보 센터 모듈
 from scoring_weights import DEFAULT_WEIGHTS as SCORE_W, make_weights, tunable_keys  # [v7.2] 점수 가중치 상수 분리
+import diagnostics as diag                  # [v7.2] 수집 실패 진단
+import app_state                            # [v7.2] 관심종목·히스토리 세션 저장 + 백업/복원
+
+# 예외를 조용히 삼키던 자리에서 호출된다. 실패해도 앱은 계속 돌지만 기록은 남는다.
+# 화면 표출은 사이드바 diag.render_badge() / 홈의 diag.render_panel() 참고.
+_diag_note = diag.note
 
 try:
     import PyPDF2
@@ -42,21 +48,19 @@ except Exception as e:
     PYKRX_IMPORT_ERR = f"{type(e).__name__}: {e}"   # 실제 import 실패 원인 보존
 
 # ==========================================
-# 0. 로컬 영구 저장소 (관심종목 유지용)
+# 0. 관심종목 저장소  [v7.2] 세션 기반으로 전환
+#    - 원본은 st.session_state (사용자별 분리). 로컬에서 쓰기 가능하면 파일에도 자동 저장.
+#    - 클라우드처럼 파일을 못 쓰는 환경에서는 자동으로 세션 저장만 하고,
+#      '⭐ 내 관심종목 모니터링' 페이지의 백업 UI 로 직접 내보내기/불러오기 한다.
+#    - 기존 watchlist.json 은 그대로 읽어들이므로 쓰던 데이터는 유지된다.
 # ==========================================
-WATCHLIST_FILE = "watchlist.json"
+WATCHLIST_FILE = app_state.FILES["watchlist"]   # 하위 호환용 (경로 참조하는 코드가 있어 유지)
 
 def load_watchlist():
-    if os.path.exists(WATCHLIST_FILE):
-        try:
-            with open(WATCHLIST_FILE, "r", encoding="utf-8") as f: return json.load(f)
-        except Exception: return []
-    return []
+    return app_state.load("watchlist", [])
 
 def save_watchlist(wl):
-    try:
-        with open(WATCHLIST_FILE, "w", encoding="utf-8") as f: json.dump(wl, f, ensure_ascii=False, indent=4)
-    except Exception as e: st.error(f"관심종목 저장 실패: {e}")
+    app_state.save("watchlist", wl)
 
 # ==========================================
 # 1. 초기 설정 
@@ -178,14 +182,16 @@ def _poly_parse_list(val):
     if isinstance(val, str):
         try:
             return json.loads(val)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_poly_parse_list", _dg_e)
             return []
     return []
 
 def _poly_num(x):
     try:
         return float(x)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_poly_num", _dg_e)
         return 0.0
 
 @st.cache_data(ttl=300)
@@ -210,6 +216,7 @@ def fetch_polymarket_markets(search=None, limit=80):
         res.raise_for_status()
         raw = res.json()
     except Exception as e:
+        _diag_note("fetch_polymarket_markets", e)
         return {"error": f"{type(e).__name__}: {e}", "data": []}
 
     rows = []
@@ -241,7 +248,8 @@ def fetch_polymarket_markets(search=None, limit=80):
                 "category": m.get("category", ""),
             }
             rows.append(row)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("fetch_polymarket_markets", _dg_e)
             continue
 
     if search:
@@ -274,7 +282,8 @@ def _gtx_translate_en_ko(text):
             parts = [seg[0] for seg in (data[0] or []) if seg and seg[0]]
             ko = "".join(parts).strip()
             return ko or text
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_gtx_translate_en_ko", _dg_e)
         pass
     return text
 
@@ -348,7 +357,8 @@ def get_today_research_details():
                 real_opinion = standardize_opinion(detail_text)
                 change_status, change_pct = classify_tp_change(title, detail_text, real_price)
                 return real_price, real_opinion, change_status, change_pct
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("fetch_detail", _dg_e)
                 return 0, "N/A", "유지/신규", 0.0
 
         results = []
@@ -388,7 +398,7 @@ def get_us_etf_summary(us_etfs):
                 vol_s = df['Volume'].dropna()
                 vol = int(vol_s.iloc[-1]) if len(vol_s) else 0
                 us_data.append({"티커": ticker, "현재가": f"${close:.2f}", "등락률": f"{pct:+.2f}%", "거래량": f"{vol:,}"})
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_us_etf_summary", _dg_e); pass
     return pd.DataFrame(us_data)
 
 @st.cache_data(ttl=86400)
@@ -405,7 +415,7 @@ def get_nps_holdings(dart_key=""):
             r, src = _fetch_nps_stake_multi(code, dart_key=dart_key, corp_map=corp_map)
             if r and r["지분율"] is not None and r["지분율"] >= 4.0:
                 return {"종목명": name, "티커": code, "보유비중": f"{r['지분율']:.2f}%", "비고": f"{src} 실시간"}
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("fetch_nps", _dg_e); pass
         return None
         
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -441,7 +451,7 @@ def get_nps_us_portfolio():
             res_df['가치(달러)'] = df2['Value'] if 'Value' in df2.columns else "-"
             res_df['비고'] = "Dataroma 실시간 스크래핑"
             if not res_df.empty: return res_df.head(30)
-    except Exception: pass
+    except Exception as _dg_e: _diag_note("get_nps_us_portfolio", _dg_e); pass
 
     # 실시간 스크래핑 실패 시: 가짜(하드코딩) 13F를 만들지 않고 '빈 결과'를 반환한다.
     #   (정밀해 보이는 더미 수치가 실제 포트폴리오로 오인될 위험이 커서 제거. 화면에서 "데이터 없음" 경고.)
@@ -467,7 +477,8 @@ def _extract_nps_stake_from_html(html_text):
     반환: {"지분율": float, "주주표기": str} / {"지분율": None, ...}(정상 페이지·국민연금 미표기) / None(파싱 불가)"""
     try:
         tables = pd.read_html(StringIO(html_text))
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_extract_nps_stake_from_html", _dg_e)
         return None
     parsed_any = False
     for df in tables:
@@ -487,7 +498,8 @@ def _extract_nps_stake_from_html(html_text):
         val = str(match[pct_cols[-1]].iloc[0]).replace('%', '').replace(',', '').strip()
         try:
             pct = float(val)
-        except ValueError:
+        except ValueError as _dg_e:
+            _diag_note("_extract_nps_stake_from_html", _dg_e)
             continue
         disp = ""
         for c in df.columns:
@@ -520,7 +532,8 @@ def get_dart_corp_map(dart_key):
             if stk:
                 cmap[stk.zfill(6)] = (el.findtext('corp_code') or '').strip()
         return cmap
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_dart_corp_map", _dg_e)
         return {}
 
 def _fetch_nps_stake_dart(code, dart_key, corp_map=None):
@@ -546,7 +559,8 @@ def _fetch_nps_stake_dart(code, dart_key, corp_map=None):
         pct = float(str(top.get("stkrt", "")).replace(",", "").strip())
         return {"지분율": pct, "주주표기": str(top.get("repror", "")).strip(),
                 "기준일": str(top.get("rcept_dt", "")).strip()}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_fetch_nps_stake_dart", _dg_e)
         return None
 
 def _fetch_nps_stake_multi(code, dart_key="", corp_map=None):
@@ -572,7 +586,8 @@ def _fetch_nps_stake_multi(code, dart_key="", corp_map=None):
                 return parsed, src_name
             if none_result is None:
                 none_result, none_src = parsed, src_name
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_fetch_nps_stake_multi", _dg_e)
             continue
     if none_result is not None:
         return none_result, none_src
@@ -601,7 +616,8 @@ def get_krx_name_code_list():
             out['Code'] = out['Code'].astype(str).str.zfill(6)
             out['Name'] = out['Name'].astype(str)
             return out.reset_index(drop=True)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_krx_name_code_list", _dg_e)
         pass
     return pd.DataFrame(columns=['Code', 'Name'])
 
@@ -624,7 +640,8 @@ def get_us_sector_etfs():
                 close = float(h['Close'].iloc[-1])
                 pct = (close / float(h['Close'].iloc[-2]) - 1) * 100
                 return {"섹터": name, "ETF": tk, "현재가": round(close, 2), "등락률": round(pct, 2)}
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("fetch_one", _dg_e)
             pass
         return None
     rows = []
@@ -632,7 +649,8 @@ def get_us_sector_etfs():
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
             for r in ex.map(fetch_one, sectors):
                 if r: rows.append(r)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_us_sector_etfs", _dg_e)
         pass
     if rows:
         return pd.DataFrame(rows).sort_values('등락률', ascending=False).reset_index(drop=True)
@@ -655,14 +673,16 @@ def get_overnight_us_market():
                 last = float(h['Close'].iloc[-1]); prev = float(h['Close'].iloc[-2])
                 pct = (last / prev - 1) * 100 if prev else 0
                 return {"label": label, "ticker": tk, "value": last, "pct": pct}
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("fetch", _dg_e)
             pass
         return None
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
             for r in ex.map(fetch, targets):
                 if r: out.append(r)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_overnight_us_market", _dg_e)
         pass
     order = {t[1]: i for i, t in enumerate(targets)}
     out.sort(key=lambda x: order.get(x['ticker'], 99))
@@ -810,7 +830,8 @@ def analyze_theme_trends():
                 base = float(past.iloc[0]) if past is s else float(past.iloc[-1])
                 return round((last / base - 1) * 100, 2) if base > 0 else 0.0
             return {"테마": name, "1M수익률": _ret(30), "3M수익률": _ret(90), "6M수익률": _ret(180)}
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_calc", _dg_e)
             return None
 
     rows = []
@@ -832,7 +853,8 @@ def _parse_ipo_enddate(s):
     y = int(y); y = (2000 + y) if y < 100 else y
     try:
         start = datetime(y, int(m), int(d))
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_parse_ipo_enddate", _dg_e)
         return None
     end = start
     rng = re.search(r'[~∼\-]\s*(?:(\d{1,2})[.\-/])?(\d{1,2})\s*$', s)
@@ -957,7 +979,8 @@ def get_naver_ipo_data():
             cleaned = _clean_ipo_df(res_df)
             if not cleaned.empty:
                 return cleaned
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_naver_ipo_data", _dg_e)
         pass
 
     # ── 소스 B: 네이버 IPO 표 ──
@@ -1001,7 +1024,8 @@ def get_naver_ipo_data():
                 cleaned = _clean_ipo_df(res_df)
                 if not cleaned.empty:
                     return cleaned
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_naver_ipo_data", _dg_e)
         pass
 
     return pd.DataFrame()
@@ -1017,7 +1041,8 @@ def get_dividend_portfolio(ex_rate):
     def _yf_fetch_one(ticker_code):
         try:
             import yfinance as yf
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_yf_fetch_one", _dg_e)
             return ticker_code, 0.0, 0.0, ticker_code, "—"
 
         t = None
@@ -1028,7 +1053,8 @@ def get_dividend_portfolio(ex_rate):
         except Exception:
             try:
                 t = yf.Ticker(ticker_code)
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_yf_fetch_one", _dg_e)
                 return ticker_code, 0.0, 0.0, ticker_code, "—"
 
         price = 0.0
@@ -1057,7 +1083,8 @@ def get_dividend_portfolio(ex_rate):
                 h = t.history(period="5d")
                 if not h.empty:
                     price = float(h['Close'].dropna().iloc[-1])
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_yf_fetch_one", _dg_e)
                 pass
 
         name = info.get('shortName') or info.get('longName') or ticker_code
@@ -1087,9 +1114,11 @@ def get_dividend_portfolio(ex_rate):
                             freq = f"반기배당 ({mtxt})"
                         else:
                             freq = f"연배당 ({mtxt})"
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("_yf_fetch_one", _dg_e)
                         pass
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_yf_fetch_one", _dg_e)
             pass
 
         # 폴백 A : info 의 배당금 필드
@@ -1105,7 +1134,8 @@ def get_dividend_portfolio(ex_rate):
                     dy = dy / 100.0
                 if dy:
                     annual_div = price * dy
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_yf_fetch_one", _dg_e)
                 pass
 
         return ticker_code, float(price or 0), float(annual_div or 0), name, freq
@@ -1197,7 +1227,8 @@ def get_dividend_portfolio(ex_rate):
                 '배당주기': '연 1회(추정)',
                 '비고': 'KRX 공식 데이터'
             })
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_dividend_portfolio", _dg_e)
         pass
 
     # (1-B) yfinance 우회 — 클라우드 IP에서 pykrx 가 막혔을 때 (가장 안정적)
@@ -1239,9 +1270,11 @@ def get_dividend_portfolio(ex_rate):
                             '배당주기': '—',
                             '비고': 'yahooquery 우회'
                         })
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("get_dividend_portfolio", _dg_e)
                     pass
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_dividend_portfolio", _dg_e)
             pass
 
     krx_df = pd.DataFrame(krx_list)
@@ -1304,7 +1337,8 @@ def get_dividend_portfolio(ex_rate):
                             if dy and price > 0: div_rate = price * dy
                         nm = price_info.get('shortName', ticker)
                         return _build_us_row(ticker, price, div_rate, nm, 'yahooquery')
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("_yq_row", _dg_e)
                         return None
 
                 if not us_list:
@@ -1315,7 +1349,8 @@ def get_dividend_portfolio(ex_rate):
                     for tk in etf_tickers:
                         r = _yq_row(tk)
                         if r: etf_list.append(r)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_dividend_portfolio", _dg_e)
             pass
 
     us_df = pd.DataFrame(us_list)
@@ -1418,7 +1453,8 @@ def get_stock_research_history(code, stock_name=""):
                         real_price = parse_target_price(detail_text)
                         real_opinion = standardize_opinion(detail_text)
                             
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("get_stock_research_history", _dg_e)
                         pass 
                         
                     rows.append({
@@ -1552,7 +1588,7 @@ def get_trending_themes_with_ai(api_key):
                         vol_avg = hist['Volume'].mean()
                         if vol_today > vol_avg * 1.2:  # 20% 이상 거래량 폭발 시
                             return ticker
-                except: pass
+                except Exception as _dg_e: _diag_note("check_us_volume", _dg_e); pass
                 return None
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -1580,7 +1616,8 @@ def get_trending_themes_with_ai(api_key):
             res = ask_gemini(prompt, api_key)
             themes = [t.strip() for t in res.split(',') if t.strip()]
             return themes[:4] if len(themes) >= 4 else (themes + ["추가 테마 분석 필요"] * 4)[:4]
-        except:
+        except Exception as _dg_e:
+            _diag_note("get_trending_themes_with_ai", _dg_e)
             return ["글로벌 AI 반도체", "비만치료제 및 K-바이오", "전력기기 및 K-방산", "자율주행 및 로보틱스"]
 
 # 👇 [업그레이드 3] 테마 검색 시, 미국(US) 텐배거 대장주까지 함께 발굴하도록 수정
@@ -1620,7 +1657,8 @@ def get_theme_stocks_with_ai(theme, api_key):
                 seen.add(code)
                 stocks.append((name, code))
         return stocks[:30]
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_theme_stocks_with_ai", _dg_e)
         return []
 
 
@@ -1676,7 +1714,8 @@ def get_growth_fund_stocks_with_ai(sector_query, _api_key):
                     seen.add(code)
                     stocks.append((name, code))
         return stocks[:20]
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_growth_fund_stocks_with_ai", _dg_e)
         return []
 
 
@@ -1705,7 +1744,7 @@ def get_longterm_value_stocks_with_ai(strategy, cap_size, _api_key):
                 validated.append((final_name, final_code))
         validated = [(n, c) for n, c in validated if not is_kr_etf_etn(n, c)]
         return validated[:20]
-    except Exception: return []
+    except Exception as _dg_e: _diag_note("get_longterm_value_stocks_with_ai", _dg_e); return []
 
 
 # ==========================================
@@ -1761,10 +1800,12 @@ def get_value_metrics(code):
             try:
                 v = float(str(x).replace(",", ""))
                 return v if v != 0 else None
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_f", _dg_e)
                 return None
         out["per"], out["pbr"] = _f(per_str), _f(pbr_str)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_value_metrics", _dg_e)
         pass
     # 2) ROE/배당/부채/성장 (yfinance - KR 커버리지 편차 있어 소프트 처리)
     try:
@@ -1786,7 +1827,8 @@ def get_value_metrics(code):
             out["div"] = round(dy * 100, 2) if dy < 1 else round(dy, 2)
         de = info.get("debtToEquity")
         out["debt"] = round(float(de), 1) if de is not None else None
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_value_metrics", _dg_e)
         pass
     # 3) 모멘텀 (fdr 가격 - 신뢰도 높음)
     try:
@@ -1805,7 +1847,8 @@ def get_value_metrics(code):
                 out["mom3"], out["mom6"] = _ret(90), _ret(180)
                 hi = float(s.max())
                 out["off_high"] = round((last / hi - 1) * 100, 1) if hi > 0 else None
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_value_metrics", _dg_e)
         pass
     return out
 
@@ -1880,14 +1923,15 @@ def get_macro_indicators():
     try:
         data = yf.download(list(tickers.values()), period="5d", group_by="ticker",
                            threads=True, progress=False)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_macro_indicators", _dg_e)
         return None
     for name, ticker in tickers.items():
         try:
             close = data[ticker]['Close'].dropna()
             if len(close) >= 2:
                 results[name] = {"value": float(close.iloc[-1]), "delta": float(close.iloc[-1] - close.iloc[-2]), "prev": float(close.iloc[-2])}
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_macro_indicators", _dg_e); pass
     return results if results else None
 
 @st.cache_data(ttl=1800)
@@ -1904,7 +1948,7 @@ def get_fear_and_greed():
             score = round(data['fear_and_greed']['score'])
             prev_score = round(data['fear_and_greed']['previous_close'])
             return {"score": score, "delta": score - prev_score, "rating": data['fear_and_greed']['rating'].capitalize()}
-    except Exception: pass
+    except Exception as _dg_e: _diag_note("get_fear_and_greed", _dg_e); pass
     
     try:
         vix_df = yf.Ticker("^VIX").history(period="2d")
@@ -1922,7 +1966,7 @@ def get_fear_and_greed():
             else: rating = "Extreme Fear"
             
             return {"score": est_score, "delta": est_score - est_prev, "rating": f"{rating} (추정)"}
-    except Exception: pass
+    except Exception as _dg_e: _diag_note("get_fear_and_greed", _dg_e); pass
     
     return {"score": 50, "delta": 0, "rating": "Neutral"}
 
@@ -1949,7 +1993,7 @@ def get_us_top_gainers():
                             break
                 if not price_str:
                     try: price_str, change_str, pct_str = str(row.iloc[2]), str(row.iloc[3]), str(row.iloc[4])
-                    except Exception: pass
+                    except Exception as _dg_e: _diag_note("get_us_top_gainers", _dg_e); pass
                 try: pct_val = float(re.sub(r'[^\d\.\+\-]', '', pct_str))
                 except Exception: pct_val = 0.0
                 if pct_val >= 5.0:
@@ -1968,13 +2012,13 @@ def get_us_top_gainers():
                 res = requests.get(f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q={urllib.parse.quote(n)}", timeout=2)
                 ko_name = res.json()[0][0][0]
                 return re.sub(r'(?i)(,?\s*Inc\.|,?\s*Corp\.|,?\s*Corporation|,?\s*Ltd\.|,?\s*Holdings|\(주\))', '', ko_name).strip()
-            except Exception: return n
+            except Exception as _dg_e: _diag_note("get_clean_korean_name", _dg_e); return n
         df['기업명'] = df['기업명'].apply(get_clean_korean_name)
         df['환산(원)'] = df['현재가'].apply(lambda x: f"{int(float(x.replace(',', '')) * ex_rate):,}원" if x and x.replace('.', '', 1).replace(',', '').isdigit() else "-")
         df['현재가'] = df['현재가'].apply(lambda x: f"${float(x.replace(',', '')):.2f}" if x and x.replace('.', '', 1).replace(',', '').isdigit() else str(x))
         df['등락률'] = df['등락률'].apply(lambda x: f"+{x:.2f}%")
         return df, ex_rate, fetch_time
-    except Exception: return empty_df, 1350.0, fetch_time
+    except Exception as _dg_e: _diag_note("get_us_top_gainers", _dg_e); return empty_df, 1350.0, fetch_time
 
 @st.cache_data(ttl=86400)
 def get_market_map():
@@ -1993,7 +2037,8 @@ def get_market_map():
             row['Code']: label.get(str(row['Market']).upper().strip(), str(row['Market']))
             for _, row in df.iterrows() if pd.notna(row['Market'])
         }
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_market_map", _dg_e)
         return {}
 
 
@@ -2054,7 +2099,8 @@ def get_stock_list_by_market():
             out['거래대금(억)'] = (_num('Amount') / 100000000).astype(int)
             out['시가총액(억)'] = (_num('Marcap') / 100000000).astype(int)
             return _merge_sector(out)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_stock_list_by_market", _dg_e)
         pass
 
     # --- 폴백: 다중소스 스냅샷(fdr 개별시장 → pykrx)으로 실데이터 복구 ---
@@ -2070,7 +2116,8 @@ def get_stock_list_by_market():
             out['거래대금(억)'] = (pd.to_numeric(snap['Amount'], errors='coerce').fillna(0) / 100000000).astype(int)
             out['시가총액(억)'] = (pd.to_numeric(snap['Marcap'], errors='coerce').fillna(0) / 100000000).astype(int)
             return _merge_sector(out)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_stock_list_by_market", _dg_e)
         pass
 
     return pd.DataFrame()
@@ -2129,7 +2176,8 @@ def _get_etf_list():
                 out['Sector'] = 'ETF'
                 out['Market'] = 'ETF'
                 return out.dropna(subset=['Name']).drop_duplicates(subset=['Code']).reset_index(drop=True)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_get_etf_list", _dg_e)
         pass
     # 2차: 네이버 ETF 시세 API (JSON)
     try:
@@ -2141,7 +2189,8 @@ def _get_etf_list():
                      'Sector': 'ETF', 'Market': 'ETF'} for it in items if it.get('itemcode')]
             if rows:
                 return pd.DataFrame(rows).dropna(subset=['Name']).drop_duplicates(subset=['Code']).reset_index(drop=True)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_get_etf_list", _dg_e)
         pass
     # 3차: pykrx
     try:
@@ -2152,11 +2201,13 @@ def _get_etf_list():
             try:
                 rows.append({'Name': _pykrx_stock.get_etf_ticker_name(t), 'Code': str(t).zfill(6),
                              'Sector': 'ETF', 'Market': 'ETF'})
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_get_etf_list", _dg_e)
                 continue
         if rows:
             return pd.DataFrame(rows).dropna(subset=['Name']).drop_duplicates(subset=['Code']).reset_index(drop=True)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_get_etf_list", _dg_e)
         pass
     return pd.DataFrame(columns=['Name', 'Code', 'Sector', 'Market'])
 
@@ -2191,7 +2242,8 @@ def _naver_sector_map():
                     m2 = re.search(r'code=(\d{6})', a.get('href', ''))
                     if m2:
                         codes.append(m2.group(1))
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_fetch_group", _dg_e)
                 pass
             return name, codes
 
@@ -2201,7 +2253,8 @@ def _naver_sector_map():
                 for c in codes:
                     sector_map.setdefault(c, name)
         return sector_map
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_naver_sector_map", _dg_e)
         return {}
 
 
@@ -2227,7 +2280,8 @@ def get_krx_stocks():
                     
                 # 정확한 KRX-DESC의 Sector로만 깔끔하게 병합
                 df = pd.merge(df, df_desc[['Code', 'Sector']], on='Code', how='left')
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_krx_stocks", _dg_e)
             pass
 
         if not df.empty:
@@ -2279,7 +2333,8 @@ def get_krx_stocks():
             
             return df.drop_duplicates(subset=['Name']).reset_index(drop=True)
             
-    except Exception: 
+    except Exception as _dg_e: 
+        _diag_note("get_krx_stocks", _dg_e)
         pass
         
     # FDR 실패/빈 결과 → 네이버 시가총액 폴백으로 목록 구성
@@ -2305,7 +2360,7 @@ def fetch_naver_volume(sosok, pages=1):
                     df = t.dropna(subset=['종목명']).copy()
                     df_list.append(df[df['종목명'] != '종목명'])
                     break
-    except Exception: pass
+    except Exception as _dg_e: _diag_note("fetch_naver_volume", _dg_e); pass
     if df_list: return pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['종목명'])
     return pd.DataFrame()
     
@@ -2364,7 +2419,8 @@ def _kr_market_snapshot():
                 d = d.copy()
                 d['__mkt'] = kname
                 frames.append(d)
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_from_fdr", _dg_e)
                 continue
         if not frames:
             return pd.DataFrame()
@@ -2394,7 +2450,8 @@ def _kr_market_snapshot():
                     if t is not None and not t.empty and float(pd.to_numeric(t['종가'], errors='coerce').fillna(0).sum()) > 0:
                         ohlcv, used = t, ds
                         break
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("_from_pykrx", _dg_e)
                     continue
             if ohlcv is None:
                 continue
@@ -2423,7 +2480,8 @@ def _kr_market_snapshot():
             krx = get_krx_stocks()
             if not krx.empty:
                 out = pd.merge(out, krx[['Code', 'Name']], on='Code', how='left')
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_from_pykrx", _dg_e)
             pass
         if 'Name' not in out.columns:
             out['Name'] = ""
@@ -2435,7 +2493,8 @@ def _kr_market_snapshot():
             snap = _src()
             if snap is not None and not snap.empty and float(snap['Close'].abs().sum()) > 0:
                 return snap.reset_index(drop=True)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_kr_market_snapshot", _dg_e)
             continue
     return pd.DataFrame(columns=['Code', 'Name', 'Close', 'ChagesRatio', 'Amount', 'Marcap', 'Market'])
 
@@ -2472,7 +2531,7 @@ def get_trading_value_kings(limit=50):
                         # 🛠️ [핵심 수정] 여기도 동일하게 a 태그만 정확하게 타겟팅합니다.
                         tag = soup.select_one('a[href*="/sise/sise_group_detail.naver"]')
                         return code, tag.text.strip() if tag else '기타'
-                    except: return code, '기타'
+                    except Exception as _dg_e: _diag_note("rescue_sector", _dg_e); return code, '기타'
                 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                     rescued_sectors = dict(executor.map(rescue_sector, missing_codes))
@@ -2480,7 +2539,7 @@ def get_trading_value_kings(limit=50):
                 df_fdr.loc[missing_mask, 'Sector'] = df_fdr.loc[missing_mask, 'Code'].map(rescued_sectors).fillna('기타')
                 
             return df_fdr[['Code', 'Name', 'Close', 'ChagesRatio', 'Amount_Ouk', 'Sector']]
-    except Exception: pass
+    except Exception as _dg_e: _diag_note("get_trading_value_kings", _dg_e); pass
 
     # 🚨 1차 소스(fdr 'KRX') 실패 → 다중소스 스냅샷(fdr 개별시장 → pykrx)으로 '실제 등락률·거래대금' 복구
     snap = _kr_market_snapshot()
@@ -2550,7 +2609,8 @@ def _get_kr_etf_codes():
                 c = str(it.get("itemcode", "")).strip()
                 if c.isdigit():
                     codes.add(c.zfill(6))
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_get_kr_etf_codes", _dg_e)
             continue
     return codes
 
@@ -2567,7 +2627,8 @@ def is_kr_etf_etn(name, code=""):
         c = str(code or "").strip()
         if c.isdigit() and c.zfill(6) in _get_kr_etf_codes():
             return True
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("is_kr_etf_etn", _dg_e)
         pass
     return False
 
@@ -2586,7 +2647,7 @@ def get_scan_targets(limit=50):
                 df_fdr = df_fdr.sort_values('Amount', ascending=False)
             targets = _drop_products(df_fdr.head(limit * 2)[['Name', 'Code']].values.tolist())[:limit]
             if targets: return targets
-    except Exception: pass
+    except Exception as _dg_e: _diag_note("get_scan_targets", _dg_e); pass
 
     # 🚨 중복 현상 해결: limit 개수를 채우기 위해 억지로 리스트를 곱하여 복사하는 로직 제거
     fallback_targets = _drop_products(get_krx_stocks()[['Name', 'Code']].values.tolist())
@@ -2632,7 +2693,8 @@ def get_drawdown_info(code, lookback="52주", rebound_days=120):
             val = rs.iloc[-1]
             if pd.notna(val):
                 rsi = round(float(100 - 100 / (1 + val)), 0)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_drawdown_info", _dg_e)
             pass
         # 최근 저점 대비 반등률(바닥 확인용)
         # 최근 저점 대비 반등률 (바닥 확인용, 기간 조절 가능)
@@ -2672,12 +2734,14 @@ def get_drawdown_info(code, lookback="52주", rebound_days=120):
                     _c2, _v2 = close.loc[_common], vol.loc[_common]
                     obv = (np.sign(_c2.diff()).fillna(0) * _v2).cumsum()
                     sig["obv_rise"] = bool(float(obv.iloc[-1]) > float(obv.iloc[-21]))
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_drawdown_info", _dg_e)
             pass
         
         return {"current": cur, "high": hi, "high_date": high_date,
                 "drawdown": dd, "rsi": rsi, "rebound": rebound, **sig}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_drawdown_info", _dg_e)
         return None
 
 
@@ -2703,11 +2767,13 @@ def get_kr_sector_heat():
                         v = float(str(r[chg_col]).replace('%', '').replace('+', '').strip())
                         if nm and nm != '업종명':
                             heat[nm] = v
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("get_kr_sector_heat", _dg_e)
                         continue
                 if heat:
                     return heat
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_kr_sector_heat", _dg_e)
         pass
     return {}
 
@@ -2725,7 +2791,8 @@ def get_us_sector_heat():
             c = d["Close"].dropna()
             if len(c) >= 6:
                 heat[sec_kr] = round((float(c.iloc[-1]) / float(c.iloc[-6]) - 1) * 100, 2)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_us_sector_heat", _dg_e)
             continue
     return heat
 
@@ -2817,7 +2884,8 @@ def get_stock_sector_kr(code):
                 v = _ok(c)
                 if v:
                     return v
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_stock_sector_kr", _dg_e)
         pass
 
     # ② 메인 페이지 업종 링크 (EUC-KR/UTF-8 자동 판별)
@@ -2827,7 +2895,8 @@ def get_stock_sector_kr(code):
         for enc in ("euc-kr", "utf-8"):
             try:
                 soup = BeautifulSoup(res.content.decode(enc, "replace"), "html.parser")
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("get_stock_sector_kr", _dg_e)
                 continue
             for a in soup.select("a"):
                 href = a.get("href", "")
@@ -2835,7 +2904,8 @@ def get_stock_sector_kr(code):
                     v = _ok(a.get_text(strip=True))
                     if v:
                         return v
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_stock_sector_kr", _dg_e)
         pass
     return None
 
@@ -2860,7 +2930,8 @@ def get_us_sector_map():
             sec = str(row[sec_col]).strip()
             out[sym] = kmap.get(sec, sec)
         return out
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_us_sector_map", _dg_e)
         return {}
 
 
@@ -2984,7 +3055,8 @@ def _kr_change_map():
     for nm, rt in zip(df["종목명"], df["등락률"]):
         try:
             m[str(nm).strip()] = float(rt)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_kr_change_map", _dg_e)
             continue
     return m
 
@@ -3003,7 +3075,8 @@ def get_trending_sectors(market="US"):
         try:
             data = yf.download(uniq, period="5d", interval="1d",
                                group_by="ticker", threads=True, progress=False)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_trending_sectors", _dg_e)
             return []
         if data is None or len(data) == 0:
             return []
@@ -3015,7 +3088,8 @@ def get_trending_sectors(market="US"):
                 c = d["Close"].dropna()
                 if len(c) >= 2:
                     chg[tk] = (float(c.iloc[-1]) / float(c.iloc[-2]) - 1) * 100
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("get_trending_sectors", _dg_e)
                 continue
         theme_map = US_THEME_MAP
 
@@ -3092,7 +3166,8 @@ def _fetch_stock_investor_2d(code):
                     return 0
                 try:
                     return int(float(t))
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("_n", _dg_e)
                     return 0
             recs.append({"close": _n(1), "inst": _n(5), "forn": _n(6)})
             if len(recs) >= 2:
@@ -3103,7 +3178,8 @@ def _fetch_stock_investor_2d(code):
         t1 = recs[1] if len(recs) >= 2 else {"inst": 0, "forn": 0}
         return {"price": t0["close"], "inst": t0["inst"], "forn": t0["forn"],
                 "inst_prev": t1["inst"], "forn_prev": t1["forn"]}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_fetch_stock_investor_2d", _dg_e)
         return None
 
 
@@ -3126,7 +3202,8 @@ def get_kr_investor_flows(universe_n=150):
         for c, rt in zip(base["종목코드"], base["등락률"]):
             try:
                 chg_map[str(c).zfill(6)] = float(rt)
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("get_kr_investor_flows", _dg_e)
                 pass
     targets = [(str(c).zfill(6), str(n)) for c, n in zip(base["종목코드"], base["종목명"])]
 
@@ -3264,7 +3341,7 @@ def get_limit_stocks():
                         res_df['Name'] = t['종목명']
                         def to_f(x):
                             try: return float(str(x).replace(',', '').replace('%', '').replace('+', '').strip())
-                            except Exception: return 0.0
+                            except Exception as _dg_e: _diag_note("to_f", _dg_e); return 0.0
                         res_df['Close'] = t['현재가'].apply(to_f)
                         res_df['Changes'] = t['전일비'].apply(to_f) if is_upper else -t['전일비'].apply(to_f)
                         if '등락률' in t.columns: res_df['ChagesRatio'] = t['등락률'].apply(to_f) if is_upper else -t['등락률'].apply(to_f)
@@ -3274,7 +3351,7 @@ def get_limit_stocks():
                         res_df['PrevClose'] = res_df['Close'] - res_df['Changes']
                         res_df['Code'] = ""
                         return res_df.drop_duplicates(subset=['Name'])
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("fetch_naver_limit", _dg_e); pass
         return pd.DataFrame()
 
     upper_df = fetch_naver_limit("https://finance.naver.com/sise/sise_upper.naver", True)
@@ -3310,7 +3387,7 @@ def get_volume_surge_drop():
                     df = df[df['종목명'] != '종목명']
                     df = df[~df['종목명'].str.contains('스팩|ETN|선물|인버스|레버리지', na=False, regex=True)]
                     return df.dropna(axis=1, how='all').head(20).reset_index(drop=True)
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("fetch_vol_table", _dg_e); pass
         return pd.DataFrame()
     ts = int(time.time())
     surge_df = fetch_vol_table(f"https://finance.naver.com/sise/sise_quant_high.naver?_ts={ts}")
@@ -3373,7 +3450,8 @@ def style_volume_table(df, kind="surge"):
         bar_color = '#ffd8a8' if kind == "surge" else '#a5d8ff'
         try:
             sty = sty.bar(subset=[rate_name], color=bar_color, vmin=0)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("style_volume_table", _dg_e)
             pass
     sty = sty.set_properties(**{'font-size': '14px', 'text-align': 'center'})
     sty = sty.set_properties(subset=['종목명'], **{'text-align': 'left', 'font-weight': '600'})
@@ -3419,7 +3497,8 @@ def get_us_volume_surge_drop(top_n=20):
     try:
         data = yf.download(tickers, period="2mo", interval="1d",
                            group_by="ticker", threads=True, progress=False)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_us_volume_surge_drop", _dg_e)
         return pd.DataFrame(), pd.DataFrame()
     if data is None or len(data) == 0:
         return pd.DataFrame(), pd.DataFrame()
@@ -3442,7 +3521,8 @@ def get_us_volume_surge_drop(top_n=20):
                 "등락률": (float(close.iloc[-1]) / float(close.iloc[-2]) - 1) * 100,
                 "거래량 배율": today_v / avg_v,
             })
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_us_volume_surge_drop", _dg_e)
             continue
     if not rows:
         return pd.DataFrame(), pd.DataFrame()
@@ -3465,17 +3545,20 @@ def style_us_volume_table(df, kind="surge"):
     sty = df.style.format({"현재가": "${:,.2f}", "등락률": "{:+.2f}%", "거래량 배율": "{:.1f}×"})
     try:
         sty = sty.map(color_updown, subset=["등락률"])
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("style_us_volume_table", _dg_e)
         pass
     bar_color = '#ffd8a8' if kind == "surge" else '#a5d8ff'
     try:
         sty = sty.bar(subset=["거래량 배율"], color=bar_color, vmin=0)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("style_us_volume_table", _dg_e)
         pass
     sty = sty.set_properties(**{'font-size': '14px', 'text-align': 'center'})
     try:
         sty = sty.set_properties(subset=['종목'], **{'text-align': 'left', 'font-weight': '600'})
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("style_us_volume_table", _dg_e)
         pass
     return sty
 
@@ -3519,7 +3602,7 @@ def get_market_warnings():
                     df = t.dropna(subset=['종목명']).copy()
                     df = df[df['종목명'] != '종목명']
                     return df.dropna(axis=1, how='all').reset_index(drop=True)
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("fetch_warning_table", _dg_e); pass
         return pd.DataFrame()
     mgmt_df = fetch_warning_table("https://finance.naver.com/sise/management.naver")
     alert_df = fetch_warning_table("https://finance.naver.com/sise/investment_alert.naver")
@@ -3628,7 +3711,8 @@ def style_report_table(df, kind="up"):
             if (out['변동률'].abs().fillna(0) >= 0.05).sum() >= 1:
                 bar_color = '#ffd8a8' if kind == "up" else '#a5d8ff'
                 sty = sty.bar(subset=['변동률'], color=bar_color, align='zero')
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("style_report_table", _dg_e)
             pass
     sty = sty.set_properties(**{'font-size': '13px'})
     sty = sty.set_properties(subset=['종목명'], **{'font-weight': '600'})
@@ -3656,7 +3740,7 @@ def style_sector_etf_table(df):
     if '등락률' in out.columns:
         sty = sty.map(color_updown, subset=['등락률'])
         try: sty = sty.bar(subset=['등락률'], color=['#a5d8ff', '#ffd8a8'], align='zero')
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("style_sector_etf_table", _dg_e); pass
     sty = sty.set_properties(**{'font-size': '13px'})
     sty = sty.set_properties(subset=['섹터'], **{'font-weight': '600'})
     return sty
@@ -3817,7 +3901,7 @@ def get_latest_naver_news():
                         try:
                             news_dt = datetime.strptime(news_dt_str, "%Y-%m-%d %H:%M")
                             if news_dt < three_hours_ago: continue 
-                        except Exception: pass
+                        except Exception as _dg_e: _diag_note("fetch_page", _dg_e); pass
                         pub_time = match.group(2) if match.group(1) == now_kst.strftime("%Y-%m-%d") else f"{match.group(1)[5:].replace('-', '/')} {match.group(2)}"
                     else:
                         match_time = re.search(r'(\d{2}:\d{2})', raw_date)
@@ -3825,7 +3909,7 @@ def get_latest_naver_news():
                 if not pub_time: pub_time = now_kst.strftime("%H:%M")
                 page_articles.append({"title": title, "link": link, "time": pub_time})
             return page_articles
-        except Exception: return []
+        except Exception as _dg_e: _diag_note("fetch_page", _dg_e); return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         results = executor.map(fetch_page, [1, 2, 3]) 
         for res in results: articles.extend(res)
@@ -3876,7 +3960,7 @@ def get_financial_deep_data(code):
         c_area = soup.select_one('.r_cmp_area .f_up em')
         consensus = c_area.text if c_area else "증권사 목표가 추정치 없음"
         return fin_df, peer_df, consensus
-    except Exception: return None, None, "데이터 스크래핑 오류"
+    except Exception as _dg_e: _diag_note("get_financial_deep_data", _dg_e); return None, None, "데이터 스크래핑 오류"
 
 @st.cache_data(ttl=120)
 def get_intraday_estimate(code):
@@ -3932,7 +4016,8 @@ def get_intraday_estimate(code):
             "indiv": d_val or 0,
             "is_daily": True,
         }
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_intraday_estimate", _dg_e)
         return None
 
 
@@ -4003,7 +4088,8 @@ def get_foreign_broker_estimate(code):
         if sell is not None and buy is not None:
             return {"sell": sell, "buy": buy, "net": buy - sell}
         return None
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_foreign_broker_estimate", _dg_e)
         return None
 
 
@@ -4026,7 +4112,8 @@ def get_kr_market_breadth():
             if up is None or down is None:
                 return None
             return (up, flat or 0, down)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_one", _dg_e)
             return None
     parts = [r for r in (_one('KOSPI'), _one('KOSDAQ')) if r]
     if not parts:
@@ -4087,7 +4174,8 @@ def _naver_json(url, timeout=7):
         if r.status_code != 200 or "json" not in r.headers.get("Content-Type", "").lower():
             return None
         return r.json()
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_naver_json", _dg_e)
         return None
 
 
@@ -4097,7 +4185,8 @@ def _num(s):
         return None
     try:
         return float(str(s).replace(',', '').replace('+', '').replace('%', '').strip())
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_num", _dg_e)
         return None
 
 
@@ -4114,7 +4203,8 @@ def _deep_find_number(obj, key_substrings, _depth=0):
                 try:
                     n = float(str(v).replace(',', '').replace('+', '').replace('%', ''))
                     return n
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("_deep_find_number", _dg_e)
                     pass
         # 2) 못 찾으면 하위로 재귀
         for v in obj.values():
@@ -4136,7 +4226,8 @@ def _to_eok(val):
         return None
     try:
         v = float(val)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_to_eok", _dg_e)
         return None
     a = abs(v)
     if a >= 1e11:          # 원 단위(조 단위) → 억으로
@@ -4264,7 +4355,8 @@ def get_kr_index_panel():
                     cls = ' '.join(chg_el.get('class') or [])
                     if sign == 0:
                         sign = -1 if 'down' in cls else (1 if 'up' in cls else 0)
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_scrape", _dg_e)
                 pass
 
         if price is None:
@@ -4573,7 +4665,8 @@ def render_main_index_panel():
                 for card in (kospi, kosdaq):
                     if card and card.get("up") is None:
                         card["up"], card["flat"], card["down"] = b["up"], b["flat"], b["down"]
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("render_main_index_panel", _dg_e)
         pass
 
     cards = ""
@@ -4734,7 +4827,7 @@ def get_investor_trend(code):
                 i_vals.append(i_val)
                 f_vals.append(f_val)
                 p_vals.append(p_val)
-            except Exception: pass
+            except Exception as _dg_e: _diag_note("get_investor_trend", _dg_e); pass
             if len(i_vals) >= 5: break 
             
         def calc_trend(vals):
@@ -4757,7 +4850,7 @@ def get_investor_trend(code):
         f_str, f_streak = calc_trend(f_vals)
         p_str, _ = calc_trend(p_vals)
         return i_str, f_str, p_str, i_streak, f_streak
-    except Exception: return "조회불가", "조회불가", "조회불가", 0, 0
+    except Exception as _dg_e: _diag_note("get_investor_trend", _dg_e); return "조회불가", "조회불가", "조회불가", 0, 0
 
 @st.cache_data(ttl=600)
 def get_institution_buy_trend(code):
@@ -4803,7 +4896,8 @@ def get_institution_buy_trend(code):
             if count >= 5:
                 break
         return inst_sum, streak
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_institution_buy_trend", _dg_e)
         return 0, 0
 
 
@@ -4895,7 +4989,7 @@ def get_fundamentals(ticker_code):
                             max_val = max(possible_prices)
                             if max_val > 10: target_price = str(max_val)
                     break
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_fundamentals", _dg_e); pass
 
         fcf, shares = None, None
         try:
@@ -4913,7 +5007,7 @@ def get_fundamentals(ticker_code):
             if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                 fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
                 if pd.notna(fcf_raw): fcf = fcf_raw / 100000000.0 
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_fundamentals", _dg_e); pass
 
         return per, pbr, fcf, shares, target_price
         
@@ -4934,10 +5028,11 @@ def get_fundamentals(ticker_code):
                 if cf is not None and not cf.empty and 'Free Cash Flow' in cf.index:
                     fcf_raw = cf.loc['Free Cash Flow'].iloc[0]
                     if pd.notna(fcf_raw): fcf = fcf_raw / 100000000.0 
-            except Exception: pass
+            except Exception as _dg_e: _diag_note("get_fundamentals", _dg_e); pass
             
             return per, pbr, fcf, shares, target_price
-        except Exception: 
+        except Exception as _dg_e: 
+            _diag_note("get_fundamentals", _dg_e)
             return 'N/A', 'N/A', None, None, 'N/A'
 
 # ── [NEW] AI 적정주가 (PER·PBR 멀티팩터 밸류에이션) ──────────────────────
@@ -4960,7 +5055,8 @@ def get_sector_per(ticker_code):
                         if 0 < v < 500:
                             return v
         return None
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_sector_per", _dg_e)
         return None
 
 def calc_ai_target_price(per, pbr, current_price, ticker_code, use_sector_per=True):
@@ -5012,7 +5108,8 @@ def calc_ai_target_price(per, pbr, current_price, ticker_code, use_sector_per=Tr
 
         detail_str = f"EPS {eps:,.0f} · BPS {bps:,.0f} · ROE {roe:.1f}%" + (f" · 업종PER {sec_per:.1f}배" if sec_per else "")
         return ai_target, detail_str
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("calc_ai_target_price", _dg_e)
         return None, "산출 불가"
 
 @st.cache_data(ttl=3600)
@@ -5033,14 +5130,14 @@ def get_historical_data(ticker_code, days):
                 df = pd.DataFrame(data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
                 df.set_index('Date', inplace=True)
                 return df
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_historical_data", _dg_e); pass
         
         try:
             df = yf.Ticker(f"{ticker_code}.KS").history(period=f"{days}d")
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 return df
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_historical_data", _dg_e); pass
         
     else:
         # 💡 [핵심 우회] 미국 주식 연속 조회 시 차단 방어 (세션 위장 + yahooquery 2중 콤보)
@@ -5051,7 +5148,7 @@ def get_historical_data(ticker_code, days):
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 return df
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_historical_data", _dg_e); pass
         
         try:
             from yahooquery import Ticker as yq_Ticker
@@ -5063,7 +5160,7 @@ def get_historical_data(ticker_code, days):
                 df.set_index('Date', inplace=True)
                 df.index = pd.to_datetime(df.index).tz_localize(None)
                 return df[['Open', 'High', 'Low', 'Close', 'Volume']]
-        except Exception: pass
+        except Exception as _dg_e: _diag_note("get_historical_data", _dg_e); pass
         
     return pd.DataFrame()
 
@@ -5076,7 +5173,8 @@ def nb_volume_profile(df, bins=12, current_price=None):
     """일봉 거래량을 그날 [Low, High] 범위에 겹치는 만큼 비례 배분해 가격대별로 합산."""
     try:
         d = df[['High', 'Low', 'Volume']].dropna().copy()
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("nb_volume_profile", _dg_e)
         return None
     if d.empty:
         return None
@@ -5343,7 +5441,8 @@ def get_weekly_trend(daily_df):
         if w5 > w10 > w20: return "🔥 주봉 상승추세"
         elif w5 < w10 < w20: return "❄️ 주봉 하락추세"
         else: return "🌀 주봉 중립"
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_weekly_trend", _dg_e)
         return "❔ 주봉 분석불가"
 
 
@@ -5399,7 +5498,8 @@ def get_market_regime():
                 "ma20_rising": ma20_rising, "above_ma20": price > ma20,
                 "align": "정배열" if ma5 > ma20 > ma60 else ("역배열" if ma5 < ma20 < ma60 else "혼조"),
             }
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("analyze_index", _dg_e)
             return None
 
     result['KOSPI'] = analyze_index('KS11', 'KOSPI')
@@ -5442,7 +5542,8 @@ def render_market_regime_banner():
     """홈/경보 화면 상단에 시장 국면 신호등 배너를 그립니다."""
     try:
         reg = get_market_regime()
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("render_market_regime_banner", _dg_e)
         return
     light, title, desc = reg.get('verdict', ("🟡", "데이터 지연", ""))
     bg = {"🟢": "rgba(40,167,69,0.12)", "🟡": "rgba(255,193,7,0.12)", "🔴": "rgba(220,53,69,0.12)"}.get(light, "rgba(120,120,120,0.1)")
@@ -5476,7 +5577,8 @@ _UP_C, _DN_C, _FLAT_C = "#ef4444", "#3b82f6", "#94a3b8"   # 한국식 색: 상�
 def _sign_of(x):
     try:
         return 1 if x > 0 else (-1 if x < 0 else 0)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_sign_of", _dg_e)
         return 0
 
 
@@ -5808,7 +5910,8 @@ def _krx_retry(fn, *args, retries=3, **kwargs):
                 # DataFrame 은 '비어있지 않을 때'만 성공으로 간주
                 if res is not None and not getattr(res, "empty", False):
                     return res
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("_krx_retry", _dg_e)
                 pass
             time.sleep(0.7 * (i + 1))
         return None
@@ -5849,7 +5952,8 @@ def get_short_selling_risk(code):
                     # 미니차트용 일별 시계열 (최근 30일)
                     out['short_vol_series'] = [(str(i)[:10], round(float(v) * scale, 2))
                                                for i, v in ratio.tail(30).items()]
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_short_selling_risk", _dg_e)
             pass
 
         # (2) 공매도 잔고 비중 — 전체 주식 중 공매도로 잠긴 비율
@@ -5863,7 +5967,8 @@ def get_short_selling_risk(code):
                         out['short_bal_trend'] = "📈 증가" if br.iloc[-1] > br.tail(5).mean() else "📉 감소"
                     out['short_bal_series'] = [(str(i)[:10], round(float(v), 2))
                                                for i, v in br.tail(30).items()]
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_short_selling_risk", _dg_e)
             pass
 
         if not out:
@@ -5879,7 +5984,8 @@ def get_short_selling_risk(code):
         else:
             out['level'] = ("🟢", "공매도 부담 낮음")
         return out
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_short_selling_risk", _dg_e)
         return None
 
 
@@ -5896,7 +6002,8 @@ def get_credit_balance_naver(code):
         m = re.search(r'신용[가-힣]*잔고[율]?\s*([0-9.]+)\s*%', text)
         if m:
             return {"credit_ratio": float(m.group(1))}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_credit_balance_naver", _dg_e)
         pass
     return None
 
@@ -5951,7 +6058,7 @@ def search_us_ticker(query):
                 exch = quote.get('exchDisp', 'US')
                 results.append(f"{sym} ({ko_name} / {exch})")
         return results
-    except Exception: return []
+    except Exception as _dg_e: _diag_note("search_us_ticker", _dg_e); return []
 
 @st.cache_data(ttl=3600)
 # === [전문가 보조지표 계산] ==================================================
@@ -6007,7 +6114,8 @@ def _calc_expert_metrics(adf):
         vol = close.pct_change().rolling(20).std().iloc[-1]
         if pd.notna(vol):
             out["변동성20일"] = round(float(vol) * 100, 2)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_calc_expert_metrics", _dg_e)
         pass
     return out
 # === [/전문가 보조지표 계산] =================================================
@@ -6510,7 +6618,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
             themes = get_granular_themes(stock_name, api_key_str)
             if themes and themes[0] not in ["데이터 확인 필요", "분류 오류"]:
                 core_theme = themes[0]
-        except:
+        except Exception as _dg_e:
+            _diag_note("draw_stock_card", _dg_e)
             pass
 
 # 4. 타이틀 조립: 업체명 / 테마 / 업종 / 현재가 / (진단 / 상세진단 / 외인 / 기관 / RSI)
@@ -6624,7 +6733,7 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
         cons_text = tech_result.get("목표가_컨센서스", "N/A")
         def is_float(s):
             try: float(s); return True
-            except Exception: return False
+            except Exception as _dg_e: _diag_note("is_float", _dg_e); return False
             
         if is_float(str(cons_text).replace('.', '', 1).replace('-', '')):
             cons_val = float(str(cons_text))
@@ -6642,7 +6751,8 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                     tech_result.get('PER'), tech_result.get('PBR'), curr, ticker_code, use_sector_per=True)
                 if _ai_precise:
                     ai_tp, ai_tp_detail = _ai_precise, _ai_precise_d
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("draw_stock_card", _dg_e)
                 pass
         _ai_help = ("PER·PBR을 역산한 EPS·BPS·ROE 기반 멀티팩터 적정주가입니다.\n"
                     "① 그레이엄 공식 √(22.5×EPS×BPS)\n"
@@ -6985,7 +7095,8 @@ def _leader_num(x):
     try:
         v = float(x)
         return v if np.isfinite(v) else None
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_leader_num", _dg_e)
         return None
 
 def _leader_metrics(res):
@@ -7200,7 +7311,8 @@ def display_sorted_results(results_list, tab_key, api_key="", show_leader_rank=F
             _c = float(res.get('현재가', 0))
             if _t > 0 and _c > 0:
                 return (_t / _c) - 1.0
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_gap", _dg_e)
             pass
         return -999.0
 
@@ -7228,7 +7340,7 @@ def display_sorted_results(results_list, tab_key, api_key="", show_leader_rank=F
         for _numc in ('현재가', '진입가_가이드', '목표가1', '목표가2', '목표가3', '손절가', 'AI목표가', 'RSI'):
             if _numc in _row and _row[_numc] is not None:
                 try: _row[_numc] = round(float(_row[_numc]), 2)
-                except Exception: pass
+                except Exception as _dg_e: _diag_note("display_sorted_results", _dg_e); pass
         _export_rows.append(_row)
     _export_df = pd.DataFrame(_export_rows)
     _dl_col1, _dl_col2 = st.columns([3, 1], vertical_alignment="center")
@@ -7298,13 +7410,15 @@ def _finder_risk(code):
         s = get_short_selling_risk(code)
         if isinstance(s, dict):
             out.update(s)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_finder_risk", _dg_e)
         pass
     try:
         c = get_credit_balance_naver(code)
         if isinstance(c, dict) and c.get("credit_ratio") is not None:
             out["credit_ratio"] = c["credit_ratio"]
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_finder_risk", _dg_e)
         pass
     return out or None
 
@@ -7350,7 +7464,8 @@ def _google_news_rss(query, limit=5):
             if len(out) >= limit:
                 break
         return out
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_google_news_rss", _dg_e)
         return []
 
 
@@ -7399,7 +7514,8 @@ def get_stock_news(code, name="", limit=5):
                                   "date": date, "source": src})
                 if len(items) >= limit:
                     break
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_stock_news", _dg_e)
             pass
         if not items:   # yfinance 비면 구글 뉴스 RSS 폴백
             try:
@@ -7439,7 +7555,8 @@ def get_stock_news(code, name="", limit=5):
                         break
                 if len(items) >= limit:
                     break
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_stock_news", _dg_e)
         pass
     # ② 구글 뉴스 RSS 폴백 (회사명 기반, 키 불필요)
     if not items:
@@ -7475,7 +7592,8 @@ def get_stock_news(code, name="", limit=5):
                 })
                 if len(items) >= limit:
                     break
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_stock_news", _dg_e)
             pass
     return items[:limit]
 
@@ -7511,7 +7629,8 @@ def fetch_article_excerpt(url, max_chars=320):
         # 흔한 잡음 컷
         text = re.sub(r"(무단\s*전재.*$|저작권자.*$|ⓒ.*$)", "", text).strip()
         return text[:max_chars]
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("fetch_article_excerpt", _dg_e)
         return ""
 
 
@@ -7545,7 +7664,8 @@ def get_consensus_signal(code):
                 d = datetime.strptime(date_s, "%y.%m.%d")
                 if (now - d).days <= 35:
                     recent += 1
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("get_consensus_signal", _dg_e)
                 pass
             if any(k in title for k in ["상향", "상향조정", "눈높이 상향", "목표가 상향", "목표주가 상향"]):
                 up += 1
@@ -7556,7 +7676,8 @@ def get_consensus_signal(code):
         rev = "상향" if up > dn else ("하향" if dn > up else "중립")
         return {"revision_dir": rev, "up": up, "dn": dn,
                 "report_count_30d": recent, "report_total": total}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_consensus_signal", _dg_e)
         return None
 
 
@@ -7567,7 +7688,8 @@ def get_finder_exclusion_set():
     names, reason = set(), {}
     try:
         mgmt_df, alert_df = get_market_warnings()
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_finder_exclusion_set", _dg_e)
         return names, reason
 
     def _ingest(df, default_reason):
@@ -7751,20 +7873,23 @@ def get_market_mood():
         b = reg.get("breadth")
         if isinstance(b, dict):
             mood["breadth_up"] = b.get("up_ratio")
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_market_mood", _dg_e)
         pass
     try:
         macro = get_macro_indicators()
         if macro and macro.get("VIX"):
             mood["vix"] = round(float(macro["VIX"]["value"]), 1)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_market_mood", _dg_e)
         pass
     try:
         fg = get_fear_and_greed()
         if fg:
             mood["fng"] = fg.get("score")
             mood["fng_rating"] = fg.get("rating")
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_market_mood", _dg_e)
         pass
     # 위험선호(risk-on) 점수 [-1, 1] 합성
     s = 0.0
@@ -7824,7 +7949,8 @@ def get_theme_politics_radar(_api_key, news_titles=None, poly_lines=None):
                 })
             return {"mood_comment": str(data.get("mood_comment", "")).strip()[:180],
                     "themes": clean}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_theme_politics_radar", _dg_e)
         pass
     return fallback
 
@@ -7913,7 +8039,8 @@ def get_news_issue_impact(_api_key, news_titles, top_n=3):
                 "impacts": impacts,
             })
         return {"issues": clean_issues, "generated_at": now_kst.strftime("%H:%M")}
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_news_issue_impact", _dg_e)
         return fallback
 
 
@@ -7921,7 +8048,8 @@ def get_news_issue_impact(_api_key, news_titles, top_n=3):
 def _f_num(x):
     try:
         return float(str(x).replace(",", "").replace("%", "").strip())
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("_f_num", _dg_e)
         return None
 
 
@@ -8297,7 +8425,8 @@ def get_index_ret20():
             s = fdr.DataReader(sym, (datetime.now() - timedelta(days=70)).strftime("%Y-%m-%d"))["Close"].dropna()
             if len(s) >= 21:
                 out[key] = round(float(s.iloc[-1] / s.iloc[-21] - 1) * 100, 2)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("get_index_ret20", _dg_e)
             pass
     return out
 
@@ -8405,13 +8534,15 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
         try:
             for nm, cd in (get_scan_targets(kr_n) or []):
                 add(nm, cd, src="tech")
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("build_finder_candidates", _dg_e)
             pass
     if scope in ("kr_us", "us"):
         try:
             for nm, cd in (get_us_scan_targets(us_n) or []):
                 add(nm, cd, src="tech")
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("build_finder_candidates", _dg_e)
             pass
 
     # ② 테마 리더 (사용자 키워드 + AI 레이더 상위 2개 테마) — 검색쿼리/표시명 분리
@@ -8431,7 +8562,8 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
         try:
             for nm, cd in (get_theme_stocks_with_ai(q, api_key) or []):
                 add(nm, cd, theme=disp, src="theme")
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("build_finder_candidates", _dg_e)
             pass
 
     # ③ 가치 후보 (장기/자동 포함 시, 국내 전용 데이터 → 국내 포함 모드에서만)
@@ -8441,25 +8573,19 @@ def build_finder_candidates(api_key, scope, theme_focus, radar_themes, kr_n, us_
                     "저평가 우량 가치주(저PER·저PBR·고ROE·재무안정 + 주주환원)",
                     "대/중/소형 상관없음", api_key) or []):
                 add(nm, cd, src="value")
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("build_finder_candidates", _dg_e)
             pass
 
     return pool
 
 
 # ── 📌 [발굴기 확장] 픽 히스토리 & 성과 추적 (발굴기 적중률 검증) ──────────
-FINDER_HISTORY_FILE = "finder_history.json"
+FINDER_HISTORY_FILE = app_state.FILES["finder_history"]   # 하위 호환용
 
 def _finder_history_load():
-    """저장된 발굴기 검색 히스토리 로드. 실패/없음 → []."""
-    if os.path.exists(FINDER_HISTORY_FILE):
-        try:
-            with open(FINDER_HISTORY_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, list) else []
-        except Exception:
-            return []
-    return []
+    """저장된 발굴기 검색 히스토리 로드. [v7.2] 세션 우선, 없으면 기존 파일에서 seed."""
+    return app_state.load("finder_history", [])
 
 
 def finder_history_append(enriched, scope_label, depth, theme_focus, top_n=5, keep_runs=30):
@@ -8481,15 +8607,11 @@ def finder_history_append(enriched, scope_label, depth, theme_focus, top_n=5, ke
                           "grade": re.sub(r"[🟢🟡⚪]", "", str(r.get("_grade") or "")).strip()})
     if not picks:
         return
-    runs = _finder_history_load()
+    runs = list(_finder_history_load())
     runs.append({"ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
                  "scope": str(scope_label), "depth": str(depth),
                  "theme": str(theme_focus or "").strip(), "picks": picks})
-    try:
-        with open(FINDER_HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(runs[-keep_runs:], f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    app_state.save("finder_history", runs[-keep_runs:])
 
 
 def finder_history_perf(run):
@@ -8503,7 +8625,8 @@ def finder_history_perf(run):
             df = get_historical_data(code, 5)
             if df is not None and not df.empty:
                 return code, float(df['Close'].iloc[-1])
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_last_close", _dg_e)
             pass
         return code, None
 
@@ -8549,7 +8672,8 @@ def get_finder_briefing(_api_key, mood, radar, bucket_tops):
     )
     try:
         return ask_gemini(prompt, _api_key)
-    except Exception:
+    except Exception as _dg_e:
+        _diag_note("get_finder_briefing", _dg_e)
         return ""
 
 
@@ -8683,9 +8807,13 @@ with st.sidebar:
             api_key_input = str(api_key_input)
             st.success("✅ 시스템 연동 완료")
             
-    if st.button("🔄 현재 화면 새로고침", use_container_width=True): 
+    if st.button("🔄 현재 화면 새로고침", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+
+    # [v7.2] 데이터 수집 상태 — 조용히 실패한 수집이 있으면 여기서 먼저 눈에 띈다
+    st.divider()
+    diag.render_badge()
 
 
 # === [포트폴리오 파일 업로드 파서] ===========================================
@@ -8763,7 +8891,8 @@ def parse_portfolio_upload(uploaded_file):
                     df0 = pd.read_csv(_io.BytesIO(raw), header=None, dtype=str, encoding=_enc,
                                       sep=_sep, engine="python", names=list(range(64)),
                                       skip_blank_lines=True)
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("parse_portfolio_upload", _dg_e)
                     continue
                 df0 = df0.dropna(axis=1, how="all")
                 sig = (df0.shape, str(df0.head(2).values.tolist())[:300])
@@ -8789,7 +8918,8 @@ def parse_portfolio_upload(uploaded_file):
             return None
         try:
             return float(s)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("_num", _dg_e)
             return None
 
     krx = None
@@ -8899,7 +9029,8 @@ def _quant_assistant_body():
                 def _resolve_kr_stock(text):
                     try:
                         krx = get_krx_stocks()
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("_resolve_kr_stock", _dg_e)
                         return None, None
                     if krx is None or krx.empty:
                         return None, None
@@ -8921,7 +9052,8 @@ def _quant_assistant_body():
                         if v is None or (isinstance(v, float) and pd.isna(v)):
                             return "데이터 없음"
                         return (fmt.format(v) if fmt else str(v)) + suf
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("_fmt", _dg_e)
                         return "데이터 없음"
 
                 def _build_stock_factsheet(name, code):
@@ -9239,7 +9371,8 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
             st.download_button("📑 샘플 양식 받기 (엑셀)", _xbuf.getvalue(), file_name="포트폴리오_샘플.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("<module>", _dg_e)
             pass  # openpyxl 미설치 환경에서는 CSV 샘플만 제공
 
     if up_file is not None:
@@ -9294,7 +9427,8 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
                             _sym = _res_us.split(" ")[0]
                             _ko = _res_us.split(" (")[1].split(" /")[0]
                             pf_options.append(f"{_ko} [{_sym}]")
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("<module>", _dg_e)
                         pass
 
             if pf_options:
@@ -9527,7 +9661,8 @@ elif selected_menu == "💼 내 계좌 & 포트폴리오 진단":
 
 elif selected_menu == "⭐ 내 관심종목 모니터링":
     st.subheader("⭐ 내 관심종목 모니터링")
-    if not st.session_state.watchlist: 
+    app_state.render_backup_ui("watchlist", "관심종목")   # [v7.2] 내보내기/불러오기
+    if not st.session_state.watchlist:
         st.info("추가된 종목이 없습니다. 스캐너나 분석기에서 관심종목을 추가해보세요.")
     else:
         col1, col2 = st.columns([8, 2])
@@ -9560,7 +9695,8 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
                     for name, ticker in tickers.items():
                         try:
                             df_hist = _macro_dl[ticker].dropna(how="all") if len(tickers) > 1 else _macro_dl
-                        except Exception:
+                        except Exception as _dg_e:
+                            _diag_note("<module>", _dg_e)
                             continue
                         if not df_hist.empty:
                             # yf.download 일봉은 tz-naive로 올 수 있어 tz_localize 전에 방어
@@ -9678,7 +9814,8 @@ elif selected_menu == "🌍 글로벌 매크로 & AI 분석 (v6.0)":
                             for t in tickers_m:
                                 if t in _dl.columns and not _dl[t].dropna().empty:
                                     data_m[t] = _dl[t]
-                        except Exception:
+                        except Exception as _dg_e:
+                            _diag_note("<module>", _dg_e)
                             pass
                         data_m = data_m.dropna()
                         if not data_m.empty:
@@ -10045,7 +10182,8 @@ elif selected_menu == "📋 코스피·코스닥 종목 리스트":
         def _updown_css(v):
             try:
                 v = float(v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as _dg_e:
+                _diag_note("_updown_css", _dg_e)
                 return ""
             if v > 0:
                 return "color:#e03131;font-weight:600"
@@ -10203,7 +10341,8 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                             for _lbl, _fn in scan_checks:
                                 try:
                                     if _fn(res): passed.append(_lbl)
-                                except Exception:
+                                except Exception as _dg_e:
+                                    _diag_note("process_stock", _dg_e)
                                     pass
                             if _is_score_mode:
                                 if not passed: return None          # 점수 모드: 1개 이상 충족만
@@ -10560,7 +10699,8 @@ elif selected_menu == "🚀 단기 스윙 퀀트 스캐너":
                             try:
                                 sc, hz, top, grade, _rs, _rf = score_one(
                                     tech, None, _sb_mood, weights=_w_over)
-                            except Exception:
+                            except Exception as _dg_e:
+                                _diag_note("_sb_one", _dg_e)
                                 return None
                             return {"종목명": name, "코드": code, "점수": top, "구간": hz, "등급": grade,
                                     "단기": sc["단기"], "중기": sc["중기"], "장기": sc["장기"],
@@ -10717,7 +10857,8 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                         kr_meta[str(rr["Code"]).zfill(6)] = (
                             (rr.get("Market") if "Market" in kdf.columns else "") or "국내",
                             (rr.get("Sector") if "Sector" in kdf.columns else "") or "-")
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("<module>", _dg_e)
                 pass
         us_sec = get_us_sector_map() if scope in ("us", "both") else {}
 
@@ -10728,14 +10869,16 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                     c = str(c).zfill(6)
                     mk, sec = kr_meta.get(c, ("국내", "-"))
                     universe.append((n, c, mk or "국내", sec or "-"))
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("<module>", _dg_e)
                 pass
         if scope in ("us", "both"):
             try:
                 for n, c in (get_us_scan_targets(min(depth_n, 500)) or []):
                     c = str(c)
                     universe.append((n, c, "미국", us_sec.get(c, "-")))
-            except Exception:
+            except Exception as _dg_e:
+                _diag_note("<module>", _dg_e)
                 pass
         seen, uni = set(), []
         for n, c, mk, sec in universe:
@@ -10758,7 +10901,8 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                         n, c, mk, sec, info = fut.result()
                         if info and info["drawdown"] is not None and info["drawdown"] <= -min_fall:
                             rows.append({"name": n, "code": c, "market": mk, "sector": sec, **info})
-                    except Exception:
+                    except Exception as _dg_e:
+                        _diag_note("<module>", _dg_e)
                         pass
                     done += 1
                     prog.progress(min(1.0, done / total))
@@ -10779,7 +10923,8 @@ elif selected_menu == "📉 낙폭과대 스캐너 (고점대비 -30%↓)":
                             s = f.result()
                             if s:
                                 r["sector"] = s
-                        except Exception:
+                        except Exception as _dg_e:
+                            _diag_note("<module>", _dg_e)
                             pass
                 ss.empty()
 
@@ -11088,7 +11233,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                                 vmap[c] = vm
                                 rmap[c] = rk
                                 cmap[c] = cs
-                            except Exception:
+                            except Exception as _dg_e:
+                                _diag_note("<module>", _dg_e)
                                 pass
                             doneB += 1
                             progressB.progress(min(1.0, doneB / totalB))
@@ -11292,7 +11438,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 # 8) 📌 픽 히스토리 기록 (기간별 상위 5 — 성과 추적용, 실패해도 검색엔 영향 없음)
                 try:
                     finder_history_append(enriched, scope_label, depth, theme_focus)
-                except Exception:
+                except Exception as _dg_e:
+                    _diag_note("<module>", _dg_e)
                     pass
 
     # ── 결과 렌더 ──
@@ -11629,6 +11776,7 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
         with st.expander(f"📌 과거 픽 성과 추적 — 저장된 검색 {len(_hist_runs)}회 (최근 30회 보관)", expanded=False):
             st.caption("검색할 때마다 기간별 상위 5픽이 자동 저장됩니다. 과거 실행을 골라 **'그때 픽이 지금 얼마인지'** 검증해 보세요. "
                        "발굴기의 실제 적중률을 확인하는 게 목적이에요.")
+            app_state.render_backup_ui("finder_history", "발굴기 히스토리")   # [v7.2] 내보내기/불러오기
             _labels = []
             _runs_desc = list(reversed(_hist_runs))
             for _run in _runs_desc:
@@ -11641,10 +11789,12 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                 with st.spinner("픽 당시 가격 대비 최근 종가 수익률 계산 중..."):
                     st.session_state["finder_hist_perf"] = (_run_pick["ts"], finder_history_perf(_run_pick))
             if _hc2.button("🗑️ 히스토리 전체 삭제", use_container_width=True, key="finder_hist_clear"):
+                app_state.save("finder_history", [])       # 세션·파일 양쪽 비움
                 try:
-                    os.remove(FINDER_HISTORY_FILE)
-                except Exception:
-                    pass
+                    if os.path.exists(FINDER_HISTORY_FILE):
+                        os.remove(FINDER_HISTORY_FILE)
+                except Exception as _dg_e:
+                    _diag_note("finder_history_clear", _dg_e)
                 st.session_state.pop("finder_hist_perf", None)
                 st.rerun()
             _perf = st.session_state.get("finder_hist_perf")
@@ -11661,7 +11811,8 @@ elif selected_menu == "🧭 AI 통합 투자 발굴기 (테스트)":
                     def _ret_css(v):
                         try:
                             v = float(v)
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError) as _dg_e:
+                            _diag_note("_ret_css", _dg_e)
                             return ""
                         if v > 0:
                             return "color:#e03131;font-weight:600"
@@ -12713,7 +12864,8 @@ elif selected_menu == "📊 국내외 핵심 ETF 분석":
                             if prev_price > 0:
                                 return (change_amount / prev_price) * 100
                             return 0.0
-                        except:
+                        except Exception as _dg_e:
+                            _diag_note("calc_pct_change", _dg_e)
                             return 0.0
                             
                     display_etf['ChangeRatio'] = display_etf.apply(calc_pct_change, axis=1)
@@ -12783,7 +12935,7 @@ elif selected_menu == "💰 고배당주 파이프라인 (TOP 300)":
         if opt == "기본 (분류순)": return temp_df 
         def ex_val(val_str):
             try: return float(str(val_str).split('(')[0].replace(',', '').replace('원', '').replace('$', '').strip())
-            except: return 0.0
+            except Exception as _dg_e: _diag_note("ex_val", _dg_e); return 0.0
         sort_col = '예상 배당금' if "배당금" in opt else '현재가'
         temp_df['__sort'] = temp_df[sort_col].apply(lambda x: ex_val(x))
         if opt == "현재가 낮은순": return pd.concat([temp_df[temp_df['__sort']>0].sort_values('__sort'), temp_df[temp_df['__sort']==0]]).drop(columns=['__sort'])
@@ -13111,13 +13263,13 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     df_etf = pd.DataFrame(etf_list)[['itemcode', 'itemname', 'nowVal']].rename(
                         columns={'itemcode': 'Code', 'itemname': 'Name', 'nowVal': 'Price'})
                     res_dfs.append(df_etf)
-        except: pass
+        except Exception as _dg_e: _diag_note("get_naver_etf_and_stocks", _dg_e); pass
         try:
             df_stocks = fdr.StockListing('KRX')
             if not df_stocks.empty:
                 df_s = df_stocks[['Code', 'Name', 'Close']].rename(columns={'Close': 'Price'}) if 'Close' in df_stocks.columns else df_stocks[['Code', 'Name']].assign(Price=0)
                 res_dfs.append(df_s)
-        except: pass
+        except Exception as _dg_e: _diag_note("get_naver_etf_and_stocks", _dg_e); pass
         if res_dfs:
             df_final = pd.concat(res_dfs, ignore_index=True)
             df_final['Code'] = df_final['Code'].astype(str).str.zfill(6)
@@ -13177,7 +13329,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         if us_results:
                             for res in us_results:
                                 search_options.append(f"{res.split(' (')[1].split(' /')[0]} [{res.split(' ')[0]}]")
-                    except: pass
+                    except Exception as _dg_e: _diag_note("<module>", _dg_e); pass
             
             st.divider()
             if search_options:
@@ -13329,7 +13481,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 try:
                     info = yf.Ticker(ticker).info
                     return ticker, info.get('longName', info.get('shortName', ticker))
-                except: return ticker, ticker
+                except Exception as _dg_e: _diag_note("get_us_name", _dg_e); return ticker, ticker
             if us_tickers:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                     for code, name in executor.map(get_us_name, us_tickers): us_name_map[code] = name
@@ -13343,7 +13495,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                 new_it['code'] = code
                 updated_items.append(new_it)
             return updated_items
-        except: return items 
+        except Exception as _dg_e: _diag_note("update_official_names", _dg_e); return items 
 
     etf_data = update_official_names(raw_etf_data)
     for item in etf_data:
@@ -13391,7 +13543,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         last_close = float(items[-1].get('data').split('|')[4])
                         if last_close > 0:
                             return c, int(last_close)
-            except: pass
+            except Exception as _dg_e: _diag_note("get_kr_price_fallback", _dg_e); pass
             # (b) FinanceDataReader 최근 종가로 2차 보강
             try:
                 df = fdr.DataReader(c)
@@ -13399,7 +13551,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     last_close = float(df['Close'].iloc[-1])
                     if last_close > 0:
                         return c, int(last_close)
-            except: pass
+            except Exception as _dg_e: _diag_note("get_kr_price_fallback", _dg_e); pass
             return c, 0
 
         missing_kr = [c for c in kr_codes if prices.get(c, 0) == 0]
@@ -13423,7 +13575,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                         if days >= 365 and p_start > 0:
                             cagr = ((p_end / p_start) ** (365.25 / days) - 1) * 100
                             return c, round(cagr, 2), pd.to_datetime(first_date).strftime('%Y-%m-%d')
-            except: pass
+            except Exception as _dg_e: _diag_note("get_kr_historical_info", _dg_e); pass
             try:
                 df = fdr.DataReader(c)
                 if len(df) > 250:
@@ -13432,7 +13584,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     if days >= 365 and p_start > 0:
                         cagr = ((p_end / p_start) ** (365.25 / days) - 1) * 100
                         return c, round(cagr, 2), df.index[0].strftime('%Y-%m-%d')
-            except: pass
+            except Exception as _dg_e: _diag_note("get_kr_historical_info", _dg_e); pass
             return c, 0.0, "데이터없음"
 
         if kr_codes:
@@ -13450,7 +13602,7 @@ elif selected_menu == "👴 노후 준비 ETF 시뮬레이터 (v2.0)":
                     days = (hist.index[-1] - hist.index[0]).days
                     cagr = ((p / p_start) ** (365.25 / days) - 1) * 100 if days > 365 else 0
                     return c, int(p * ex_rate), round(cagr, 2), hist.index[0].strftime('%Y-%m-%d')
-            except: pass
+            except Exception as _dg_e: _diag_note("get_us_info", _dg_e); pass
             return c, 0, 0, "데이터없음"
 
         if us_codes:
@@ -13829,7 +13981,8 @@ elif selected_menu == "🗞️ 뉴스 이슈 TOP & 영향 분석":
     if ctop3.button("🔄 새로고침(캐시 비우기)", use_container_width=True, key="ni_refresh"):
         try:
             get_news_issue_impact.clear()
-        except Exception:
+        except Exception as _dg_e:
+            _diag_note("<module>", _dg_e)
             pass
         st.session_state.news_issue_data = None
         st.rerun()
@@ -13944,7 +14097,8 @@ elif selected_menu == "🗞️ 뉴스 이슈 TOP & 영향 분석":
                             if _res_ni:
                                 try:
                                     render_single_stock_themes(_nm, api_key_input)
-                                except Exception:
+                                except Exception as _dg_e:
+                                    _diag_note("<module>", _dg_e)
                                     pass
                                 draw_stock_card(_res_ni, api_key_str=api_key_input,
                                                 is_expanded=True, key_suffix=f"ni_{_rank}_{_cd}")
@@ -13971,6 +14125,13 @@ elif selected_menu == "🚨 통합 경보 센터 (뉴스·차트·일정)":
         "ask_gemini": ask_gemini,
         "api_key": api_key_input,
     })
+
+
+# =====================================================================
+# [v7.2] 데이터 수집 진단 패널 — 어떤 메뉴에서든 화면 하단에서 확인 가능
+#   화면이 비어 보일 때 "데이터가 없는 것"인지 "수집이 실패한 것"인지 구분한다.
+# =====================================================================
+diag.render_panel()
 
 
 # =====================================================================
