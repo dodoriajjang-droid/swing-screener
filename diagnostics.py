@@ -26,7 +26,21 @@ MAX_EVENTS = 400
 
 _LOCK = threading.Lock()
 _EVENTS = deque(maxlen=MAX_EVENTS)
-_COUNTS = Counter()
+_COUNTS = Counter()          # (session_id, source) -> 횟수
+
+
+def _session_id():
+    """현재 Streamlit 세션 ID. 워커 스레드에는 컨텍스트가 없어 None 이 나온다.
+
+    저장소는 프로세스 전역이라 여러 명이 접속하면 기록이 섞인다. 그래서 기록 시점에
+    세션을 표시해 두고, 화면에는 '내 세션 + 스레드에서 난 것'만 보여준다.
+    """
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        ctx = get_script_run_ctx()
+        return ctx.session_id if ctx is not None else None
+    except Exception:
+        return None
 
 
 def note(source, err=None, detail="", level="warn"):
@@ -40,6 +54,7 @@ def note(source, err=None, detail="", level="warn"):
     try:
         etype = type(err).__name__ if err is not None else "-"
         emsg = str(err)[:200] if err is not None else ""
+        sid = _session_id()
         with _LOCK:
             _EVENTS.append({
                 "시각": datetime.now().strftime("%H:%M:%S"),
@@ -48,27 +63,38 @@ def note(source, err=None, detail="", level="warn"):
                 "메시지": emsg,
                 "상세": str(detail)[:120],
                 "level": level,
+                "_sid": sid,
             })
-            _COUNTS[str(source)] += 1
+            _COUNTS[(sid, str(source))] += 1
     except Exception:
         # 진단 코드가 앱을 죽이면 안 된다 — 여기서만은 조용히 통과.
         pass
 
 
+def _mine(sid, cur):
+    """내 세션 것이거나, 스레드에서 나 세션을 알 수 없는 것(None)이면 내 것으로 본다."""
+    return sid is None or cur is None or sid == cur
+
+
 def events(limit=None):
+    cur = _session_id()
     with _LOCK:
-        out = list(_EVENTS)
+        out = [e for e in _EVENTS if _mine(e.get("_sid"), cur)]
     return out[-limit:] if limit else out
 
 
 def counts():
+    cur = _session_id()
     with _LOCK:
-        return dict(_COUNTS)
+        c = Counter()
+        for (sid, source), n in _COUNTS.items():
+            if _mine(sid, cur):
+                c[source] += n
+    return dict(c)
 
 
 def total():
-    with _LOCK:
-        return sum(_COUNTS.values())
+    return sum(counts().values())
 
 
 def clear():
@@ -78,8 +104,7 @@ def clear():
 
 
 def top_sources(n=5):
-    with _LOCK:
-        return _COUNTS.most_common(n)
+    return Counter(counts()).most_common(n)
 
 
 # ---------------------------------------------------------------------

@@ -1,17 +1,23 @@
-streamlit
-pandas
-numpy
-requests
-beautifulsoup4
-lxml                 # pandas.read_html / bs4 파싱에 필요 (Cloud 단골 누락 항목)
-openpyxl             # 포트폴리오 엑셀(.xlsx) 업로드/샘플 양식 생성에 필요
-plotly
-yfinance
-yahooquery
-finance-datareader
-pykrx
-google-genai
-streamlit-autorefresh
-streamlit-paste-button   # AI 비전: 클립보드 이미지 붙여넣기 버튼
-Pillow
-PyPDF2
+# 버전 정책
+#   상한(<)만 걸어 '메이저 업그레이드로 인한 급작스러운 파손'을 막는다.
+#   지금 설치되는 버전은 그대로 유지되므로 이 파일을 바꿔도 동작은 달라지지 않는다.
+#   (하한을 과하게 올리거나 == 로 고정하면, 검증하지 못한 버전으로 배포가 강제되어
+#    오히려 위험하다. 문제가 생긴 패키지만 그때 == 로 못 박는 편이 안전하다)
+
+streamlit>=1.39,<2          # .st-key-* CSS 선택자가 1.39+ 필요
+pandas>=2.0,<3
+numpy>=1.26,<3
+requests>=2.31,<3
+beautifulsoup4>=4.12,<5
+lxml>=5.0,<7                # pandas.read_html / bs4 파싱에 필요 (Cloud 단골 누락 항목)
+openpyxl>=3.1,<4            # 포트폴리오 엑셀(.xlsx) 업로드/샘플 양식 생성에 필요
+plotly>=5.18,<7
+yfinance>=0.2.40,<2         # ⚠️ 마이너 릴리스에서도 API가 바뀌는 편 — 장애 시 여기부터 확인
+yahooquery>=2.3,<3
+finance-datareader>=0.9.90,<1
+pykrx>=1.0,<2
+google-genai>=1.0,<2        # 신규 SDK. 구버전 google-generativeai 아님
+streamlit-autorefresh>=1.0,<2
+streamlit-paste-button>=0.1,<1   # AI 비전: 클립보드 이미지 붙여넣기 버튼
+Pillow>=10.0,<14
+PyPDF2>=3.0,<4

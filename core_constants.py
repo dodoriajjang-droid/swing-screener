@@ -229,7 +229,9 @@ US_THEME_MAP = {
     "헬스케어": ["UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE"],
     "크립토/채굴": ["MARA", "RIOT", "CLSK", "CIFR", "IREN", "HUT", "BTBT"],
     "스테이블코인/RWA": ["COIN", "MSTR", "HOOD", "GLXY"],
-    "핀테크/결제": ["SQ", "SOFI", "AFRM", "HOOD", "FOUR", "BILL", "PYPL"],
+    # XYZ = 옛 SQ(Block Inc.). 티커 변경으로 SQ 는 상장폐지 취급이라 yfinance 가
+    # 매번 재시도하며 시간을 버렸다 (2026-08-12 확인 후 교체).
+    "핀테크/결제": ["XYZ", "SOFI", "AFRM", "HOOD", "FOUR", "BILL", "PYPL"],
     "전기차": ["TSLA", "RIVN", "LCID", "LI", "NIO", "XPEV"],
     "2차전지/충전": ["ALB", "CHPT", "BLNK", "QS", "LAC", "EVGO"],
     "태양광": ["FSLR", "ENPH", "RUN", "ARRY", "SHLS", "JKS", "CSIQ"],
@@ -294,7 +296,7 @@ US_VOL_UNIVERSE = [
     ("Adobe","ADBE"),("Salesforce","CRM"),("Oracle","ORCL"),("Cisco","CSCO"),("Intel","INTC"),
     ("Qualcomm","QCOM"),("Texas Instruments","TXN"),("Micron","MU"),("Applied Materials","AMAT"),("Lam Research","LRCX"),
     ("ASML","ASML"),("ARM","ARM"),("Palantir","PLTR"),("Super Micro","SMCI"),("Arista","ANET"),
-    ("ServiceNow","NOW"),("Uber","UBER"),("Airbnb","ABNB"),("PayPal","PYPL"),("Block","SQ"),
+    ("ServiceNow","NOW"),("Uber","UBER"),("Airbnb","ABNB"),("PayPal","PYPL"),("Block","XYZ"),
     ("Shopify","SHOP"),("Snowflake","SNOW"),("CrowdStrike","CRWD"),("Datadog","DDOG"),("Zscaler","ZS"),
     ("Disney","DIS"),("Comcast","CMCSA"),("Verizon","VZ"),("AT&T","T"),("T-Mobile","TMUS"),
     ("Boeing","BA"),("Caterpillar","CAT"),("Deere","DE"),("GE Aerospace","GE"),("Honeywell","HON"),

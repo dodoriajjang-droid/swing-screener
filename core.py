@@ -116,12 +116,10 @@ th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !i
     if 'dcf_target_fcf' not in st.session_state: st.session_state.dcf_target_fcf = 1000.0
     if 'dcf_target_shares' not in st.session_state: st.session_state.dcf_target_shares = 100.0
 
-    # 미국 급등주 스냅샷 — 세션마다 한 번씩 채운다(홈 대시보드가 바로 참조한다)
-    if "gainers_df" not in st.session_state or '환산(원)' not in st.session_state.gainers_df.columns:
-        df, ex_rate, fetch_time = get_us_top_gainers()
-        st.session_state.gainers_df = df
-        st.session_state.ex_rate = ex_rate
-        st.session_state.us_fetch_time = fetch_time
+    # [속도개선] 미국 급등주 스냅샷은 여기서 미리 받지 않는다.
+    #   이 데이터를 쓰는 화면은 두 곳뿐인데(홈의 AI 브리핑·간밤의 미국 급등주),
+    #   여기서 받으면 계산기나 ETF 화면을 열 때도 수집이 끝날 때까지 화면이 뜨지 않았다.
+    #   필요한 화면에서 ensure_us_gainers() 를 호출한다.
 
 
 # =====================================================================
@@ -130,6 +128,8 @@ th { font-weight: 700 !important; background-color: rgba(100, 100, 100, 0.05) !i
 # =====================================================================
 _EXPORTED = [
     "bootstrap",          # 매 실행마다 app.py 가 호출하는 부트스트랩
+    "ensure_us_gainers",  # 미국 급등주 스냅샷 지연 로딩
+    "prefetch_home_data", # 홈 대시보드 데이터 병렬 프리페치
     "AUTOREFRESH_MS",
     "BeautifulSoup",
     "FINDER_HISTORY_FILE",

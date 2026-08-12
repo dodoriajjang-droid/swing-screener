@@ -155,9 +155,29 @@ with st.sidebar:
     #        퀀트 비서/팝업이 모듈로 분리돼도 동작하도록 결합을 끊는다.
     st.session_state["_api_key"] = api_key_input
 
-    if st.button("🔄 현재 화면 새로고침", use_container_width=True):
-        st.cache_data.clear()
+    # [속도개선] 기존에는 이 버튼 하나가 st.cache_data.clear() 로 앱 전체 캐시를 비웠다.
+    #   라벨은 '현재 화면 새로고침'인데 실제로는 종목 마스터·섹터 같은 무거운 캐시까지
+    #   전부 날려서, 누른 뒤 첫 화면이 처음 접속처럼 수십 초 걸렸다.
+    #   → 자주 바뀌는 시세성 데이터만 비우는 버튼과, 전체를 비우는 버튼을 분리했다.
+    if st.button("🔄 시세 새로고침", use_container_width=True,
+                 help="지수·수급·거래량·매크로 등 자주 바뀌는 데이터만 다시 받습니다. "
+                      "종목 리스트·섹터맵 같은 무거운 캐시는 그대로 두어 빠릅니다."):
+        for _fn in (get_kr_index_panel, get_kr_market_breadth, get_volume_surge_drop,
+                    get_macro_indicators, get_fear_and_greed, get_market_regime,
+                    get_overnight_us_market, get_major_indices, get_marketcap_top,
+                    get_industry_changes, get_index_spark):
+            try:
+                _fn.clear()
+            except Exception as _dg_e:
+                _diag_note("refresh_live_cache", _dg_e)
         st.rerun()
+
+    with st.expander("🧹 캐시 전체 비우기"):
+        st.caption("종목 리스트·섹터맵 등 무거운 캐시까지 모두 비웁니다. "
+                   "데이터가 이상할 때만 쓰세요 — 다음 화면이 처음 접속처럼 느려집니다.")
+        if st.button("전체 비우고 새로고침", use_container_width=True, key="clear_all_cache"):
+            st.cache_data.clear()
+            st.rerun()
 
     # [v7.2] 데이터 수집 상태 — 조용히 실패한 수집이 있으면 여기서 먼저 눈에 띈다
     st.divider()

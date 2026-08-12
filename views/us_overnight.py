@@ -37,6 +37,9 @@ def render(ctx):
                 st.dataframe(etf_df, use_container_width=True, hide_index=True)
 
         st.subheader("🚀 2. 글로벌 급등주 필터링")
+        # 이 페이지가 급등주 데이터를 실제로 쓰는 곳 — 여기서 처음 받아온다(지연 로딩)
+        with st.spinner("미국 급등주 수집 중..."):
+            ensure_us_gainers()
         fetch_t = st.session_state.get('us_fetch_time', '-')
         rc1, rc2 = st.columns([3, 1])
         rc1.caption(f"기준 시각: {fetch_t} (KST) · 전일 대비 +5% 이상 급등주")
