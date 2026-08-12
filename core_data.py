@@ -2980,10 +2980,25 @@ def get_intraday_estimate_debug(code):
 
 @st.cache_data(ttl=120)
 def get_foreign_broker_estimate(code):
-    """장중 실시간 '외국계 거래원 순매수 추정'(KRX 거래원 기준).
-    네이버 frgn 페이지의 '거래원 동향' 표에서 '외국계 거래원 매수/매도량 추정합'을 뽑는다.
-    외국인 '확정 순매수'와는 다른 '외국계 창구 추정치'지만, 장중 외국인 매매를 가늠하는
-    실시간 프록시로 널리 쓰인다. 반환: {"sell":매도추정, "buy":매수추정, "net":순매수추정} | None"""
+    """장중 '외국계 거래원 순매수 추정' — 종목별 수급의 유일한 실시간 대용.
+
+    왜 이게 필요한가
+      투자자별(외국인·기관·개인) **확정** 순매수는 거래소가 장 마감 후에 집계해
+      공개한다. 장중에는 어떤 경로로도 확정치를 받을 수 없다.
+      대신 거래원(창구) 데이터는 장중 갱신되므로, 외국계 증권사 창구를 통한
+      매매를 모아 '외국인이 사는지 파는지'를 가늠하는 대용으로 널리 쓴다.
+      기관·개인은 국내 창구에 섞여 있어 같은 방식의 추정이 불가능하다.
+
+    파싱 대상 (네이버 frgn 페이지 거래원 표의 마지막 줄)
+        외국계추정합 | 매도 | 순매수 | 매수
+      2026-08-12 실측으로 이 순서를 확정했다. 가운데 칸이 음수로 나오는 종목이
+      있는데(LG화학 -10,947), 매수 '수량'은 음수가 될 수 없으므로 그 칸은 순매수다.
+      예전 파서는 이 줄에 '매도'·'매수'라는 글자가 있다고 가정해 항상 실패했고,
+      그래서 화면에는 늘 '장 마감 후 확정'만 떴다.
+
+    반환: {"sell":매도추정, "buy":매수추정, "net":순매수추정} | None
+          단위는 주식 수 (표의 다른 수급 칸과 동일).
+    """
     if not str(code).isdigit():
         return None
     try:
@@ -2991,21 +3006,28 @@ def get_foreign_broker_estimate(code):
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}, timeout=4)
         res.encoding = 'euc-kr'
         soup = BeautifulSoup(res.text, 'html.parser')
-        sell = buy = None
+
         for tr in soup.find_all('tr'):
-            txt = tr.get_text(" ", strip=True)
-            if '외국계' in txt and '추정' in txt:
-                nums = [int(n.replace(',', '')) for n in re.findall(r'-?[\d,]{2,}', txt)
-                        if n.replace(',', '').lstrip('-').isdigit()]
-                if '매도' in txt and '매수' in txt and len(nums) >= 2:
-                    sell, buy = nums[0], nums[1]
-                    break
-                elif '매도' in txt and nums and sell is None:
-                    sell = nums[0]
-                elif '매수' in txt and nums and buy is None:
-                    buy = nums[0]
-        if sell is not None and buy is not None:
-            return {"sell": sell, "buy": buy, "net": buy - sell}
+            cells = [c.get_text(" ", strip=True) for c in tr.find_all(['th', 'td'])]
+            cells = [c for c in cells if c]
+            if not cells or '외국계' not in cells[0]:
+                continue
+            nums = []
+            for c in cells[1:]:
+                t = c.replace(',', '').replace('+', '').strip()
+                if t.lstrip('-').isdigit():
+                    nums.append(int(t))
+            if len(nums) >= 3:
+                sell, net, buy = nums[0], nums[1], nums[2]
+                # 매수 - 매도 = 순매수 가 맞는지 확인해 컬럼이 바뀌면 조용히 틀리지 않게 한다
+                if buy - sell != net:
+                    _diag_note("get_foreign_broker_estimate", None,
+                               detail=f"컬럼 정합성 불일치 {code}: {nums[:3]}")
+                    return None
+                if sell == 0 and buy == 0:
+                    return None
+                return {"sell": sell, "buy": buy, "net": net}
+            return None
         return None
     except Exception as _dg_e:
         _diag_note("get_foreign_broker_estimate", _dg_e)

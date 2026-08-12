@@ -2048,20 +2048,23 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 diff_str = "-"
                                 pct_str = "-"
 
+                            # 종목별 투자자 수급 '확정치'는 거래소가 장 마감 후 집계한다.
+                            # 장중에 쓸 수 있는 건 외국계 창구 추정뿐이고, 기관·개인은
+                            # 국내 창구에 섞여 있어 같은 방식의 추정 자체가 불가능하다.
                             fb = get_foreign_broker_estimate(tech_result['티커'])
                             if fb:
                                 n = fb['net']
                                 proxy_str = (f"🔴 +{n:,}" if n > 0 else f"🔵 {n:,}" if n < 0 else "0")
-                                est_f = f"{proxy_str} (창구추정)"
-                                est_i = "장 마감 후 확정"
-                                est_r = "장 마감 후 확정"
-                                time_label = "(장중·외국계 창구추정)"
+                                est_f = f"{proxy_str} 주 (창구추정)"
+                                est_i = "마감 후"
+                                est_r = "마감 후"
+                                time_label = "(실시간가 · 외국계 창구추정)"
                                 foreign_proxy = fb
                             else:
-                                est_f = "장 마감 후 확정"
-                                est_i = "장 마감 후 확정"
-                                est_r = "장 마감 후 확정"
-                                time_label = "(실시간가·수급 미확정)"
+                                est_f = "마감 후"
+                                est_i = "마감 후"
+                                est_r = "마감 후"
+                                time_label = "(실시간가 · 수급은 마감 후)"
                                 intraday_missing = True
 
                             new_row = pd.DataFrame([{
@@ -2083,10 +2086,15 @@ def draw_stock_card(tech_result, api_key_str="", is_expanded=False, key_suffix="
                                 "이는 외국계 증권사 '창구' 거래량 추정치로, 장중 외국인 매매를 가늠하는 실시간 프록시입니다. "
                                 "투자자별 '확정' 외국인·기관 순매수는 장 마감 후 거래소가 공개합니다."
                             )
+                        else:
+                            st.caption(
+                                "ℹ️ **기관·개인은 장중 추정이 불가능합니다.** 외국계는 창구(증권사)로 구분되지만, "
+                                "기관과 개인은 같은 국내 창구를 통해 거래해 분리할 방법이 없습니다. "
+                                "세 주체의 확정 순매수는 장 마감 후 거래소가 공개합니다.")
                         if intraday_missing:
-                            st.caption("ℹ️ 오늘 **외국인·기관 순매수는 장 마감 후** 거래소가 확정 공개합니다. "
-                                       "네이버가 제공하던 장중 '잠정' 실시간 피드는 현재 이 페이지(frgn)에서 내려가 있어, "
-                                       "장중 실시간 수급은 표시되지 않습니다. (종가·등락률은 실시간 반영)")
+                            st.caption("ℹ️ 오늘 **투자자별 순매수는 장 마감 후** 거래소가 확정 공개합니다. "
+                                       "장중 대용으로 쓰는 '외국계 창구 추정'도 지금은 값을 받지 못했습니다 "
+                                       "(장 시작 직후이거나 거래원 집계 전일 수 있습니다). 종가·등락률은 실시간입니다.")
                             def _prc_sugupdiag():
                                 dbg = get_intraday_estimate_debug(tech_result['티커'])
                                 if dbg["err"]:
