@@ -159,50 +159,50 @@ def render(ctx):
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "360750", "name": "TIGER 미국S&P500"},
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "360200", "name": "ACE 미국S&P500"},
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379780", "name": "RISE 미국S&P500"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379800", "name": "KODEX 미국S&P500TR"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379800", "name": "KODEX 미국S&P500"},
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "133690", "name": "TIGER 미국나스닥100"},
-        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379810", "name": "KODEX 미국나스닥100TR"},
+        {"theme": "🌐 1. 시장 대표 지수 코어", "code": "379810", "name": "KODEX 미국나스닥100"},
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "453810", "name": "KODEX 인도Nifty50"},
         {"theme": "🌐 1. 시장 대표 지수 코어", "code": "241180", "name": "TIGER 일본니케이225"},
 
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381180", "name": "TIGER 미국테크TOP10 INDXX"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381170", "name": "TIGER 미국필라델피아반도체나스닥"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "441680", "name": "ACE 글로벌반도체TOP4 Plus SOLACTIVE"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381170", "name": "TIGER 미국테크TOP10 INDXX"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "381180", "name": "TIGER 미국필라델피아반도체나스닥"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "446770", "name": "ACE 글로벌반도체TOP4 Plus"},
         {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "091160", "name": "KODEX 반도체"},
         {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "091230", "name": "TIGER 반도체"},
-        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "455850", "name": "SOL 반도체소부장Fn"},
+        {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "455850", "name": "SOL AI반도체소부장"},
         {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "305720", "name": "KODEX 2차전지산업"},
         {"theme": "💻 2. 반도체 & 빅테크 핵심 성장", "code": "305540", "name": "TIGER 2차전지테마"},
 
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "456600", "name": "TIMEFOLIO 글로벌AI인공지능액티브"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "456600", "name": "TIME 글로벌AI인공지능액티브"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "445290", "name": "KODEX 로봇액티브"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "462330", "name": "KODEX 로보틱스"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "469070", "name": "ACE AI로봇핵심장비TOP4플러스"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "411420", "name": "TIGER 글로벌사이버보안INDXX"},
-        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "276990", "name": "KODEX 글로벌4차산업로보틱스(합성)"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "464310", "name": "TIGER 글로벌AI&로보틱스 INDXX"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "469070", "name": "RISE AI&로봇"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "418670", "name": "TIGER 글로벌AI사이버보안"},
+        {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "276990", "name": "KODEX 글로벌로봇(합성)"},
         {"theme": "🤖 3. AI·로봇 & 사이버보안 혁신", "code": "275980", "name": "TIGER 글로벌4차산업혁신기술(합성 H)"},
 
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "449450", "name": "PLUS K방산"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "463250", "name": "TIGER K방산&우주"},
-        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421320", "name": "PLUS 우주항공&UAM"},
+        {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "421320", "name": "PLUS 우주항공"},
         {"theme": "🚀 4. 방산 & 우주항공 미래 테크", "code": "440910", "name": "WON 미국우주항공방산"},
 
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466950", "name": "TIGER 은행고배당플러스TOP10"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "474220", "name": "KODEX 은행고배당플러스"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466940", "name": "TIGER 은행고배당플러스TOP10"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "484880", "name": "SOL 금융지주플러스고배당"},
         {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "091170", "name": "KODEX 은행"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "287330", "name": "RISE 금융지주"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "494330", "name": "KODEX 코리아밸류업"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "494340", "name": "TIGER 코리아밸류업"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "492500", "name": "RISE 현대차그룹밸류업모멘텀"},
-        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "466810", "name": "ACE 주주환원가치주액티브"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "495050", "name": "RISE 코리아밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "495850", "name": "KODEX 코리아밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "496080", "name": "TIGER 코리아밸류업"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "138540", "name": "TIGER 현대차그룹플러스"},
+        {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "447430", "name": "ACE 주주환원가치주액티브"},
         {"theme": "🏦 5. 금융 지주 & 밸류업 모멘텀", "code": "157500", "name": "TIGER 증권"},
 
         {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "458730", "name": "TIGER 미국배당다우존스"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "488210", "name": "KODEX 미국배당다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "489250", "name": "KODEX 미국배당다우존스"},
         {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "446720", "name": "SOL 미국배당다우존스"},
         {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "210780", "name": "TIGER 코스피고배당"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "276970", "name": "KODEX 고배당"},
-        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "461580", "name": "TIGER 미국배당+7%프리미엄다우존스"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "279530", "name": "KODEX 고배당주"},
+        {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "458760", "name": "TIGER 미국배당다우존스타겟커버드콜2호"},
         {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "SCHD", "name": "Schwab US Dividend Equity ETF"},
         {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "JEPI", "name": "JPMorgan Equity Premium Income ETF"},
         {"theme": "💰 6. 고배당 & 월배당 인컴 밸류업", "code": "JEPQ", "name": "JPMorgan Nasdaq Equity Premium Income ETF"},
@@ -238,7 +238,7 @@ def render(ctx):
         {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "423160", "name": "KODEX KOFR금리액티브(합성)"},
         {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "411060", "name": "ACE KRX금현물"},
         {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "132030", "name": "KODEX 골드선물(H)"},
-        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "138900", "name": "TIGER 구리선물(H)"},
+        {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "160580", "name": "TIGER 구리실물"},
         {"theme": "🛡️ 7. 안전자산 채권 & 원자재 방어", "code": "153130", "name": "KODEX 단기채권"},
 
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SPY", "name": "SPDR S&P 500"},
@@ -246,15 +246,15 @@ def render(ctx):
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "QQQ", "name": "Invesco QQQ"},
         {"theme": "🌍 8. 해외 직상장 글로벌 메이저", "code": "SOXX", "name": "iShares Semiconductor"},
 
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "091180", "name": "KODEX 조선"},
-        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "380960", "name": "HANARO Fn조선해운"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "494670", "name": "TIGER 조선TOP10"},
+        {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "441540", "name": "HANARO Fn조선해운"},
         {"theme": "🚢 9. 조선 & 해운 슈퍼사이클", "code": "466920", "name": "SOL 조선TOP3플러스"},
 
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "226490", "name": "KODEX 에너지화학"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "117460", "name": "TIGER 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "139250", "name": "TIGER 200 에너지화학"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "117460", "name": "KODEX 에너지화학"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "442320", "name": "RISE 글로벌원자력"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "418650", "name": "HANARO 글로벌수소&차세대연료전지"},
-        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385600", "name": "KODEX K-신재생에너지액티브"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "419650", "name": "PLUS 글로벌수소&차세대연료전지"},
+        {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "385510", "name": "KODEX 신재생에너지액티브"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "XLU", "name": "Utilities Select Sector SPDR"},
         {"theme": "⚡ 10. 전력 인프라 & 글로벌 에너지", "code": "ICLN", "name": "iShares Global Clean Energy"}
     ]
@@ -289,7 +289,10 @@ def render(ctx):
             return updated_items
         except Exception as _dg_e: _diag_note("update_official_names", _dg_e); return items 
 
-    etf_data = update_official_names(raw_etf_data)
+    # 순서 중요: 코드 보정(이름 기준) → 이름 동기화(코드 기준).
+    # 이름을 먼저 잘못된 코드의 정식 명칭으로 덮어쓰면 코드를 교정할 단서가 사라진다.
+    etf_data = resolve_etf_codes(raw_etf_data, get_naver_etf_and_stocks())
+    etf_data = update_official_names(etf_data)
     for item in etf_data:
         item.update({"price": 0, "cagr": "데이터없음", "list_date": "데이터없음", "holdings": "해당 테마 핵심 우량종목 (아래 버튼으로 검색 가능)"})
 
@@ -406,8 +409,6 @@ def render(ctx):
 
     with st.spinner("최신 마켓 데이터를 전수 매칭하는 중입니다..."):
         ex_rate = st.session_state.get('ex_rate', 1350.0)
-        # [v7.0] 잘못된/리브랜딩된 코드 자동 보정 (이름 기준 실시간 목록 매칭)
-        resolve_etf_codes(etf_data, get_naver_etf_and_stocks())
         real_prices, real_cagrs = fetch_realtime_data([item['code'] for item in etf_data], ex_rate)
         for item in etf_data:
             if item['code'] in real_prices: item['price'] = real_prices[item['code']]
